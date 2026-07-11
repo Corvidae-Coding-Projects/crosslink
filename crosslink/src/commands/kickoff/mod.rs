@@ -91,6 +91,7 @@ pub fn dispatch(
                 doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
                 skip_permissions,
                 permission_mode: permission_mode.as_deref(),
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             // The pipeline "running" row is now written from inside `run()`
             // once the real worktree + agent identity exist (GH#614) — no more
@@ -129,6 +130,7 @@ pub fn dispatch(
                 quiet,
                 skip_permissions,
                 permission_mode: permission_mode.as_deref(),
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -241,6 +243,7 @@ fn dispatch_launch(
             quiet,
             skip_permissions,
             permission_mode,
+            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
         return plan(crosslink_dir, db, &plan_opts);
     }
@@ -283,6 +286,7 @@ fn dispatch_launch(
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
             skip_permissions,
             permission_mode,
+            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
         // mark_running is now invoked from inside run() with the real identity.
         run(crosslink_dir, db, writer, &opts)?;
@@ -330,6 +334,7 @@ fn dispatch_launch(
                 // dialog, so plan mode keeps the fail-closed default (gh#66).
                 skip_permissions: false,
                 permission_mode: None,
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -369,6 +374,7 @@ fn dispatch_launch(
                 doc_path: doc_path_str.as_deref(),
                 skip_permissions: false,
                 permission_mode: None,
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
