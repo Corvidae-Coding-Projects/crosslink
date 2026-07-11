@@ -201,6 +201,7 @@ pub fn run(
             }
 
             launch_local(
+                &opts.agent_binary,
                 &worktree_dir,
                 &session_name,
                 opts.model,
@@ -240,6 +241,7 @@ pub fn run(
         mode @ (ContainerMode::Docker | ContainerMode::Podman) => {
             let container_id = launch_container(
                 mode,
+                &opts.agent_binary,
                 &worktree_dir,
                 &root,
                 opts.image,

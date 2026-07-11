@@ -232,6 +232,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
 
     // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
     let cmd = build_agent_command(
+        &opts.agent_binary,
         preflight.timeout_cmd,
         opts.timeout.as_secs(),
         opts.model,

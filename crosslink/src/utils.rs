@@ -2,6 +2,22 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Resolve the agent binary from `hook-config.json`'s `agent.binary`
+/// (default "claude").
+pub fn read_agent_binary(crosslink_dir: &Path) -> String {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
+    parsed
+        .get("agent")
+        .and_then(|a| a.get("binary"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "claude".to_string())
+}
+
 /// Resolve the main repository root when running inside a git worktree.
 ///
 /// Compares `git rev-parse --git-common-dir` with `--git-dir`. If they
