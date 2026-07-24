@@ -236,15 +236,20 @@ pub(super) fn build_agent_command(
     let escaped_model = shell_escape_arg(model);
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
-    let claude_cmd = format!(
-        "env -u CLAUDECODE {env_assignment}{agent_binary}{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
-    );
+    let agent_cmd = if agent_binary == "claude" {
+        format!(
+            "env -u CLAUDECODE {env_assignment}{agent_binary}{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
+        )
+    } else {
+        // Non-Claude agents: pipe the prompt via stdin, no --model/--allowedTools flags
+        format!("env -u CLAUDECODE {agent_binary} < {escaped_kickoff}")
+    };
     let launch = sandbox_command.map_or_else(
-        || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
+        || format!("{timeout_cmd} {timeout_secs}s {agent_cmd}"),
         |cmd| {
             let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
             let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
-            format!("{timeout_cmd} {timeout_secs}s {expanded} {claude_cmd}")
+            format!("{timeout_cmd} {timeout_secs}s {expanded} {agent_cmd}")
         },
     );
     // gh#60: persist the TIMEOUT sentinel at kill time. GNU timeout exits
@@ -834,9 +839,16 @@ pub(super) fn launch_container(
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
-    args.push(format!(
-        "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary}{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
-    ));
+    if agent_binary == "claude" {
+        args.push(format!(
+            "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary}{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
+        ));
+    } else {
+        // Non-Claude agents: pipe the prompt via stdin
+        args.push(format!(
+            "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary} < KICKOFF.md; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
+        ));
+    }
 
     let output = Command::new(runtime_cmd)
         .args(&args)
