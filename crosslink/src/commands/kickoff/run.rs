@@ -110,8 +110,14 @@ pub fn run(
         .allowed_tools
         .extend(read_kickoff_allowed_tools(crosslink_dir));
 
-    // 5. Build the prompt
-    let prompt = build_prompt(opts, issue_id, &branch_name, &conventions);
+    // 5. Build the prompt — check for custom template or no_template first
+    let prompt = if crate::utils::read_no_template(crosslink_dir) {
+        String::new()
+    } else if let Some(custom) = crate::utils::read_kickoff_template(crosslink_dir) {
+        custom
+    } else {
+        build_prompt(opts, issue_id, &branch_name, &conventions)
+    };
 
     // 6. Write KICKOFF.md to worktree
     std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
