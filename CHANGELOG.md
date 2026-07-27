@@ -25,6 +25,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `migrate hub-v3 --finalize` no longer refuses after legitimate post-migration
+  hub use (gh#45). The finalize gate reused the migration-time invariant
+  (`reduce(current refs) == genesis`), which only holds in the instant after
+  seeding - a single lock release, or even the dispatcher's own v3 fetch
+  advancing the checkpoint ref, permanently blocked the cutover with a
+  misleading "v2 and v3 no longer agree". Migration now persists the seeded
+  genesis checkpoint commit and per-agent seed tips in `HubMeta` (serde-default
+  fields, compatible both directions), and finalize verifies what actually
+  gates safe v2 deletion: the v2 files still reproduce the SEEDED genesis
+  (content-addressed at the recorded commit), every seed tip remains an
+  ancestor of its ref (ancestry, not byte-prefix, so compaction and REQ-11
+  pruning never false-fail), and reducing AT the seeded tips reproduces the
+  genesis. Hubs migrated before the metadata existed fall back to the strict
+  check with an actionable `--remigrate-from-v2` message.
 - `crosslink integrity` no longer false-FAILs `counters` and `hydration` on a
   v3 hub. Both checks read legacy v2 worktree artifacts (meta/counters.json,
   issues/*.json) that v3 never materializes, fabricating "next_display_id is

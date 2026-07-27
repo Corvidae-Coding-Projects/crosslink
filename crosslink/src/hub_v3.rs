@@ -749,6 +749,21 @@ pub struct HubMeta {
     /// markers written before this field existed parse cleanly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finalized_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The checkpoint commit written at migration seeding, whose `state.json`
+    /// blob IS the genesis state (content-addressed, durable — the checkpoint
+    /// ref itself advances with every compaction). Recorded so finalize can
+    /// verify against the SEEDED genesis instead of the moving tip (GH#45).
+    /// `None` on hubs migrated before this field existed and on bootstrap
+    /// hubs (which have no v2 branch to finalize).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genesis_checkpoint_commit: Option<String>,
+    /// Each agent ref's tip commit immediately after seeding
+    /// (`agent_id -> sha`). Finalize verifies the seed is still an ancestor
+    /// of every recorded ref — ancestry, not byte-prefix, so legitimate
+    /// post-migration events, compaction, and REQ-11 pruning never block
+    /// the cutover (GH#45). `BTreeMap` keeps `hub.json` deterministic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_agent_tips: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// Read the [`HubMeta`] marker from the [`META_REF`] tip, if present.
@@ -1816,6 +1831,8 @@ pub fn bootstrap_v3_hub(
         migrated_from_commit: "genesis".to_string(),
         migrated_at: chrono::Utc::now(),
         finalized_at: None,
+        genesis_checkpoint_commit: None,
+        seed_agent_tips: None,
     };
     let hub_json = serde_json::to_vec_pretty(&meta).context("failed to serialize HubMeta")?;
     let signers_path = repo_dir.join("trust").join("allowed_signers");
@@ -3588,6 +3605,8 @@ mod tests {
             migrated_from_commit: "deadbeefcafe1234".to_string(),
             migrated_at: chrono::Utc::now(),
             finalized_at: None,
+            genesis_checkpoint_commit: None,
+            seed_agent_tips: None,
         };
         let meta_bytes = serde_json::to_vec(&meta).unwrap();
         commit_files_to_ref(

@@ -394,6 +394,8 @@ mod tests {
             migrated_from_commit: "0".repeat(40),
             migrated_at: Utc::now(),
             finalized_at: None,
+            genesis_checkpoint_commit: None,
+            seed_agent_tips: None,
         };
         let hub_json = serde_json::to_vec_pretty(&meta).unwrap();
         crate::hub_v3::commit_files_to_ref(

@@ -495,6 +495,38 @@ impl RefHubSource {
         })
     }
 
+    /// Construct a `RefHubSource` pinned to EXPLICIT commits instead of the
+    /// current ref tips (GH#45): finalize verifies the SEEDED genesis by
+    /// reducing at the tips recorded in `HubMeta` at migration time, so
+    /// legitimate post-migration events, compaction, and pruning above the
+    /// watermark never affect the verification. `reduce()` is unchanged —
+    /// the bound comes entirely from the pinned SHAs, exactly as with
+    /// [`Self::new`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if extracting `allowed_signers` from the pinned meta
+    /// commit fails.
+    pub fn at_tips(
+        repo_dir: &Path,
+        checkpoint_sha: Option<String>,
+        meta_sha: Option<String>,
+        agent_tips: Vec<(String, String)>,
+    ) -> Result<Self> {
+        let (allowed_signers_dir, allowed_signers_path) = match &meta_sha {
+            Some(sha) => extract_meta_allowed_signers(repo_dir, sha)?,
+            None => (None, None),
+        };
+        Ok(Self {
+            repo_path: repo_dir.to_path_buf(),
+            checkpoint_sha,
+            meta_sha,
+            agent_tips,
+            _allowed_signers_dir: allowed_signers_dir,
+            allowed_signers_path,
+        })
+    }
+
     /// The pinned checkpoint commit SHA, or `None` if no checkpoint ref exists.
     #[must_use]
     pub fn checkpoint_sha(&self) -> Option<&str> {
