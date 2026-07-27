@@ -25,6 +25,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- The dashboard is v3-aware (gh#4, final symptom): migrated+finalized repos no
+  longer surface as `unreachable_project`. The poll fetch uses the
+  `+refs/heads/crosslink/*` glob (the exact v2-only refspec failed every tick
+  against migrated remotes, so v3 refs never became local and the
+  already-mode-routed reader saw nothing), the v2 hub-cache worktree
+  materialization and the post-action `reset --hard crosslink/hub` are gated
+  off on v3, tile freshness (`hub_sha`/`last_commit_at`) keys off the
+  checkpoint ref, GitHub org discovery falls back to probing the
+  `crosslink/checkpoint` branch, the track-time hub check recognizes v3
+  markers (local refs only), `GET /api/v1/sync/status` names the mode's
+  actual hub ref, and hub signature verification checks the checkpoint tip
+  on v3 instead of the nonexistent `locks.json` history.
 - `migrate hub-v3 --finalize` no longer refuses after legitimate post-migration
   hub use (gh#45). The finalize gate reused the migration-time invariant
   (`reduce(current refs) == genesis`), which only holds in the instant after

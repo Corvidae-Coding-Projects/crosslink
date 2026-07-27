@@ -137,17 +137,22 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
         clone_path.display()
     );
 
-    let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
-    let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
-
     // Mode-route PER PROJECT: the dashboard aggregates many tracked repos,
     // each independently v2 or v3. A v3 hub keeps no worktree files (issues,
     // locks, heartbeats all live on per-agent refs + the checkpoint ref), so
     // the file-scanning path below would read nothing. Resolve the mode from
     // this project's repo and take the ref-based path when it is v3.
     if crate::hub_v3::HubMode::resolve(clone_path).is_v3() {
+        // GH#4: freshness keys off the CHECKPOINT ref on v3 — a migrated
+        // repo has no `crosslink/hub`, and keeping the v2 keys here left
+        // `hub_sha`/`last_activity_at` permanently NULL on migrated tiles.
+        let hub_sha = git_rev_parse(clone_path, crate::hub_v3::CHECKPOINT_REF);
+        let last_commit_at = git_last_commit_at(clone_path, crate::hub_v3::CHECKPOINT_REF);
         return read_snapshot_v3(clone_path, hub_sha, last_commit_at);
     }
+
+    let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
+    let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
 
     // Prefer the hub-cache worktree (`.crosslink/.hub-cache/`) when it
     // exists — that's where `crosslink sync` keeps `crosslink/hub`
@@ -359,7 +364,7 @@ fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
     if !sync.is_initialized() {
         return SignatureState::Unknown;
     }
-    match sync.verify_locks_signature() {
+    match sync.verify_hub_signature_auto() {
         Ok(crate::signing::SignatureVerification::Valid) => SignatureState::Valid,
         Ok(crate::signing::SignatureVerification::Unsigned) => SignatureState::Unsigned,
         Ok(crate::signing::SignatureVerification::Invalid) => SignatureState::Invalid,

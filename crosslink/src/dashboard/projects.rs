@@ -534,18 +534,29 @@ pub fn track_at_path(clone_path: &Path, slug_override: Option<&str>, db_path: &P
     };
     parse_slug(&slug)?;
 
-    // Soft-check for the hub branch — warn if missing, don't block.
-    let hub_check = Command::new("git")
-        .arg("-C")
-        .arg(clone_path)
-        .args(["rev-parse", "--verify", "crosslink/hub"])
-        .output()
-        .ok();
-    let has_hub = hub_check.is_some_and(|o| o.status.success());
+    // Soft-check for hub state — warn if absent, don't block. GH#4:
+    // v2 (`crosslink/hub`) and v3 (`crosslink/checkpoint` + meta/agent
+    // refs) both count; a fresh clone carries the markers only under
+    // `refs/remotes/origin/`, so probe those too. LOCAL refs only — no
+    // network here (track runs against dead origins in tests, gh#34).
+    let has_hub = !matches!(
+        crate::hub_v3::detect_hub_version(clone_path),
+        Ok(crate::hub_v3::HubVersion::Absent)
+    ) || ["origin/crosslink/checkpoint", "origin/crosslink/hub"]
+        .iter()
+        .any(|r| {
+            Command::new("git")
+                .arg("-C")
+                .arg(clone_path)
+                .args(["rev-parse", "--verify", "--quiet", r])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        });
     if !has_hub {
         eprintln!(
-            "warning: {slug} has no `crosslink/hub` branch yet — \
-             tracking anyway, dashboard will surface this as unreachable."
+            "warning: {slug} has no crosslink hub state yet (neither a v2 \
+             `crosslink/hub` branch nor v3 hub refs) — tracking anyway, \
+             dashboard will surface this as unreachable."
         );
     }
 
@@ -1030,6 +1041,39 @@ mod tests {
             "https://github.com/forecast-bio/test-d.git",
             false,
         );
+
+        track_at_path(repo.path(), None, &db_path).unwrap();
+
+        let db = DashboardDb::open(&db_path).unwrap();
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_track_v3_repo_recognized_as_hubbed() {
+        // GH#4: a migrated repo has no `crosslink/hub` branch but carries the
+        // v3 marker refs — track must recognize it as crosslink-touched
+        // (detect_hub_version), not fall into the "no hub" warning path.
+        let (_home, db_path) = temp_db();
+        let repo = tempdir().unwrap();
+        make_fake_repo(
+            repo.path(),
+            "https://github.com/forecast-bio/test-e.git",
+            false,
+        );
+        // Seed local v3 marker refs off the current HEAD.
+        for branch in ["crosslink/checkpoint", "crosslink/meta"] {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(["branch", branch])
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+        }
 
         track_at_path(repo.path(), None, &db_path).unwrap();
 

@@ -206,8 +206,13 @@ pub async fn run_cli(
     // Skip the reset if the worktree has uncommitted state —
     // something else (concurrent CLI call) is mid-write; don't
     // wipe their progress. Same safety as poll::ensure_hub_cache_worktree.
+    // GH#4: v3 hubs have no `crosslink/hub` branch and the v3 reader
+    // consumes refs, not the worktree — the shelled `crosslink sync`
+    // above already advanced them. Only the v2 file-scanning reader
+    // needs this worktree fast-forward (a stale `.hub-cache` dir can
+    // survive migration, so gate on mode, not directory presence).
     let hub_cache = project.clone_path.join(".crosslink").join(".hub-cache");
-    if hub_cache.is_dir() {
+    if hub_cache.is_dir() && !crate::hub_v3::HubMode::resolve(&project.clone_path).is_v3() {
         let porcelain = Command::new("git")
             .arg("-C")
             .arg(&hub_cache)

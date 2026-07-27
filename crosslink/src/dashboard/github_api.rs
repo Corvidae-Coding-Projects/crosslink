@@ -171,9 +171,11 @@ struct RepoHit {
     default_branch: String,
     ssh_url: String,
     https_url: String,
-    /// True if the repo has a `crosslink/hub` branch (our criterion
-    /// for "crosslink-touched"). Non-matching repos are filtered out
-    /// server-side; this field is always `true` in responses.
+    /// True if the repo has a crosslink hub — a v2 `crosslink/hub` branch
+    /// or the v3 `crosslink/checkpoint` marker branch (our criterion for
+    /// "crosslink-touched"). Non-matching repos are filtered out
+    /// server-side; this field is always `true` in responses. The wire
+    /// name is kept for frontend compatibility.
     has_hub_branch: bool,
 }
 
@@ -430,19 +432,30 @@ async fn enumerate_org_crosslink_repos(org: &str, token: &str) -> Result<Vec<Rep
             break;
         }
         for repo in &repos {
-            // Check for crosslink/hub cheaply — a 200 means yes, 404
-            // means no, anything else we propagate.
-            let check_url = format!(
-                "https://api.github.com/repos/{}/{}/branches/crosslink%2Fhub",
-                repo.owner.login, repo.name
-            );
-            let check = client
-                .get(&check_url)
-                .bearer_auth(token)
-                .header("Accept", "application/vnd.github+json")
-                .send()
-                .await?;
-            if check.status().is_success() {
+            // Check for a crosslink hub cheaply — a 200 means yes, 404 means
+            // no, anything else we propagate. GH#4: probe the v2 branch
+            // first, then fall back to the v3 marker (`crosslink/checkpoint`
+            // is a visible branch on every v3 hub) — migrated+finalized
+            // repos have no `crosslink/hub` at all and used to vanish from
+            // discovery.
+            let mut found = false;
+            for branch in ["crosslink%2Fhub", "crosslink%2Fcheckpoint"] {
+                let check_url = format!(
+                    "https://api.github.com/repos/{}/{}/branches/{branch}",
+                    repo.owner.login, repo.name
+                );
+                let check = client
+                    .get(&check_url)
+                    .bearer_auth(token)
+                    .header("Accept", "application/vnd.github+json")
+                    .send()
+                    .await?;
+                if check.status().is_success() {
+                    found = true;
+                    break;
+                }
+            }
+            if found {
                 out.push(RepoHit {
                     owner: repo.owner.login.clone(),
                     repo: repo.name.clone(),

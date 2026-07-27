@@ -784,6 +784,26 @@ fn v3_dashboard_reader_reroutes_to_refs() {
     );
     let snap = crate::dashboard::reader::read_snapshot(&hub.cache_dir).unwrap();
 
+    // GH#4: freshness keys off the checkpoint ref on v3 — with the old
+    // `crosslink/hub` keys these were permanently None on migrated repos,
+    // deadening tile freshness and alert subjects.
+    let ckpt_out = Command::new("git")
+        .current_dir(&hub.cache_dir)
+        .args(["rev-parse", crate::hub_v3::CHECKPOINT_REF])
+        .output()
+        .unwrap();
+    assert!(ckpt_out.status.success());
+    let ckpt_tip = String::from_utf8_lossy(&ckpt_out.stdout).trim().to_string();
+    assert_eq!(
+        snap.hub_sha.as_deref(),
+        Some(ckpt_tip.as_str()),
+        "v3 snapshot hub_sha must be the checkpoint tip"
+    );
+    assert!(
+        snap.last_commit_at.is_some(),
+        "v3 snapshot must carry checkpoint freshness"
+    );
+
     assert_eq!(snap.layout_version, 3, "v3 hub reports layout version 3");
     assert!(
         snap.issues.iter().any(|i| i.title == "First issue"),
