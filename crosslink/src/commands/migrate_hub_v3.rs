@@ -1024,6 +1024,9 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
     //    dual-write parity invariant; child-commit over any existing shadow tip).
     let agents_dir = cache_dir.join("agents");
     let mut agents = Vec::new();
+    // GH#45: record each seeded tip so finalize can verify the seed is still
+    // an ancestor of every ref instead of demanding the hub was never used.
+    let mut seed_agent_tips = std::collections::BTreeMap::new();
     if agents_dir.exists() {
         for entry in std::fs::read_dir(&agents_dir)
             .with_context(|| format!("failed to read agents dir {}", agents_dir.display()))?
@@ -1044,13 +1047,14 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
             if log_bytes.is_empty() {
                 continue;
             }
-            hub_v3::commit_log_bytes(
+            let seed_sha = hub_v3::commit_log_bytes(
                 cache_dir,
                 &agent_id,
                 &log_bytes,
                 &format!("hub-v3 genesis: seed agent {agent_id} from v2 events.log"),
             )
             .with_context(|| format!("failed to seed agent ref for '{agent_id}'"))?;
+            seed_agent_tips.insert(agent_id.clone(), seed_sha);
             agents.push(agent_id);
         }
     }
@@ -1059,7 +1063,7 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
     // 2. Genesis checkpoint state.json onto CHECKPOINT_REF.
     let state_bytes = serde_json::to_vec_pretty(genesis)
         .context("failed to serialize genesis checkpoint state")?;
-    hub_v3::commit_blob_to_ref(
+    let genesis_checkpoint_commit = hub_v3::commit_blob_to_ref(
         cache_dir,
         CHECKPOINT_REF,
         "state.json",
@@ -1074,6 +1078,8 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
         migrated_from_commit: v2_tip.to_string(),
         migrated_at: Utc::now(),
         finalized_at: None,
+        genesis_checkpoint_commit: Some(genesis_checkpoint_commit),
+        seed_agent_tips: Some(seed_agent_tips),
     };
     let hub_json = serde_json::to_vec_pretty(&meta).context("failed to serialize HubMeta")?;
 
@@ -1424,6 +1430,139 @@ fn retry_push_missing_refs(cache_dir: &Path, remote: &str) -> Result<()> {
 
 // ── Phase B: finalize ────────────────────────────────────────────────
 
+/// `git merge-base --is-ancestor` — true when `ancestor_sha` is an ancestor of
+/// (or equal to) `descendant_rev`. Exit 1 means "not an ancestor"; other
+/// failures (unknown revision, plumbing errors) propagate.
+fn git_is_ancestor(repo_dir: &Path, ancestor_sha: &str, descendant_rev: &str) -> Result<bool> {
+    // Direct invocation, NOT run_git: exit 1 is the meaningful "not an
+    // ancestor" answer here, while run_git treats every nonzero exit as an
+    // error.
+    let out = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["merge-base", "--is-ancestor", ancestor_sha, descendant_rev])
+        .output()
+        .with_context(|| {
+            format!("failed to run git merge-base --is-ancestor {ancestor_sha} {descendant_rev}")
+        })?;
+    match out.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => bail!(
+            "git merge-base --is-ancestor {ancestor_sha} {descendant_rev} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    }
+}
+
+/// Finalize-time verification (GH#45).
+///
+/// The migration-time gate ([`verify_against_files`]) demands
+/// `reduce(current refs) == genesis` — an invariant only true in the instant
+/// after seeding. Reused at finalize it meant ANY legitimate post-migration
+/// hub use (a single lock release; even the dispatcher's own v3 fetch, which
+/// advances the checkpoint ref) permanently blocked the cutover with a
+/// misleading "v2 and v3 no longer agree". Finalize instead verifies the two
+/// properties that actually gate safe v2 deletion:
+///
+/// 1. **v2 is still frozen**: the v2 worktree files reproduce the genesis
+///    persisted at migration (the `state.json` blob at
+///    `HubMeta.genesis_checkpoint_commit` — content-addressed and durable,
+///    unlike the moving checkpoint ref).
+/// 2. **The seed is intact**: every tip recorded at seeding is still an
+///    ancestor of its ref (ancestry, not byte-prefix, so compaction and
+///    REQ-11 pruning never false-fail), and reducing AT the seeded tips
+///    reproduces the genesis exactly. Events above the watermark are
+///    expected and irrelevant.
+///
+/// Hubs migrated before the seed metadata existed fall back to the old
+/// strict check; when that fails the error steers to `--remigrate-from-v2`,
+/// which re-seeds and records the metadata.
+fn verify_finalize(cache_dir: &Path) -> Result<()> {
+    let meta = read_hub_meta(cache_dir)?
+        .ok_or_else(|| anyhow::anyhow!("v3 meta marker missing during finalize"))?;
+
+    let (Some(genesis_ckpt), Some(seed_tips)) =
+        (meta.genesis_checkpoint_commit, meta.seed_agent_tips)
+    else {
+        // Pre-GH#45 migration: no persisted seed metadata, so the strict
+        // full check is the only verification available. It passes iff the
+        // hub was never used since migration.
+        let genesis = build_genesis_from_files(cache_dir)?;
+        return verify_against_files(cache_dir, &genesis)
+            .map(|_| ())
+            .context(
+                "refusing to finalize: this hub was migrated before seed metadata was \
+                 recorded, and the strict re-verification failed (any post-migration hub \
+                 use fails it). Run `crosslink migrate hub-v3 --remigrate-from-v2` to \
+                 re-seed with metadata, then finalize immediately",
+            );
+    };
+
+    // The persisted genesis: content-addressed at the seeded checkpoint commit.
+    let spec = format!("{genesis_ckpt}:state.json");
+    let bytes = git_cat_file_blob_optional(cache_dir, &spec)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "refusing to finalize: the seeded genesis commit {genesis_ckpt} has no state.json \
+             (missing or corrupt object)"
+        )
+    })?;
+    let genesis = CheckpointState::from_slice(&bytes)
+        .context("refusing to finalize: persisted genesis state.json does not parse")?;
+    let genesis_val = serde_json::to_value(&genesis).context("serialize persisted genesis")?;
+
+    // (1) v2 frozen: the files still reproduce the seeded genesis.
+    let rebuilt = build_genesis_from_files(cache_dir)?;
+    if serde_json::to_value(&rebuilt).context("serialize rebuilt genesis")? != genesis_val {
+        bail!(
+            "refusing to finalize: the v2 hub files no longer reproduce the genesis seeded at \
+             migration — the v2 branch changed after migration (a pre-v3 binary kept \
+             writing?). Run `crosslink migrate hub-v3 --remigrate-from-v2` to adopt the newer \
+             v2 state, then finalize immediately."
+        );
+    }
+
+    // (2) seed intact: every recorded tip is still an ancestor of its ref.
+    if !git_is_ancestor(cache_dir, &genesis_ckpt, CHECKPOINT_REF)? {
+        bail!(
+            "refusing to finalize: the seeded genesis checkpoint {genesis_ckpt} is no longer \
+             an ancestor of {CHECKPOINT_REF} (force-reset or tampering). Run `crosslink \
+             migrate hub-v3 --remigrate-from-v2`, then finalize immediately."
+        );
+    }
+    for (agent_id, seed_sha) in &seed_tips {
+        let ref_name = format!("{}{agent_id}", crate::hub_v3::AGENT_REF_PREFIX);
+        if !git_is_ancestor(cache_dir, seed_sha, &ref_name)? {
+            bail!(
+                "refusing to finalize: agent '{agent_id}''s seeded tip {seed_sha} is no \
+                 longer an ancestor of {ref_name} (deleted, force-reset, or tampered). Run \
+                 `crosslink migrate hub-v3 --remigrate-from-v2`, then finalize immediately."
+            );
+        }
+    }
+
+    // (3) bounded AC-6: reduce AT the seeded tips must reproduce the genesis.
+    let meta_sha = crate::hub_v3::git_rev_parse_optional(cache_dir, META_REF)?;
+    let source = RefHubSource::at_tips(
+        cache_dir,
+        Some(genesis_ckpt),
+        meta_sha,
+        seed_tips
+            .iter()
+            .map(|(a, s)| (a.clone(), s.clone()))
+            .collect(),
+    )?;
+    let outcome = compaction::reduce(&source).context("reduce at seeded tips")?;
+    if serde_json::to_value(&outcome.state).context("serialize seeded reduce")? != genesis_val {
+        bail!(
+            "refusing to finalize: reducing the seeded refs does not reproduce the persisted \
+             genesis (seeded history altered — object corruption or ref surgery). Run \
+             `crosslink migrate hub-v3 --remigrate-from-v2`, then finalize immediately."
+        );
+    }
+
+    Ok(())
+}
+
 fn finalize_migration(
     cache_dir: &Path,
     remote: &str,
@@ -1474,11 +1613,11 @@ fn finalize_migration(
     // root (which shares the same object store + ref namespace).
     let repo_root = git_main_repo_root(cache_dir)?;
 
-    // Re-verify the AC-6 gate against the current refs/files: v2 and v3 must
-    // still agree. (fetch already ran in the dispatcher.)
-    let genesis = build_genesis_from_files(cache_dir)?;
-    verify_against_files(cache_dir, &genesis)
-        .context("refusing to finalize: AC-6 re-verification failed; v2 and v3 no longer agree")?;
+    // Finalize-time verification (GH#45): verify against the SEEDED genesis
+    // persisted in HubMeta, not the moving tips — legitimate post-migration
+    // hub use must never block the cutover. (fetch already ran in the
+    // dispatcher.)
+    verify_finalize(cache_dir)?;
 
     // Stamp HubMeta.finalized_at (new commit on META_REF preserving provenance)
     // BEFORE removing the worktree, while ref reads from cache_dir still work.
@@ -3232,5 +3371,191 @@ mod tests {
             ),
             "B must operate v3 after a forced adopt"
         );
+    }
+
+    // ── GH#45: finalize must tolerate legitimate post-migration activity ──
+
+    /// Append one post-genesis event to alpha's ref; returns the new issue uuid.
+    fn append_post_genesis_event(cache_dir: &Path) -> Uuid {
+        use crate::events::{Event, EventEnvelope};
+        let new_uuid = Uuid::new_v4();
+        let env = EventEnvelope {
+            agent_id: "alpha".to_string(),
+            agent_seq: 9999,
+            timestamp: Utc::now() + chrono::Duration::seconds(60),
+            event: Event::IssueCreated {
+                uuid: new_uuid,
+                title: "Post-genesis issue".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "alpha".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
+            },
+            signed_by: None,
+            signature: None,
+        };
+        let tip = rev(cache_dir, &agent_ref_name("alpha").unwrap()).unwrap();
+        let mut bytes = git_cat_file_blob_optional(cache_dir, &format!("{tip}:events.log"))
+            .unwrap()
+            .unwrap();
+        bytes.extend_from_slice(serde_json::to_string(&env).unwrap().as_bytes());
+        bytes.push(b'\n');
+        hub_v3::commit_log_bytes(cache_dir, "alpha", &bytes, "test: post-genesis event").unwrap();
+        new_uuid
+    }
+
+    /// Rewrite hub.json without the GH#45 seed metadata (pre-fix migration).
+    fn strip_seed_metadata(cache_dir: &Path) {
+        let mut meta = read_hub_meta(cache_dir).unwrap().unwrap();
+        meta.genesis_checkpoint_commit = None;
+        meta.seed_agent_tips = None;
+        let hub_json = serde_json::to_vec_pretty(&meta).unwrap();
+        let files: Vec<(&str, &[u8])> = vec![("hub.json", &hub_json)];
+        hub_v3::commit_files_to_ref(cache_dir, META_REF, &files, "test: strip seed metadata")
+            .unwrap();
+    }
+
+    #[test]
+    fn finalize_succeeds_after_post_migration_v3_activity() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+
+        // Seed metadata persisted at migration.
+        let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
+        assert!(
+            meta.genesis_checkpoint_commit.is_some(),
+            "genesis commit recorded"
+        );
+        assert!(
+            meta.seed_agent_tips.clone().unwrap().contains_key("alpha"),
+            "alpha seed tip recorded"
+        );
+
+        // Legitimate post-migration use: a new event above the watermark plus
+        // an advanced checkpoint (what the dispatcher's own fetch_v3 does).
+        append_post_genesis_event(&cache_dir);
+        let advanced = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
+            .unwrap()
+            .state;
+        let state_bytes = serde_json::to_vec_pretty(&advanced).unwrap();
+        hub_v3::commit_blob_to_ref(
+            &cache_dir,
+            CHECKPOINT_REF,
+            "state.json",
+            &state_bytes,
+            "test: advance checkpoint past genesis",
+        )
+        .unwrap();
+
+        // GH#45 regression: finalize must SUCCEED despite the activity.
+        let repo_root = wp_of(&crosslink_dir);
+        hub_v3(&crosslink_dir, true, true, false, false).unwrap();
+        assert!(
+            rev(&repo_root, V2_HUB_BRANCH).is_none(),
+            "v2 branch deleted"
+        );
+        let meta = read_hub_meta(&repo_root).unwrap().unwrap();
+        assert!(meta.finalized_at.is_some(), "finalized_at stamped");
+    }
+
+    #[test]
+    fn finalize_refuses_when_seed_ancestry_broken() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+
+        // Tamper: point alpha's ref at unrelated history (the checkpoint tip),
+        // breaking ancestry with the recorded seed tip.
+        let alpha_ref = agent_ref_name("alpha").unwrap();
+        let ckpt = rev(&cache_dir, CHECKPOINT_REF).unwrap();
+        let out = Command::new("git")
+            .current_dir(&cache_dir)
+            .args(["update-ref", &alpha_ref, &ckpt])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+
+        let err = hub_v3(&crosslink_dir, true, true, false, false).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("no longer an ancestor") && msg.contains("remigrate-from-v2"),
+            "ancestry break must refuse with remigrate guidance, got: {msg}"
+        );
+        assert!(
+            rev(&cache_dir, V2_HUB_BRANCH).is_some(),
+            "v2 branch preserved"
+        );
+    }
+
+    #[test]
+    fn finalize_refuses_when_v2_files_changed_after_migration() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+
+        // Same-tip v2 divergence: mutate a worktree issue file in place
+        // (uncommitted, so the explicit tip-divergence guard cannot see it).
+        let issues_dir = cache_dir.join("issues");
+        let entry = std::fs::read_dir(&issues_dir)
+            .unwrap()
+            .flatten()
+            .find(|e| e.path().join("issue.json").exists())
+            .expect("fixture has at least one issue file");
+        let p = entry.path().join("issue.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        v["title"] = serde_json::Value::String("tampered after migration".into());
+        std::fs::write(&p, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+
+        let err = hub_v3(&crosslink_dir, true, true, false, false).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("no longer reproduce the genesis"),
+            "v2 file change must refuse via the frozen-check, got: {msg}"
+        );
+        assert!(
+            rev(&cache_dir, V2_HUB_BRANCH).is_some(),
+            "v2 branch preserved"
+        );
+    }
+
+    #[test]
+    fn finalize_pre_metadata_hub_unused_falls_back_and_succeeds() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+        strip_seed_metadata(&cache_dir);
+
+        // Untouched hub: the strict fallback passes and finalize completes.
+        let repo_root = wp_of(&crosslink_dir);
+        hub_v3(&crosslink_dir, true, true, false, false).unwrap();
+        let meta = read_hub_meta(&repo_root).unwrap().unwrap();
+        assert!(meta.finalized_at.is_some(), "fallback finalize stamped");
+    }
+
+    #[test]
+    fn finalize_pre_metadata_hub_with_activity_steers_to_remigrate() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+        strip_seed_metadata(&cache_dir);
+        append_post_genesis_event(&cache_dir);
+
+        let err = hub_v3(&crosslink_dir, true, true, false, false).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("remigrate-from-v2"),
+            "pre-metadata hub with activity must steer to remigrate, got: {msg}"
+        );
+
+        // Recovery: remigrate re-seeds (and records the metadata), then
+        // immediate finalize succeeds. The post-genesis v3-only event is
+        // dropped by remigrate per its documented semantics.
+        hub_v3(&crosslink_dir, false, false, false, true).unwrap();
+        let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
+        assert!(
+            meta.genesis_checkpoint_commit.is_some(),
+            "remigrate records seed metadata"
+        );
+        hub_v3(&crosslink_dir, true, true, false, false).unwrap();
     }
 }

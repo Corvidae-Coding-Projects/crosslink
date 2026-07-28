@@ -64,7 +64,12 @@ pub async fn sync_status(
 
     Ok(Json(SyncStatusResponse {
         hub_initialized,
-        hub_branch: "crosslink/hub".to_string(),
+        // GH#4: name the ref the hub actually lives on for this mode.
+        hub_branch: if sm.hub_mode().is_v3() {
+            "crosslink/checkpoint".to_string()
+        } else {
+            "crosslink/hub".to_string()
+        },
         remote,
         last_fetch_at,
         active_lock_count,

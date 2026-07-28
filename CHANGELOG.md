@@ -25,6 +25,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- The dashboard is v3-aware (gh#4, final symptom): migrated+finalized repos no
+  longer surface as `unreachable_project`. The poll fetch uses the
+  `+refs/heads/crosslink/*` glob (the exact v2-only refspec failed every tick
+  against migrated remotes, so v3 refs never became local and the
+  already-mode-routed reader saw nothing), the v2 hub-cache worktree
+  materialization and the post-action `reset --hard crosslink/hub` are gated
+  off on v3, tile freshness (`hub_sha`/`last_commit_at`) keys off the
+  checkpoint ref, GitHub org discovery falls back to probing the
+  `crosslink/checkpoint` branch, the track-time hub check recognizes v3
+  markers (local refs only), `GET /api/v1/sync/status` names the mode's
+  actual hub ref, and hub signature verification checks the checkpoint tip
+  on v3 instead of the nonexistent `locks.json` history.
+- `migrate hub-v3 --finalize` no longer refuses after legitimate post-migration
+  hub use (gh#45). The finalize gate reused the migration-time invariant
+  (`reduce(current refs) == genesis`), which only holds in the instant after
+  seeding - a single lock release, or even the dispatcher's own v3 fetch
+  advancing the checkpoint ref, permanently blocked the cutover with a
+  misleading "v2 and v3 no longer agree". Migration now persists the seeded
+  genesis checkpoint commit and per-agent seed tips in `HubMeta` (serde-default
+  fields, compatible both directions), and finalize verifies what actually
+  gates safe v2 deletion: the v2 files still reproduce the SEEDED genesis
+  (content-addressed at the recorded commit), every seed tip remains an
+  ancestor of its ref (ancestry, not byte-prefix, so compaction and REQ-11
+  pruning never false-fail), and reducing AT the seeded tips reproduces the
+  genesis. Hubs migrated before the metadata existed fall back to the strict
+  check with an actionable `--remigrate-from-v2` message.
 - `crosslink integrity` no longer false-FAILs `counters` and `hydration` on a
   v3 hub. Both checks read legacy v2 worktree artifacts (meta/counters.json,
   issues/*.json) that v3 never materializes, fabricating "next_display_id is

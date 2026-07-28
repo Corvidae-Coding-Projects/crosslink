@@ -290,14 +290,18 @@ fn write_project_state(
 }
 
 async fn fetch_hub(clone_path: &Path) -> Result<()> {
-    // Fetch with an explicit refspec so the local `crosslink/hub` ref
-    // is created/updated, not just the remote-tracking ref. The `+`
-    // allows non-fast-forward updates (shouldn't happen in practice
-    // but doesn't cost anything). Dashboard-auto-cloned repos start
-    // with no local branch, and the reader looks for the local ref
-    // via `git rev-parse crosslink/hub` — without this refspec, hub
-    // state appears empty to the panel despite being present on the
-    // remote.
+    // Fetch with an explicit refspec GLOB so the local crosslink refs are
+    // created/updated, not just remote-tracking refs. The glob matches
+    // whatever the remote has — the v2 `crosslink/hub` branch OR the v3
+    // refs (`crosslink/checkpoint`, `crosslink/meta`,
+    // `crosslink/agents/*`) — and, unlike the old exact
+    // `crosslink/hub` refspec, never fails outright against a
+    // migrated+finalized remote where that branch is deleted (GH#4: that
+    // failure meant v3 refs were never fetched, `HubMode::resolve` saw
+    // V2, and migrated repos surfaced as permanently unreachable). The
+    // `+` allows non-fast-forward updates. Dashboard-auto-cloned repos
+    // start with no local crosslink branches at all, and the readers
+    // resolve `refs/heads/...` only.
     let status = Command::new("git")
         .arg("-C")
         .arg(clone_path)
@@ -305,7 +309,7 @@ async fn fetch_hub(clone_path: &Path) -> Result<()> {
             "fetch",
             "--quiet",
             "origin",
-            "+refs/heads/crosslink/hub:refs/heads/crosslink/hub",
+            "+refs/heads/crosslink/*:refs/heads/crosslink/*",
         ])
         .status()
         .await?;
@@ -314,12 +318,15 @@ async fn fetch_hub(clone_path: &Path) -> Result<()> {
     }
 
     // Materialise the hub branch into `.crosslink/.hub-cache/` as a
-    // worktree so the reader's filesystem scan actually finds the
-    // issues / heartbeats / locks files. For repos that were set up
-    // via `crosslink sync` this already exists (idempotent); for
-    // dashboard-auto-cloned repos it doesn't and we'd otherwise read
-    // from the `main` working tree which has no hub layout.
-    ensure_hub_cache_worktree(clone_path).await;
+    // worktree so the v2 reader's filesystem scan actually finds the
+    // issues / heartbeats / locks files. v3 hubs need no worktree — the
+    // reader consumes the checkpoint ref directly — and a migrated repo
+    // has no `crosslink/hub` branch to add a worktree for (GH#4).
+    // Resolve the mode AFTER the fetch above so a freshly-cloned v3 repo
+    // is recognized on its first poll tick.
+    if !crate::hub_v3::HubMode::resolve(clone_path).is_v3() {
+        ensure_hub_cache_worktree(clone_path).await;
+    }
     Ok(())
 }
 
@@ -615,5 +622,107 @@ mod tests {
             .await
             .expect("poll loop did not exit after cancel")
             .expect("poll loop task panicked");
+    }
+
+    /// GH#4: a migrated+finalized remote has NO `crosslink/hub` branch — the
+    /// old exact refspec failed outright, so v3 refs never became local and
+    /// the repo surfaced as permanently unreachable. The glob refspec must
+    /// fetch the v3 refs, and no v2 hub-cache worktree may be created.
+    #[tokio::test]
+    async fn fetch_hub_fetches_v3_refs_and_skips_worktree() {
+        // Seed repo with v3 refs only.
+        let seed = tempdir().unwrap();
+        let sp = seed.path();
+        for args in [
+            vec!["init", "-q", "-b", "crosslink/checkpoint"],
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+            vec!["config", "commit.gpgsign", "false"],
+        ] {
+            StdCommand::new("git")
+                .arg("-C")
+                .arg(sp)
+                .args(&args)
+                .status()
+                .unwrap();
+        }
+        let state =
+            serde_json::to_vec_pretty(&crate::checkpoint::CheckpointState::default()).unwrap();
+        fs::write(sp.join("state.json"), &state).unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(sp)
+            .args(["add", "-A"])
+            .status()
+            .unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(sp)
+            .args(["commit", "-q", "-m", "v3 checkpoint"])
+            .status()
+            .unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(sp)
+            .args(["branch", "crosslink/meta"])
+            .status()
+            .unwrap();
+
+        // Bare remote with those refs; NO crosslink/hub anywhere.
+        let remote = tempdir().unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(remote.path())
+            .args(["init", "-q", "--bare", "-b", "main"])
+            .status()
+            .unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(sp)
+            .args(["remote", "add", "origin", remote.path().to_str().unwrap()])
+            .status()
+            .unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(sp)
+            .args([
+                "push",
+                "-q",
+                "origin",
+                "crosslink/checkpoint",
+                "crosslink/meta",
+            ])
+            .status()
+            .unwrap();
+
+        // Dashboard-auto-clone: local crosslink refs absent.
+        let clone = tempdir().unwrap();
+        let cp = clone.path().join("work");
+        StdCommand::new("git")
+            .args([
+                "clone",
+                "-q",
+                remote.path().to_str().unwrap(),
+                cp.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap();
+        assert!(
+            !crate::hub_v3::HubMode::resolve(&cp).is_v3(),
+            "fresh clone has no local v3 refs yet"
+        );
+
+        fetch_hub(&cp).await.unwrap();
+
+        // The glob refspec created the local v3 refs; mode now resolves V3.
+        assert!(
+            crate::hub_v3::HubMode::resolve(&cp).is_v3(),
+            "fetch must create local v3 refs"
+        );
+        // And no v2 hub-cache worktree was materialised.
+        assert!(
+            !cp.join(".crosslink").join(".hub-cache").exists(),
+            "v3 repos must not get a v2 hub-cache worktree"
+        );
     }
 }

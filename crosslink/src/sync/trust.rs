@@ -455,6 +455,28 @@ impl SyncManager {
     /// # Errors
     ///
     /// Returns an error if git log or signature verification commands fail.
+    /// Mode-aware hub signature check (GH#4): v2 verifies the last commit
+    /// that touched `locks.json` in the cache worktree; a v3 hub has no
+    /// `locks.json` history at all — verify the checkpoint ref tip instead
+    /// (the commit carrying the current materialized state).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git plumbing or signature verification fails.
+    pub fn verify_hub_signature_auto(&self) -> Result<SignatureVerification> {
+        if self.hub_mode.get().is_v3() {
+            let Some(tip) = crate::hub_v3::git_rev_parse_optional(
+                &self.cache_dir,
+                crate::hub_v3::CHECKPOINT_REF,
+            )?
+            else {
+                return Ok(SignatureVerification::NoCommits);
+            };
+            return self.verify_commit_signature(&tip);
+        }
+        self.verify_locks_signature()
+    }
+
     pub fn verify_locks_signature(&self) -> Result<SignatureVerification> {
         // Get the commit that last touched locks.json
         let output = self.git_in_cache(&["log", "-1", "--format=%H", "--", "locks.json"])?;
