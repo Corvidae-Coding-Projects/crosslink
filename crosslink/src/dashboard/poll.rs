@@ -142,15 +142,44 @@ pub struct PollOutcome {
 pub async fn poll_project(db_path: &Path, project: &Project) -> Result<PollOutcome> {
     // 1. `git fetch` the hub branch (best-effort). We don't abort on
     //    fetch failure — the snapshot reader will still observe whatever
-    //    is already in the local clone.
-    let _ = fetch_hub(&project.clone_path).await;
+    //    is already in the local clone. GH#48: capture the outcome (was
+    //    discarded) so the reachability status can reflect it.
+    let fetch_ok = fetch_hub(&project.clone_path).await.is_ok();
 
     // 2. Read snapshot off the filesystem. Blocking operation (rusqlite
     //    + sync I/O) — push to the blocking pool.
     let clone_path = project.clone_path.clone();
-    let snapshot = tokio::task::spawn_blocking(move || reader::read_snapshot(&clone_path))
+    let snapshot = match tokio::task::spawn_blocking(move || reader::read_snapshot(&clone_path))
         .await
-        .map_err(|e| anyhow::anyhow!("snapshot task panicked: {e}"))??;
+        .map_err(|e| anyhow::anyhow!("snapshot task panicked: {e}"))?
+    {
+        Ok(snap) => snap,
+        Err(e) => {
+            // GH#48: the clone path is gone or unreadable — unambiguously
+            // unreachable. Mark the project errored (the `unreachable_project`
+            // alert keys on `projects.status == "error"`, which nothing set
+            // before) and stop this tick; the next successful poll clears it.
+            tracing::warn!("read_snapshot failed for {}: {e}", project.slug);
+            let db_path_owned = db_path.to_path_buf();
+            let project_id = project.id;
+            tokio::task::spawn_blocking(move || {
+                mark_project_status(&db_path_owned, project_id, "error")
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("status update task panicked: {e}"))??;
+            return Ok(PollOutcome::default());
+        }
+    };
+
+    // GH#48: reachable when we either fetched successfully or have local hub
+    // data to show. Only "fetch failed AND nothing was ever obtained" (e.g. an
+    // auto-cloned repo whose remote is dead) is unreachable — a transient fetch
+    // failure over existing local data stays `active` and does not flap.
+    let status = if fetch_ok || snapshot.hub_sha.is_some() {
+        "active"
+    } else {
+        "error"
+    };
 
     // 3. Derive counters + alerts; write everything in one blocking
     //    pass so the DB sees a consistent view per tick.
@@ -179,6 +208,7 @@ pub async fn poll_project(db_path: &Path, project: &Project) -> Result<PollOutco
                 last_commit_at.as_deref(),
                 counters,
                 ci_state.as_deref(),
+                status,
             )?;
             let db = DashboardDb::open(&db_path_owned)?;
             let stats = alerts_db::sync_alerts_for_project(&db, project_id, &derived_alerts)?;
@@ -237,8 +267,20 @@ fn load_active_projects(db_path: &Path) -> Result<Vec<Project>> {
     Ok(rows)
 }
 
+/// Set only `projects.status` (GH#48). Used when the snapshot read hard-fails
+/// so there are no counters to write, but the project must still be marked
+/// unreachable so the `unreachable_project` alert can fire.
+fn mark_project_status(db_path: &Path, project_id: i64, status: &str) -> Result<()> {
+    let db = DashboardDb::open(db_path)?;
+    db.conn.execute(
+        "UPDATE projects SET status = ?1 WHERE id = ?2",
+        rusqlite::params![status, project_id],
+    )?;
+    Ok(())
+}
+
 /// Upsert `project_state` and refresh `projects.hub_sha` /
-/// `projects.hub_fetched_at` / `projects.last_activity_at`.
+/// `projects.hub_fetched_at` / `projects.last_activity_at` / `projects.status`.
 fn write_project_state(
     db_path: &Path,
     project_id: i64,
@@ -246,6 +288,7 @@ fn write_project_state(
     last_commit_at: Option<&str>,
     counters: super::reader::ProjectCounters,
     ci_status: Option<&str>,
+    status: &str,
 ) -> Result<()> {
     let db = DashboardDb::open(db_path)?;
     let now = Utc::now().to_rfc3339();
@@ -254,9 +297,10 @@ fn write_project_state(
         "UPDATE projects
          SET hub_sha = ?1,
              hub_fetched_at = ?2,
-             last_activity_at = COALESCE(?3, last_activity_at)
-         WHERE id = ?4",
-        rusqlite::params![hub_sha, now, last_commit_at, project_id],
+             last_activity_at = COALESCE(?3, last_activity_at),
+             status = ?4
+         WHERE id = ?5",
+        rusqlite::params![hub_sha, now, last_commit_at, status, project_id],
     )?;
 
     db.conn.execute(
@@ -531,6 +575,53 @@ mod tests {
         assert_eq!(blocked, 0);
         assert_eq!(agents, 0);
         assert_eq!(stale, 0);
+
+        // GH#48: a readable project stays `active`.
+        let status: String = db
+            .conn
+            .query_row(
+                "SELECT status FROM projects WHERE id = ?1",
+                [project_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "active");
+    }
+
+    #[tokio::test]
+    async fn test_poll_project_marks_unreachable_on_missing_clone() {
+        // GH#48: a tracked project whose clone path is gone is unambiguously
+        // unreachable — the poll must set projects.status='error' so the
+        // `unreachable_project` alert (which keys on that value) can fire.
+        // Before this fix nothing ever wrote 'error', so the alert was dead.
+        let home = tempdir().unwrap();
+        let db_path = home.path().join("dashboard.db");
+        DashboardDb::open(&db_path).unwrap();
+
+        let gone = home.path().join("no-such-clone");
+        let project_id = seed_project(&db_path, "owner/gone", &gone);
+        let project = load_active_projects(&db_path)
+            .unwrap()
+            .into_iter()
+            .find(|p| p.id == project_id)
+            .unwrap();
+        assert_eq!(project.status, "active", "seeded active");
+
+        poll_project(&db_path, &project).await.unwrap();
+
+        let db = DashboardDb::open(&db_path).unwrap();
+        let status: String = db
+            .conn
+            .query_row(
+                "SELECT status FROM projects WHERE id = ?1",
+                [project_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            status, "error",
+            "missing clone must mark the project errored"
+        );
     }
 
     #[tokio::test]

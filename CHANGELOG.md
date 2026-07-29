@@ -25,6 +25,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- The dashboard `unreachable_project` alert can now fire (gh#48). The alert and
+  the frontend tile severity key on `projects.status == "error"`, but the poll
+  loop never wrote that value — it discarded the fetch outcome and propagated a
+  snapshot-read failure without recording it — so a genuinely unreachable
+  project showed stale tiles and stayed silent. `poll_project` now marks
+  `status = "error"` when the clone is gone/unreadable, or when a fetch failed
+  and no local hub data exists, and clears it back to `"active"` on a
+  successful poll (a transient fetch failure over existing local data does not
+  flap).
 - Hub-cache init no longer fails with "Author identity unknown" on a host whose
   git identity is present but empty (gh#34). `ensure_cache_git_identity` checked
   only that `git config user.email` *succeeded* — but `git config` exits 0 for a
