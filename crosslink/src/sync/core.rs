@@ -273,12 +273,17 @@ impl SyncManager {
     /// Uses `--worktree` scope when the cache dir is a linked worktree to
     /// avoid leaking identity config into the shared `.git/config`.
     pub(super) fn ensure_cache_git_identity(&self) -> Result<()> {
-        let has_email = Command::new("git")
-            .current_dir(&self.cache_dir)
-            .args(["config", "user.email"])
-            .output()
-            .is_ok_and(|o| o.status.success());
-        if !has_email {
+        // A usable identity needs BOTH user.email and user.name set to a
+        // NON-EMPTY value. `git config <key>` exits 0 for a key present with an
+        // empty value (e.g. a global `user.email = ` used to force per-repo
+        // identities), so an existence check alone lets an empty identity
+        // through — the housekeeping commit then dies with "empty ident name"
+        // / "Author identity unknown" (gh#34). Check the value, and check both
+        // fields (the previous check looked only at user.email, so an
+        // email-set/name-empty host slipped through the same way).
+        let has_identity = git_config_nonempty(&self.cache_dir, "user.email")
+            && git_config_nonempty(&self.cache_dir, "user.name");
+        if !has_identity {
             let use_worktree = signing::is_linked_worktree(&self.cache_dir);
             if use_worktree {
                 signing::enable_worktree_config(&self.cache_dir)?;
@@ -314,20 +319,71 @@ impl SyncManager {
                 );
             }
 
-            // Verify identity is actually set — don't let commits fail later
-            // with "Author identity unknown" (#469)
-            let verified = Command::new("git")
-                .current_dir(&self.cache_dir)
-                .args(["config", "user.email"])
-                .output()
-                .is_ok_and(|o| o.status.success());
-            if !verified {
+            // Verify identity is actually usable — don't let commits fail later
+            // with "Author identity unknown" (#469). Check for a non-empty
+            // value on both fields, not mere key presence (gh#34).
+            if !(git_config_nonempty(&self.cache_dir, "user.email")
+                && git_config_nonempty(&self.cache_dir, "user.name"))
+            {
                 bail!(
                     "Failed to verify git identity in hub cache: \
-                     git config set succeeded but user.email is not readable"
+                     git config set succeeded but user.email/user.name is empty or unreadable"
                 );
             }
         }
         Ok(())
+    }
+}
+
+/// Whether `git config <key>` resolves to a non-empty value in `dir`.
+///
+/// `git config <key>` exits 0 for a key set to an empty string, so a plain
+/// success check treats an empty identity as configured — the caller then
+/// commits with no author and fails (gh#34). This trims the value and
+/// requires it to be non-empty.
+fn git_config_nonempty(dir: &Path, key: &str) -> bool {
+    Command::new("git")
+        .current_dir(dir)
+        .args(["config", key])
+        .output()
+        .is_ok_and(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::git_config_nonempty;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn git(dir: &Path, args: &[&str]) {
+        assert!(
+            Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success(),
+            "git {args:?} failed"
+        );
+    }
+
+    #[test]
+    fn git_config_nonempty_rejects_unset_and_empty_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        git(d, &["init", "-q"]);
+
+        // Unset key → not a usable identity.
+        assert!(!git_config_nonempty(d, "user.email"));
+
+        // Empty-string value → `git config` exits 0 with empty output, so the
+        // old existence check treated it as configured; a commit then dies with
+        // "empty ident name" (gh#34). It must NOT count as a usable identity.
+        git(d, &["config", "user.email", ""]);
+        assert!(!git_config_nonempty(d, "user.email"));
+
+        // A real value → usable.
+        git(d, &["config", "user.email", "someone@example.com"]);
+        assert!(git_config_nonempty(d, "user.email"));
     }
 }

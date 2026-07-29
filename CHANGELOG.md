@@ -25,6 +25,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Hub-cache init no longer fails with "Author identity unknown" on a host whose
+  git identity is present but empty (gh#34). `ensure_cache_git_identity` checked
+  only that `git config user.email` *succeeded* — but `git config` exits 0 for a
+  key set to an empty string (e.g. a global `user.email = ` used to force
+  per-repo identities), so the empty value slipped past as "configured" and the
+  `Initialize crosslink v3 hub worktree` commit then died with no author. It now
+  requires a non-empty value on both `user.email` and `user.name` (the check
+  previously ignored `user.name` entirely), falling back to the
+  `crosslink`/`crosslink@localhost` identity otherwise — hardening real
+  `crosslink agent bootstrap` on CI runners and identity-less/empty-identity
+  hosts.
 - The dashboard is v3-aware (gh#4, final symptom): migrated+finalized repos no
   longer surface as `unreachable_project`. The poll fetch uses the
   `+refs/heads/crosslink/*` glob (the exact v2-only refspec failed every tick
