@@ -25,6 +25,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Dashboard git calls can no longer hang on a credential prompt (gh#34). The
+  poll loop's per-tick `git fetch` and the track-time `git remote show origin`
+  default-branch probe now run with `GIT_TERMINAL_PROMPT=0`, a neutralized
+  `GIT_ASKPASS`, and `-c credential.helper=`, so a private, moved, or deleted
+  remote (or an interactive askpass like VS Code's) makes them fail fast
+  instead of blocking a headless `dashboard serve` worker indefinitely. The
+  `detect_default_branch` test fixtures now record a local remote-tracking
+  HEAD so they resolve without any network I/O (previously they reached the
+  live network against hardcoded URLs, hanging on interactive-helper hosts).
 - The dashboard is v3-aware (gh#4, final symptom): migrated+finalized repos no
   longer surface as `unreachable_project`. The poll fetch uses the
   `+refs/heads/crosslink/*` glob (the exact v2-only refspec failed every tick

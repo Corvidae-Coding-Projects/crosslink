@@ -302,10 +302,20 @@ async fn fetch_hub(clone_path: &Path) -> Result<()> {
     // `+` allows non-fast-forward updates. Dashboard-auto-cloned repos
     // start with no local crosslink branches at all, and the readers
     // resolve `refs/heads/...` only.
+    // GH#34: the poll loop runs this every tick against every tracked remote.
+    // It must never block on a credential prompt — a private/moved/deleted
+    // remote (or an interactive askpass like VS Code's) would otherwise hang
+    // the whole poll loop, freezing the dashboard for the entire fleet.
+    // Disable every credential vector so it fails fast; poll swallows the
+    // failure and reads whatever is already local.
     let status = Command::new("git")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "")
         .arg("-C")
         .arg(clone_path)
         .args([
+            "-c",
+            "credential.helper=",
             "fetch",
             "--quiet",
             "origin",
