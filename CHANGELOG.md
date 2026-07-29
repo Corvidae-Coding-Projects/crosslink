@@ -25,6 +25,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- The dashboard agent-request pane is populated on v3 hubs (gh#49, agent
+  requests half). `read_snapshot_v3` hardcoded `agent_requests` empty because
+  the request/ack streams live on the agent refs, not a worktree the snapshot
+  reader scans. A new `hub_v3::read_all_agent_requests` walks the agent refs,
+  reads each driver's `requests-out/<target>--<ulid>.json` and each target's
+  `requests-ack/<ulid>.json`, and pairs them by ulid grouped by target — the
+  whole-fleet view the dashboard needs, distinct from the per-inbox
+  `poll_requests_for_agent`. (The `ci_status` half of gh#49 remains: v3 has no
+  CI-status ref home or writer yet — separate work.)
 - The dashboard `unreachable_project` alert can now fire (gh#48). The alert and
   the frontend tile severity key on `projects.status == "error"`, but the poll
   loop never wrote that value — it discarded the fetch outcome and propagated a

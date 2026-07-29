@@ -203,11 +203,12 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
 /// `compact`, lagging any un-compacted events until the next fetch/compact.
 ///
 /// `meta/ci-status.json` has no v3 ref home and the v2 worktree path is gone,
-/// so `ci_status` is `None`; `signature_state` reuses the shared
-/// [`read_signature_state`] (mode-agnostic — it verifies the hub-tip commit
-/// signature via `SyncManager`). `agent_requests` stays empty: the v3
-/// request/ack streams live on refs and are surfaced through the agent poll
-/// path, not this snapshot reader.
+/// so `ci_status` is `None` (a v3 CI-status writer + home is separate work);
+/// `signature_state` reuses the shared [`read_signature_state`] (mode-agnostic
+/// — it verifies the hub-tip commit signature via `SyncManager`).
+/// `agent_requests` is read from the agent refs via
+/// [`crate::hub_v3::read_all_agent_requests`] (GH#49 — previously hardcoded
+/// empty on v3).
 fn read_snapshot_v3(
     clone_path: &Path,
     hub_sha: Option<String>,
@@ -240,6 +241,16 @@ fn read_snapshot_v3(
             .collect();
     agents.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
 
+    // GH#49: surface driver→agent control requests (with acks) from the agent
+    // refs. Best-effort — a read error degrades to an empty pane, never fails
+    // the whole snapshot.
+    let agent_requests: Vec<AgentRequestsForAgent> =
+        crate::hub_v3::read_all_agent_requests(clone_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(agent_id, requests)| AgentRequestsForAgent { agent_id, requests })
+            .collect();
+
     Ok(HubSnapshot {
         hub_sha,
         // v3 retires the v1/v2 worktree layout marker; report 3 so downstream
@@ -248,7 +259,7 @@ fn read_snapshot_v3(
         issues,
         agents,
         locks,
-        agent_requests: Vec::new(),
+        agent_requests,
         ci_status: None,
         signature_state: read_signature_state(clone_path),
         last_commit_at,
