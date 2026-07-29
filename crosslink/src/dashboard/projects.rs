@@ -205,10 +205,17 @@ fn detect_default_branch(clone_path: &Path) -> Option<String> {
 
     // 2. `git remote show origin` — network-scoped but authoritative.
     // Parses `HEAD branch: main` out of the human-readable output.
+    // GH#34: this advisory query must never prompt for credentials — on a
+    // headless `dashboard serve` (or a host with an interactive askpass like
+    // VS Code) a private/moved/deleted remote would hang the process
+    // indefinitely. Disable every credential vector so it fails fast and the
+    // cascade falls through to the local step 3 instead.
     let out = Command::new("git")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "")
         .arg("-C")
         .arg(clone_path)
-        .args(["remote", "show", "origin"])
+        .args(["-c", "credential.helper=", "remote", "show", "origin"])
         .output()
         .ok()?;
     if out.status.success() {
@@ -870,6 +877,27 @@ mod tests {
             .args(["remote", "add", "origin", origin])
             .status()
             .unwrap();
+        // GH#34: record a local remote-tracking HEAD, exactly as a normal
+        // clone would carry, so detect_default_branch resolves via its local
+        // step 1 and never reaches the network `git remote show origin`.
+        // Keeps these fixtures hermetic (no DNS/connect to the dead-org URLs)
+        // while preserving the URL for the slug-derivation assertions.
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .status()
+            .unwrap();
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(path)
+            .args([
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ])
+            .status()
+            .unwrap();
         if with_hub {
             StdCommand::new("git")
                 .arg("-C")
@@ -1121,5 +1149,52 @@ mod tests {
         let (_home, db_path) = temp_db();
         // Just verifies Ok on an empty DB.
         list_with_path(&db_path).unwrap();
+    }
+
+    /// GH#34: a repo carrying a local remote-tracking HEAD (what a normal
+    /// clone has) resolves its default branch via the local step 1 — no
+    /// network `git remote show origin`.
+    #[test]
+    fn detect_default_branch_reads_local_remote_head() {
+        let dir = tempdir().unwrap();
+        make_fake_repo(
+            dir.path(),
+            "https://github.com/forecast-bio/test-x.git",
+            false,
+        );
+        assert_eq!(detect_default_branch(dir.path()).as_deref(), Some("main"));
+    }
+
+    /// GH#34: an origin that cannot be resolved must NOT hang the cascade on a
+    /// credential prompt — it falls through to the local step 3. Uses a
+    /// nonexistent file:// path so `git remote show origin` fails instantly
+    /// with no network and no prompt (the env-scoped https case fails the same
+    /// fast way instead of prompting).
+    #[test]
+    fn detect_default_branch_bogus_origin_falls_through_without_hanging() {
+        let dir = tempdir().unwrap();
+        let p = dir.path();
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+            vec!["commit", "--allow-empty", "-q", "-m", "init"],
+            vec![
+                "remote",
+                "add",
+                "origin",
+                "file:///nonexistent/gh34/repo.git",
+            ],
+        ] {
+            StdCommand::new("git")
+                .arg("-C")
+                .arg(p)
+                .args(&args)
+                .status()
+                .unwrap();
+        }
+        // No refs/remotes/origin/HEAD → step 1 fails, step 2 hits the bogus
+        // origin and fails fast, step 3 finds the local `main`.
+        assert_eq!(detect_default_branch(p).as_deref(), Some("main"));
     }
 }
