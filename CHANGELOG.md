@@ -25,6 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `GET /api/v1/sync/status` reports an accurate `last_fetch_at` on v3 hubs
+  (gh#53). It was derived from the hub-cache directory's mtime, which tracks a
+  fetch on v2 (the worktree is reset) but freezes on v3, where a fetch adopts
+  refs into `.git` and never touches the worktree. On v3 it now reads
+  `FETCH_HEAD`'s mtime (git rewrites it on every fetch), located via
+  `rev-parse --git-path` so it is correct across worktree layouts.
 - The dashboard agent-request pane is populated on v3 hubs (gh#49, agent
   requests half). `read_snapshot_v3` hardcoded `agent_requests` empty because
   the request/ack streams live on the agent refs, not a worktree the snapshot
