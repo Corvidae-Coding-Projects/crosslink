@@ -3,8 +3,10 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 
 use super::config::SentinelConfig;
+use super::engine;
 use super::seen_set::gh_comment_already_posted;
 
 /// Statistics from a result collection pass.
@@ -38,10 +40,14 @@ struct TemplateContext<'a> {
 /// Poll completed agents, read findings, post results to GitHub, update records.
 ///
 /// Runs every sentinel cycle (after dispatch phase in oneshot, every cycle in watch).
+///
+/// `writer` is used to file triage issues (e.g. when an agent exhausts all
+/// retry attempts) on the hub branch when available.
 pub fn collect_completed(
     db: &Database,
     crosslink_dir: &Path,
     config: Option<&SentinelConfig>,
+    writer: Option<&SharedWriter>,
 ) -> Result<CollectStats> {
     let pending = db.get_pending_dispatches()?;
     let mut stats = CollectStats::default();
@@ -106,6 +112,37 @@ pub fn collect_completed(
                 tracing::debug!("sentinel #{} already posted to GH#{}", dispatch.id, gh_num);
             } else if let Err(e) = post_gh_comment(gh_num, &comment_body) {
                 tracing::warn!("failed to post results to GH#{gh_num}: {e}");
+            }
+        }
+
+        // If the agent exhausted all retry attempts, file a high-priority
+        // triage issue BEFORE recording the exhausted outcome so a human is
+        // alerted. Done prior to `update_dispatch_outcome` so the issue
+        // reference is captured in the same cycle as the terminal state.
+        if outcome == "exhausted" {
+            let reference = &dispatch.signal_ref;
+            let title = format!(
+                "Agent exhausted after all attempts: {}",
+                dispatch.signal_title
+            );
+            let description = format!(
+                "Sentinel agent `{}` exhausted all retry attempts for signal `{}` \
+                 (attempt {}). Findings recorded by the agent:\n\n{}",
+                dispatch.agent_id.as_deref().unwrap_or("unknown"),
+                reference,
+                dispatch.attempt_number,
+                findings,
+            );
+            if let Err(e) = engine::create_triage_issue(
+                db,
+                writer,
+                reference,
+                &title,
+                &description,
+                "high",
+                &["agent-exhausted", "sentinel"],
+            ) {
+                tracing::warn!("failed to file agent-exhausted triage issue: {e}");
             }
         }
 

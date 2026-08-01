@@ -97,6 +97,9 @@ pub struct KickoffOpts<'a> {
     /// with the finer-grained mode (acceptEdits/auto/bypassPermissions/
     /// default/dontAsk/plan). CLI marks the flags as mutually exclusive.
     pub permission_mode: Option<&'a str>,
+    /// Agent binary to launch (read from hook-config.json `agent.binary`,
+    /// default "claude"). Allows pointing kickoff at a different agent CLI.
+    pub agent_binary: String,
 }
 
 /// A single criterion verdict in the validation report.
@@ -218,6 +221,9 @@ pub struct PlanOpts<'a> {
     pub dry_run: bool,
     pub issue: Option<i64>,
     pub quiet: bool,
+    /// Agent binary to launch (read from hook-config.json `agent.binary`,
+    /// default "claude").
+    pub agent_binary: String,
 }
 
 /// Detect project conventions from the repo root.

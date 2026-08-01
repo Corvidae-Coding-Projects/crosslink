@@ -31,6 +31,7 @@ pub fn run_oneshot(
     dry_run: bool,
     label_filter: Option<&str>,
     quiet: bool,
+    model_override: Option<&str>,
 ) -> Result<CycleStats> {
     if !config.enabled {
         if !quiet {
@@ -54,6 +55,7 @@ pub fn run_oneshot(
         &all_signals,
         "oneshot",
         quiet,
+        model_override,
     )
 }
 
@@ -131,6 +133,7 @@ pub fn process_signal_batch(
     all_signals: &[Signal],
     mode: &str,
     quiet: bool,
+    model_override: Option<&str>,
 ) -> Result<CycleStats> {
     let run_id = Uuid::new_v4().to_string();
     db.insert_sentinel_run(&run_id, mode)?;
@@ -186,7 +189,7 @@ pub fn process_signal_batch(
         }
 
         // 5. Triage
-        let mut disposition = triage(signal, &decision, config, Some(&tuning));
+        let mut disposition = triage(signal, &decision, config, Some(&tuning), model_override);
 
         // 6. Capacity check: if triage decided to dispatch but we're at capacity,
         //    override to Defer so the signal is retried on the next cycle.
@@ -307,7 +310,7 @@ pub fn process_signal_batch(
     }
 
     // 7. Collect results from previously completed agents
-    match collect::collect_completed(db, crosslink_dir, Some(config)) {
+    match collect::collect_completed(db, crosslink_dir, Some(config), writer) {
         Ok(collect_stats) => stats.collected = collect_stats.collected,
         Err(e) => tracing::warn!("result collection failed: {e}"),
     }
@@ -365,22 +368,46 @@ fn create_sentinel_issue(
         signal.reference,
         &signal.body[..signal.body.len().min(2000)]
     );
+    create_triage_issue(
+        db,
+        writer,
+        &signal.reference,
+        &signal.title,
+        &description,
+        "medium",
+        &["sentinel", "bug"],
+    )
+}
+
+/// Create a crosslink issue with an explicit reference, title, description,
+/// priority, and label set.
+///
+/// Shared by `create_sentinel_issue` (signal-driven issues) and the
+/// agent-exhaustion triage path in `collect.rs`. When a `SharedWriter` is
+/// available it is used so the issue is created on the hub branch; otherwise
+/// the local database is used directly.
+pub fn create_triage_issue(
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    reference: &str,
+    title: &str,
+    description: &str,
+    priority: &str,
+    labels: &[&str],
+) -> Result<i64> {
     let issue_id = if let Some(w) = writer {
-        w.create_issue(db, &signal.title, Some(&description), "medium", None, None)?
+        w.create_issue(db, title, Some(description), priority, None, None)?
     } else {
-        db.create_issue(&signal.title, Some(&description), "medium")?
+        db.create_issue(title, Some(description), priority)?
     };
-    // Label the issue
-    let label_fn = |label: &str| -> Result<()> {
+    for label in labels {
         if let Some(w) = writer {
             w.add_label(db, issue_id, label)?;
         } else {
             db.add_label(issue_id, label)?;
         }
-        Ok(())
-    };
-    let _ = label_fn("sentinel");
-    let _ = label_fn("bug");
+    }
+    let _ = reference;
     Ok(issue_id)
 }
 
@@ -450,6 +477,7 @@ fn spawn_agent(
         doc_path: None,
         skip_permissions: true,
         permission_mode: None,
+        agent_binary: crate::utils::read_agent_binary(crosslink_dir),
     };
 
     run(crosslink_dir, db, writer, &opts)

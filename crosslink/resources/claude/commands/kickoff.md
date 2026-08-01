@@ -1,6 +1,6 @@
 ---
 allowed-tools: Bash(crosslink *), Bash(which *), Bash(tmux *)
-description: Create a worktree and launch a background claude agent in tmux to implement a feature
+description: Create a worktree and launch a background agent in tmux to implement a feature
 argument-hint: <feature description> [--issue <id>] [--verify local|ci|thorough] [--container docker|podman]
 ---
 
@@ -9,8 +9,7 @@ argument-hint: <feature description> [--issue <id>] [--verify local|ci|thorough]
 - Current repo root: !`git rev-parse --show-toplevel`
 - Current branch: !`git branch --show-current`
 - tmux available: !`which tmux`
-- claude available: !`which claude`
-- gh available: !`which gh`
+- agent binary available: !`which $(crosslink config get agent.binary 2>/dev/null || echo claude)`
 
 ## Your task
 
@@ -26,7 +25,7 @@ The user may pass these flags after the feature description:
   - `thorough`: Everything in `ci` plus a structured adversarial self-review.
 - `--issue <id>`: Use an existing crosslink issue instead of creating a new one.
 - `--container <runtime>`: Use `docker` or `podman` instead of local tmux. Default: `none`.
-- `--model <model>`: LLM model to use. Default: `opus`.
+- `--model <model>`: LLM model to use (provider/model format, e.g. `opencode-go/deepseek-v4-flash`, `google-vertex/gemini-3.1-pro-preview`). Default: from `hook-config.json` or `opus`.
 - `--timeout <duration>`: Max runtime (e.g. `1h`, `30m`). Default: `1h`.
 - All other text is the feature description.
 
@@ -34,7 +33,7 @@ The user may pass these flags after the feature description:
 
 ### Steps
 
-1. **Validate prerequisites**: Check that `tmux` and `claude` are available (for local mode). If `--verify ci` or `--verify thorough`, check that `gh` is available. If missing, tell the user what to install and stop.
+1. **Validate prerequisites**: Check that `tmux` and the configured agent binary are available (for local mode). If `--verify ci` or `--verify thorough`, check that `gh` is available. If missing, tell the user what to install and stop.
 
 2. **Build the crosslink kickoff command**: Map parsed arguments to CLI flags:
 
@@ -59,6 +58,25 @@ Add `--issue <id>` if the user specified one. Add `--dry-run` if the user asked 
 4. **Report**: The CLI prints the summary. Relay it to the user. Remind them to:
    - Approve trust: `tmux attach -t <session-name>`
    - Check status: `crosslink kickoff status <agent-id>` or `/check <session-name>`
+
+## Configuration
+
+The agent binary and default model are configured via `hook-config.json`:
+
+```jsonc
+{
+    "agent": {
+        "binary": "opencode"
+    },
+    "sentinel": {
+        "default_agent": {
+            "model": "opencode-go/deepseek-v4-flash"
+        }
+    }
+}
+```
+
+When a non-Claude binary is configured, the wrapper automatically omits Anthropic-specific environment variables (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`) and credential mounts (`~/.claude`).
 
 ## Constraints
 

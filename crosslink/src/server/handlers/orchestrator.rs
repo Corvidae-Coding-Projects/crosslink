@@ -63,7 +63,11 @@ pub async fn decompose_handler(
 
     let slug = body.slug.as_deref();
 
-    let plan = decompose::decompose_document(&state.crosslink_dir, &body.document, slug)
+    // Resolve the agent binary from hook-config.json's `agent.binary`
+    // (default "claude") so decomposition can target a non-claude agent.
+    let agent_binary = crate::utils::read_agent_binary(&state.crosslink_dir);
+
+    let plan = decompose::decompose_document(&state.crosslink_dir, &agent_binary, &body.document, slug)
         .await
         .map_err(|e| internal_error("decomposition failed", e))?;
 
