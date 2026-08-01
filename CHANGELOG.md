@@ -25,7 +25,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- `GET /api/v1/sync/status` reports an accurate `last_fetch_at` on v3 hubs
+- `kickoff run --container` now passes claude's permission flag into the
+  container agent (gh#59). The local (tmux) path emitted
+  `--dangerously-skip-permissions` / `--permission-mode`, and `container start`
+  hardcodes it, but the kickoff container path built its `claude` invocation
+  without any permission flag — so the containerized agent prompted for every
+  tool and, with no TTY, blocked forever (a cause of the gh#55 "agent launches
+  then stalls" signature). Both launch paths now share a single
+  `permission_flag` helper so they cannot drift, and `launch_container`
+  threads `skip_permissions`/`permission_mode` through and emits the flag.
   (gh#53). It was derived from the hub-cache directory's mtime, which tracks a
   fetch on v2 (the worktree is reset) but freezes on v3, where a fetch adopts
   refs into `.git` and never touches the worktree. On v3 it now reads

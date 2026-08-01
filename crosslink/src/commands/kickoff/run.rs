@@ -248,6 +248,8 @@ pub fn run(
                 &allowed_tools,
                 opts.timeout,
                 protected_doc_rel.as_deref(),
+                opts.skip_permissions,
+                opts.permission_mode,
             )?;
 
             if opts.quiet {

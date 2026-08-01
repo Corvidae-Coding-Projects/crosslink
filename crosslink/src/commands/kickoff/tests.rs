@@ -2980,3 +2980,25 @@ fn test_reconcile_completion_by_worktree_scans_design_dir() {
     assert_eq!(reread.runs[0].status, "completed");
     assert_eq!(reread.stage, "complete");
 }
+
+// GH#59: the permission flag both the local and container launch paths emit.
+#[test]
+fn test_permission_flag_postures() {
+    // skip_permissions → the full-bypass flag.
+    assert_eq!(
+        permission_flag(None, true),
+        " --dangerously-skip-permissions"
+    );
+    // permission_mode wins over skip_permissions (mode is shell-escaped).
+    assert_eq!(
+        permission_flag(Some("acceptEdits"), true),
+        " --permission-mode 'acceptEdits'"
+    );
+    // Empty permission_mode falls through to skip_permissions.
+    assert_eq!(
+        permission_flag(Some(""), true),
+        " --dangerously-skip-permissions"
+    );
+    // Neither → no flag (claude prompts per tool — the GH#55 container stall).
+    assert_eq!(permission_flag(None, false), "");
+}
