@@ -35,13 +35,19 @@ DEFAULT_BLOCKED_GIT = [
     "git reset", "git clean",
 ]
 
-# Reduced block list for agents — they need push/commit/merge for their workflow
-# but force-push, hard-reset, and clean remain dangerous even for agents.
+# Agent block list (GH#58): matches the contract the generated KICKOFF.md
+# prompt and the guides state — merge/rebase/cherry-pick, resets, stash/tag/
+# patch, and branch surgery are mechanically blocked; `git commit` is gated
+# on an active issue. Plain `git push` stays allowed because the CI-verify
+# flow instructs the agent to push a draft PR (force-push is always blocked).
 DEFAULT_AGENT_BLOCKED_GIT = [
     "git push --force", "git push -f",
-    "git reset --hard",
+    "git merge", "git rebase", "git cherry-pick",
+    "git reset",
     "git clean -f", "git clean -fd", "git clean -fdx",
     "git checkout .", "git restore .",
+    "git stash", "git tag", "git am", "git apply",
+    "git branch -d", "git branch -D", "git branch -m",
 ]
 
 # Git commands that are blocked UNLESS there is an active crosslink issue.
@@ -92,7 +98,8 @@ def load_config(crosslink_dir):
     config = load_config_merged(crosslink_dir)
     if not config:
         if is_agent:
-            return "relaxed", list(DEFAULT_AGENT_BLOCKED_GIT), [], allowed, True, "off"
+            # GH#58: agents get the gated-commit contract even with no config.
+            return "relaxed", list(DEFAULT_AGENT_BLOCKED_GIT), list(DEFAULT_GATED_GIT), allowed, True, "off"
         return mode, blocked, gated, allowed, False, discipline
 
     if config.get("tracking_mode") in ("strict", "normal", "relaxed"):
@@ -111,7 +118,9 @@ def load_config(crosslink_dir):
         overrides = config.get("agent_overrides", {})
         mode = overrides.get("tracking_mode", "relaxed")
         blocked = overrides.get("blocked_git_commands", list(DEFAULT_AGENT_BLOCKED_GIT))
-        gated = overrides.get("gated_git_commands", [])
+        # GH#58: default agents to the gated-commit contract the docs and
+        # generated prompt describe; an explicit override still wins.
+        gated = overrides.get("gated_git_commands", list(DEFAULT_GATED_GIT))
         discipline = overrides.get("comment_discipline", "off")
         # Merge agent lint/test commands into allowed prefixes (#495)
         for cmd in overrides.get("agent_lint_commands", []):

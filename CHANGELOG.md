@@ -49,6 +49,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and no local hub data exists, and clears it back to `"active"` on a
   successful poll (a transient fetch failure over existing local data does not
   flap).
+- `kickoff plan --dry-run` and `kickoff run --dry-run` are side-effect-free
+  (gh#19). Both created a real git worktree, branch, and sentinel files — and
+  `plan` a permanent `PlanRecord` — before their dry-run guard, so repeated
+  dry-runs accumulated orphan worktrees and phantom "planning" rows that no
+  cleanup flag reclaimed. The guards now run before any creation and print the
+  would-be worktree/branch/agent names. (`run --dry-run` still creates the
+  tracker issue when none is passed, since the printed prompt embeds its id.)
+- The launch command writes a `TIMEOUT` sentinel to `.kickoff-status` when the
+  timeout wrapper kills the agent (gh#60) — on both the local (tmux) and
+  container paths, via an exit-code-124 trailer. Killed agents previously kept
+  their `RUNNING` sentinel forever and only the wall-clock check ever noticed;
+  `TIMEOUT` now classifies as `timed-out` in status normalization.
+- Design docs using the documented H2 `## Phase:` / `## Layer:` headers
+  produce requirement groups for swarm phasing (gh#57). The parser previously
+  recognized only H3 `### Phase N:` headers inside `## Requirements`; the
+  documented H2 form silently fell into `unknown_sections` and phasing intent
+  degraded to auto-decomposition.
+- The `/design` skill no longer resets `pipeline.json` on `--continue`
+  (gh#56). Its pipeline-state step wrote the file via an unconditional
+  heredoc, wiping `plans`/`runs` history and regressing `stage` on designs
+  that had already advanced; it now creates the file only when absent and
+  otherwise updates `doc_hash`/`design_doc` in place, preserving history.
+- Agent hook enforcement matches the documented contract (gh#58). The shipped
+  `agent_overrides` (and the hook's built-in agent defaults) blocked only
+  destructive operations while the guides and the generated KICKOFF.md prompt
+  claimed "no push, no merge, gated commits": `git merge`/`rebase`/
+  `cherry-pick`/`reset`, stash/tag/patch, and branch surgery are now
+  mechanically blocked for agents and `git commit` is gated on an active
+  issue. Plain `git push` remains permitted because the CI-verify flow
+  instructs the agent to push a draft PR (force-push stays always blocked) —
+  the prompt and guides now state that contract accurately instead of
+  overclaiming.
 - Hub-cache init no longer fails with "Author identity unknown" on a host whose
   git identity is present but empty (gh#34). `ensure_cache_git_identity` checked
   only that `git config user.email` *succeeded* — but `git config` exits 0 for a

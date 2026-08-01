@@ -30,11 +30,14 @@
     "tracking_mode": "relaxed",
     "blocked_git_commands": [
       "git push --force", "git push -f",
-      "git reset --hard",
+      "git merge", "git rebase", "git cherry-pick",
+      "git reset",
       "git clean -f", "git clean -fd", "git clean -fdx",
-      "git checkout .", "git restore ."
+      "git checkout .", "git restore .",
+      "git stash", "git tag", "git am", "git apply",
+      "git branch -d", "git branch -D", "git branch -m"
     ],
-    "gated_git_commands": [],
+    "gated_git_commands": ["git commit"],
     "agent_lint_commands": [],
     "agent_test_commands": []
   },

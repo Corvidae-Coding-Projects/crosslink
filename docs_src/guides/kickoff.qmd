@@ -218,7 +218,8 @@ Everything from `--verify ci`, plus an adversarial self-review:
 
 The background agent operates under the same crosslink hook enforcement as interactive sessions:
 
-- **Always blocked:** `git push`, `git merge`, `git rebase`, `git reset`, and other destructive git commands (except when CI verification is enabled, where push is allowed)
+- **Always blocked:** `git merge`, `git rebase`, `git cherry-pick`, `git reset`, force-push, and the other destructive git commands
+- **Push:** plain `git push` is permitted only for the CI-verification draft-PR steps the prompt specifies; force-push is always blocked
 - **Gated on active issue:** `git commit` requires an active crosslink work item
 - **Tool auto-approval:** Only pre-approved tools run without prompting; anything else pauses the agent
 - **Isolated worktree:** All changes are confined to `.worktrees/` -- your main checkout is untouched

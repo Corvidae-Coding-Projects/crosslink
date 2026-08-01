@@ -16,7 +16,7 @@ Container execution gives your agents the same workflow with stronger sandboxing
 
 - **Isolation** -- agents cannot access your host filesystem outside the worktree
 - **Reproducibility** -- consistent environment regardless of host OS
-- **Security** -- `--dangerously-skip-permissions` becomes safe inside a container because crosslink hooks still enforce policy (no push, no merge, gated commits)
+- **Security** -- `--dangerously-skip-permissions` becomes safe inside a container because crosslink hooks still enforce policy (no merge/rebase, commits gated on an active issue, force-push always blocked; plain push is reserved for the CI-verify draft-PR flow)
 - **Cross-platform** -- works on Windows, Linux, and macOS anywhere Docker runs
 
 &nbsp;
