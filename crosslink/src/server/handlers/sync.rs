@@ -14,6 +14,35 @@ use crate::server::{
 };
 use crate::sync::SyncManager;
 
+/// Modification time of the hub cache's `FETCH_HEAD`, the v3 "last fetch"
+/// signal (GH#53). `git rev-parse --git-path FETCH_HEAD` resolves its path for
+/// this worktree; `None` when git isn't reachable or no fetch has run yet.
+fn fetch_head_mtime(cache_path: &std::path::Path) -> Option<chrono::DateTime<chrono::Utc>> {
+    let out = std::process::Command::new("git")
+        .current_dir(cache_path)
+        .args(["rev-parse", "--git-path", "FETCH_HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let rel = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if rel.is_empty() {
+        return None;
+    }
+    let path = std::path::Path::new(&rel);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cache_path.join(path)
+    };
+    std::fs::metadata(&resolved)
+        .ok()?
+        .modified()
+        .ok()
+        .map(chrono::DateTime::<chrono::Utc>::from)
+}
+
 /// Try to construct a `SyncManager` from the shared crosslink dir.
 fn sync_manager(state: &AppState) -> Result<SyncManager, (StatusCode, Json<ApiError>)> {
     SyncManager::new(&state.crosslink_dir)
@@ -52,14 +81,21 @@ pub async fn sync_status(
         (0, 0)
     };
 
-    // Derive last_fetch_at from the hub cache directory's modification time.
-    let last_fetch_at = if hub_initialized {
+    // Derive last_fetch_at. On v2 the fetch resets the cache worktree, so its
+    // directory mtime tracks the fetch. On v3 the fetch adopts refs into
+    // `.git` and never touches the worktree (GH#53), so the directory mtime
+    // freezes at cache-creation time; use FETCH_HEAD instead — git rewrites it
+    // on every fetch, and `rev-parse --git-path` locates it correctly across
+    // worktree layouts.
+    let last_fetch_at = if !hub_initialized {
+        None
+    } else if sm.hub_mode().is_v3() {
+        fetch_head_mtime(sm.cache_path())
+    } else {
         std::fs::metadata(sm.cache_path())
             .ok()
             .and_then(|m| m.modified().ok())
             .map(chrono::DateTime::<chrono::Utc>::from)
-    } else {
-        None
     };
 
     Ok(Json(SyncStatusResponse {

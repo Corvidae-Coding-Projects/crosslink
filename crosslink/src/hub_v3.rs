@@ -1068,6 +1068,84 @@ pub fn poll_requests_for_agent(
     Ok(out)
 }
 
+/// Aggregate every agent control request across the hub's agent refs, paired
+/// with its ack, grouped by the TARGET agent (GH#49 — the dashboard view).
+///
+/// Unlike [`poll_requests_for_agent`] (an agent's own filtered inbox), this
+/// returns the whole picture for the dashboard's agent-request pane, which on
+/// v3 had been empty because the requests live on refs, not a worktree the
+/// snapshot reader scans. Requests are read from each driver's
+/// `requests-out/<target>--<ulid>.json`; the ack (if any) is read from the
+/// TARGET's own `requests-ack/<ulid>.json`. Returns `(target_agent_id,
+/// requests)` pairs, sorted by agent id, non-empty only.
+///
+/// # Errors
+///
+/// Returns an error if git plumbing fails or a request/ack blob is malformed.
+pub fn read_all_agent_requests(
+    repo_dir: &Path,
+) -> Result<Vec<(String, Vec<crate::agent_requests::RequestWithAck>)>> {
+    use std::collections::BTreeMap;
+
+    // 1. Requests, grouped by target agent: target -> [(ulid, request)].
+    let mut by_target: BTreeMap<String, Vec<(String, crate::agent_requests::AgentRequest)>> =
+        BTreeMap::new();
+    // 2. Acks, keyed by the target that wrote them: target -> {ulid -> ack}.
+    let mut acks: BTreeMap<String, BTreeMap<String, crate::agent_requests::AgentRequestAck>> =
+        BTreeMap::new();
+
+    for ref_name in for_each_agent_ref(repo_dir)? {
+        let Some(owner) = ref_name.strip_prefix(AGENT_REF_PREFIX) else {
+            continue;
+        };
+        let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+            continue;
+        };
+
+        // Requests this ref's owner (a driver) sent to others.
+        for leaf in list_subtree_leaf_names(repo_dir, &tip, REQUESTS_OUT_DIR)? {
+            let Some((target, ulid)) = parse_request_out_name(&leaf) else {
+                continue;
+            };
+            let spec = format!("{tip}:{REQUESTS_OUT_DIR}/{leaf}");
+            let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+                continue;
+            };
+            let request: crate::agent_requests::AgentRequest = serde_json::from_slice(&bytes)
+                .with_context(|| format!("failed to parse request '{leaf}' on '{ref_name}'"))?;
+            by_target.entry(target).or_default().push((ulid, request));
+        }
+
+        // Acks this ref's owner (a target) wrote for requests aimed at it.
+        for leaf in list_subtree_leaf_names(repo_dir, &tip, REQUESTS_ACK_DIR)? {
+            let spec = format!("{tip}:{REQUESTS_ACK_DIR}/{leaf}");
+            let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+                continue;
+            };
+            let ack: crate::agent_requests::AgentRequestAck = serde_json::from_slice(&bytes)
+                .with_context(|| format!("failed to parse ack '{leaf}' on '{ref_name}'"))?;
+            acks.entry(owner.to_string())
+                .or_default()
+                .insert(ack.request_id.clone(), ack);
+        }
+    }
+
+    let mut out = Vec::new();
+    for (target, mut requests) in by_target {
+        requests.sort_by(|a, b| a.0.cmp(&b.0)); // ulid == chronological
+        let target_acks = acks.get(&target);
+        let paired = requests
+            .into_iter()
+            .map(|(ulid, request)| crate::agent_requests::RequestWithAck {
+                request,
+                ack: target_acks.and_then(|m| m.get(&ulid).cloned()),
+            })
+            .collect();
+        out.push((target, paired));
+    }
+    Ok(out)
+}
+
 /// Read the maximum `agent_seq` recorded in this agent's OWN REF `events.log`.
 ///
 /// Returns `Ok(0)` when the ref does not exist or carries no `events.log`
@@ -3848,6 +3926,42 @@ mod tests {
         // Poll no longer returns it.
         let after = poll_requests_for_agent(dir.path(), target).unwrap();
         assert!(after.is_empty(), "acked request must not be returned");
+    }
+
+    #[test]
+    fn read_all_agent_requests_pairs_request_with_ack() {
+        // GH#49: the dashboard aggregator surfaces every request grouped by
+        // target, paired with its ack — the whole picture, unlike the
+        // per-inbox poll (which drops acked requests).
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let driver = "driver-1";
+        let target = "target-1";
+        write_request_to_own_ref(dir.path(), driver, target, &make_request("01REQ0001")).unwrap();
+
+        // Before any ack: one target, one request, ack None — and unlike the
+        // per-inbox poll, still visible after acking (below).
+        let all = read_all_agent_requests(dir.path()).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].0, target, "grouped by target agent");
+        assert_eq!(all[0].1.len(), 1);
+        assert_eq!(all[0].1[0].request.request_id, "01REQ0001");
+        assert!(all[0].1[0].ack.is_none(), "no ack yet");
+
+        // After the target acks: the request is still surfaced, now paired.
+        write_ack_to_own_ref(dir.path(), target, "01REQ0001", &make_ack("01REQ0001")).unwrap();
+        let all = read_all_agent_requests(dir.path()).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(
+            all[0].1.len(),
+            1,
+            "acked request stays visible to dashboard"
+        );
+        assert_eq!(
+            all[0].1[0].ack.as_ref().map(|a| a.request_id.as_str()),
+            Some("01REQ0001"),
+            "ack is paired with its request"
+        );
     }
 
     #[test]

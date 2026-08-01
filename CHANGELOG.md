@@ -25,6 +25,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `GET /api/v1/sync/status` reports an accurate `last_fetch_at` on v3 hubs
+  (gh#53). It was derived from the hub-cache directory's mtime, which tracks a
+  fetch on v2 (the worktree is reset) but freezes on v3, where a fetch adopts
+  refs into `.git` and never touches the worktree. On v3 it now reads
+  `FETCH_HEAD`'s mtime (git rewrites it on every fetch), located via
+  `rev-parse --git-path` so it is correct across worktree layouts.
+- The dashboard agent-request pane is populated on v3 hubs (gh#49, agent
+  requests half). `read_snapshot_v3` hardcoded `agent_requests` empty because
+  the request/ack streams live on the agent refs, not a worktree the snapshot
+  reader scans. A new `hub_v3::read_all_agent_requests` walks the agent refs,
+  reads each driver's `requests-out/<target>--<ulid>.json` and each target's
+  `requests-ack/<ulid>.json`, and pairs them by ulid grouped by target — the
+  whole-fleet view the dashboard needs, distinct from the per-inbox
+  `poll_requests_for_agent`. (The `ci_status` half of gh#49 remains: v3 has no
+  CI-status ref home or writer yet — separate work.)
+- The dashboard `unreachable_project` alert can now fire (gh#48). The alert and
+  the frontend tile severity key on `projects.status == "error"`, but the poll
+  loop never wrote that value — it discarded the fetch outcome and propagated a
+  snapshot-read failure without recording it — so a genuinely unreachable
+  project showed stale tiles and stayed silent. `poll_project` now marks
+  `status = "error"` when the clone is gone/unreadable, or when a fetch failed
+  and no local hub data exists, and clears it back to `"active"` on a
+  successful poll (a transient fetch failure over existing local data does not
+  flap).
 - Hub-cache init no longer fails with "Author identity unknown" on a host whose
   git identity is present but empty (gh#34). `ensure_cache_git_identity` checked
   only that `git config user.email` *succeeded* — but `git config` exits 0 for a
