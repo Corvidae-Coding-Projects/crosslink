@@ -83,23 +83,18 @@ pub fn run(
         id
     };
 
-    // 3. Create worktree and feature branch (or use existing branch)
-    let (worktree_dir, branch_name) = if let Some(br) = opts.branch {
-        // Use existing branch — check if worktree exists
-        let wt_slug = br.strip_prefix("feature/").unwrap_or(br);
-        let worktree_dir = root.join(".worktrees").join(wt_slug);
-        if worktree_dir.exists() {
-            (worktree_dir, br.to_string())
-        } else {
-            create_worktree(&root, wt_slug, None)?
-        }
-    } else {
-        create_worktree(&root, &compact_name, None)?
-    };
-
-    // Write slug sentinel so other commands can identify this worktree
-    std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
-        .context("Failed to write .kickoff-slug sentinel")?;
+    // 3. Resolve the worktree slug and branch name up front. Creation is
+    //    deferred until after the dry-run gate below so a dry run is
+    //    side-effect-free (gh#19) — these are the exact names
+    //    create_worktree derives.
+    let (wt_slug, branch_name) = opts.branch.map_or_else(
+        || (compact_name.clone(), format!("feature/{compact_name}")),
+        |br| {
+            let wt_slug = br.strip_prefix("feature/").unwrap_or(br);
+            (wt_slug.to_string(), br.to_string())
+        },
+    );
+    let worktree_dir = root.join(".worktrees").join(&wt_slug);
 
     // 4. Detect project conventions, then extend with any explicit additions
     //    from `hook-config.json`'s `kickoff.allowed_tools` array so projects
@@ -113,7 +108,30 @@ pub fn run(
     // 5. Build the prompt
     let prompt = build_prompt(opts, issue_id, &branch_name, &conventions);
 
-    // 6. Write KICKOFF.md to worktree
+    // Dry run: print the prompt and the would-be worktree/branch/agent, then
+    // exit BEFORE creating the worktree, branch, or any sentinel file (gh#19).
+    if opts.dry_run {
+        println!("{prompt}");
+        println!("---");
+        println!("Worktree: {}", worktree_dir.display());
+        println!("Branch:   {branch_name}");
+        println!("Agent:    {compact_name}");
+        return Ok(compact_name);
+    }
+
+    // 6. Create worktree and feature branch (or reuse the existing worktree
+    //    when --branch points at one), then write the kickoff files into it.
+    let (worktree_dir, branch_name) = if worktree_dir.exists() && opts.branch.is_some() {
+        (worktree_dir, branch_name)
+    } else {
+        create_worktree(&root, &wt_slug, None)?
+    };
+
+    // Write slug sentinel so other commands can identify this worktree
+    std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
+        .context("Failed to write .kickoff-slug sentinel")?;
+
+    // 6a. Write KICKOFF.md to worktree
     std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
         .context("Failed to write KICKOFF.md")?;
 
@@ -153,16 +171,6 @@ pub fn run(
 
     // 7. Exclude kickoff files from git
     exclude_kickoff_files(&worktree_dir)?;
-
-    // Dry run: print prompt and exit (skip agent init — no launch needed)
-    if opts.dry_run {
-        println!("{prompt}");
-        println!("---");
-        println!("Worktree: {}", worktree_dir.display());
-        println!("Branch:   {branch_name}");
-        println!("Agent:    {compact_name}");
-        return Ok(compact_name);
-    }
 
     // 8. Initialize crosslink + agent in worktree (only for real launches)
     let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name)?;
