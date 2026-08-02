@@ -1725,6 +1725,15 @@ enum KickoffCommands {
         /// this cap, so a wave of N agents can spend up to N x amount.
         #[arg(long, value_name = "AMOUNT")]
         budget_usd: Option<String>,
+        /// Prompt template file interpolated with the built prompt (gh#62).
+        ///
+        /// The file's body has the placeholders `{{built_prompt}}`,
+        /// `{{issue_id}}`, `{{branch}}`, `{{description}}`, `{{model}}`,
+        /// `{{effort}}`, `{{doc_path}}`, and `{{allowed_tools}}` substituted;
+        /// a file with no placeholders replaces the prompt wholesale. Takes
+        /// precedence over the `agent.kickoff_template` config setting.
+        #[arg(long, value_name = "PATH")]
+        template: Option<PathBuf>,
     },
     /// Check status of a running kickoff agent (no args = pipeline overview)
     Status {
@@ -1802,6 +1811,14 @@ enum KickoffCommands {
         /// Spend ceiling in USD for the dispatched claude session (gh#61).
         #[arg(long, value_name = "AMOUNT")]
         budget_usd: Option<String>,
+        /// Prompt template file interpolated with the plan prompt (gh#62).
+        ///
+        /// Same placeholders as `kickoff run --template`; plan mode has no
+        /// feature branch/description/tool set, so `{{branch}}`,
+        /// `{{description}}`, and `{{allowed_tools}}` render empty. Takes
+        /// precedence over the `agent.kickoff_template` config setting.
+        #[arg(long, value_name = "PATH")]
+        template: Option<PathBuf>,
     },
     /// Display a gap report from a previous plan analysis
     ShowPlan {

@@ -148,6 +148,7 @@ fn test_build_prompt_contains_essentials() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
@@ -184,6 +185,7 @@ fn test_build_prompt_ci_verification() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
@@ -217,6 +219,7 @@ fn test_build_prompt_thorough_verification() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
@@ -899,6 +902,7 @@ fn test_build_prompt_local_has_no_ci_or_adversarial() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
@@ -932,6 +936,7 @@ fn test_build_prompt_contains_blocked_actions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -966,6 +971,7 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
@@ -1000,6 +1006,7 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
@@ -1046,6 +1053,7 @@ fn test_build_prompt_with_design_doc() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
@@ -1195,6 +1203,7 @@ fn test_build_prompt_with_design_doc_open_questions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
@@ -1370,6 +1379,7 @@ fn test_build_prompt_with_criteria_includes_validation() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -1414,6 +1424,7 @@ fn test_build_prompt_without_criteria_no_validation() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -1455,6 +1466,7 @@ fn test_build_prompt_validation_ordering() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -2569,6 +2581,7 @@ fn test_build_prompt_contains_report_json_schema() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -2620,6 +2633,7 @@ fn test_build_prompt_contains_validation_section() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
@@ -3314,6 +3328,7 @@ fn dialed_opts<'a>(
         permission_mode: None,
         effort,
         budget_usd: budget,
+        template: None,
         agent_binary: "claude".to_string(),
     }
 }
@@ -3368,4 +3383,151 @@ fn test_kickoff_metadata_deserializes_legacy_file() {
     assert_eq!(parsed.model, None);
     assert_eq!(parsed.effort, None);
     assert_eq!(parsed.budget_usd, None);
+}
+
+// =====================================================================
+// gh#62 (REQ-5, Decision D2): kickoff prompt-injection seam interpolation.
+// =====================================================================
+
+// AC-6: every D2 placeholder is replaced with its value.
+#[test]
+fn test_interpolate_template_substitutes_all_placeholders() {
+    let ctx = TemplateContext {
+        built_prompt: "BUILT-BODY",
+        issue_id: 42,
+        branch: "feature/add-x",
+        description: "add x",
+        model: "opus",
+        effort: Some("high"),
+        doc_path: Some(".design/x.md"),
+        allowed_tools: "Read,Write",
+    };
+    let template = "issue={{issue_id}} branch={{branch}} desc={{description}} model={{model}} effort={{effort}} doc={{doc_path}} tools={{allowed_tools}} | {{built_prompt}}";
+    assert_eq!(
+        interpolate_template(template, &ctx),
+        "issue=42 branch=feature/add-x desc=add x model=opus effort=high doc=.design/x.md tools=Read,Write | BUILT-BODY"
+    );
+}
+
+// AC-6: an unset optional (`{{effort}}`/`{{doc_path}}`) renders empty rather
+// than leaving the literal token behind.
+#[test]
+fn test_interpolate_template_unset_optionals_render_empty() {
+    let ctx = TemplateContext {
+        built_prompt: "B",
+        issue_id: 1,
+        branch: "br",
+        description: "d",
+        model: "opus",
+        effort: None,
+        doc_path: None,
+        allowed_tools: "",
+    };
+    assert_eq!(
+        interpolate_template("[{{effort}}][{{doc_path}}][{{allowed_tools}}]", &ctx),
+        "[][][]"
+    );
+}
+
+// REQ-5 backward-compat: a placeholder-free template is returned verbatim —
+// byte-identical to the pre-gh#62 full-replacement behaviour.
+#[test]
+fn test_interpolate_template_without_placeholders_is_unchanged() {
+    let ctx = TemplateContext {
+        built_prompt: "IGNORED",
+        issue_id: 7,
+        branch: "b",
+        description: "d",
+        model: "m",
+        effort: Some("low"),
+        doc_path: None,
+        allowed_tools: "",
+    };
+    let body = "A fixed prompt with no tokens.";
+    assert_eq!(interpolate_template(body, &ctx), body);
+}
+
+// `{{built_prompt}}` is substituted last, so a built prompt that itself
+// contains a `{{token}}` sequence is inserted verbatim, not re-scanned.
+#[test]
+fn test_interpolate_template_built_prompt_substituted_last() {
+    let ctx = TemplateContext {
+        built_prompt: "contains {{issue_id}} literally",
+        issue_id: 99,
+        branch: "b",
+        description: "d",
+        model: "m",
+        effort: None,
+        doc_path: None,
+        allowed_tools: "",
+    };
+    assert_eq!(
+        interpolate_template("id={{issue_id}} body={{built_prompt}}", &ctx),
+        "id=99 body=contains {{issue_id}} literally"
+    );
+}
+
+// AC-8 property: the same template rendered for two agents yields each agent's
+// own `{{description}}` — the per-agent differentiation swarm per-phase relies
+// on (a full swarm launch needs docker/agent and is not CI-runnable).
+#[test]
+fn test_interpolate_template_preserves_per_agent_description() {
+    let render = |desc: &str| {
+        let ctx = TemplateContext {
+            built_prompt: "",
+            issue_id: 1,
+            branch: "",
+            description: desc,
+            model: "opus",
+            effort: None,
+            doc_path: None,
+            allowed_tools: "",
+        };
+        interpolate_template("AGENT: {{description}}", &ctx)
+    };
+    assert_eq!(render("build the API"), "AGENT: build the API");
+    assert_eq!(render("wire the UI"), "AGENT: wire the UI");
+}
+
+// AC-7: an explicit `--template` path wins over the `agent.kickoff_template`
+// config; with only config set, the config path is used.
+#[test]
+fn test_resolve_kickoff_template_flag_wins_else_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let crosslink_dir = dir.path();
+
+    // Config template referenced from hook-config.json (path relative to
+    // crosslink_dir, matching read_kickoff_template's resolution).
+    std::fs::write(crosslink_dir.join("config-template.md"), "CONFIG-BODY").unwrap();
+    std::fs::write(
+        crosslink_dir.join("hook-config.json"),
+        r#"{"agent":{"kickoff_template":"config-template.md"}}"#,
+    )
+    .unwrap();
+
+    // Explicit --template file.
+    let flag_path = crosslink_dir.join("flag-template.md");
+    std::fs::write(&flag_path, "FLAG-BODY").unwrap();
+
+    // Flag wins over config.
+    assert_eq!(
+        crate::utils::resolve_kickoff_template(crosslink_dir, Some(flag_path.as_path())).as_deref(),
+        Some("FLAG-BODY")
+    );
+    // No flag -> config fallback.
+    assert_eq!(
+        crate::utils::resolve_kickoff_template(crosslink_dir, None).as_deref(),
+        Some("CONFIG-BODY")
+    );
+}
+
+// AC-7: with neither a flag nor config template, resolution is None so the
+// caller falls back to the built-in prompt.
+#[test]
+fn test_resolve_kickoff_template_none_without_flag_or_config() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        crate::utils::resolve_kickoff_template(dir.path(), None),
+        None
+    );
 }

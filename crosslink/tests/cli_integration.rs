@@ -2869,6 +2869,58 @@ fn test_kickoff_dry_run_prints_prompt_and_metadata() {
     assert!(stdout.contains("Agent:"));
 }
 
+// gh#62 (REQ-5/REQ-6, AC-9): `kickoff run --template` interpolates the built
+// prompt into the template file and prints the assembled result — the same
+// content that would be written to KICKOFF.md — proving the flag flows through
+// the CLI into the run.rs step-5 seam.
+#[test]
+fn test_kickoff_run_template_interpolates_prompt() {
+    let dir = test_dir();
+    init_git_and_crosslink(dir.path());
+
+    let template_path = dir.path().join("tmpl.md");
+    std::fs::write(
+        &template_path,
+        "TEMPLATE-START desc={{description}} model={{model}} MARKER\n{{built_prompt}}\nTEMPLATE-END",
+    )
+    .unwrap();
+
+    let (success, stdout, stderr) = run_crosslink(
+        dir.path(),
+        &[
+            "kickoff",
+            "run",
+            "--dry-run",
+            "--model",
+            "sonnet",
+            "--template",
+            template_path.to_str().unwrap(),
+            "add retry logic",
+        ],
+    );
+    assert!(success, "kickoff run --template failed: stderr={stderr}");
+
+    // The template wrapper is present with its scalar placeholders substituted.
+    assert!(
+        stdout.contains("TEMPLATE-START desc=add retry logic model=sonnet MARKER"),
+        "template placeholders not interpolated: {stdout}"
+    );
+    assert!(
+        stdout.contains("TEMPLATE-END"),
+        "template tail missing: {stdout}"
+    );
+    // built_prompt was expanded to the real built prompt.
+    assert!(
+        stdout.contains("KICKOFF: add retry logic"),
+        "built_prompt placeholder not expanded to the built prompt: {stdout}"
+    );
+    // No raw placeholder token survived interpolation.
+    assert!(
+        !stdout.contains("description}}") && !stdout.contains("built_prompt}}"),
+        "raw template tokens leaked into output: {stdout}"
+    );
+}
+
 #[test]
 fn test_kickoff_dry_run_is_side_effect_free_and_prints_prompt() {
     let dir = test_dir();

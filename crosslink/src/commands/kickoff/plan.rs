@@ -8,6 +8,7 @@ use crate::identity::AgentConfig;
 
 use super::helpers::*;
 use super::launch::*;
+use super::prompt::{interpolate_template, TemplateContext};
 use super::types::*;
 
 /// Build the allowed tools string for plan mode (read-only analysis).
@@ -172,9 +173,30 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         None
     };
 
-    // 3. Build prompt (with plan copy instruction if doc_path is known)
+    // 3. Build prompt (with plan copy instruction if doc_path is known). When a
+    //    template is configured (`--template` or `agent.kickoff_template`),
+    //    interpolate the plan prompt into it (gh#62, REQ-6). Plan mode has no
+    //    feature branch, feature description, or tool set, so `{{branch}}`,
+    //    `{{description}}`, and `{{allowed_tools}}` render empty; a plan without
+    //    `--issue` renders `{{issue_id}}` as `0`.
     let plan_copy_target = opts.doc_path.map(super::pipeline::plan_path_for_doc);
-    let prompt = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
+    let built = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
+    let prompt = match crate::utils::resolve_kickoff_template(crosslink_dir, opts.template) {
+        Some(template) => {
+            let ctx = TemplateContext {
+                built_prompt: &built,
+                issue_id: issue_id.unwrap_or(0),
+                branch: "",
+                description: "",
+                model: opts.model,
+                effort: opts.effort,
+                doc_path: opts.doc_path.and_then(|p| p.to_str()),
+                allowed_tools: "",
+            };
+            interpolate_template(&template, &ctx)
+        }
+        None => built,
+    };
 
     // Dry run: print what would happen and exit BEFORE any side effect —
     // no worktree, no branch, no sentinel, no PlanRecord (gh#19). The

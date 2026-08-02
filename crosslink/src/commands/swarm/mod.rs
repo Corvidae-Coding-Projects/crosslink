@@ -678,6 +678,26 @@ mod tests {
         assert_eq!(dials.budget_usd, None);
     }
 
+    // gh#62 (REQ-7, AC-8): a per-phase template file keyed by phase slug is
+    // picked up for that phase and is absent for phases with no file, so a
+    // wave can inject different templates per phase instead of one uniformly.
+    #[test]
+    fn test_resolve_phase_template_keyed_by_phase_slug() {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path();
+        let templates = crosslink_dir.join("swarm-templates");
+        std::fs::create_dir_all(&templates).unwrap();
+        std::fs::write(templates.join("build-api.md"), "{{built_prompt}}").unwrap();
+
+        // Present for the matching phase slug.
+        assert_eq!(
+            resolve_phase_template(crosslink_dir, "build-api").as_deref(),
+            Some(templates.join("build-api.md").as_path())
+        );
+        // Absent for a phase with no template file.
+        assert_eq!(resolve_phase_template(crosslink_dir, "ship-ui"), None);
+    }
+
     #[test]
     fn test_cost_log_serde_roundtrip() {
         let mut estimates = std::collections::HashMap::new();
