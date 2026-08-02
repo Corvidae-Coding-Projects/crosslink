@@ -27,6 +27,7 @@ The user may pass these flags after the feature description:
 - `--container <runtime>`: Use `docker` or `podman` instead of local tmux. Default: `none`.
 - `--model <model>`: LLM model to use (provider/model format, e.g. `opencode-go/deepseek-v4-flash`, `google-vertex/gemini-3.1-pro-preview`). Default: from `hook-config.json` or `opus`.
 - `--timeout <duration>`: Max runtime (e.g. `1h`, `30m`). Default: `1h`.
+- `--template <path>`: Interpolate the built prompt into a template file rather than using the built-in prompt directly (gh#62). See **Prompt templates** below.
 - All other text is the feature description.
 
 **Parsing**: Split ARGUMENTS on whitespace. Extract recognized `--flag value` pairs. Everything remaining is the feature description.
@@ -77,6 +78,35 @@ The agent binary and default model are configured via `hook-config.json`:
 ```
 
 When a non-Claude binary is configured, the wrapper automatically omits Anthropic-specific environment variables (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`) and credential mounts (`~/.claude`).
+
+### Prompt templates (gh#62)
+
+By default `kickoff run`/`plan` build a self-contained prompt. To wrap or extend it, supply a template whose body is *interpolated* (not replaced): the built prompt and its dispatch context are substituted into the placeholders the template references.
+
+Sources, highest precedence first:
+
+1. `--template <path>` — a per-invocation template file (dispatch-scoped, so parallel dispatches never race on one global path).
+2. `agent.kickoff_template` in `hook-config.json` — a repo-global default (path resolved relative to the crosslink directory).
+3. None — the built-in prompt is used unchanged.
+
+`agent.no_template: true` skips the prompt entirely and overrides both.
+
+Placeholders (Decision D2):
+
+| Placeholder | Value |
+| --- | --- |
+| `{{built_prompt}}` | The full built-in prompt |
+| `{{issue_id}}` | Issue number (`0` for a plan with no `--issue`) |
+| `{{branch}}` | Feature branch (empty in plan mode) |
+| `{{description}}` | Feature description (empty in plan mode) |
+| `{{model}}` | `--model` value |
+| `{{effort}}` | `--effort` value (empty if unset) |
+| `{{doc_path}}` | Design-doc path (empty if none) |
+| `{{allowed_tools}}` | Comma-joined allowed-tools list (empty in plan mode) |
+
+A template with no placeholders is used verbatim (wholesale replacement), so existing `agent.kickoff_template` files keep working unchanged. The assembled prompt is still written to `KICKOFF.md` as the run's audit record.
+
+**Swarm:** drop a per-phase template at `<crosslink-dir>/swarm-templates/<phase-slug>.md`; every agent launched for that phase uses it (overriding the repo-global config) while still rendering its own `{{description}}`.
 
 ## Constraints
 

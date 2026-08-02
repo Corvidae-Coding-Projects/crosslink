@@ -66,6 +66,7 @@ pub fn dispatch(
             permission_mode,
             effort,
             budget_usd,
+            template,
         } => {
             let parsed_doc = if let Some(ref path) = doc {
                 let content = std::fs::read_to_string(path)
@@ -95,6 +96,7 @@ pub fn dispatch(
                 permission_mode: permission_mode.as_deref(),
                 effort: effort.as_deref(),
                 budget_usd: budget_usd.as_deref(),
+                template: template.as_deref(),
                 agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             // The pipeline "running" row is now written from inside `run()`
@@ -119,6 +121,7 @@ pub fn dispatch(
             permission_mode,
             effort,
             budget_usd,
+            template,
         } => {
             let content = std::fs::read_to_string(&doc)
                 .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
@@ -138,6 +141,7 @@ pub fn dispatch(
                 permission_mode: permission_mode.as_deref(),
                 effort: effort.as_deref(),
                 budget_usd: budget_usd.as_deref(),
+                template: template.as_deref(),
                 agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             plan(crosslink_dir, db, &plan_opts)
@@ -254,8 +258,10 @@ fn dispatch_launch(
             // gh#61: the unified `kickoff [doc] --plan/--run` entry point does
             // not expose the dispatch dials — they live on `kickoff run` /
             // `kickoff plan`. Unset here reproduces the previous invocation.
+            // gh#62: likewise no per-invocation template on this entry point.
             effort: None,
             budget_usd: None,
+            template: None,
             agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
         return plan(crosslink_dir, db, &plan_opts);
@@ -299,9 +305,10 @@ fn dispatch_launch(
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
             skip_permissions,
             permission_mode,
-            // See the --plan branch above: dials are not exposed here.
+            // See the --plan branch above: dials and template are not exposed here.
             effort: None,
             budget_usd: None,
+            template: None,
             agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
         // mark_running is now invoked from inside run() with the real identity.
@@ -351,9 +358,11 @@ fn dispatch_launch(
                 skip_permissions: false,
                 permission_mode: None,
                 // The wizard collects model/timeout/verify only; dials stay
-                // unset so an interactive launch is unchanged (gh#61).
+                // unset so an interactive launch is unchanged (gh#61). No
+                // per-invocation template on the wizard path either (gh#62).
                 effort: None,
                 budget_usd: None,
+                template: None,
                 agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             plan(crosslink_dir, db, &plan_opts)
@@ -394,9 +403,10 @@ fn dispatch_launch(
                 doc_path: doc_path_str.as_deref(),
                 skip_permissions: false,
                 permission_mode: None,
-                // See the wizard's Plan branch: dials stay unset here.
+                // See the wizard's Plan branch: dials and template stay unset here.
                 effort: None,
                 budget_usd: None,
+                template: None,
                 agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             run(crosslink_dir, db, writer, &opts)?;

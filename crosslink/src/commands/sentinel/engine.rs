@@ -488,9 +488,11 @@ fn spawn_agent(
         skip_permissions: true,
         permission_mode: None,
         // Sentinel dispatch carries no reasoning/spend dials (gh#61) — the
-        // scope's model is the only dial it configures.
+        // scope's model is the only dial it configures. No template either
+        // (gh#62): sentinel agents use the built-in prompt.
         effort: None,
         budget_usd: None,
+        template: None,
         agent_binary: crate::utils::read_agent_binary(crosslink_dir),
     };
 

@@ -182,6 +182,45 @@ Then:
 "#
 }
 
+/// Placeholder values for kickoff-template interpolation (gh#62, REQ-5;
+/// Decision D2). Each field maps to one `{{token}}` substituted by
+/// [`interpolate_template`].
+pub(crate) struct TemplateContext<'a> {
+    /// The fully built prompt ([`build_prompt`] / `build_plan_prompt` output).
+    pub built_prompt: &'a str,
+    pub issue_id: i64,
+    pub branch: &'a str,
+    pub description: &'a str,
+    pub model: &'a str,
+    /// `--effort` value, or `None` to render `{{effort}}` empty.
+    pub effort: Option<&'a str>,
+    /// Design-doc path, or `None` to render `{{doc_path}}` empty.
+    pub doc_path: Option<&'a str>,
+    /// Comma-joined allowed-tools list.
+    pub allowed_tools: &'a str,
+}
+
+/// Interpolate the Decision-D2 placeholder set into a template body (gh#62,
+/// REQ-5). Each `{{token}}` is replaced by its value; an unset optional
+/// (`{{effort}}`/`{{doc_path}}`) renders as the empty string; tokens the
+/// template does not mention are left untouched. `{{built_prompt}}` is
+/// substituted last so a built prompt that happens to contain a `{{token}}`
+/// sequence is inserted verbatim rather than re-scanned. A template containing
+/// no placeholders is returned unchanged — byte-identical to the pre-gh#62
+/// full-replacement behaviour, so existing `agent.kickoff_template` users see
+/// no change (REQ-5 backward-compat).
+pub(crate) fn interpolate_template(template: &str, ctx: &TemplateContext) -> String {
+    template
+        .replace("{{issue_id}}", &ctx.issue_id.to_string())
+        .replace("{{branch}}", ctx.branch)
+        .replace("{{description}}", ctx.description)
+        .replace("{{model}}", ctx.model)
+        .replace("{{effort}}", ctx.effort.unwrap_or(""))
+        .replace("{{doc_path}}", ctx.doc_path.unwrap_or(""))
+        .replace("{{allowed_tools}}", ctx.allowed_tools)
+        .replace("{{built_prompt}}", ctx.built_prompt)
+}
+
 /// Build the KICKOFF.md prompt for the agent.
 pub(crate) fn build_prompt(
     opts: &KickoffOpts,

@@ -146,6 +146,12 @@ pub struct KickoffOpts<'a> {
     /// spend ceiling for unattended dispatch. Per-session: under swarm each
     /// dispatched agent receives this cap (Decision D1). `None` emits no flag.
     pub budget_usd: Option<&'a str>,
+    /// Optional prompt template path (gh#62, REQ-6). When set (via `--template`
+    /// or a per-phase swarm template), it takes precedence over the
+    /// `agent.kickoff_template` config; its body is interpolated with the D2
+    /// placeholder set rather than replacing the built prompt wholesale.
+    /// `None` falls back to the config setting, then the built-in prompt.
+    pub template: Option<&'a Path>,
     /// Agent binary to launch (read from hook-config.json `agent.binary`,
     /// default "claude"). Allows pointing kickoff at a different agent CLI.
     pub agent_binary: String,
@@ -283,6 +289,10 @@ pub struct PlanOpts<'a> {
     /// Optional claude `--max-budget-usd <amount>` (gh#61). See
     /// [`KickoffOpts::budget_usd`].
     pub budget_usd: Option<&'a str>,
+    /// Optional prompt template path (gh#62, REQ-6). See
+    /// [`KickoffOpts::template`]; for plan mode the `{{branch}}`,
+    /// `{{description}}`, and `{{allowed_tools}}` placeholders render empty.
+    pub template: Option<&'a Path>,
     /// Agent binary to launch (read from hook-config.json `agent.binary`,
     /// default "claude").
     pub agent_binary: String,

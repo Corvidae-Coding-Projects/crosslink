@@ -2,7 +2,7 @@
 // resume, launch, gate, checkpoint.
 
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::io::*;
 use super::status::{probe_agent_status, resolve_agents};
@@ -707,6 +707,22 @@ pub(super) fn resolve_dispatch_dials(config: Option<&BudgetConfig>) -> DispatchD
     }
 }
 
+/// Resolve a per-phase prompt template for swarm dispatch (gh#62, REQ-7).
+///
+/// Looks for `<crosslink_dir>/swarm-templates/<phase_slug>.md`. When present it
+/// is handed to every agent launched for that phase as its `--template`, so it
+/// takes precedence over the repo-global `agent.kickoff_template` while each
+/// agent still renders its own `{{description}}`. Absent, the phase falls back
+/// to the config template or the built-in prompt. Keyed by phase slug so
+/// different phases in a wave can inject different templates rather than the
+/// single repo-global template applying uniformly (AC-8).
+pub(super) fn resolve_phase_template(crosslink_dir: &Path, phase_slug: &str) -> Option<PathBuf> {
+    let candidate = crosslink_dir
+        .join("swarm-templates")
+        .join(format!("{phase_slug}.md"));
+    candidate.is_file().then_some(candidate)
+}
+
 /// Launch all planned agents for a phase via `kickoff run`.
 pub fn launch(
     crosslink_dir: &Path,
@@ -753,6 +769,10 @@ pub fn launch(
         .and_then(|ctx| read_hub_json::<BudgetConfig>(&sync, &ctx.budget_path()).ok());
     let dials = resolve_dispatch_dials(budget_config.as_ref());
 
+    // gh#62 (REQ-7): a per-phase template, if present, applies to every agent in
+    // this phase and takes precedence over the repo-global config template.
+    let phase_template = resolve_phase_template(crosslink_dir, phase_slug);
+
     if !quiet {
         println!(
             "Launching {} agent{} for {}...",
@@ -786,6 +806,7 @@ pub fn launch(
             permission_mode: None,
             effort: dials.effort.as_deref(),
             budget_usd: dials.budget_usd.as_deref(),
+            template: phase_template.as_deref(),
             agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
 

@@ -105,13 +105,34 @@ pub fn run(
         .allowed_tools
         .extend(read_kickoff_allowed_tools(crosslink_dir));
 
-    // 5. Build the prompt — check for custom template or no_template first
+    // 5. Build the prompt. `no_template` still short-circuits to an empty
+    //    prompt. Otherwise build the prompt and, when a template is configured
+    //    (the `--template` flag or `agent.kickoff_template`), interpolate the
+    //    Decision-D2 placeholder set into it rather than replacing the built
+    //    prompt wholesale (gh#62, REQ-5). A placeholder-free template
+    //    interpolates to itself, so this is byte-identical to the previous
+    //    full-replacement behaviour for existing template users.
     let prompt = if crate::utils::read_no_template(crosslink_dir) {
         String::new()
-    } else if let Some(custom) = crate::utils::read_kickoff_template(crosslink_dir) {
-        custom
     } else {
-        build_prompt(opts, issue_id, &branch_name, &conventions)
+        let built = build_prompt(opts, issue_id, &branch_name, &conventions);
+        match crate::utils::resolve_kickoff_template(crosslink_dir, opts.template) {
+            Some(template) => {
+                let allowed_tools = conventions.allowed_tools.join(",");
+                let ctx = TemplateContext {
+                    built_prompt: &built,
+                    issue_id,
+                    branch: &branch_name,
+                    description: opts.description,
+                    model: opts.model,
+                    effort: opts.effort,
+                    doc_path: opts.doc_path,
+                    allowed_tools: &allowed_tools,
+                };
+                interpolate_template(&template, &ctx)
+            }
+            None => built,
+        }
     };
 
     // Dry run: print the prompt and the would-be worktree/branch/agent, then

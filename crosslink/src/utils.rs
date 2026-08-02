@@ -42,6 +42,26 @@ pub fn read_kickoff_template(crosslink_dir: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Resolve the kickoff prompt template content, flag-first (gh#62, REQ-6).
+///
+/// An explicit `--template <path>` (`override_path`) wins over the
+/// `agent.kickoff_template` config setting, so a template is dispatch-scoped
+/// and parallel dispatches do not race on the single repo-global config path.
+/// The override path is read as given (resolved against the caller's cwd); the
+/// config path resolves relative to `crosslink_dir` (see
+/// [`read_kickoff_template`]). Returns the template body, or `None` when
+/// neither source is set / the file is empty or unreadable — in which case the
+/// caller falls back to the built-in prompt. (AC-7)
+pub fn resolve_kickoff_template(
+    crosslink_dir: &Path,
+    override_path: Option<&Path>,
+) -> Option<String> {
+    if let Some(path) = override_path {
+        return std::fs::read_to_string(path).ok().filter(|s| !s.is_empty());
+    }
+    read_kickoff_template(crosslink_dir)
+}
+
 /// Read the `agent.no_template` setting from `hook-config.json`.
 ///
 /// Returns `true` when `agent.no_template` is set to `true`, indicating the
