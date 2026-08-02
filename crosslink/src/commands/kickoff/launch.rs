@@ -135,6 +135,25 @@ pub(super) fn spawn_watchdog(
     Ok(())
 }
 
+/// Resolve claude's permission posture into a command-line flag fragment
+/// (with a leading space, or empty). Shared by the local (tmux) and container
+/// launch paths so they cannot drift (GH#59): `permission_mode` wins with
+/// `--permission-mode <mode>`, else `skip_permissions` emits
+/// `--dangerously-skip-permissions`, else no flag (claude prompts per tool —
+/// which hangs a headless container agent, the GH#55 stall).
+pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: bool) -> String {
+    match (permission_mode, skip_permissions) {
+        (Some(mode), _) if !mode.is_empty() => {
+            format!(
+                " --permission-mode {}",
+                crate::utils::shell_escape_arg(mode)
+            )
+        }
+        (_, true) => " --dangerously-skip-permissions".to_string(),
+        _ => String::new(),
+    }
+}
+
 /// Build the shell command string for launching a claude agent.
 ///
 /// `claude_config_dir` is a caller-side environment variable that must be
@@ -190,13 +209,7 @@ pub(super) fn build_agent_command(
     // `skip_permissions = true` is impossible from the public surface;
     // internal callers (the wizard's WizardStage::Run path) pass both
     // as defaults (None / false) and let this resolution stand.
-    let permission_flag_owned: String = match (permission_mode, skip_permissions) {
-        (Some(mode), _) if !mode.is_empty() => {
-            format!(" --permission-mode {}", shell_escape_arg(mode))
-        }
-        (_, true) => " --dangerously-skip-permissions".to_string(),
-        _ => String::new(),
-    };
+    let permission_flag_owned = permission_flag(permission_mode, skip_permissions);
     let skip_flag = permission_flag_owned.as_str();
     // Fold `CLAUDE_CONFIG_DIR=val` into env(1)'s argv so the assignment takes
     // effect regardless of what wraps the resulting command (timeout, sandbox
@@ -673,6 +686,8 @@ pub(super) fn launch_container(
     allowed_tools: &str,
     timeout: Duration,
     protected_doc_rel: Option<&Path>,
+    skip_permissions: bool,
+    permission_mode: Option<&str>,
 ) -> Result<String> {
     let runtime_cmd = match runtime {
         ContainerMode::Docker => "docker",
@@ -780,12 +795,15 @@ pub(super) fn launch_container(
         }
     }
 
-    // Image and command
+    // Image and command. GH#59: emit the same permission flag the local path
+    // and `container start` use — without it claude prompts for every tool and
+    // the headless container agent blocks forever (a GH#55 stall cause).
+    let skip_flag = permission_flag(permission_mode, skip_permissions);
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
     args.push(format!(
-        "cd /workspaces/repo && timeout {timeout_secs}s claude --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\""
+        "cd /workspaces/repo && timeout {timeout_secs}s claude{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\""
     ));
 
     let output = Command::new(runtime_cmd)
