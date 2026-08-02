@@ -3898,3 +3898,64 @@ fn test_kickoff_plan_permission_flags_are_exposed_and_conflict() {
         "expected a clap conflict error naming the two flags, got: {err}"
     );
 }
+
+// gh#61 (AC-3): `kickoff run --effort <bogus>` is rejected at the clap layer
+// with a value error naming the allowed set, so a typo'd dial fails closed
+// instead of silently dispatching an un-dialed agent. Mirrors the gh#66
+// conflict test — verified at the CLI layer, no tmux involved.
+#[test]
+fn test_kickoff_run_rejects_unknown_effort_level() {
+    let dir = test_dir();
+    init_git_and_crosslink(dir.path());
+    let (success, _out, err) = run_crosslink(
+        dir.path(),
+        &["kickoff", "run", "some feature", "--effort", "bogus"],
+    );
+    assert!(!success, "an unknown --effort level must be rejected");
+    let e = err.to_lowercase();
+    assert!(
+        e.contains("invalid value") || e.contains("possible values"),
+        "expected a clap value error, got: {err}"
+    );
+    for level in ["low", "medium", "high", "xhigh", "max"] {
+        assert!(
+            err.contains(level),
+            "the error must name the allowed level '{level}', got: {err}"
+        );
+    }
+}
+
+// The same fail-closed validation on `kickoff plan`, which gained the dials
+// alongside `kickoff run`.
+#[test]
+fn test_kickoff_plan_rejects_unknown_effort_level() {
+    let dir = test_dir();
+    init_git_and_crosslink(dir.path());
+    let (success, _out, err) = run_crosslink(
+        dir.path(),
+        &["kickoff", "plan", "does-not-matter.md", "--effort", "bogus"],
+    );
+    assert!(!success, "an unknown --effort level must be rejected");
+    let e = err.to_lowercase();
+    assert!(
+        e.contains("invalid value") || e.contains("possible values"),
+        "expected a clap value error, got: {err}"
+    );
+}
+
+// A valid level parses (the failure below comes from the missing design doc,
+// not from the dial) — guards against the value parser rejecting its own set.
+#[test]
+fn test_kickoff_plan_accepts_valid_effort_level() {
+    let dir = test_dir();
+    init_git_and_crosslink(dir.path());
+    let (_success, _out, err) = run_crosslink(
+        dir.path(),
+        &["kickoff", "plan", "does-not-matter.md", "--effort", "xhigh"],
+    );
+    let e = err.to_lowercase();
+    assert!(
+        !e.contains("invalid value"),
+        "'xhigh' is a valid effort level, got: {err}"
+    );
+}

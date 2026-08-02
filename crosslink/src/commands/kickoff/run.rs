@@ -153,12 +153,12 @@ pub fn run(
         }
     }
 
-    // 6c. Write launch metadata (timeout + start time) for status tracking
+    // 6c. Write launch metadata (timeout + start time) for status tracking,
+    //     plus the dispatch dials (model/effort/budget) so the run record
+    //     captures what reasoning and spend posture the agent was given
+    //     (gh#61). Dials absent from the launch stay absent from the JSON.
     {
-        let metadata = KickoffMetadata {
-            started_at: chrono::Utc::now().to_rfc3339(),
-            timeout_secs: opts.timeout.as_secs(),
-        };
+        let metadata = KickoffMetadata::for_launch(opts, chrono::Utc::now().to_rfc3339());
         let json = serde_json::to_string_pretty(&metadata)
             .context("Failed to serialize kickoff metadata")?;
         std::fs::write(worktree_dir.join(".kickoff-metadata.json"), &json)
@@ -226,6 +226,8 @@ pub fn run(
                 crosslink_dir,
                 opts.skip_permissions,
                 opts.permission_mode,
+                opts.effort,
+                opts.budget_usd,
             )?;
 
             // Persist the actual session name so kickoff list can find it
@@ -266,6 +268,8 @@ pub fn run(
                 protected_doc_rel.as_deref(),
                 opts.skip_permissions,
                 opts.permission_mode,
+                opts.effort,
+                opts.budget_usd,
             )?;
 
             if opts.quiet {

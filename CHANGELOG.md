@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Per-dispatch reasoning/spend dials on the kickoff path (gh#61).
+  `crosslink kickoff run` and `crosslink kickoff plan` accept
+  `--effort <low|medium|high|xhigh|max>` and `--budget-usd <amount>`, emitted
+  as `claude --effort` / `claude --max-budget-usd` immediately after `--model`
+  on both the local (tmux) and container launch paths. `--effort` is validated
+  fail-closed by clap; omitting both flags reproduces the previous invocation
+  byte-for-byte. The resolved `model`, `effort`, and `budget_usd` are recorded
+  in `.kickoff-metadata.json` so a run record captures what the dispatch was
+  actually given. `crosslink swarm config` gains the same two flags: swarm now
+  sources `model`/`effort`/`budget_usd` from its budget config instead of
+  hardcoding `opus` at launch, and the spend ceiling applies per dispatched
+  agent (a wave of N agents can spend up to N x the amount).
 - `crosslink migrate hub-v3 --remigrate-from-v2` - regenerates the v3 genesis
   from the current `crosslink/hub` (v2) tip and force-pushes it, superseding a
   stale remote v3 hub. The discoverable recovery path when a v2-only binary

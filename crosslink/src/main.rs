@@ -1706,6 +1706,25 @@ enum KickoffCommands {
             conflicts_with = "skip_permissions"
         )]
         permission_mode: Option<String>,
+        /// Reasoning effort for the dispatched claude session (gh#61).
+        ///
+        /// Emitted as `claude --effort <level>` right after `--model`.
+        /// Omitting it reproduces the previous invocation exactly.
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+        /// Spend ceiling in USD for the dispatched claude session (gh#61).
+        ///
+        /// Emitted as `claude --max-budget-usd <amount>` — a fail-closed cap
+        /// for unattended dispatch. Per-session: under swarm each agent gets
+        /// this cap, so a wave of N agents can spend up to N x amount.
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
     },
     /// Check status of a running kickoff agent (no args = pipeline overview)
     Status {
@@ -1769,6 +1788,20 @@ enum KickoffCommands {
             conflicts_with = "skip_permissions"
         )]
         permission_mode: Option<String>,
+        /// Reasoning effort for the dispatched claude session (gh#61).
+        ///
+        /// Same levels and placement as `kickoff run --effort`.
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+        /// Spend ceiling in USD for the dispatched claude session (gh#61).
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
     },
     /// Display a gap report from a previous plan analysis
     ShowPlan {
@@ -1969,14 +2002,30 @@ enum SwarmCommands {
         #[arg(long)]
         force: bool,
     },
-    /// Set budget parameters (window duration, model)
+    /// Set budget parameters (window duration, model, dispatch dials)
     Config {
         /// Budget time window (e.g. "5h", "3h30m")
         #[arg(long, value_name = "DURATION")]
         budget_window: String,
-        /// Model to estimate costs for
+        /// Model to estimate costs for — also the model swarm dispatches
+        /// its agents with (gh#61)
         #[arg(long, default_value = "opus")]
         model: String,
+        /// Reasoning effort for every agent swarm dispatches (gh#61)
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+        /// Per-agent spend ceiling in USD for swarm dispatch (gh#61).
+        ///
+        /// Applied to each dispatched session, so a wave of N agents can
+        /// spend up to N x this amount.
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
     },
     /// Estimate wall-clock cost for a phase
     Estimate {
@@ -3315,7 +3364,15 @@ fn main() -> Result<()> {
                 SwarmCommands::Config {
                     budget_window,
                     model,
-                } => commands::swarm::config_budget(&crosslink_dir, &budget_window, &model),
+                    effort,
+                    budget_usd,
+                } => commands::swarm::config_budget(
+                    &crosslink_dir,
+                    &budget_window,
+                    &model,
+                    effort.as_deref(),
+                    budget_usd.as_deref(),
+                ),
                 SwarmCommands::Estimate { phase } => {
                     commands::swarm::estimate(&crosslink_dir, &phase)
                 }

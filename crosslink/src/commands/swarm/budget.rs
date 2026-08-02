@@ -17,7 +17,17 @@ use crate::sync::SyncManager;
 // ---------------------------------------------------------------------------
 
 /// Set budget parameters for the swarm.
-pub fn config_budget(crosslink_dir: &Path, budget_window: &str, model: &str) -> Result<()> {
+///
+/// `effort` / `budget_usd` are the per-dispatch dials every agent this swarm
+/// launches will carry (gh#61). `None` leaves the corresponding claude flag
+/// off, which is the pre-gh#61 behaviour.
+pub fn config_budget(
+    crosslink_dir: &Path,
+    budget_window: &str,
+    model: &str,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
+) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
         bail!("Hub cache not initialized. Run `crosslink sync` first.");
@@ -28,6 +38,19 @@ pub fn config_budget(crosslink_dir: &Path, budget_window: &str, model: &str) -> 
     let config = BudgetConfig {
         budget_window_s,
         model: model.to_string(),
+        effort: effort.map(ToString::to_string),
+        budget_usd: budget_usd.map(ToString::to_string),
+    };
+
+    // Dials appear in both the hub commit message and the confirmation line so
+    // the audit trail records what a swarm's agents will be dispatched with.
+    let dial_summary = match (effort, budget_usd) {
+        (None, None) => String::new(),
+        (e, b) => format!(
+            ", effort={}, budget_usd={}",
+            e.unwrap_or("unset"),
+            b.unwrap_or("unset")
+        ),
     };
 
     let ctx = resolve_swarm(&sync)?;
@@ -36,13 +59,14 @@ pub fn config_budget(crosslink_dir: &Path, budget_window: &str, model: &str) -> 
     commit_hub_files(
         &sync,
         &[&budget_path],
-        &format!("swarm: set budget {budget_window}  model={model}"),
+        &format!("swarm: set budget {budget_window}  model={model}{dial_summary}"),
     )?;
 
     println!(
-        "Budget configured: {} window, model={}",
+        "Budget configured: {} window, model={}{}",
         kickoff::format_duration(budget_window_s),
-        model
+        model,
+        dial_summary
     );
 
     Ok(())

@@ -673,6 +673,40 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
 // swarm launch
 // ---------------------------------------------------------------------------
 
+/// The dispatch dials a swarm wave launches its agents with.
+///
+/// Owned strings: `KickoffOpts` borrows its `model`/`effort`/`budget_usd`, so
+/// the resolved dials must outlive the per-agent opts built in the launch loop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DispatchDials {
+    pub model: String,
+    pub effort: Option<String>,
+    pub budget_usd: Option<String>,
+}
+
+/// Resolve the dials swarm dispatches its agents with (gh#61, REQ-4).
+///
+/// `config` is the swarm's `budget.json` when one has been written. A swarm
+/// with no budget config falls back to [`BudgetConfig::default`] — the
+/// documented swarm default (#521) — rather than a model literal pinned in the
+/// launch loop, so `swarm config --model sonnet` actually changes what gets
+/// dispatched. Empty strings are treated as unset: a config that round-tripped
+/// through an editor with `"effort": ""` must not emit `--effort ''`.
+pub(super) fn resolve_dispatch_dials(config: Option<&BudgetConfig>) -> DispatchDials {
+    let fallback = BudgetConfig::default();
+    let cfg = config.unwrap_or(&fallback);
+    let model = if cfg.model.trim().is_empty() {
+        fallback.model.clone()
+    } else {
+        cfg.model.clone()
+    };
+    DispatchDials {
+        model,
+        effort: cfg.effort.clone().filter(|v| !v.is_empty()),
+        budget_usd: cfg.budget_usd.clone().filter(|v| !v.is_empty()),
+    }
+}
+
 /// Launch all planned agents for a phase via `kickoff run`.
 pub fn launch(
     crosslink_dir: &Path,
@@ -710,6 +744,15 @@ pub fn launch(
 
     let now = chrono::Utc::now().to_rfc3339();
 
+    // gh#61 (REQ-4): source the dispatch dials from swarm config instead of
+    // pinning a model literal in the launch loop. Reading `budget.json` is
+    // best-effort — a swarm that never ran `swarm config` still launches, on
+    // the documented defaults.
+    let budget_config: Option<BudgetConfig> = resolve_swarm(&sync)
+        .ok()
+        .and_then(|ctx| read_hub_json::<BudgetConfig>(&sync, &ctx.budget_path()).ok());
+    let dials = resolve_dispatch_dials(budget_config.as_ref());
+
     if !quiet {
         println!(
             "Launching {} agent{} for {}...",
@@ -731,7 +774,7 @@ pub fn launch(
             issue: issue_id,
             container: ContainerMode::None,
             verify: VerifyLevel::Local,
-            model: "opus",
+            model: &dials.model,
             image: kickoff::DEFAULT_AGENT_IMAGE,
             timeout: std::time::Duration::from_secs(3600),
             dry_run: false,
@@ -741,6 +784,8 @@ pub fn launch(
             doc_path: None,
             skip_permissions: false,
             permission_mode: None,
+            effort: dials.effort.as_deref(),
+            budget_usd: dials.budget_usd.as_deref(),
             agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
 
