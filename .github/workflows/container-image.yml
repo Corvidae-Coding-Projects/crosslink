@@ -27,6 +27,10 @@ on:
       - '.github/workflows/container-image.yml'
       - 'crosslink/Cargo.toml'
       - 'crosslink/Cargo.lock'
+  # On-demand publish from any branch (e.g. a fork validating the image before
+  # develop lands), tagged :nightly + :manual-<sha>. Lets a fork produce a
+  # working agent image without a develop push.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,7 +42,10 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: dollspace-gay/crosslink-agent
+  # Repo-owner-derived so a fork publishes to its own GHCR namespace instead of
+  # failing to push to the upstream org. On dollspace-gay/crosslink this still
+  # resolves to dollspace-gay/crosslink-agent.
+  IMAGE_NAME: ${{ github.repository_owner }}/crosslink-agent
 
 jobs:
   # ===========================================
@@ -177,6 +184,11 @@ jobs:
           elif [ "$REF" = "refs/heads/develop" ]; then
             VERSION="nightly-${SHORT_SHA}"
             TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
+            PRIMARY="${BASE}:nightly"
+            PUSH=true
+          elif [ "$EVENT" = "workflow_dispatch" ]; then
+            VERSION="manual-${SHORT_SHA}"
+            TAGS=("${BASE}:nightly" "${BASE}:manual-${SHORT_SHA}")
             PRIMARY="${BASE}:nightly"
             PUSH=true
           else

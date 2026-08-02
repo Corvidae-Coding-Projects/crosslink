@@ -25,6 +25,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `crosslink container build` no longer fails with a cryptic
+  `COPY crosslink-<arch>: not found` (gh#75). It staged the binary as
+  `crosslink` while the Dockerfile expects `crosslink-${TARGETARCH}`; it now
+  stages `crosslink-<arch>` and passes `--build-arg TARGETARCH=<arch>` so a
+  plain `docker build` resolves the COPY. Since it packages the *installed*
+  binary (no source tree to cross-compile from), it now fails fast with a
+  clear message on non-Linux hosts — where that binary can't run in the
+  Linux image — pointing at the CI workflow / `just build-image` instead.
+- The container-image workflow's `IMAGE_NAME` is derived from
+  `${{ github.repository_owner }}` (gh#75), so a fork publishes to its own
+  GHCR namespace instead of failing to push to the upstream org (on
+  dollspace-gay it still resolves to `dollspace-gay/crosslink-agent`), and a
+  `workflow_dispatch` trigger lets a fork publish a working agent image
+  on-demand without a `develop` push. Addresses the unpublished
+  `DEFAULT_AGENT_IMAGE` (forecast-bio/crosslink#576).
 - `kickoff run --container` now passes claude's permission flag into the
   container agent (gh#59). The local (tmux) path emitted
   `--dangerously-skip-permissions` / `--permission-mode`, and `container start`

@@ -249,9 +249,35 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     // Write entrypoint
     std::fs::write(build_path.join("entrypoint.sh"), ENTRYPOINT)?;
 
-    // Copy crosslink binary
+    // The Dockerfile COPYs `crosslink-${TARGETARCH}`, and the staged binary
+    // must be a Linux binary to run in the agent image. `crosslink container
+    // build` packages the *installed* binary (it has no source tree to
+    // cross-compile from), so it can only produce a runnable image on a Linux
+    // host of a supported arch. For cross-arch or non-Linux hosts, the CI
+    // workflow (.github/workflows/container-image.yml) and `just build-image`
+    // cross-compile a static musl binary instead.
+    let docker_arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => bail!(
+            "unsupported host architecture `{other}` for `crosslink container build`; \
+             build the image via CI (.github/workflows/container-image.yml) or `just build-image`"
+        ),
+    };
+    if !cfg!(target_os = "linux") {
+        bail!(
+            "`crosslink container build` packages the installed crosslink binary, which must \
+             be a Linux binary to run in the agent image — but this host is `{}`. Build on a \
+             Linux host, or use the CI workflow (.github/workflows/container-image.yml) or \
+             `just build-image`, which cross-compile a static musl binary.",
+            std::env::consts::OS
+        );
+    }
+
+    // Copy crosslink binary under the arch-suffixed name the Dockerfile expects.
     let binary = find_crosslink_binary()?;
-    std::fs::copy(&binary, build_path.join("crosslink"))
+    let staged_binary = format!("crosslink-{docker_arch}");
+    std::fs::copy(&binary, build_path.join(&staged_binary))
         .context("Failed to copy crosslink binary to build context")?;
 
     // Compute binary hash for staleness detection
@@ -261,6 +287,9 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
 
     let mut cmd = Command::new("docker");
     cmd.args(["build", "-t", &image]);
+    // Pin TARGETARCH so plain `docker build` (not buildx) resolves the COPY to
+    // the arch-suffixed binary we staged, instead of the Dockerfile default.
+    cmd.args(["--build-arg", &format!("TARGETARCH={docker_arch}")]);
     cmd.args(["--label", LABEL_AGENT]);
     cmd.args(["--label", &format!("crosslink-binary-hash={binary_hash}")]);
     if force {
