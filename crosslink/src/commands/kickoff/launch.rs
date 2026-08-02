@@ -40,12 +40,6 @@ pub(super) fn read_sandbox_command(crosslink_dir: &Path) -> Option<String> {
         .map(ToString::to_string)
 }
 
-/// Read the `agent.binary` setting from hook-config.json, if configured.
-///
-/// Returns the configured binary name, or `"claude"` when the key is absent,
-/// empty, or the file cannot be parsed. This lets projects point kickoff at a
-/// different agent CLI (e.g. `opencode`, `codex`) without code changes.
-
 pub(super) fn read_watchdog_config(crosslink_dir: &Path) -> WatchdogConfig {
     let config_path = crosslink_dir.join("hook-config.json");
     let Ok(content) = std::fs::read_to_string(&config_path) else {

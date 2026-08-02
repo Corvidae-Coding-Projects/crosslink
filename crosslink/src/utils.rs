@@ -14,8 +14,7 @@ pub fn read_agent_binary(crosslink_dir: &Path) -> String {
         .and_then(|a| a.get("binary"))
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "claude".to_string())
+        .map_or_else(|| "claude".to_string(), ToString::to_string)
 }
 
 /// Read the `agent.kickoff_template` setting from `hook-config.json`.
@@ -58,7 +57,7 @@ pub fn read_no_template(crosslink_dir: &Path) -> bool {
     parsed
         .get("agent")
         .and_then(|a| a.get("no_template"))
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
 

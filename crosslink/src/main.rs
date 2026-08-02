@@ -3415,9 +3415,9 @@ fn main() -> Result<()> {
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
             let sentinel_model = match &action {
-                SentinelCommands::Run { model, .. } => model.clone(),
-                SentinelCommands::Watch { model, .. } => model.clone(),
-                SentinelCommands::RunDaemon { model, .. } => model.clone(),
+                SentinelCommands::Run { model, .. }
+                | SentinelCommands::Watch { model, .. }
+                | SentinelCommands::RunDaemon { model, .. } => model.clone(),
                 _ => None,
             };
             commands::sentinel::dispatch_cmd(

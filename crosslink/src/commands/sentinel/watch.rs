@@ -14,7 +14,7 @@ use super::config::SentinelConfig;
 use super::engine;
 
 /// Start the sentinel daemon as a background process.
-pub fn start(crosslink_dir: &Path, interval: u64, model: Option<String>) -> Result<()> {
+pub fn start(crosslink_dir: &Path, interval: u64, model: Option<&str>) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
     let log_file = crosslink_dir.join("sentinel.log");
 
@@ -44,7 +44,7 @@ pub fn start(crosslink_dir: &Path, interval: u64, model: Option<String>) -> Resu
         .arg(crosslink_dir)
         .arg("--interval")
         .arg(interval.to_string());
-    if let Some(m) = &model {
+    if let Some(m) = model {
         cmd.arg("--model").arg(m);
     }
     let child = cmd
@@ -397,8 +397,10 @@ fn run_polling_cycle(
         config,
         false, // not dry run
         None,  // no label filter
-        true,  // quiet in daemon mode (output goes to log)
-        model_override,
+        engine::CycleOptions {
+            quiet: true, // daemon output goes to the log
+            model_override,
+        },
     )?;
 
     if stats.signals_found > 0 || stats.collected > 0 {
@@ -436,8 +438,10 @@ fn run_webhook_cycle(
         config,
         &[signal],
         "webhook",
-        true, // quiet in daemon mode
-        model_override,
+        engine::CycleOptions {
+            quiet: true, // daemon output goes to the log
+            model_override,
+        },
     )?;
 
     println!(

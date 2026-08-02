@@ -22,26 +22,32 @@ pub struct CycleStats {
     pub deferred: u32,
 }
 
+/// Per-cycle behavior shared by polled and webhook-driven dispatches.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CycleOptions<'a> {
+    pub quiet: bool,
+    pub model_override: Option<&'a str>,
+}
+
 /// Run a single sentinel cycle: poll sources, triage, dispatch, collect.
-pub fn run_oneshot(
+pub(super) fn run_oneshot(
     crosslink_dir: &Path,
     db: &Database,
     writer: Option<&SharedWriter>,
     config: &SentinelConfig,
     dry_run: bool,
     label_filter: Option<&str>,
-    quiet: bool,
-    model_override: Option<&str>,
+    options: CycleOptions<'_>,
 ) -> Result<CycleStats> {
     if !config.enabled {
-        if !quiet {
+        if !options.quiet {
             println!("sentinel is disabled");
         }
         return Ok(CycleStats::default());
     }
 
     if dry_run {
-        return Ok(run_dry(config, quiet));
+        return Ok(run_dry(config, options.quiet));
     }
 
     // Poll all configured sources to gather signals
@@ -54,8 +60,7 @@ pub fn run_oneshot(
         config,
         &all_signals,
         "oneshot",
-        quiet,
-        model_override,
+        options,
     )
 }
 
@@ -125,15 +130,14 @@ fn poll_all_sources(
 ///
 /// Used by both `run_oneshot` (after polling sources) and `webhook` (for real-time
 /// events that arrive between polling cycles).
-pub fn process_signal_batch(
+pub(super) fn process_signal_batch(
     crosslink_dir: &Path,
     db: &Database,
     writer: Option<&SharedWriter>,
     config: &SentinelConfig,
     all_signals: &[Signal],
     mode: &str,
-    quiet: bool,
-    model_override: Option<&str>,
+    options: CycleOptions<'_>,
 ) -> Result<CycleStats> {
     let run_id = Uuid::new_v4().to_string();
     db.insert_sentinel_run(&run_id, mode)?;
@@ -150,7 +154,7 @@ pub fn process_signal_batch(
     } else {
         super::tuning::TuningOverride::none()
     };
-    if tuning.has_overrides() && !quiet {
+    if tuning.has_overrides() && !options.quiet {
         println!("  self-tuning: model overrides active based on historical data");
     }
 
@@ -164,7 +168,7 @@ pub fn process_signal_batch(
         // Layer 2: in-memory dedup
         let decision = seen.evaluate(&signal.reference, config);
         if let SignalDecision::Skip(reason) = &decision {
-            if !quiet {
+            if !options.quiet {
                 println!("  skip: {} ({})", signal.reference, reason);
             }
             stats.skipped += 1;
@@ -178,7 +182,7 @@ pub fn process_signal_batch(
             let full_label = format!("agent-todo: {label}");
             let db_decision = db_dedup_check(db, num, &full_label, config)?;
             if let SignalDecision::Skip(reason) = &db_decision {
-                if !quiet {
+                if !options.quiet {
                     println!("  skip: {} ({})", signal.reference, reason);
                 }
                 stats.skipped += 1;
@@ -189,7 +193,13 @@ pub fn process_signal_batch(
         }
 
         // 5. Triage
-        let mut disposition = triage(signal, &decision, config, Some(&tuning), model_override);
+        let mut disposition = triage(
+            signal,
+            &decision,
+            config,
+            Some(&tuning),
+            options.model_override,
+        );
 
         // 6. Capacity check: if triage decided to dispatch but we're at capacity,
         //    override to Defer so the signal is retried on the next cycle.
@@ -211,7 +221,7 @@ pub fn process_signal_batch(
                 scope,
                 attempt,
             } => {
-                if !quiet {
+                if !options.quiet {
                     println!(
                         "  dispatch: {} [{:?}] (attempt {}, model: {}, detected: {})",
                         signal.reference,
@@ -274,13 +284,13 @@ pub fn process_signal_batch(
                 }
             }
             super::dispatch::Disposition::Skip { reason } => {
-                if !quiet {
+                if !options.quiet {
                     println!("  skip: {} ({})", signal.reference, reason);
                 }
                 stats.skipped += 1;
             }
             super::dispatch::Disposition::Defer { reason } => {
-                if !quiet {
+                if !options.quiet {
                     println!("  defer: {} ({})", signal.reference, reason);
                 }
                 stats.deferred += 1;
@@ -296,7 +306,7 @@ pub fn process_signal_batch(
                         let _ = db.add_label(issue_id, l);
                     }
                 }
-                if !quiet {
+                if !options.quiet {
                     println!(
                         "  triage: {} (priority: {}, labels: {})",
                         signal.reference,
@@ -328,7 +338,7 @@ pub fn process_signal_batch(
         },
     )?;
 
-    if !quiet {
+    if !options.quiet {
         println!(
             "{} signal(s) found, {} dispatched, {} skipped, {} deferred, {} collected",
             stats.signals_found, stats.dispatched, stats.skipped, stats.deferred, stats.collected,

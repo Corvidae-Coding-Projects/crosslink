@@ -58,22 +58,21 @@ pub fn triage(
     // the self-tuning recommendation and the per-decision default. It is
     // applied to `scope.model` before the New/Escalate branch and bypasses
     // `tuning.model_for_label`.
-    let model_override = model_override.map(String::from);
-
     let (model, attempt) = match decision {
         SignalDecision::New => {
-            let model = if let Some(ov) = &model_override {
-                ov.clone()
-            } else {
-                // Check if self-tuning recommends a different model for this label
-                tuning
-                    .and_then(|t| t.model_for_label(label))
-                    .map_or_else(|| config.default_agent.model.clone(), String::from)
-            };
+            let model = model_override.map_or_else(
+                || {
+                    // Check if self-tuning recommends a different model for this label
+                    tuning
+                        .and_then(|t| t.model_for_label(label))
+                        .map_or_else(|| config.default_agent.model.clone(), String::from)
+                },
+                String::from,
+            );
             (model, 1u32)
         }
         SignalDecision::Escalate => (
-            model_override.unwrap_or_else(|| config.escalation.model.clone()),
+            model_override.map_or_else(|| config.escalation.model.clone(), String::from),
             2u32,
         ),
         SignalDecision::Skip(reason) => {

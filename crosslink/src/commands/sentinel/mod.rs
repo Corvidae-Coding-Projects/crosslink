@@ -40,12 +40,16 @@ pub fn dispatch_cmd(
                 &config,
                 dry_run,
                 label.as_deref(),
-                quiet,
-                model.as_deref(),
+                engine::CycleOptions {
+                    quiet,
+                    model_override: model.as_deref(),
+                },
             )?;
             Ok(())
         }
-        SentinelCommands::Watch { interval, .. } => watch::start(crosslink_dir, interval, model),
+        SentinelCommands::Watch { interval, .. } => {
+            watch::start(crosslink_dir, interval, model.as_deref())
+        }
         SentinelCommands::Status => watch::status(crosslink_dir, db),
         SentinelCommands::History {
             limit,
