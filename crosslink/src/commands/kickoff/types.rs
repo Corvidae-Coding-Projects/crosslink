@@ -218,6 +218,14 @@ pub struct PlanOpts<'a> {
     pub dry_run: bool,
     pub issue: Option<i64>,
     pub quiet: bool,
+    /// Pass `--dangerously-skip-permissions` to the plan agent's claude
+    /// session. Default `false` keeps plan mode read-only and fail-closed;
+    /// headless dispatchers set it so claude's workspace-trust dialog does
+    /// not block the agent (gh#66).
+    pub skip_permissions: bool,
+    /// Pass `--permission-mode <mode>`. Mutually exclusive with
+    /// `skip_permissions`; does not itself clear the trust dialog.
+    pub permission_mode: Option<&'a str>,
 }
 
 /// Detect project conventions from the repo root.

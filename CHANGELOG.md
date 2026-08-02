@@ -31,6 +31,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   refs into `.git` and never touches the worktree. On v3 it now reads
   `FETCH_HEAD`'s mtime (git rewrites it on every fetch), located via
   `rev-parse --git-path` so it is correct across worktree layouts.
+- `kickoff plan` accepts `--skip-permissions` / `--permission-mode` (gh#66).
+  Plan mode is read-only, so it launched its claude session with no permission
+  flag — which meant a fresh worktree triggered claude's interactive
+  workspace-trust dialog, and a headless dispatcher (no TTY to answer it) hung
+  forever (the plan/tmux half of the gh#55 stall). The flags now match
+  `kickoff run`/`launch`; the default stays off (interactive users still get
+  the dialog — fail-closed), and a headless caller passes `--skip-permissions`,
+  which is what actually clears the trust dialog (`--permission-mode` alone does
+  not). The `kickoff <doc> --plan` form now threads the flags too (they were
+  previously accepted and silently dropped).
 - The dashboard agent-request pane is populated on v3 hubs (gh#49, agent
   requests half). `read_snapshot_v3` hardcoded `agent_requests` empty because
   the request/ack streams live on the agent refs, not a worktree the snapshot

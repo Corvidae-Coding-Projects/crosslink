@@ -3871,3 +3871,32 @@ fn test_sentinel_schema_migration() {
         "Schema version should be >= 16 (sentinel migration), got {version}"
     );
 }
+
+// gh#66: `kickoff plan` exposes --skip-permissions / --permission-mode (so a
+// headless dispatcher can clear claude's workspace-trust dialog), and they are
+// mutually exclusive like on `kickoff run`. Verified at the clap layer (no tmux).
+#[test]
+fn test_kickoff_plan_permission_flags_are_exposed_and_conflict() {
+    let dir = test_dir();
+    init_git_and_crosslink(dir.path());
+    let (success, _out, err) = run_crosslink(
+        dir.path(),
+        &[
+            "kickoff",
+            "plan",
+            "does-not-matter.md",
+            "--skip-permissions",
+            "--permission-mode",
+            "auto",
+        ],
+    );
+    assert!(
+        !success,
+        "conflicting --skip-permissions + --permission-mode must be rejected"
+    );
+    let e = err.to_lowercase();
+    assert!(
+        e.contains("cannot be used with") || e.contains("conflict"),
+        "expected a clap conflict error naming the two flags, got: {err}"
+    );
+}
