@@ -13,9 +13,11 @@ FROM ubuntu:24.04
 ARG TARGETARCH=amd64
 ARG GOSU_VERSION=1.17
 
-# Core tooling (python3 required for crosslink hooks)
+# Core tooling (python3 required for crosslink hooks; build-essential
+# provides the C toolchain/linker the entrypoint's rustup install has no
+# counterpart for — without cc, cargo test/clippy/check fail at link, GH#9)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git openssh-client curl ca-certificates jq python3 sudo \
+    git openssh-client curl ca-certificates jq python3 sudo build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove default ubuntu user (occupies UID 1000, conflicts with host UID remapping)

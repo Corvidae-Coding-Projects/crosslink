@@ -2990,3 +2990,25 @@ fn test_normalize_status_timeout_sentinel() {
     assert_eq!(normalize_status("RUNNING"), "running");
     assert_eq!(normalize_status("DONE".to_lowercase().as_str()), "done");
 }
+
+// GH#59: the permission flag both the local and container launch paths emit.
+#[test]
+fn test_permission_flag_postures() {
+    // skip_permissions → the full-bypass flag.
+    assert_eq!(
+        permission_flag(None, true),
+        " --dangerously-skip-permissions"
+    );
+    // permission_mode wins over skip_permissions (mode is shell-escaped).
+    assert_eq!(
+        permission_flag(Some("acceptEdits"), true),
+        " --permission-mode 'acceptEdits'"
+    );
+    // Empty permission_mode falls through to skip_permissions.
+    assert_eq!(
+        permission_flag(Some(""), true),
+        " --dangerously-skip-permissions"
+    );
+    // Neither → no flag (claude prompts per tool — the GH#55 container stall).
+    assert_eq!(permission_flag(None, false), "");
+}
