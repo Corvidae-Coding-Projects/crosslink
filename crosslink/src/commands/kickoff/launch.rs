@@ -184,6 +184,7 @@ pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: b
 /// When `claude_config_dir` is `None`, the assignment is omitted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_agent_command(
+    agent_binary: &str,
     timeout_cmd: &str,
     timeout_secs: u64,
     model: &str,
@@ -215,22 +216,34 @@ pub(super) fn build_agent_command(
     // effect regardless of what wraps the resulting command (timeout, sandbox
     // wrappers, etc.). `env` accepts `KEY=val` between options and the
     // command, mutating only the environment passed to the exec'd process.
-    let env_assignment = claude_config_dir
-        .filter(|v| !v.is_empty())
-        .map(|v| format!("CLAUDE_CONFIG_DIR={} ", shell_escape_arg(v)))
-        .unwrap_or_default();
+    // This is claude-specific (it is claude's config dir), so only emit it
+    // when the configured agent binary is `claude` — other agents have no use
+    // for it and would receive a meaningless env var.
+    let env_assignment = if agent_binary == "claude" {
+        claude_config_dir
+            .filter(|v| !v.is_empty())
+            .map(|v| format!("CLAUDE_CONFIG_DIR={} ", shell_escape_arg(v)))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     let escaped_model = shell_escape_arg(model);
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
-    let claude_cmd = format!(
-        "env -u CLAUDECODE {env_assignment}claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
-    );
+    let agent_cmd = if agent_binary == "claude" {
+        format!(
+            "env -u CLAUDECODE {env_assignment}{agent_binary}{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
+        )
+    } else {
+        // Non-Claude agents: pipe the prompt via stdin, no --model/--allowedTools flags
+        format!("env -u CLAUDECODE {agent_binary} < {escaped_kickoff}")
+    };
     let launch = sandbox_command.map_or_else(
-        || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
+        || format!("{timeout_cmd} {timeout_secs}s {agent_cmd}"),
         |cmd| {
             let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
             let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
-            format!("{timeout_cmd} {timeout_secs}s {expanded} {claude_cmd}")
+            format!("{timeout_cmd} {timeout_secs}s {expanded} {agent_cmd}")
         },
     );
     // gh#60: persist the TIMEOUT sentinel at kill time. GNU timeout exits
@@ -250,6 +263,7 @@ pub(super) fn preflight_check(
     crosslink_dir: &Path,
 ) -> Result<PreflightResult> {
     let platform = detect_platform();
+    let agent_binary = crate::utils::read_agent_binary(crosslink_dir);
     let mut missing: Vec<String> = Vec::new();
 
     // timeout (or gtimeout on macOS) — always required for agent timeout
@@ -275,9 +289,10 @@ pub(super) fn preflight_check(
         }
     }
 
-    // claude CLI — required for local mode
-    if *container == ContainerMode::None && !command_available("claude") {
-        missing.push(install_hint("claude", &platform));
+    // Agent CLI — required for local mode. The binary name comes from
+    // hook-config.json's `agent.binary` (default "claude").
+    if *container == ContainerMode::None && !command_available(&agent_binary) {
+        missing.push(install_hint(&agent_binary, &platform));
     }
 
     // gh — required for CI/thorough verification
@@ -588,6 +603,7 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
 /// Launch the agent as a local tmux process.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_local(
+    agent_binary: &str,
     worktree_dir: &Path,
     session_name: &str,
     model: &str,
@@ -625,6 +641,7 @@ pub(super) fn launch_local(
 
     // Build the claude command (with optional sandbox wrapping)
     let cmd = build_agent_command(
+        agent_binary,
         timeout_cmd,
         timeout.as_secs(),
         model,
@@ -684,6 +701,7 @@ pub(super) fn launch_local(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
+    agent_binary: &str,
     worktree_dir: &Path,
     host_repo_root: &Path,
     image: &str,
@@ -708,10 +726,6 @@ pub(super) fn launch_container(
 
     let timeout_secs = timeout.as_secs();
     let container_name = format!("crosslink-agent-{agent_id}");
-
-    // Resolve host auth path for credential mounting
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let host_auth = format!("{home}/.claude");
 
     // Get host UID/GID for remapping (skip on Windows — Docker Desktop handles user mapping)
     let uid_gid = if cfg!(target_os = "windows") {
@@ -739,13 +753,21 @@ pub(super) fn launch_container(
         // Mount the worktree as workspace
         "-v".to_string(),
         format!("{}:/workspaces/repo", worktree_dir.to_string_lossy()),
-        // Mount credentials read-only
-        "-v".to_string(),
-        format!("{}:/host-auth:ro", host_auth),
         // Environment
         "-e".to_string(),
         format!("AGENT_ID={}", agent_id),
     ];
+
+    // Mount claude credentials read-only and forward Anthropic auth env vars
+    // only when the configured agent is claude. Other agents have no use for
+    // `~/.claude` auth or the Anthropic/Claude OAuth tokens.
+    if agent_binary == "claude" {
+        // Resolve host auth path for credential mounting
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        let host_auth = format!("{home}/.claude");
+        args.push("-v".to_string());
+        args.push(format!("{host_auth}:/host-auth:ro"));
+    }
 
     // Bind-mount the main repo's `.git/` at its host absolute path. The
     // worktree's `.git` is a single file containing an absolute
@@ -778,10 +800,13 @@ pub(super) fn launch_container(
     // the parent process env, so tokens don't appear in `ps`. macOS hosts
     // — where the Keychain holds the OAuth credential rather than
     // `~/.claude/.credentials.json` — rely on this passthrough. See GH#580.
-    for var in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
-        if std::env::var(var).is_ok_and(|v| !v.is_empty()) {
-            args.push("-e".to_string());
-            args.push(var.to_string());
+    // Only relevant when the configured agent is claude.
+    if agent_binary == "claude" {
+        for var in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
+            if std::env::var(var).is_ok_and(|v| !v.is_empty()) {
+                args.push("-e".to_string());
+                args.push(var.to_string());
+            }
         }
     }
 
@@ -808,9 +833,16 @@ pub(super) fn launch_container(
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
-    args.push(format!(
-        "cd /workspaces/repo && timeout {timeout_secs}s claude{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
-    ));
+    if agent_binary == "claude" {
+        args.push(format!(
+            "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary}{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
+        ));
+    } else {
+        // Non-Claude agents: pipe the prompt via stdin
+        args.push(format!(
+            "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary} < KICKOFF.md; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
+        ));
+    }
 
     let output = Command::new(runtime_cmd)
         .args(&args)

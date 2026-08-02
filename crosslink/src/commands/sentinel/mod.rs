@@ -28,9 +28,10 @@ pub fn dispatch_cmd(
     writer: Option<&SharedWriter>,
     quiet: bool,
     json: bool,
+    model: Option<String>,
 ) -> Result<()> {
     match command {
-        SentinelCommands::Run { dry_run, label } => {
+        SentinelCommands::Run { dry_run, label, .. } => {
             let config = SentinelConfig::load(crosslink_dir)?;
             engine::run_oneshot(
                 crosslink_dir,
@@ -39,11 +40,16 @@ pub fn dispatch_cmd(
                 &config,
                 dry_run,
                 label.as_deref(),
-                quiet,
+                engine::CycleOptions {
+                    quiet,
+                    model_override: model.as_deref(),
+                },
             )?;
             Ok(())
         }
-        SentinelCommands::Watch { interval } => watch::start(crosslink_dir, interval),
+        SentinelCommands::Watch { interval, .. } => {
+            watch::start(crosslink_dir, interval, model.as_deref())
+        }
         SentinelCommands::Status => watch::status(crosslink_dir, db),
         SentinelCommands::History {
             limit,
@@ -62,6 +68,8 @@ pub fn dispatch_cmd(
             let use_json = json || json_flag;
             patterns::detect_patterns(db, use_json)
         }
-        SentinelCommands::RunDaemon { dir, interval } => watch::run_watch_loop(&dir, interval),
+        SentinelCommands::RunDaemon { dir, interval, .. } => {
+            watch::run_watch_loop(&dir, interval, model)
+        }
     }
 }

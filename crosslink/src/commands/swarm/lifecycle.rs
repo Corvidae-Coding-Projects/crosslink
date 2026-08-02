@@ -741,6 +741,7 @@ pub fn launch(
             doc_path: None,
             skip_permissions: false,
             permission_mode: None,
+            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {
