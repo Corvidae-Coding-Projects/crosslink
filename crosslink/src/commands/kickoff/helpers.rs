@@ -786,6 +786,11 @@ pub(super) fn normalize_status(raw: &str) -> String {
         "done".to_string()
     } else if lower.contains("fail") || lower.contains("error") {
         "failed".to_string()
+    } else if lower.contains("timeout") || lower.contains("timed") {
+        // gh#60: the launch command writes a TIMEOUT sentinel when the
+        // timeout wrapper kills the agent; classify it like the wall-clock
+        // derived "timed-out" value.
+        "timed-out".to_string()
     } else if lower.contains("running") || raw.is_empty() {
         "running".to_string()
     } else {

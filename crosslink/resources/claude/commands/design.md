@@ -162,7 +162,9 @@ After validation:
 
 ### Pipeline State Initialization
 
-After writing the design document, create the pipeline state file so the kickoff wizard can track it:
+After writing the design document, ensure the pipeline state file exists so the kickoff wizard can track it. **Never overwrite an existing `pipeline.json` wholesale** — on `--continue`, the design may already have advanced through planning/runs, and resetting the file wipes that history and regresses its stage.
+
+- **If `.design/<slug>.pipeline.json` does not exist yet**, create it:
 
 ```bash
 cat > .design/<slug>.pipeline.json << 'PIPELINE_EOF'
@@ -175,6 +177,15 @@ cat > .design/<slug>.pipeline.json << 'PIPELINE_EOF'
   "runs": []
 }
 PIPELINE_EOF
+```
+
+- **If it already exists** (the `--continue` case), update only `doc_hash` (and `design_doc` if the doc was renamed), preserving `stage`, `plans`, and `runs`:
+
+```bash
+HASH=$(shasum -a 256 .design/<slug>.md | awk '{print "sha256:" $1}')
+jq --arg h "$HASH" --arg d ".design/<slug>.md" '.doc_hash = $h | .design_doc = $d' \
+  .design/<slug>.pipeline.json > .design/<slug>.pipeline.json.tmp \
+  && mv .design/<slug>.pipeline.json.tmp .design/<slug>.pipeline.json
 ```
 
 Compute the `doc_hash` as the SHA-256 hex digest of the design doc file content, prefixed with `sha256:`. You can compute it with: `shasum -a 256 .design/<slug>.md | awk '{print "sha256:" $1}'`

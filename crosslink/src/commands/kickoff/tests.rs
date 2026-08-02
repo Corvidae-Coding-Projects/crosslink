@@ -1770,7 +1770,7 @@ fn test_build_agent_command_without_sandbox() {
     );
     assert_eq!(
         cmd,
-        "timeout 3600s env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
+        "timeout 3600s env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > '/tmp/worktree/.kickoff-status'; fi"
     );
 }
 
@@ -1932,7 +1932,7 @@ fn test_build_agent_command_propagates_claude_config_dir() {
     );
     assert_eq!(
         cmd,
-        "timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
+        "timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > '/tmp/worktree/.kickoff-status'; fi"
     );
 }
 
@@ -2979,6 +2979,16 @@ fn test_reconcile_completion_by_worktree_scans_design_dir() {
     let reread = pipeline::read_pipeline_state(&doc).unwrap();
     assert_eq!(reread.runs[0].status, "completed");
     assert_eq!(reread.stage, "complete");
+}
+
+// GH#60: the TIMEOUT sentinel written by the launch command's exit-124
+// trailer classifies as "timed-out", same as the wall-clock derivation.
+#[test]
+fn test_normalize_status_timeout_sentinel() {
+    assert_eq!(normalize_status("TIMEOUT"), "timed-out");
+    assert_eq!(normalize_status("timed-out"), "timed-out");
+    assert_eq!(normalize_status("RUNNING"), "running");
+    assert_eq!(normalize_status("DONE".to_lowercase().as_str()), "done");
 }
 
 // GH#59: the permission flag both the local and container launch paths emit.

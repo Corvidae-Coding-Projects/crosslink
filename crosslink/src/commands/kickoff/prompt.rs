@@ -216,12 +216,15 @@ latest state from other agents, run `crosslink sync`.
 The following commands are blocked by project policy and will be rejected. If you need one of
 these, ask the user to run it manually:
 
-- `git push`, `git merge`, `git rebase`, `git cherry-pick` — remote/branch operations
+- `git merge`, `git rebase`, `git cherry-pick` — branch surgery
 - `git reset`, `git checkout .`, `git restore .`, `git clean` — destructive resets
 - `git stash`, `git tag`, `git am`, `git apply` — stash/tag/patch operations
 - `git branch -d`, `git branch -D`, `git branch -m` — branch deletion/renaming
+- `git push --force`, `git push -f` — always blocked
 
 **Gated** (require active crosslink issue): `git commit`
+**Push**: plain `git push` is reserved for the CI-verification steps above when
+they are present in this prompt; do not push otherwise.
 **Always allowed**: `git status`, `git diff`, `git log`, `git show`, `git branch` (listing)
 
 ## Instructions

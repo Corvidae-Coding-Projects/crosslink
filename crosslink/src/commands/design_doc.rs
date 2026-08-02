@@ -37,6 +37,10 @@ enum Section {
     Architecture,
     OpenQuestions,
     OutOfScope,
+    /// An H2 `## Phase: <name>` / `## Layer: <name>` section — the
+    /// documented explicit-phasing form (gh#57). Carries the raw header
+    /// text after `## `.
+    PhaseGroup(String),
     Unknown(String),
 }
 
@@ -96,14 +100,28 @@ pub(crate) fn parse_design_doc(content: &str) -> DesignDoc {
             flush_block(&mut doc, &section, &current_block);
             current_block.clear();
 
-            section = match rest.trim().to_lowercase().as_str() {
-                "summary" => Section::Summary,
-                "requirements" => Section::Requirements,
-                "acceptance criteria" => Section::AcceptanceCriteria,
-                "architecture" => Section::Architecture,
-                "open questions" => Section::OpenQuestions,
-                "out of scope" => Section::OutOfScope,
-                other => Section::Unknown(other.to_string()),
+            let trimmed = rest.trim();
+            let lowered = trimmed.to_lowercase();
+            // gh#57: the swarm guide documents H2 `## Phase:` / `## Layer:`
+            // headers as the explicit-phasing form; previously only H3
+            // headers inside `## Requirements` were recognized and the H2
+            // form silently fell into unknown_sections.
+            section = if lowered.starts_with("phase:")
+                || lowered.starts_with("phase ")
+                || lowered.starts_with("layer:")
+                || lowered.starts_with("layer ")
+            {
+                Section::PhaseGroup(trimmed.to_string())
+            } else {
+                match lowered.as_str() {
+                    "summary" => Section::Summary,
+                    "requirements" => Section::Requirements,
+                    "acceptance criteria" => Section::AcceptanceCriteria,
+                    "architecture" => Section::Architecture,
+                    "open questions" => Section::OpenQuestions,
+                    "out of scope" => Section::OutOfScope,
+                    other => Section::Unknown(other.to_string()),
+                }
             };
             continue;
         }
@@ -133,6 +151,19 @@ fn flush_block(doc: &mut DesignDoc, section: &Section, block: &str) {
         Section::Architecture => doc.architecture = block.trim().to_string(),
         Section::OpenQuestions => doc.open_questions = parse_list_items(block),
         Section::OutOfScope => doc.out_of_scope = parse_list_items(block),
+        Section::PhaseGroup(header) => {
+            // gh#57: H2 `## Phase:` / `## Layer:` — same group semantics as
+            // the H3-under-Requirements form. Items also extend the flat
+            // requirements list, mirroring how H3 groups flatten.
+            let (name, hint) = parse_layer_header(header);
+            let items = parse_list_items_collapsing_sub_bullets(block);
+            doc.requirements.extend(items.clone());
+            doc.requirement_groups.push(RequirementGroup {
+                name,
+                execution_hint: hint,
+                items,
+            });
+        }
         Section::Unknown(name) => {
             let trimmed = block.trim();
             if !trimmed.is_empty() {
@@ -538,6 +569,40 @@ mod tests {
         assert_eq!(doc.unknown_sections.len(), 1);
         assert_eq!(doc.unknown_sections[0].0, "references");
         assert_eq!(doc.unknown_sections[0].1, "See RFC 1234.");
+    }
+
+    // GH#57: the swarm guide documents H2 `## Phase:` / `## Layer:` headers;
+    // they must produce requirement groups, not fall into unknown_sections.
+    #[test]
+    fn test_parse_h2_phase_headers_documented_form() {
+        let input = "## Phase: Database Migrations\n- Add user table\n- Add session table\n\n## Phase: API Endpoints (parallel)\n- Registration endpoint\n- Login endpoint\n";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirement_groups.len(), 2);
+        assert_eq!(doc.requirement_groups[0].name, "Database Migrations");
+        assert_eq!(
+            doc.requirement_groups[0].items,
+            vec!["Add user table", "Add session table"]
+        );
+        assert_eq!(doc.requirement_groups[1].name, "API Endpoints");
+        assert_eq!(doc.requirement_groups[1].execution_hint, "parallel");
+        // Flat requirements mirror the flattened groups (backward compat),
+        // and nothing lands in unknown_sections.
+        assert_eq!(doc.requirements.len(), 4);
+        assert!(doc.unknown_sections.is_empty());
+    }
+
+    // GH#57: numbered H2 form (`## Layer 1: Foundation (sequential)`) and the
+    // guard that a section merely starting with the word "phased" is NOT
+    // treated as a phase group.
+    #[test]
+    fn test_parse_h2_layer_numbered_and_no_false_positive() {
+        let input = "## Layer 1: Foundation (sequential)\n- Base schema\n\n## Phased Rollout\n\nProse about rollout.\n";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirement_groups.len(), 1);
+        assert_eq!(doc.requirement_groups[0].name, "Foundation");
+        assert_eq!(doc.requirement_groups[0].execution_hint, "sequential");
+        assert_eq!(doc.unknown_sections.len(), 1);
+        assert_eq!(doc.unknown_sections[0].0, "phased rollout");
     }
 
     #[test]

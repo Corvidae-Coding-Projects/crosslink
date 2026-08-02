@@ -225,14 +225,20 @@ pub(super) fn build_agent_command(
     let claude_cmd = format!(
         "env -u CLAUDECODE {env_assignment}claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
     );
-    sandbox_command.map_or_else(
+    let launch = sandbox_command.map_or_else(
         || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
         |cmd| {
             let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
             let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
             format!("{timeout_cmd} {timeout_secs}s {expanded} {claude_cmd}")
         },
-    )
+    );
+    // gh#60: persist the TIMEOUT sentinel at kill time. GNU timeout exits
+    // 124 when it killed the wrapped command; without this trailer the
+    // sentinel stays RUNNING after a timeout kill and only the wall-clock
+    // check ever notices.
+    let status_path = shell_escape_arg(&worktree_dir.join(".kickoff-status").to_string_lossy());
+    format!("{launch}; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > {status_path}; fi")
 }
 
 /// Pre-flight check: verify all required external commands are present before
@@ -803,7 +809,7 @@ pub(super) fn launch_container(
     args.push("bash".to_string());
     args.push("-c".to_string());
     args.push(format!(
-        "cd /workspaces/repo && timeout {timeout_secs}s claude{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\""
+        "cd /workspaces/repo && timeout {timeout_secs}s claude{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
     ));
 
     let output = Command::new(runtime_cmd)

@@ -2870,7 +2870,7 @@ fn test_kickoff_dry_run_prints_prompt_and_metadata() {
 }
 
 #[test]
-fn test_kickoff_dry_run_creates_kickoff_md() {
+fn test_kickoff_dry_run_is_side_effect_free_and_prints_prompt() {
     let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
@@ -2880,38 +2880,36 @@ fn test_kickoff_dry_run_creates_kickoff_md() {
     );
     assert!(success);
 
-    // Extract worktree path from output
+    // GH#19: a dry run must not create the worktree (or anything in it) —
+    // the printed path is the would-be location only.
     let worktree_line = stdout
         .lines()
         .find(|l| l.starts_with("Worktree:"))
         .expect("No Worktree line in output");
     let worktree_path = worktree_line.trim_start_matches("Worktree:").trim();
-
-    // KICKOFF.md should exist in the worktree
-    let kickoff_path = std::path::Path::new(worktree_path).join("KICKOFF.md");
     assert!(
-        kickoff_path.exists(),
-        "KICKOFF.md not found at {}",
-        kickoff_path.display()
+        !std::path::Path::new(worktree_path).exists(),
+        "dry run must not create the worktree, but {worktree_path} exists"
     );
 
-    let content = std::fs::read_to_string(&kickoff_path).unwrap();
-    assert!(content.contains("test file creation"));
+    // The full prompt is printed to stdout instead of being written to a
+    // KICKOFF.md — the same contract markers apply to the printed prompt.
+    assert!(stdout.contains("test file creation"));
     assert!(
-        content.contains("Verify agent setup"),
-        "KICKOFF.md should include agent verification step"
+        stdout.contains("Verify agent setup"),
+        "printed prompt should include agent verification step"
     );
     assert!(
-        content.contains("crosslink agent status"),
-        "KICKOFF.md should instruct agent to check identity"
+        stdout.contains("crosslink agent status"),
+        "printed prompt should instruct agent to check identity"
     );
     assert!(
-        content.contains("Sync periodically"),
-        "KICKOFF.md should instruct agent to sync during work"
+        stdout.contains("Sync periodically"),
+        "printed prompt should instruct agent to sync during work"
     );
     assert!(
-        content.contains("Final sync"),
-        "KICKOFF.md should instruct agent to sync before ending"
+        stdout.contains("Final sync"),
+        "printed prompt should instruct agent to sync before ending"
     );
 }
 

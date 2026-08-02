@@ -172,16 +172,35 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         None
     };
 
-    // 3. Create worktree
+    // 3. Build prompt (with plan copy instruction if doc_path is known)
+    let plan_copy_target = opts.doc_path.map(super::pipeline::plan_path_for_doc);
+    let prompt = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
+
+    // Dry run: print what would happen and exit BEFORE any side effect —
+    // no worktree, no branch, no sentinel, no PlanRecord (gh#19). The
+    // printed worktree/branch are the would-be names create_worktree
+    // derives from the slug.
+    if opts.dry_run {
+        let parent_id =
+            AgentConfig::load(crosslink_dir)?.map_or_else(|| "driver".to_string(), |c| c.agent_id);
+        let agent_id = format!("{parent_id}--{slug}");
+        println!("{prompt}");
+        println!("---");
+        println!(
+            "Worktree: {}",
+            root.join(".worktrees").join(&slug).display()
+        );
+        println!("Branch:   feature/{slug}");
+        println!("Agent:    {agent_id}");
+        return Ok(());
+    }
+
+    // 4. Create worktree
     let (worktree_dir, branch_name) = create_worktree(&root, &slug, None)?;
 
     // Write slug sentinel so other commands can identify this worktree
     std::fs::write(worktree_dir.join(".kickoff-slug"), &slug)
         .context("Failed to write .kickoff-slug sentinel")?;
-
-    // 4. Build prompt (with plan copy instruction if doc_path is known)
-    let plan_copy_target = opts.doc_path.map(super::pipeline::plan_path_for_doc);
-    let prompt = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
 
     // 5. Write PLAN_KICKOFF.md
     std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
@@ -197,19 +216,6 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
             &format!("driver--{slug}"),
             &worktree_dir.to_string_lossy(),
         );
-    }
-
-    // Dry run: print and exit
-    if opts.dry_run {
-        let parent_id =
-            AgentConfig::load(crosslink_dir)?.map_or_else(|| "driver".to_string(), |c| c.agent_id);
-        let agent_id = format!("{parent_id}--{slug}");
-        println!("{prompt}");
-        println!("---");
-        println!("Worktree: {}", worktree_dir.display());
-        println!("Branch:   {branch_name}");
-        println!("Agent:    {agent_id}");
-        return Ok(());
     }
 
     // 7. Init worktree agent
