@@ -1744,6 +1744,31 @@ enum KickoffCommands {
         /// Print the analysis prompt without launching
         #[arg(long = "dry-run")]
         dry_run: bool,
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// Plan mode is read-only, so it launches WITHOUT any permission flag
+        /// by default — which means claude shows its interactive workspace-trust
+        /// dialog for the fresh worktree. A headless dispatcher (no TTY to
+        /// answer the dialog) must pass this so the agent can start (gh#66);
+        /// `--permission-mode` alone does NOT clear the trust dialog. The
+        /// read-only `--allowedTools` set still constrains what the agent runs.
+        #[arg(long)]
+        skip_permissions: bool,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions` (same modes as
+        /// `kickoff run`). Note it does not, by itself, clear the first-run
+        /// workspace-trust dialog; use `--skip-permissions` for headless plan
+        /// dispatch. Mutually exclusive with `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
     },
     /// Display a gap report from a previous plan analysis
     ShowPlan {

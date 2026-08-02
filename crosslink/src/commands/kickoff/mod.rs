@@ -110,6 +110,8 @@ pub fn dispatch(
             model,
             timeout,
             dry_run,
+            skip_permissions,
+            permission_mode,
         } => {
             let content = std::fs::read_to_string(&doc)
                 .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
@@ -125,6 +127,8 @@ pub fn dispatch(
                 dry_run,
                 issue,
                 quiet,
+                skip_permissions,
+                permission_mode: permission_mode.as_deref(),
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -235,6 +239,8 @@ fn dispatch_launch(
             dry_run,
             issue,
             quiet,
+            skip_permissions,
+            permission_mode,
         };
         return plan(crosslink_dir, db, &plan_opts);
     }
@@ -320,6 +326,10 @@ fn dispatch_launch(
                 dry_run: false,
                 issue,
                 quiet,
+                // Interactive wizard: a TTY is present to answer the trust
+                // dialog, so plan mode keeps the fail-closed default (gh#66).
+                skip_permissions: false,
+                permission_mode: None,
             };
             plan(crosslink_dir, db, &plan_opts)
         }

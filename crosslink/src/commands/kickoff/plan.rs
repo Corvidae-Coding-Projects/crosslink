@@ -239,9 +239,12 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         "PLAN_KICKOFF.md",
         preflight.sandbox_command.as_deref(),
         &worktree_dir,
-        false, // plan mode never skips permissions
+        // gh#66: default false keeps plan read-only and fail-closed; a headless
+        // dispatcher passes --skip-permissions so claude's fresh-worktree
+        // workspace-trust dialog does not block the agent forever.
+        opts.skip_permissions,
         claude_config_dir.as_deref(),
-        None, // plan mode never overrides permission_mode (#603)
+        opts.permission_mode,
     );
 
     let output = Command::new("tmux")
