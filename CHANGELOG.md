@@ -171,6 +171,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Git 2.42.0); on older Git they now fall back to an equivalent sequence
   (detached worktree + `git checkout --orphan` + clearing the tree) that yields
   the same empty unborn orphan branch (forecast-bio/crosslink#655).
+- The container entrypoint no longer `source`s `/host-auth/*.env` (gh#10).
+  Sourcing executed the file as shell: a token containing spaces or shell
+  metacharacters ran as commands, leaked credential fragments into the
+  container log, and silently truncated the exported value. The entrypoint
+  now parses the files line-by-line, honors only `CLAUDE_CODE_OAUTH_TOKEN`
+  and `ANTHROPIC_API_KEY` (optionally `export`-prefixed, quoted, or CRLF),
+  takes the value verbatim after the first `=` without executing or echoing
+  it, and reports `env-file:` auth resolution only when a recognized key was
+  actually found.
+- The agent container image installs `build-essential` (gh#9). The
+  entrypoint's rustup install provided `rustc`/`cargo` but the image had no
+  C toolchain or linker, so `cargo test`/`clippy`/`check` failed at link
+  inside every container agent — one of the tracked contributors to the
+  gh#55 kickoff stall.
 
 ## [0.9.0-beta.1] - 2026-06-13
 

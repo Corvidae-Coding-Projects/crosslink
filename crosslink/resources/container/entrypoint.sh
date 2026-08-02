@@ -30,15 +30,35 @@ if [ -f /host-auth/.credentials.json ]; then
     AUTH_RESOLVED="credentials-file"
 fi
 
-# 2. Env files from host mount. Any `/host-auth/*.env` is sourced so callers can
-#    drop a `kickoff.env` containing CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY.
+# 2. Env files from host mount. Callers can drop a `kickoff.env` containing
+#    CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY. Parsed line-by-line, never
+#    sourced (GH#10): sourcing executes the file as shell, so a token
+#    containing spaces or shell metacharacters ran as commands, leaked
+#    fragments into the container log, and silently truncated the exported
+#    value. Only the two auth keys are honored; the value is everything after
+#    the first `=`, taken verbatim (one layer of matching quotes and any
+#    trailing CR stripped), and is never echoed.
 shopt -s nullglob
 for env_file in /host-auth/*.env; do
-    # shellcheck disable=SC1090
-    set -a
-    source "$env_file"
-    set +a
-    if [ -z "$AUTH_RESOLVED" ]; then
+    file_resolved=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        line="${line#export }"
+        case "$line" in
+            CLAUDE_CODE_OAUTH_TOKEN=* | ANTHROPIC_API_KEY=*) ;;
+            *) continue ;;
+        esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$value" in
+            \"*\") value="${value#\"}"; value="${value%\"}" ;;
+            \'*\') value="${value#\'}"; value="${value%\'}" ;;
+        esac
+        [ -n "$value" ] || continue
+        export "$key=$value"
+        file_resolved="1"
+    done < "$env_file"
+    if [ -n "$file_resolved" ] && [ -z "$AUTH_RESOLVED" ]; then
         AUTH_RESOLVED="env-file:$(basename "$env_file")"
     fi
 done
