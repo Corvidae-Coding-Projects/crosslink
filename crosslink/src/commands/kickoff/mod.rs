@@ -95,6 +95,7 @@ pub fn dispatch(
                 permission_mode: permission_mode.as_deref(),
                 effort: effort.as_deref(),
                 budget_usd: budget_usd.as_deref(),
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             // The pipeline "running" row is now written from inside `run()`
             // once the real worktree + agent identity exist (GH#614) — no more
@@ -137,6 +138,7 @@ pub fn dispatch(
                 permission_mode: permission_mode.as_deref(),
                 effort: effort.as_deref(),
                 budget_usd: budget_usd.as_deref(),
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -254,6 +256,7 @@ fn dispatch_launch(
             // `kickoff plan`. Unset here reproduces the previous invocation.
             effort: None,
             budget_usd: None,
+            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
         return plan(crosslink_dir, db, &plan_opts);
     }
@@ -299,6 +302,7 @@ fn dispatch_launch(
             // See the --plan branch above: dials are not exposed here.
             effort: None,
             budget_usd: None,
+            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
         // mark_running is now invoked from inside run() with the real identity.
         run(crosslink_dir, db, writer, &opts)?;
@@ -350,6 +354,7 @@ fn dispatch_launch(
                 // unset so an interactive launch is unchanged (gh#61).
                 effort: None,
                 budget_usd: None,
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -392,6 +397,7 @@ fn dispatch_launch(
                 // See the wizard's Plan branch: dials stay unset here.
                 effort: None,
                 budget_usd: None,
+                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())

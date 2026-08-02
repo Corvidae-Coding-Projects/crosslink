@@ -786,6 +786,7 @@ pub fn launch(
             permission_mode: None,
             effort: dials.effort.as_deref(),
             budget_usd: dials.budget_usd.as_deref(),
+            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {

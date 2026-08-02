@@ -14,7 +14,7 @@ use super::config::SentinelConfig;
 use super::engine;
 
 /// Start the sentinel daemon as a background process.
-pub fn start(crosslink_dir: &Path, interval: u64) -> Result<()> {
+pub fn start(crosslink_dir: &Path, interval: u64, model: Option<&str>) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
     let log_file = crosslink_dir.join("sentinel.log");
 
@@ -37,13 +37,17 @@ pub fn start(crosslink_dir: &Path, interval: u64) -> Result<()> {
     let log_handle_err = log_handle
         .try_clone()
         .context("Failed to clone log file handle")?;
-    let child = Command::new(&exe)
-        .arg("sentinel")
+    let mut cmd = Command::new(&exe);
+    cmd.arg("sentinel")
         .arg("run-daemon")
         .arg("--dir")
         .arg(crosslink_dir)
         .arg("--interval")
-        .arg(interval.to_string())
+        .arg(interval.to_string());
+    if let Some(m) = model {
+        cmd.arg("--model").arg(m);
+    }
+    let child = cmd
         .stdin(Stdio::null())
         .stdout(log_handle)
         .stderr(log_handle_err)
@@ -160,7 +164,11 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
 /// - Webhook events from the optional GitHub webhook server
 /// - SIGTERM/SIGINT shutdown signals
 /// - Stdin closure (zombie prevention when parent dies)
-pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()> {
+pub fn run_watch_loop(
+    crosslink_dir: &Path,
+    interval_minutes: u64,
+    model: Option<String>,
+) -> Result<()> {
     let db_path = crosslink_dir.join("issues.db");
     if !db_path.exists() {
         anyhow::bail!(
@@ -184,6 +192,7 @@ pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()>
         crosslink_dir.to_path_buf(),
         interval_minutes,
         config,
+        model,
     ))
 }
 
@@ -192,6 +201,7 @@ async fn async_watch_loop(
     crosslink_dir: PathBuf,
     interval_minutes: u64,
     config: SentinelConfig,
+    model: Option<String>,
 ) -> Result<()> {
     let interval = Duration::from_secs(interval_minutes * 60);
     let mut backoff_multiplier: u32 = 1;
@@ -304,8 +314,9 @@ async fn async_watch_loop(
             () = &mut sleep_until => {
                 let cycle_dir = crosslink_dir.clone();
                 let cycle_config = config.clone();
+                let cycle_model = model.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    run_polling_cycle(&cycle_dir, &cycle_config)
+                    run_polling_cycle(&cycle_dir, &cycle_config, cycle_model.as_deref())
                 })
                 .await
                 .context("polling cycle task panicked")?;
@@ -325,9 +336,15 @@ async fn async_watch_loop(
                 if let Some(event) = maybe_event {
                     let cycle_dir = crosslink_dir.clone();
                     let cycle_config = config.clone();
+                    let cycle_model = model.clone();
                     let signal = event.signal;
                     let result = tokio::task::spawn_blocking(move || {
-                        run_webhook_cycle(&cycle_dir, &cycle_config, signal)
+                        run_webhook_cycle(
+                            &cycle_dir,
+                            &cycle_config,
+                            signal,
+                            cycle_model.as_deref(),
+                        )
                     })
                     .await
                     .context("webhook cycle task panicked")?;
@@ -363,7 +380,11 @@ async fn recv_webhook(
 }
 
 /// Execute a single polling cycle (sync, called via `spawn_blocking`).
-fn run_polling_cycle(crosslink_dir: &Path, config: &SentinelConfig) -> Result<()> {
+fn run_polling_cycle(
+    crosslink_dir: &Path,
+    config: &SentinelConfig,
+    model_override: Option<&str>,
+) -> Result<()> {
     let db = Database::open(&crosslink_dir.join("issues.db"))?;
     let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)
         .ok()
@@ -376,7 +397,10 @@ fn run_polling_cycle(crosslink_dir: &Path, config: &SentinelConfig) -> Result<()
         config,
         false, // not dry run
         None,  // no label filter
-        true,  // quiet in daemon mode (output goes to log)
+        engine::CycleOptions {
+            quiet: true, // daemon output goes to the log
+            model_override,
+        },
     )?;
 
     if stats.signals_found > 0 || stats.collected > 0 {
@@ -399,6 +423,7 @@ fn run_webhook_cycle(
     crosslink_dir: &Path,
     config: &SentinelConfig,
     signal: super::sources::Signal,
+    model_override: Option<&str>,
 ) -> Result<()> {
     let db = Database::open(&crosslink_dir.join("issues.db"))?;
     let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)
@@ -413,7 +438,10 @@ fn run_webhook_cycle(
         config,
         &[signal],
         "webhook",
-        true, // quiet in daemon mode
+        engine::CycleOptions {
+            quiet: true, // daemon output goes to the log
+            model_override,
+        },
     )?;
 
     println!(

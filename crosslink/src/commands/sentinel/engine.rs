@@ -22,25 +22,32 @@ pub struct CycleStats {
     pub deferred: u32,
 }
 
+/// Per-cycle behavior shared by polled and webhook-driven dispatches.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CycleOptions<'a> {
+    pub quiet: bool,
+    pub model_override: Option<&'a str>,
+}
+
 /// Run a single sentinel cycle: poll sources, triage, dispatch, collect.
-pub fn run_oneshot(
+pub(super) fn run_oneshot(
     crosslink_dir: &Path,
     db: &Database,
     writer: Option<&SharedWriter>,
     config: &SentinelConfig,
     dry_run: bool,
     label_filter: Option<&str>,
-    quiet: bool,
+    options: CycleOptions<'_>,
 ) -> Result<CycleStats> {
     if !config.enabled {
-        if !quiet {
+        if !options.quiet {
             println!("sentinel is disabled");
         }
         return Ok(CycleStats::default());
     }
 
     if dry_run {
-        return Ok(run_dry(config, quiet));
+        return Ok(run_dry(config, options.quiet));
     }
 
     // Poll all configured sources to gather signals
@@ -53,7 +60,7 @@ pub fn run_oneshot(
         config,
         &all_signals,
         "oneshot",
-        quiet,
+        options,
     )
 }
 
@@ -123,14 +130,14 @@ fn poll_all_sources(
 ///
 /// Used by both `run_oneshot` (after polling sources) and `webhook` (for real-time
 /// events that arrive between polling cycles).
-pub fn process_signal_batch(
+pub(super) fn process_signal_batch(
     crosslink_dir: &Path,
     db: &Database,
     writer: Option<&SharedWriter>,
     config: &SentinelConfig,
     all_signals: &[Signal],
     mode: &str,
-    quiet: bool,
+    options: CycleOptions<'_>,
 ) -> Result<CycleStats> {
     let run_id = Uuid::new_v4().to_string();
     db.insert_sentinel_run(&run_id, mode)?;
@@ -147,7 +154,7 @@ pub fn process_signal_batch(
     } else {
         super::tuning::TuningOverride::none()
     };
-    if tuning.has_overrides() && !quiet {
+    if tuning.has_overrides() && !options.quiet {
         println!("  self-tuning: model overrides active based on historical data");
     }
 
@@ -161,7 +168,7 @@ pub fn process_signal_batch(
         // Layer 2: in-memory dedup
         let decision = seen.evaluate(&signal.reference, config);
         if let SignalDecision::Skip(reason) = &decision {
-            if !quiet {
+            if !options.quiet {
                 println!("  skip: {} ({})", signal.reference, reason);
             }
             stats.skipped += 1;
@@ -175,7 +182,7 @@ pub fn process_signal_batch(
             let full_label = format!("agent-todo: {label}");
             let db_decision = db_dedup_check(db, num, &full_label, config)?;
             if let SignalDecision::Skip(reason) = &db_decision {
-                if !quiet {
+                if !options.quiet {
                     println!("  skip: {} ({})", signal.reference, reason);
                 }
                 stats.skipped += 1;
@@ -186,7 +193,13 @@ pub fn process_signal_batch(
         }
 
         // 5. Triage
-        let mut disposition = triage(signal, &decision, config, Some(&tuning));
+        let mut disposition = triage(
+            signal,
+            &decision,
+            config,
+            Some(&tuning),
+            options.model_override,
+        );
 
         // 6. Capacity check: if triage decided to dispatch but we're at capacity,
         //    override to Defer so the signal is retried on the next cycle.
@@ -208,7 +221,7 @@ pub fn process_signal_batch(
                 scope,
                 attempt,
             } => {
-                if !quiet {
+                if !options.quiet {
                     println!(
                         "  dispatch: {} [{:?}] (attempt {}, model: {}, detected: {})",
                         signal.reference,
@@ -271,13 +284,13 @@ pub fn process_signal_batch(
                 }
             }
             super::dispatch::Disposition::Skip { reason } => {
-                if !quiet {
+                if !options.quiet {
                     println!("  skip: {} ({})", signal.reference, reason);
                 }
                 stats.skipped += 1;
             }
             super::dispatch::Disposition::Defer { reason } => {
-                if !quiet {
+                if !options.quiet {
                     println!("  defer: {} ({})", signal.reference, reason);
                 }
                 stats.deferred += 1;
@@ -293,7 +306,7 @@ pub fn process_signal_batch(
                         let _ = db.add_label(issue_id, l);
                     }
                 }
-                if !quiet {
+                if !options.quiet {
                     println!(
                         "  triage: {} (priority: {}, labels: {})",
                         signal.reference,
@@ -307,7 +320,7 @@ pub fn process_signal_batch(
     }
 
     // 7. Collect results from previously completed agents
-    match collect::collect_completed(db, crosslink_dir, Some(config)) {
+    match collect::collect_completed(db, crosslink_dir, Some(config), writer) {
         Ok(collect_stats) => stats.collected = collect_stats.collected,
         Err(e) => tracing::warn!("result collection failed: {e}"),
     }
@@ -325,7 +338,7 @@ pub fn process_signal_batch(
         },
     )?;
 
-    if !quiet {
+    if !options.quiet {
         println!(
             "{} signal(s) found, {} dispatched, {} skipped, {} deferred, {} collected",
             stats.signals_found, stats.dispatched, stats.skipped, stats.deferred, stats.collected,
@@ -365,22 +378,46 @@ fn create_sentinel_issue(
         signal.reference,
         &signal.body[..signal.body.len().min(2000)]
     );
+    create_triage_issue(
+        db,
+        writer,
+        &signal.reference,
+        &signal.title,
+        &description,
+        "medium",
+        &["sentinel", "bug"],
+    )
+}
+
+/// Create a crosslink issue with an explicit reference, title, description,
+/// priority, and label set.
+///
+/// Shared by `create_sentinel_issue` (signal-driven issues) and the
+/// agent-exhaustion triage path in `collect.rs`. When a `SharedWriter` is
+/// available it is used so the issue is created on the hub branch; otherwise
+/// the local database is used directly.
+pub fn create_triage_issue(
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    reference: &str,
+    title: &str,
+    description: &str,
+    priority: &str,
+    labels: &[&str],
+) -> Result<i64> {
     let issue_id = if let Some(w) = writer {
-        w.create_issue(db, &signal.title, Some(&description), "medium", None, None)?
+        w.create_issue(db, title, Some(description), priority, None, None)?
     } else {
-        db.create_issue(&signal.title, Some(&description), "medium")?
+        db.create_issue(title, Some(description), priority)?
     };
-    // Label the issue
-    let label_fn = |label: &str| -> Result<()> {
+    for label in labels {
         if let Some(w) = writer {
             w.add_label(db, issue_id, label)?;
         } else {
             db.add_label(issue_id, label)?;
         }
-        Ok(())
-    };
-    let _ = label_fn("sentinel");
-    let _ = label_fn("bug");
+    }
+    let _ = reference;
     Ok(issue_id)
 }
 
@@ -454,6 +491,7 @@ fn spawn_agent(
         // scope's model is the only dial it configures.
         effort: None,
         budget_usd: None,
+        agent_binary: crate::utils::read_agent_binary(crosslink_dir),
     };
 
     run(crosslink_dir, db, writer, &opts)

@@ -148,6 +148,7 @@ fn test_build_prompt_contains_essentials() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -183,6 +184,7 @@ fn test_build_prompt_ci_verification() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -215,6 +217,7 @@ fn test_build_prompt_thorough_verification() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -560,8 +563,7 @@ fn test_missing_exclude_patterns_with_whitespace() {
     assert!(patterns.is_empty());
 }
 
-// ==================== Design-doc integrity (GH#580) ====================
-
+// ==================== Design-doc integrity (GH#580) =============
 #[test]
 fn test_verify_protected_doc_not_protected_without_breadcrumb() {
     let tmp = tempfile::tempdir().unwrap();
@@ -897,6 +899,7 @@ fn test_build_prompt_local_has_no_ci_or_adversarial() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -929,6 +932,7 @@ fn test_build_prompt_contains_blocked_actions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -962,6 +966,7 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -995,6 +1000,7 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -1040,6 +1046,7 @@ fn test_build_prompt_with_design_doc() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
 
@@ -1188,6 +1195,7 @@ fn test_build_prompt_with_design_doc_open_questions() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
 
@@ -1362,6 +1370,7 @@ fn test_build_prompt_with_criteria_includes_validation() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(prompt.contains("Spec Validation"));
@@ -1405,6 +1414,7 @@ fn test_build_prompt_without_criteria_no_validation() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(!prompt.contains("Spec Validation"));
@@ -1445,6 +1455,7 @@ fn test_build_prompt_validation_ordering() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     let test_pos = prompt.find("Run tests").expect("should have test section");
@@ -1781,6 +1792,7 @@ fn test_preflight_check_missing_command_includes_hint() {
 #[test]
 fn test_build_agent_command_without_sandbox() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1803,6 +1815,7 @@ fn test_build_agent_command_without_sandbox() {
 #[test]
 fn test_build_agent_command_with_sandbox() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1823,6 +1836,7 @@ fn test_build_agent_command_with_sandbox() {
 #[test]
 fn test_build_agent_command_with_skip_permissions() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1848,6 +1862,7 @@ fn test_build_agent_command_with_permission_mode_auto() {
     // GH#603: --permission-mode <mode> emits claude's --permission-mode flag
     // with the value shell-escaped.
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1878,6 +1893,7 @@ fn test_build_agent_command_permission_mode_wins_over_skip_permissions() {
     // permission_mode takes precedence and skip_permissions's
     // --dangerously-skip-permissions is suppressed.
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1906,6 +1922,7 @@ fn test_build_agent_command_empty_permission_mode_treated_as_none() {
     // An empty string should be treated the same as None — falling back
     // to skip_permissions resolution (or no flag).
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1932,6 +1949,7 @@ fn test_build_agent_command_empty_permission_mode_treated_as_none() {
 #[test]
 fn test_build_agent_command_plan_kickoff() {
     let cmd = build_agent_command(
+        "claude",
         "gtimeout",
         1800,
         "sonnet",
@@ -1957,6 +1975,7 @@ fn test_build_agent_command_propagates_claude_config_dir() {
     // rather than emitting it as a shell prefix — see build_agent_command
     // docstring for why.
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -1981,6 +2000,7 @@ fn test_build_agent_command_omits_empty_claude_config_dir() {
     // An empty string should be treated the same as None — propagating an
     // empty value would just confuse claude's lookup logic.
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -2004,6 +2024,7 @@ fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
     // parses correctly. shell_escape_arg wraps in single quotes and replaces
     // embedded single quotes with '\''.
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -2026,6 +2047,7 @@ fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
     // boundary so the sandboxed claude process inherits the variable, not
     // the sandbox wrapper itself. Folded into env(1)'s argv per GH#587.
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -2044,15 +2066,13 @@ fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
     ));
 }
 
-// ============================================================================
-// GH#587: integration tests that actually parse the constructed command line
+// =====================================================================// GH#587: integration tests that actually parse the constructed command line
 // through a shell. The string-shape unit tests above check what we emit; these
 // tests check that what we emit is what a shell will execute correctly. The
 // 0.8.0 regression would have been caught here — the shell-prefix form
 // `timeout 3600s CCD=val env ... claude ...` parsed as a literal positional
 // arg to timeout and never reached claude.
-// ============================================================================
-
+// =====================================================================
 /// Stub `claude` shim used by the integration tests. Prints
 /// `CCD=<CLAUDE_CONFIG_DIR>` to stdout and exits 0. Ignores all CLI args so
 /// the real flag plumbing doesn't interfere with the assertion.
@@ -2121,6 +2141,7 @@ fn test_build_agent_command_env_var_actually_reaches_claude() {
     std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
 
     let cmd = build_agent_command(
+        "claude",
         timeout_cmd,
         3600,
         "opus",
@@ -2175,6 +2196,7 @@ fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
     std::fs::set_permissions(&sandbox, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let cmd = build_agent_command(
+        "claude",
         timeout_cmd,
         3600,
         "opus",
@@ -2220,6 +2242,7 @@ fn test_build_agent_command_omitted_env_var_does_not_break_launch() {
     std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
 
     let cmd = build_agent_command(
+        "claude",
         timeout_cmd,
         3600,
         "opus",
@@ -2254,6 +2277,42 @@ fn test_read_sandbox_command_not_configured() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
     assert!(read_sandbox_command(dir.path()).is_none());
+}
+
+#[test]
+fn test_read_agent_binary_defaults_to_claude() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
+    assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
+}
+
+#[test]
+fn test_read_agent_binary_configured() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("hook-config.json"),
+        r#"{"agent": {"binary": "opencode"}}"#,
+    )
+    .unwrap();
+    assert_eq!(crate::utils::read_agent_binary(dir.path()), "opencode");
+}
+
+#[test]
+fn test_read_agent_binary_empty_string_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("hook-config.json"),
+        r#"{"agent": {"binary": ""}}"#,
+    )
+    .unwrap();
+    assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
+}
+
+#[test]
+fn test_read_agent_binary_missing_file_defaults_to_claude() {
+    let dir = tempfile::tempdir().unwrap();
+    // No hook-config.json present at all.
+    assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
 }
 
 #[test]
@@ -2510,6 +2569,7 @@ fn test_build_prompt_contains_report_json_schema() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -2560,6 +2620,7 @@ fn test_build_prompt_contains_validation_section() {
         permission_mode: None,
         effort: None,
         budget_usd: None,
+        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
 
@@ -3069,10 +3130,8 @@ fn test_permission_flag_postures() {
     assert_eq!(permission_flag(None, false), "");
 }
 
-// ============================================================================
-// gh#61 (REQ-1/REQ-2): per-dispatch reasoning/spend dials.
-// ============================================================================
-
+// =====================================================================// gh#61 (REQ-1/REQ-2): per-dispatch reasoning/spend dials.
+// =====================================================================
 // The dial fragment both launch paths share. Values are shell-escaped because
 // they land inside a `bash -c` string, exactly like `--model 'opus'`.
 #[test]
@@ -3094,6 +3153,7 @@ fn test_dial_flags_postures() {
 #[test]
 fn test_build_agent_command_with_effort() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -3125,6 +3185,7 @@ fn test_build_agent_command_with_effort() {
 #[test]
 fn test_build_agent_command_without_effort_omits_flag() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -3153,6 +3214,7 @@ fn test_build_agent_command_without_effort_omits_flag() {
 #[test]
 fn test_build_agent_command_with_budget_usd() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -3184,6 +3246,7 @@ fn test_build_agent_command_with_budget_usd() {
 #[test]
 fn test_build_agent_command_with_both_dials() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -3207,6 +3270,7 @@ fn test_build_agent_command_with_both_dials() {
 #[test]
 fn test_build_agent_command_escapes_dial_values() {
     let cmd = build_agent_command(
+        "claude",
         "timeout",
         3600,
         "opus",
@@ -3226,10 +3290,8 @@ fn test_build_agent_command_escapes_dial_values() {
     );
 }
 
-// ============================================================================
-// gh#61 (REQ-3): the dispatch dials are recorded in .kickoff-metadata.json.
-// ============================================================================
-
+// =====================================================================// gh#61 (REQ-3): the dispatch dials are recorded in .kickoff-metadata.json.
+// =====================================================================
 fn dialed_opts<'a>(
     model: &'a str,
     effort: Option<&'a str>,
@@ -3252,6 +3314,7 @@ fn dialed_opts<'a>(
         permission_mode: None,
         effort,
         budget_usd: budget,
+        agent_binary: "claude".to_string(),
     }
 }
 

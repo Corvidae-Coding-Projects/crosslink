@@ -80,20 +80,20 @@ fn build_user_prompt(document: &str) -> String {
 // Claude CLI invocation
 // ---------------------------------------------------------------------------
 
-/// Call the `claude` CLI to decompose a document.
+/// Call the agent CLI to decompose a document.
 ///
-/// This runs `claude -p <prompt> --output-format json` as a subprocess.
-/// The Claude CLI must be available on `$PATH`.
+/// This runs `<agent_binary> -p <prompt> --output-format json` as a subprocess.
+/// The agent CLI (default `claude`) must be available on `$PATH`.
 ///
 /// Returns the raw stdout as a string on success.
-async fn call_claude_cli(document: &str) -> Result<String> {
+async fn call_claude_cli(agent_binary: &str, document: &str) -> Result<String> {
     let system_prompt = build_system_prompt();
     let user_prompt = build_user_prompt(document);
 
-    // Combine into a single prompt since `claude -p` takes one prompt argument.
+    // Combine into a single prompt since `<agent> -p` takes one prompt argument.
     let full_prompt = format!("{system_prompt}\n\n---\n\n{user_prompt}");
 
-    let output = tokio::process::Command::new("claude")
+    let output = tokio::process::Command::new(agent_binary)
         .arg("-p")
         .arg(&full_prompt)
         .arg("--output-format")
@@ -340,6 +340,7 @@ pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
 /// plan storage fails.
 pub async fn decompose_document(
     crosslink_dir: &Path,
+    agent_binary: &str,
     document: &str,
     slug: Option<&str>,
 ) -> Result<OrchestratorPlan> {
@@ -350,7 +351,7 @@ pub async fn decompose_document(
     let effective_slug = slug.unwrap_or("untitled");
 
     // Call the LLM
-    let raw_response = call_claude_cli(document).await?;
+    let raw_response = call_claude_cli(agent_binary, document).await?;
 
     // Extract and parse JSON
     let json_str = extract_json_from_response(&raw_response)?;
@@ -840,7 +841,7 @@ mod tests {
     #[tokio::test]
     async fn test_decompose_document_empty_document_bails() {
         let dir = tempfile::tempdir().unwrap();
-        let result = decompose_document(dir.path(), "", None).await;
+        let result = decompose_document(dir.path(), "claude", "", None).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -851,7 +852,7 @@ mod tests {
     #[tokio::test]
     async fn test_decompose_document_whitespace_only_bails() {
         let dir = tempfile::tempdir().unwrap();
-        let result = decompose_document(dir.path(), "   \n\t  ", Some("my-slug")).await;
+        let result = decompose_document(dir.path(), "claude", "   \n\t  ", Some("my-slug")).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()

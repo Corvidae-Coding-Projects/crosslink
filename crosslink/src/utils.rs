@@ -2,6 +2,65 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Resolve the agent binary from `hook-config.json`'s `agent.binary`
+/// (default "claude").
+pub fn read_agent_binary(crosslink_dir: &Path) -> String {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
+    parsed
+        .get("agent")
+        .and_then(|a| a.get("binary"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| "claude".to_string(), ToString::to_string)
+}
+
+/// Read the `agent.kickoff_template` setting from `hook-config.json`.
+///
+/// Returns the template file path when configured, or `None` when the key is
+/// absent, empty, or the file cannot be parsed. The path is resolved relative
+/// to the crosslink directory when it is not absolute.
+pub fn read_kickoff_template(crosslink_dir: &Path) -> Option<String> {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let path = parsed
+        .get("agent")
+        .and_then(|a| a.get("kickoff_template"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())?;
+    let template_path = if std::path::Path::new(path).is_absolute() {
+        std::path::PathBuf::from(path)
+    } else {
+        crosslink_dir.join(path)
+    };
+    // Read and return the template content
+    std::fs::read_to_string(&template_path)
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
+/// Read the `agent.no_template` setting from `hook-config.json`.
+///
+/// Returns `true` when `agent.no_template` is set to `true`, indicating the
+/// built-in kickoff prompt should be skipped entirely. Defaults to `false`.
+pub fn read_no_template(crosslink_dir: &Path) -> bool {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return false;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+    parsed
+        .get("agent")
+        .and_then(|a| a.get("no_template"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// Resolve the main repository root when running inside a git worktree.
 ///
 /// Compares `git rev-parse --git-common-dir` with `--git-dir`. If they

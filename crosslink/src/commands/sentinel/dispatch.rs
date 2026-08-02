@@ -46,6 +46,7 @@ pub fn triage(
     decision: &SignalDecision,
     config: &SentinelConfig,
     tuning: Option<&super::tuning::TuningOverride>,
+    model_override: Option<&str>,
 ) -> Disposition {
     let label = signal
         .metadata
@@ -53,15 +54,27 @@ pub fn triage(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
+    // An explicit model override (e.g. `--model`) takes precedence over both
+    // the self-tuning recommendation and the per-decision default. It is
+    // applied to `scope.model` before the New/Escalate branch and bypasses
+    // `tuning.model_for_label`.
     let (model, attempt) = match decision {
         SignalDecision::New => {
-            // Check if self-tuning recommends a different model for this label
-            let model = tuning
-                .and_then(|t| t.model_for_label(label))
-                .map_or_else(|| config.default_agent.model.clone(), String::from);
+            let model = model_override.map_or_else(
+                || {
+                    // Check if self-tuning recommends a different model for this label
+                    tuning
+                        .and_then(|t| t.model_for_label(label))
+                        .map_or_else(|| config.default_agent.model.clone(), String::from)
+                },
+                String::from,
+            );
             (model, 1u32)
         }
-        SignalDecision::Escalate => (config.escalation.model.clone(), 2u32),
+        SignalDecision::Escalate => (
+            model_override.map_or_else(|| config.escalation.model.clone(), String::from),
+            2u32,
+        ),
         SignalDecision::Skip(reason) => {
             return Disposition::Skip {
                 reason: reason.to_string(),

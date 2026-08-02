@@ -146,6 +146,9 @@ pub struct KickoffOpts<'a> {
     /// spend ceiling for unattended dispatch. Per-session: under swarm each
     /// dispatched agent receives this cap (Decision D1). `None` emits no flag.
     pub budget_usd: Option<&'a str>,
+    /// Agent binary to launch (read from hook-config.json `agent.binary`,
+    /// default "claude"). Allows pointing kickoff at a different agent CLI.
+    pub agent_binary: String,
 }
 
 /// A single criterion verdict in the validation report.
@@ -280,6 +283,9 @@ pub struct PlanOpts<'a> {
     /// Optional claude `--max-budget-usd <amount>` (gh#61). See
     /// [`KickoffOpts::budget_usd`].
     pub budget_usd: Option<&'a str>,
+    /// Agent binary to launch (read from hook-config.json `agent.binary`,
+    /// default "claude").
+    pub agent_binary: String,
 }
 
 /// Detect project conventions from the repo root.

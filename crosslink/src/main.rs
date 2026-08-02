@@ -2174,12 +2174,18 @@ pub enum SentinelCommands {
         /// Only process signals matching this label
         #[arg(long)]
         label: Option<String>,
+        /// Override the model used for dispatched agents
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Start persistent sentinel daemon
     Watch {
         /// Poll interval in minutes
         #[arg(long, default_value = "10")]
         interval: u64,
+        /// Override the model used for dispatched agents
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Show sentinel daemon status and in-flight agents
     Status,
@@ -2216,6 +2222,9 @@ pub enum SentinelCommands {
         dir: std::path::PathBuf,
         #[arg(long, default_value = "10")]
         interval: u64,
+        /// Override the model used for dispatched agents
+        #[arg(long)]
+        model: Option<String>,
     },
 }
 
@@ -3451,12 +3460,23 @@ fn main() -> Result<()> {
         }
         Commands::Sentinel { action } => {
             // RunDaemon is the internal loop entry point — dir is explicit, no auto-detection
-            if let SentinelCommands::RunDaemon { ref dir, interval } = action {
-                return commands::sentinel::watch::run_watch_loop(dir, interval);
+            if let SentinelCommands::RunDaemon {
+                ref dir,
+                interval,
+                ref model,
+            } = action
+            {
+                return commands::sentinel::watch::run_watch_loop(dir, interval, model.clone());
             }
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
+            let sentinel_model = match &action {
+                SentinelCommands::Run { model, .. }
+                | SentinelCommands::Watch { model, .. }
+                | SentinelCommands::RunDaemon { model, .. } => model.clone(),
+                _ => None,
+            };
             commands::sentinel::dispatch_cmd(
                 action,
                 &crosslink_dir,
@@ -3464,6 +3484,7 @@ fn main() -> Result<()> {
                 writer.as_ref(),
                 cli.quiet,
                 cli.json,
+                sentinel_model,
             )
         }
         Commands::Tui => {
