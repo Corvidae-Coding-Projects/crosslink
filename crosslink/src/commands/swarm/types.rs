@@ -129,18 +129,32 @@ pub struct TestResult {
 }
 
 /// Budget configuration stored at `swarm/budget.json` on the hub branch.
+///
+/// Doubles as swarm's dispatch configuration: `model` is both the model cost
+/// estimates are computed against and the model agents are launched with, and
+/// the optional dials are threaded into every dispatched agent (gh#61).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BudgetConfig {
     pub budget_window_s: u64,
     pub model: String,
+    /// Reasoning effort for dispatched agents (`claude --effort`). `None`
+    /// dispatches without the flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Per-agent spend ceiling in USD (`claude --max-budget-usd`). Applied to
+    /// each dispatched session, not divided across a wave (Decision D1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_usd: Option<String>,
 }
 
-/// Default: 5-hour window, opus model (#521).
+/// Default: 5-hour window, opus model (#521), no dials.
 impl Default for BudgetConfig {
     fn default() -> Self {
         Self {
             budget_window_s: 18000,
             model: "opus".to_string(),
+            effort: None,
+            budget_usd: None,
         }
     }
 }

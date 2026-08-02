@@ -614,10 +614,68 @@ mod tests {
         let config = BudgetConfig {
             budget_window_s: 18000,
             model: "opus".to_string(),
+            effort: Some("high".to_string()),
+            budget_usd: Some("5.00".to_string()),
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: BudgetConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(config, parsed);
+    }
+
+    // A budget.json written before gh#61 has no dial keys — it must still
+    // parse, or every pre-existing swarm loses its budget window.
+    #[test]
+    fn test_budget_config_deserializes_legacy_file() {
+        let legacy = r#"{"budget_window_s":18000,"model":"sonnet"}"#;
+        let parsed: BudgetConfig = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.model, "sonnet");
+        assert_eq!(parsed.effort, None);
+        assert_eq!(parsed.budget_usd, None);
+    }
+
+    // ------------------------------------------------------------------
+    // gh#61 (REQ-4 / AC-5): swarm dispatch dials come from swarm config.
+    // ------------------------------------------------------------------
+
+    // The configured model/effort/budget reach the dials the launch loop
+    // hands to KickoffOpts — no `"opus"` literal pinned in lifecycle.rs.
+    #[test]
+    fn test_resolve_dispatch_dials_uses_swarm_config() {
+        let config = BudgetConfig {
+            budget_window_s: 18000,
+            model: "sonnet".to_string(),
+            effort: Some("high".to_string()),
+            budget_usd: Some("5.00".to_string()),
+        };
+        let dials = resolve_dispatch_dials(Some(&config));
+        assert_eq!(dials.model, "sonnet");
+        assert_eq!(dials.effort.as_deref(), Some("high"));
+        assert_eq!(dials.budget_usd.as_deref(), Some("5.00"));
+    }
+
+    // No budget.json yet: fall back to the documented swarm defaults (#521)
+    // rather than failing to launch.
+    #[test]
+    fn test_resolve_dispatch_dials_defaults_without_config() {
+        let dials = resolve_dispatch_dials(None);
+        assert_eq!(dials.model, BudgetConfig::default().model);
+        assert_eq!(dials.effort, None);
+        assert_eq!(dials.budget_usd, None);
+    }
+
+    // Empty strings in a hand-edited config are unset, not empty flags.
+    #[test]
+    fn test_resolve_dispatch_dials_treats_empty_as_unset() {
+        let config = BudgetConfig {
+            budget_window_s: 18000,
+            model: String::new(),
+            effort: Some(String::new()),
+            budget_usd: Some(String::new()),
+        };
+        let dials = resolve_dispatch_dials(Some(&config));
+        assert_eq!(dials.model, BudgetConfig::default().model);
+        assert_eq!(dials.effort, None);
+        assert_eq!(dials.budget_usd, None);
     }
 
     #[test]

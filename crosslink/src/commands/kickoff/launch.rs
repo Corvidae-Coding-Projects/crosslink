@@ -154,6 +154,31 @@ pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: b
     }
 }
 
+/// Resolve the per-dispatch reasoning/spend dials into a command-line fragment
+/// (each flag with a leading space, or empty). Shared by the local (tmux) and
+/// container launch paths so they cannot drift the way the permission flag once
+/// did (gh#61, mirroring the GH#59 fix for [`permission_flag`]).
+///
+/// Emits `--effort <level>` then `--max-budget-usd <amount>`, both values
+/// shell-escaped because both end up inside a `bash -c` string. Either dial
+/// being `None` (or empty) omits its flag entirely, so a launch that sets
+/// neither reproduces the previous invocation byte-for-byte.
+pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> String {
+    use crate::utils::shell_escape_arg;
+    use std::fmt::Write as _;
+
+    let mut flags = String::new();
+    if let Some(level) = effort.filter(|v| !v.is_empty()) {
+        // INTENTIONAL: writing to a String is infallible — the Result is only
+        // there to satisfy the fmt::Write trait.
+        let _ = write!(flags, " --effort {}", shell_escape_arg(level));
+    }
+    if let Some(amount) = budget_usd.filter(|v| !v.is_empty()) {
+        let _ = write!(flags, " --max-budget-usd {}", shell_escape_arg(amount));
+    }
+    flags
+}
+
 /// Build the shell command string for launching a claude agent.
 ///
 /// `claude_config_dir` is a caller-side environment variable that must be
@@ -194,6 +219,8 @@ pub(super) fn build_agent_command(
     skip_permissions: bool,
     claude_config_dir: Option<&str>,
     permission_mode: Option<&str>,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
 ) -> String {
     use crate::utils::shell_escape_arg;
 
@@ -222,8 +249,11 @@ pub(super) fn build_agent_command(
     let escaped_model = shell_escape_arg(model);
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
+    // gh#61: the dispatch dials sit immediately after `--model` so the
+    // reasoning/spend posture reads alongside the model it applies to.
+    let dials = dial_flags(effort, budget_usd);
     let claude_cmd = format!(
-        "env -u CLAUDECODE {env_assignment}claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
+        "env -u CLAUDECODE {env_assignment}claude{skip_flag} --model {escaped_model}{dials} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
     );
     let launch = sandbox_command.map_or_else(
         || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
@@ -598,6 +628,8 @@ pub(super) fn launch_local(
     crosslink_dir: &Path,
     skip_permissions: bool,
     permission_mode: Option<&str>,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
 ) -> Result<()> {
     // Create the tmux session
     let output = Command::new("tmux")
@@ -635,6 +667,8 @@ pub(super) fn launch_local(
         skip_permissions,
         claude_config_dir.as_deref(),
         permission_mode,
+        effort,
+        budget_usd,
     );
 
     // Write initial status sentinel BEFORE sending the command.
@@ -694,6 +728,8 @@ pub(super) fn launch_container(
     protected_doc_rel: Option<&Path>,
     skip_permissions: bool,
     permission_mode: Option<&str>,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
 ) -> Result<String> {
     let runtime_cmd = match runtime {
         ContainerMode::Docker => "docker",
@@ -805,11 +841,14 @@ pub(super) fn launch_container(
     // and `container start` use — without it claude prompts for every tool and
     // the headless container agent blocks forever (a GH#55 stall cause).
     let skip_flag = permission_flag(permission_mode, skip_permissions);
+    // gh#61: same dial fragment the local path emits, in the same position
+    // (immediately after `--model`), so both launch paths dispatch identically.
+    let dials = dial_flags(effort, budget_usd);
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
     args.push(format!(
-        "cd /workspaces/repo && timeout {timeout_secs}s claude{skip_flag} --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
+        "cd /workspaces/repo && timeout {timeout_secs}s claude{skip_flag} --model {model}{dials} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
     ));
 
     let output = Command::new(runtime_cmd)

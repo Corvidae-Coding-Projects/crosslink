@@ -450,6 +450,10 @@ fn spawn_agent(
         doc_path: None,
         skip_permissions: true,
         permission_mode: None,
+        // Sentinel dispatch carries no reasoning/spend dials (gh#61) — the
+        // scope's model is the only dial it configures.
+        effort: None,
+        budget_usd: None,
     };
 
     run(crosslink_dir, db, writer, &opts)

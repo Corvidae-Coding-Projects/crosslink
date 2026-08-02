@@ -251,6 +251,8 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         opts.skip_permissions,
         claude_config_dir.as_deref(),
         opts.permission_mode,
+        opts.effort,
+        opts.budget_usd,
     );
 
     let output = Command::new("tmux")

@@ -238,6 +238,37 @@ If you find yourself passing `--skip-permissions` on every kickoff, that's a sig
 
 &nbsp;
 
+### Dispatch dials: reasoning effort and spend ceiling
+
+Two optional per-launch dials sit alongside `--model` on `kickoff run` and `kickoff plan`:
+
+```bash
+crosslink kickoff run "add batch retry logic" --model opus --effort high --budget-usd 5
+```
+
+- **`--effort <low|medium|high|xhigh|max>`** -- how much reasoning the dispatched session spends per turn. Invalid levels are rejected before anything is created, so a typo fails the launch rather than silently dispatching an un-dialed agent.
+- **`--budget-usd <amount>`** -- a spend ceiling for the session. It is a *per-session* cap: under swarm each dispatched agent gets the given cap, so a wave of N agents can spend up to N times the amount.
+
+Both are optional; omitting them launches exactly as before. Whatever you set is recorded in the worktree's `.kickoff-metadata.json` alongside the resolved model, so the run record answers what the dispatch was actually given:
+
+```json
+{
+  "started_at": "2026-08-02T05:44:02Z",
+  "timeout_secs": 3600,
+  "model": "opus",
+  "effort": "high",
+  "budget_usd": "5"
+}
+```
+
+For swarm, the dials are configured once and apply to every agent the swarm launches:
+
+```bash
+crosslink swarm config --budget-window 5h --model sonnet --effort high --budget-usd 5
+```
+
+&nbsp;
+
 ---
 
 ## Managing kickoffs

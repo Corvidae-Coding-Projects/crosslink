@@ -10,6 +10,15 @@ use std::time::Duration;
 /// swarm, and CLI default values.
 pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/dollspace-gay/crosslink-agent:latest";
 
+/// Reasoning-effort levels accepted by `claude --effort` (gh#61).
+///
+/// Single source of truth for the clap `PossibleValuesParser` on
+/// `kickoff run` / `kickoff plan` and for any non-clap caller that needs
+/// to validate a configured level (e.g. swarm config). Keeping the list
+/// here means the CLI's fail-closed value error and the dispatch path can
+/// never drift apart.
+pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 /// Container runtime for agent execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerMode {
@@ -52,13 +61,45 @@ pub struct CriteriaFile {
 /// Metadata written at agent launch (`.kickoff-metadata.json`).
 ///
 /// Records the timeout and start time so that `status` / `list` can detect
-/// agents that have exceeded their time budget.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// agents that have exceeded their time budget, plus the dispatch dials the
+/// agent was launched with (gh#61) so the run record answers "what reasoning
+/// effort / spend ceiling / model did this dispatch actually get?".
+///
+/// The dial fields are optional and `skip_serializing_if = "Option::is_none"`:
+/// a metadata file written before this field set existed still deserializes,
+/// and a launch that passes no dials produces the same JSON it always did.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KickoffMetadata {
     /// ISO-8601 UTC timestamp of when the agent was launched.
     pub started_at: String,
     /// Timeout in seconds (matches `--timeout` flag).
     pub timeout_secs: u64,
+    /// Resolved model the agent was dispatched with (matches `--model`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Reasoning effort the agent was dispatched with (matches `--effort`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Per-session spend ceiling in USD (matches `--budget-usd`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_usd: Option<String>,
+}
+
+impl KickoffMetadata {
+    /// Build the launch record for a dispatch, capturing its dials.
+    ///
+    /// Keeps the `.kickoff-metadata.json` shape derived from exactly one place
+    /// so the run-record oracle and the launch path cannot disagree about what
+    /// a dispatch was given (gh#61, REQ-3).
+    pub fn for_launch(opts: &KickoffOpts, started_at: String) -> Self {
+        Self {
+            started_at,
+            timeout_secs: opts.timeout.as_secs(),
+            model: Some(opts.model.to_string()),
+            effort: opts.effort.map(ToString::to_string),
+            budget_usd: opts.budget_usd.map(ToString::to_string),
+        }
+    }
 }
 
 /// Breadcrumb written at launch when `--doc <path>` is supplied
@@ -97,6 +138,14 @@ pub struct KickoffOpts<'a> {
     /// with the finer-grained mode (acceptEdits/auto/bypassPermissions/
     /// default/dontAsk/plan). CLI marks the flags as mutually exclusive.
     pub permission_mode: Option<&'a str>,
+    /// Optional claude `--effort <level>` (gh#61). One of [`EFFORT_LEVELS`];
+    /// the CLI validates the value fail-closed. `None` reproduces today's
+    /// invocation with no `--effort` token.
+    pub effort: Option<&'a str>,
+    /// Optional claude `--max-budget-usd <amount>` (gh#61) — a fail-closed
+    /// spend ceiling for unattended dispatch. Per-session: under swarm each
+    /// dispatched agent receives this cap (Decision D1). `None` emits no flag.
+    pub budget_usd: Option<&'a str>,
 }
 
 /// A single criterion verdict in the validation report.
@@ -226,6 +275,11 @@ pub struct PlanOpts<'a> {
     /// Pass `--permission-mode <mode>`. Mutually exclusive with
     /// `skip_permissions`; does not itself clear the trust dialog.
     pub permission_mode: Option<&'a str>,
+    /// Optional claude `--effort <level>` (gh#61). See [`KickoffOpts::effort`].
+    pub effort: Option<&'a str>,
+    /// Optional claude `--max-budget-usd <amount>` (gh#61). See
+    /// [`KickoffOpts::budget_usd`].
+    pub budget_usd: Option<&'a str>,
 }
 
 /// Detect project conventions from the repo root.
