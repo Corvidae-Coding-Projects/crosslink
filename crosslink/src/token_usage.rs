@@ -408,7 +408,14 @@ mod tests {
     fn test_pricing_config_anthropic_heuristic_still_works() {
         let cfg = PricingConfig::default();
         // With an empty config, Anthropic substring heuristics still apply.
-        let cost = estimate_cost_cfg("claude-sonnet-4-20250514", 1_000_000, 1_000_000, None, None, &cfg);
+        let cost = estimate_cost_cfg(
+            "claude-sonnet-4-20250514",
+            1_000_000,
+            1_000_000,
+            None,
+            None,
+            &cfg,
+        );
         assert!(cost.is_some());
         assert!((cost.unwrap() - 18.0).abs() < 0.001);
     }
