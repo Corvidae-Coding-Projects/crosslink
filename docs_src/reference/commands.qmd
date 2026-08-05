@@ -1,0 +1,418 @@
+---
+title: "CLI reference"
+---
+
+These commands are typically executed by agents automatically. This reference documents the full CLI for manual use and scripting.
+
+Complete command reference for the crosslink CLI.
+
+## Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | JSON output (supported by `list`, `show`, `search`, `session status`, `swarm status`, `issue tree`, `blocked`, `ready`, `next`) |
+| `--quiet` / `-q` | Minimal output (just IDs, counts), useful for scripting |
+| `--log-level <LEVEL>` | Set log verbosity: `error`, `warn` (default), `info`, `debug`, `trace` |
+| `--log-format <FORMAT>` | Log output format: `text` (default), `json` |
+
+&nbsp;
+
+## Issue management
+
+Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`, `close`, `subissue`, `start`, `stop`. All other issue commands require the `crosslink issue` prefix.
+
+| Command | Description |
+|---------|-------------|
+| `crosslink create <title>` | Create a new issue |
+| `crosslink create <title> -p high` | Create with priority (`low`/`medium`/`high`/`critical`) |
+| `crosslink create <title> -d "desc"` | Create with description |
+| `crosslink create <title> -t bug` | Create from template (`bug`/`feature`/`refactor`/`research`) |
+| `crosslink create <title> -w -l bug` | Create, label, and start working on it |
+| `crosslink quick <title> [-p high] [-l label]` | Shorthand: create + label + set as active work item |
+| `crosslink subissue <parent_id> <title>` | Create a subissue under a parent |
+| `crosslink subissue <parent_id> <title> -p high` | Subissue with priority |
+| `crosslink list` | List open issues |
+| `crosslink list -s all` | List all issues (open + closed) |
+| `crosslink list -s closed` | List closed issues |
+| `crosslink list -l bug` | Filter by label |
+| `crosslink list -p high` | Filter by priority |
+| `crosslink issue search <query>` | Search issues by text |
+| `crosslink issue search <query> --from <repo>` | Search issues in an external repository |
+| `crosslink show <id>` | Show issue details |
+| `crosslink show <id> --from <repo>` | Show issue details from an external repository |
+| `crosslink show <id> --json` | Show issue details as JSON |
+| `crosslink issue update <id> --title "New"` | Update title |
+| `crosslink issue update <id> -d "desc"` | Update description |
+| `crosslink issue update <id> -p critical` | Update priority |
+| `crosslink close <id>` | Close an issue |
+| `crosslink close <id> --no-changelog` | Close without changelog entry |
+| `crosslink issue close-all` | Close all open issues |
+| `crosslink issue close-all -l bug` | Close all with a specific label |
+| `crosslink issue close-all -p low` | Close all with a specific priority |
+| `crosslink issue close-all --no-changelog` | Close all without changelog entries |
+| `crosslink issue reopen <id>` | Reopen a closed issue |
+| `crosslink issue delete <id>` | Delete an issue (with confirmation) |
+| `crosslink issue delete <id> -f` | Delete without confirmation |
+
+&nbsp;
+
+## Comments and labels
+
+| Command | Description |
+|---------|-------------|
+| `crosslink issue comment <id> "text"` | Add a comment to an issue |
+| `crosslink issue intervene <id> "desc" --trigger <type>` | Log a driver intervention (`tool_rejected`, `tool_blocked`, `redirect`, `context_provided`, `manual_action`, `question_answered`) |
+| `crosslink issue label <id> <label>` | Add a label |
+| `crosslink issue unlabel <id> <label>` | Remove a label |
+
+&nbsp;
+
+## Dependencies
+
+| Command | Description |
+|---------|-------------|
+| `crosslink issue block <id> <blocker_id>` | Mark issue as blocked by another |
+| `crosslink issue unblock <id> <blocker_id>` | Remove blocking relationship |
+| `crosslink issue blocked` | List all blocked issues |
+| `crosslink issue ready` | List issues ready to work on (no blockers) |
+
+&nbsp;
+
+## Related issues
+
+| Command | Description |
+|---------|-------------|
+| `crosslink issue relate <id1> <id2>` | Link two related issues |
+| `crosslink issue unrelate <id1> <id2>` | Remove relationship |
+| `crosslink issue related <id>` | List issues related to the given issue |
+
+&nbsp;
+
+## Milestones
+
+| Command | Description |
+|---------|-------------|
+| `crosslink milestone create <name>` | Create a milestone |
+| `crosslink milestone create <name> -d "desc"` | Create with description |
+| `crosslink milestone list` | List all milestones |
+| `crosslink milestone show <id>` | Show milestone details and progress |
+| `crosslink milestone add <milestone_id> <issue_id>` | Add issue to milestone |
+| `crosslink milestone remove <milestone_id> <issue_id>` | Remove issue from milestone |
+| `crosslink milestone close <id>` | Close a milestone |
+| `crosslink milestone delete <id>` | Delete a milestone |
+
+&nbsp;
+
+## Archiving
+
+| Command | Description |
+|---------|-------------|
+| `crosslink archive add <id>` | Archive a closed issue |
+| `crosslink archive remove <id>` | Restore an archived issue |
+| `crosslink archive list` | List all archived issues |
+| `crosslink archive older <days>` | Archive issues closed more than N days ago |
+
+&nbsp;
+
+## Export / import
+
+| Command | Description |
+|---------|-------------|
+| `crosslink export` | Export all issues to JSON (stdout) |
+| `crosslink export -o backup.json` | Export to a file |
+| `crosslink export -f markdown` | Export as markdown |
+| `crosslink import backup.json` | Import issues from JSON |
+
+&nbsp;
+
+## Smart navigation
+
+| Command | Description |
+|---------|-------------|
+| `crosslink issue next` | Recommend the next issue to work on |
+| `crosslink issue tree` | Show issue hierarchy tree |
+| `crosslink issue tree -s open` | Tree view filtered to open issues |
+
+&nbsp;
+
+## Time tracking
+
+| Command | Description |
+|---------|-------------|
+| `crosslink start <id>` | Start a timer for an issue |
+| `crosslink stop` | Stop the current timer |
+| `crosslink timer show` | Show current timer status |
+| `crosslink issue tested` | Mark tests as run (resets test reminder) |
+
+&nbsp;
+
+## Session management
+
+| Command | Description |
+|---------|-------------|
+| `crosslink session start` | Start a session (shows previous handoff) |
+| `crosslink session work <id>` | Set current focus issue |
+| `crosslink session action "..."` | Record a breadcrumb (survives context compression) |
+| `crosslink session status` | Show current session info |
+| `crosslink session end` | End current session |
+| `crosslink session end --notes "..."` | End with handoff notes |
+| `crosslink session last-handoff` | Retrieve previous session's handoff notes |
+
+&nbsp;
+
+## Multi-agent coordination
+
+| Command | Description |
+|---------|-------------|
+| `crosslink agent init <id>` | Register this machine as an agent |
+| `crosslink agent init <id> -d "desc"` | Register with description |
+| `crosslink agent status` | Show agent identity and held locks |
+| `crosslink locks list` | Show all active issue locks |
+| `crosslink --json locks list` | Locks as JSON |
+| `crosslink locks check <id>` | Check if issue is available or locked |
+| `crosslink sync` | Fetch lock state from coordination branch |
+
+&nbsp;
+
+## Trust and signing
+
+| Command | Description |
+|---------|-------------|
+| `crosslink trust approve <agent-id>` | Approve an agent's signing key |
+| `crosslink trust revoke <agent-id>` | Revoke an agent's signing key |
+| `crosslink trust list` | List all trusted signers |
+| `crosslink trust pending` | Show agent keys awaiting approval |
+| `crosslink trust check <agent-id>` | Check trust status of a specific agent |
+
+&nbsp;
+
+## Daemon
+
+| Command | Description |
+|---------|-------------|
+| `crosslink daemon start` | Start background daemon |
+| `crosslink daemon status` | Check daemon status |
+| `crosslink daemon stop` | Stop daemon |
+
+&nbsp;
+
+## Configuration
+
+| Command | Description |
+|---------|-------------|
+| `crosslink config show` | Show all configuration with default annotations |
+| `crosslink config get <key>` | Get a specific config value |
+| `crosslink config set <key> <value>` | Set a config value |
+| `crosslink config list` | List all available config keys with descriptions |
+| `crosslink config reset` | Reset config to defaults |
+| `crosslink config diff` | Show differences from default config |
+
+&nbsp;
+
+## Knowledge pages
+
+| Command | Description |
+|---------|-------------|
+| `crosslink knowledge add <slug>` | Create a new knowledge page |
+| `crosslink knowledge add <slug> --title "T" --tag t --source url --content "..."` | Create with metadata |
+| `crosslink knowledge add <slug> --from-doc DESIGN.md` | Import from a design document |
+| `crosslink knowledge show <slug>` | Display a knowledge page |
+| `crosslink knowledge list` | List all knowledge pages |
+| `crosslink knowledge list --tag t --contributor id --since DATE --json` | Filter and format |
+| `crosslink knowledge edit <slug> --append "text"` | Append content to a page |
+| `crosslink knowledge edit <slug> --content "text"` | Replace page content |
+| `crosslink knowledge edit <slug> --replace-section <heading>` | Replace an entire section by heading |
+| `crosslink knowledge edit <slug> --append-to-section <heading>` | Append content to a section |
+| `crosslink knowledge edit <slug> --tag t --source url` | Add tags or sources |
+| `crosslink knowledge remove <slug>` | Remove a knowledge page |
+| `crosslink knowledge sync` | Manually sync from remote |
+| `crosslink knowledge search <query>` | Full-text search across pages |
+| `crosslink knowledge search <query> -C 3 --tag t --since DATE` | Search with filters |
+| `crosslink knowledge search <query> --from <repo>` | Search knowledge in an external repository |
+| `crosslink knowledge show <slug> --from <repo>` | Show a knowledge page from an external repository |
+| `crosslink knowledge import <directory>` | Bulk import markdown files |
+| `crosslink knowledge import <dir> --tag t --overwrite --dry-run` | Import with options |
+
+&nbsp;
+
+## House style
+
+| Command | Description |
+|---------|-------------|
+| `crosslink style set <url>` | Set the house style source (a git repo URL) |
+| `crosslink style sync` | Pull latest from the house style source |
+| `crosslink style diff` | Show what's drifted from house style |
+| `crosslink style show` | Show current house style configuration |
+| `crosslink style unset` | Remove house style association |
+
+&nbsp;
+
+## Workflow
+
+| Command | Description |
+|---------|-------------|
+| `crosslink workflow diff` | Compare deployed policy files against embedded defaults |
+| `crosslink workflow trail <id>` | Show chronological comment trail for an issue |
+
+&nbsp;
+
+## Code clone detection
+
+| Command | Description |
+|---------|-------------|
+| `crosslink cpitd scan` | Scan for code clones and create issues |
+| `crosslink cpitd status` | Show open clone issues |
+| `crosslink cpitd clear` | Close all open clone issues |
+
+&nbsp;
+
+## Data integrity
+
+| Command | Description |
+|---------|-------------|
+| `crosslink integrity` | Run all integrity checks |
+| `crosslink integrity counters` | Check counter consistency |
+| `crosslink integrity hydration` | Verify SQLite matches JSON issue files |
+| `crosslink integrity locks` | Check for stale or orphaned locks |
+| `crosslink integrity schema` | Verify SQLite schema version |
+| `crosslink integrity layout` | Verify hub file paths and V1/V2 layout consistency |
+| `crosslink compact` | Run event compaction manually |
+| `crosslink compact --force` | Force compaction even if lease is held by another agent |
+
+&nbsp;
+
+## Migration
+
+| Command | Description |
+|---------|-------------|
+| `crosslink migrate to-shared` | Migrate local SQLite issues to shared coordination branch |
+| `crosslink migrate from-shared` | Import shared issues from coordination branch into local SQLite |
+| `crosslink migrate rename-branch` | Rename coordination branch from `crosslink/locks` to `crosslink/hub` |
+
+&nbsp;
+
+## Kickoff
+
+| Command | Description |
+|---------|-------------|
+| `crosslink kickoff run <description>` | Launch an agent to implement a feature |
+| `crosslink kickoff run <desc> --container docker` | Launch in a Docker container |
+| `crosslink kickoff run <desc> --verify ci` | Launch with CI verification |
+| `crosslink kickoff run <desc> --doc DESIGN.md` | Launch from a design document |
+| `crosslink kickoff run <desc> --timeout 2h --model opus` | With timeout and model |
+| `crosslink kickoff run <desc> --dry-run` | Print prompt without launching |
+| `crosslink kickoff list` | List active kickoff agents with worktree, tmux, and Docker discovery |
+| `crosslink kickoff list --status running` | Filter by status (`running`/`done`/`failed`/`all`) |
+| `crosslink kickoff cleanup` | Remove stale worktrees, tmux sessions, and Docker containers from previous runs |
+| `crosslink kickoff cleanup --dry-run` | Preview what would be removed |
+| `crosslink kickoff status <agent>` | Check agent status |
+| `crosslink kickoff logs <agent>` | Tail agent event log |
+| `crosslink kickoff logs <agent> -l 50` | Show last 50 events |
+| `crosslink kickoff stop <agent>` | Stop a running agent |
+| `crosslink kickoff stop <agent> --force` | Force kill (SIGKILL) |
+| `crosslink kickoff plan <doc>` | Analyze design doc against codebase (read-only) |
+| `crosslink kickoff show-plan <agent>` | Display gap report from a plan analysis |
+| `crosslink kickoff report [agent]` | Show spec validation report |
+| `crosslink kickoff report --all` | Aggregate reports from all agents |
+| `crosslink kickoff report <agent> --json` | Report as JSON |
+| `crosslink kickoff report <agent> --markdown` | Report as PR-ready markdown |
+
+&nbsp;
+
+## Swarm orchestration
+
+| Command | Description |
+|---------|-------------|
+| `crosslink swarm init --doc <PATH>` | Initialize swarm plan from a design document |
+| `crosslink swarm status` | Show current swarm state and progress |
+| `crosslink swarm plan` | Plan multi-phase build across budget windows |
+| `crosslink swarm plan --budget-window 2h` | Plan with budget constraint |
+| `crosslink swarm plan-show` | Display the current window plan |
+| `crosslink swarm launch <phase>` | Launch all agents for a phase |
+| `crosslink swarm launch <phase> --budget-aware` | Launch with budget check |
+| `crosslink swarm gate <phase>` | Run test suite as phase gate |
+| `crosslink swarm checkpoint <phase> --notes "..."` | Record phase completion |
+| `crosslink swarm checkpoint <phase> --force` | Checkpoint without passing gate |
+| `crosslink swarm estimate <phase>` | Estimate wall-clock cost for a phase |
+| `crosslink swarm harvest` | Update cost history from completed agents |
+| `crosslink swarm resume` | Reconstruct state after interruption |
+| `crosslink swarm config --budget-window <DUR> --model <MODEL>` | Configure budget parameters |
+| `crosslink swarm create` | Create a new independent swarm (UUID-based) |
+| `crosslink swarm list` | List all swarms with status |
+| `crosslink swarm switch <uuid>` | Switch active swarm context |
+| `crosslink swarm move <agent> --to-phase <phase>` | Move an agent to a different phase |
+| `crosslink swarm merge <phase1> <phase2>` | Merge two phases into one |
+| `crosslink swarm split <phase> --after <agent>` | Split a phase at a boundary |
+| `crosslink swarm remove <agent>` | Remove an agent from the plan |
+| `crosslink swarm reorder <agent> --position <index>` | Change agent execution order |
+| `crosslink swarm rename <phase> --name <new-name>` | Rename a phase |
+
+&nbsp;
+
+## Container execution
+
+| Command | Description |
+|---------|-------------|
+| `crosslink container build` | Build the agent container image |
+| `crosslink container build --force --tag v2` | Rebuild from scratch with custom tag |
+| `crosslink container build --dockerfile PATH` | Build with custom Dockerfile |
+| `crosslink container start <worktree>` | Start a container for a worktree |
+| `crosslink container start <wt> --issue 42 --prompt PATH` | Start with options |
+| `crosslink container ps` | List running containers |
+| `crosslink container logs <name>` | Stream container logs |
+| `crosslink container logs <name> -f --tail 50` | Follow logs, last 50 lines |
+| `crosslink container stop <name>` | Gracefully stop a container |
+| `crosslink container kill <name>` | Stop and remove a container |
+| `crosslink container rm <name>` | Remove a stopped container |
+| `crosslink container shell <name>` | Open a shell in a running container |
+| `crosslink container snapshot <name> --tag cached` | Save container state as image |
+
+&nbsp;
+
+## History pruning
+
+| Command | Description |
+|---------|-------------|
+| `crosslink prune` | Prune git history on coordination branches (interactive) |
+| `crosslink prune --force` | Prune without confirmation |
+| `crosslink prune --hub-only` | Squash only hub branch history |
+| `crosslink prune --knowledge-only` | Squash only knowledge branch history |
+| `crosslink prune --keep-commits 5` | Preserve last N commits (default: 1) |
+| `crosslink prune --dry-run` | Show what would be pruned without acting |
+
+&nbsp;
+
+## Web dashboard
+
+| Command | Description |
+|---------|-------------|
+| `crosslink serve` | Start the web dashboard HTTP server (default port: 3100) |
+| `crosslink serve --port <port>` | Port to listen on |
+| `crosslink serve --dashboard-dir <path>` | Serve a custom React dashboard directory |
+
+&nbsp;
+
+## Terminal UI
+
+| Command | Description |
+|---------|-------------|
+| `crosslink tui` | Launch the interactive terminal dashboard |
+
+&nbsp;
+
+## Context management
+
+| Command | Description |
+|---------|-------------|
+| `crosslink context measure` | Measure context injection sizes and token overhead |
+| `crosslink context measure -v` | Verbose measurement with hook config details |
+| `crosslink context check` | Verify all expected crosslink files are deployed |
+
+&nbsp;
+
+## Project setup
+
+| Command | Description |
+|---------|-------------|
+| `crosslink init` | Initialize crosslink in current project |
+| `crosslink init --force` | Re-initialize, resetting rules to defaults |

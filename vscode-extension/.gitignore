@@ -1,0 +1,14 @@
+node_modules/
+out/
+*.vsix
+.vscode-test/
+build-linux.sh
+
+# macOS binaries - generated during build, not tracked in git
+bin/crosslink-darwin
+bin/crosslink-darwin-arm64
+bin/*
+
+# Crosslink local state (should never be tracked)
+.crosslink/
+.chainlink/

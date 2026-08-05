@@ -1,0 +1,20 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 271b5986271a869cfcc9311d82e5e99fb644574ed5d81881568396b0633b0f85 # shrinks to child_count = 1
+cc 558ccad8ac453418ec89469a860417a08bc8164453222cc059c0a159369b784c # shrinks to chain_len = 2
+cc 69b615226b59e16cb14f21c528ce154085e991cc164b454df599b754bee5ebda # shrinks to issue_count = 2
+cc 329ae7bba200fb44c7c762bbcec7543df4585ead82f45e1ff2394dad421befc4 # shrinks to priority = "low"
+cc 68ef958ce3eaa82d31f6312bb8519ef8fb87a6d2636e6ad8d06e4f45f5edd72d # shrinks to count = 1
+cc 5a4e3c34f734e3b006b25707b7775371fb4e1d9b12ad39b9ae04a66d4abb8bd3 # shrinks to label = "a"
+cc 8dfe268eef3b7f0b4eca77a1d11e6e7ccc45db5f8c237d09aee551f354545dd7 # shrinks to a = 1, b = 2
+cc 519e1b6d2a532877bfd53fd955b8427c8ac4d97a7f855825b6b36a66f856eee5 # shrinks to prefix = "Aaa", suffix = "aaa"
+cc 25090646c0f5822782892e8f7ad9d615e2ea4924df40d89b0590b5e6268f913f # shrinks to prefix = "AAA", suffix = "AAa"
+cc 1dc5ae716fc57e97f1247c510d6f130c006fb5bf7d27c918e7a087e8b3bad69e # shrinks to title = ""
+cc 14cdbb609284fc2dbd9ae84b57de54daace8e4cbef4b1a387f7460a0f6f9ffb1 # shrinks to title = ""
+cc babf9384b720d10274832c2dab8ac02dce6fdfc80ea943336d3b0f989de5fed3 # shrinks to content = ""
+cc bdbb93c3fcb718c51a410645925c4d8b22ae6bcd0e655f60b2ae3f1e93ba46e5 # shrinks to desc = ""
+cc a7bcabfbfca5620c7cd5cc98f8a38c8ff0b7f32a291fcb53f3e22a7cafa61367 # shrinks to title = ""

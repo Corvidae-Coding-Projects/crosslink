@@ -1,0 +1,3710 @@
+// ── Crate-level clippy configuration ────────────────────────────────────────
+#![warn(clippy::pedantic, clippy::nursery)]
+// Impractical to add `# Errors` doc sections to 300+ fallible functions retroactively.
+#![allow(clippy::missing_errors_doc)]
+// Panic doc sections are similarly impractical at scale.
+#![allow(clippy::missing_panics_doc)]
+// `Self` vs type name in return position is a style preference; current naming is clear.
+#![allow(clippy::use_self)]
+// Field/module name repetition (e.g. `IssueStatus` inside `issue` module) is intentional.
+#![allow(clippy::module_name_repetitions)]
+// Long functions are an architectural concern, not a lint fix.
+#![allow(clippy::too_many_lines)]
+// Similar variable names (e.g. `src`/`dst`, `old`/`new`) are often intentional.
+#![allow(clippy::similar_names)]
+// Items after statements is common in test code and builder patterns.
+#![allow(clippy::items_after_statements)]
+// Wildcard imports are idiomatic in test modules.
+#![allow(clippy::wildcard_imports)]
+// `must_use` on every pure function is too noisy for a CLI app.
+#![allow(clippy::must_use_candidate)]
+// Drop tightening suggestions often make code less readable.
+#![allow(clippy::significant_drop_tightening)]
+// Cast lints: numeric casts are context-dependent and reviewed at write time.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless
+)]
+// pub(crate) inside private modules is harmless and matches intent.
+#![allow(clippy::redundant_pub_crate)]
+// Struct field naming is a style preference.
+#![allow(clippy::struct_field_names)]
+// Bool params: sometimes clearer than a dedicated enum for 2-3 bools.
+#![allow(clippy::struct_excessive_bools, clippy::fn_params_excessive_bools)]
+// Option<&T> vs &Option<T>: both are valid depending on context.
+#![allow(clippy::ref_option)]
+// Large stack arrays in test code: `vec![...]` literals expand to array literals
+// internally, and clippy can't trace the span back through macro expansion to
+// suggest a fix. Test code where stack frame size doesn't matter for production.
+// See https://github.com/rust-lang/rust-clippy/issues for the underlying span bug.
+#![allow(clippy::large_stack_arrays)]
+
+mod agent_flags;
+mod agent_requests;
+mod checkpoint;
+mod clock_skew;
+mod commands;
+mod compaction;
+mod daemon;
+mod dashboard;
+mod db;
+mod events;
+mod external;
+mod findings;
+mod git_compat;
+mod hub_source;
+mod hub_v3;
+mod hydration;
+mod identity;
+mod issue_file;
+mod issue_filing;
+mod knowledge;
+mod lock_check;
+mod locks;
+mod models;
+mod orchestrator;
+mod pipeline;
+mod seam;
+mod server;
+mod shared_writer;
+mod signing;
+mod sync;
+mod trust_model;
+mod tui;
+mod utils;
+
+use anyhow::{bail, Context, Result};
+use clap::{Parser, Subcommand};
+use std::env;
+use std::path::PathBuf;
+
+use db::Database;
+
+#[derive(Parser)]
+#[command(name = "crosslink")]
+#[command(about = "A simple, lean issue tracker CLI")]
+#[command(version = option_env!("CROSSLINK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))]
+struct Cli {
+    /// Quiet mode: only output essential data (IDs, counts)
+    #[arg(short, long, global = true)]
+    quiet: bool,
+
+    /// Output as JSON (supported by list, show, search, session status)
+    #[arg(long, global = true)]
+    json: bool,
+
+    /// Log level for diagnostic output (error, warn, info, debug, trace)
+    #[arg(long, global = true, default_value = "warn", env = "CROSSLINK_LOG")]
+    log_level: String,
+
+    /// Log format (text, json)
+    #[arg(
+        long,
+        global = true,
+        default_value = "text",
+        env = "CROSSLINK_LOG_FORMAT"
+    )]
+    log_format: String,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Initialize crosslink in the current directory.
+    ///
+    /// On first run, launches an interactive walkthrough to choose a preset
+    /// (Team, Solo, or Custom) and configure behavioral hooks. Use --defaults
+    /// to skip the walkthrough and apply team-mode defaults non-interactively.
+    Init {
+        /// Force update hooks even if already initialized
+        #[arg(short, long, conflicts_with = "update")]
+        force: bool,
+        /// Safe upgrade: update managed files using manifest-tracked three-way merge
+        #[arg(long, conflicts_with_all = ["force", "reconfigure"])]
+        update: bool,
+        /// Show what --update would change without writing anything
+        #[arg(long, requires = "update")]
+        dry_run: bool,
+        /// Skip conflict prompts — silently keep user-modified files (for CI)
+        #[arg(long, requires = "update")]
+        no_prompt: bool,
+        /// Override auto-detected Python prefix for hook commands (e.g. "uv run python3")
+        #[arg(long)]
+        python_prefix: Option<String>,
+        /// Skip automatic cpitd installation
+        #[arg(long)]
+        skip_cpitd: bool,
+        /// Skip driver SSH signing key setup
+        #[arg(long)]
+        skip_signing: bool,
+        /// Path to SSH key for commit signing (auto-detected if omitted)
+        #[arg(long)]
+        signing_key: Option<String>,
+        /// Re-run TUI walkthrough even if config exists
+        #[arg(long, conflicts_with = "update")]
+        reconfigure: bool,
+        /// Skip TUI and use opinionated team-mode defaults
+        #[arg(long)]
+        defaults: bool,
+    },
+
+    /// Issue lifecycle commands (create, show, list, close, ...)
+    Issue {
+        #[command(subcommand)]
+        action: IssueCommands,
+    },
+
+    /// Time tracking (start, stop, show)
+    Timer {
+        #[command(subcommand)]
+        action: TimerCommands,
+    },
+
+    /// Export issues to JSON or markdown
+    Export {
+        /// Output file path (defaults to stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Format (json, markdown)
+        #[arg(short, long, default_value = "json")]
+        format: String,
+    },
+
+    /// Import issues from JSON file
+    Import {
+        /// Input file path
+        input: String,
+    },
+
+    /// Archive management
+    Archive {
+        #[command(subcommand)]
+        action: ArchiveCommands,
+    },
+
+    /// Milestone management
+    Milestone {
+        #[command(subcommand)]
+        action: MilestoneCommands,
+    },
+
+    /// Session management
+    Session {
+        #[command(subcommand)]
+        action: SessionCommands,
+    },
+
+    /// Daemon management
+    Daemon {
+        #[command(subcommand)]
+        action: DaemonCommands,
+    },
+
+    /// Code clone detection via cpitd
+    Cpitd {
+        #[command(subcommand)]
+        action: CpitdCommands,
+    },
+
+    /// Agent identity management
+    Agent {
+        #[command(subcommand)]
+        action: AgentCommands,
+    },
+
+    /// Manage signing trust (approve/revoke agent keys)
+    Trust {
+        #[command(subcommand)]
+        action: TrustCommands,
+    },
+
+    /// View and manage issue locks
+    Locks {
+        #[command(subcommand)]
+        action: LocksCommands,
+    },
+
+    /// Push a heartbeat for the current agent (used by hooks)
+    #[command(hide = true)]
+    Heartbeat,
+
+    /// Sync locks and issue state from remote
+    Sync,
+
+    /// Schema migration (to-shared, from-shared, rename-branch)
+    Migrate {
+        #[command(subcommand)]
+        action: MigrateCommands,
+    },
+
+    /// View and modify repo-level configuration.
+    ///
+    /// Without a subcommand, opens the interactive walkthrough to choose a
+    /// preset (Team, Solo, or Custom) and adjust settings. Use --preset to
+    /// apply a preset directly without the TUI.
+    Config {
+        #[command(subcommand)]
+        command: Option<ConfigCommands>,
+
+        /// Apply a preset without the TUI: "team" (strict tracking, CI
+        /// verification, enforced signing) or "solo" (relaxed tracking,
+        /// local verification, signing disabled)
+        #[arg(long)]
+        preset: Option<String>,
+    },
+
+    /// Measure and check context injection overhead
+    Context {
+        #[command(subcommand)]
+        command: ContextCommands,
+    },
+
+    /// Manage crosslink workflow configuration
+    Workflow {
+        #[command(subcommand)]
+        command: WorkflowCommands,
+    },
+
+    /// Manage house style syncing
+    Style {
+        #[command(subcommand)]
+        command: StyleCommands,
+    },
+
+    /// Manage shared knowledge pages
+    Knowledge {
+        #[command(subcommand)]
+        command: KnowledgeCommands,
+    },
+
+    /// Data integrity checks and repair
+    Integrity {
+        #[command(subcommand)]
+        action: Option<IntegrityCommands>,
+    },
+
+    /// Run event compaction manually
+    Compact {
+        /// Force compaction even if lease is held by another agent
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Prune git history of hub and knowledge branches for storage efficiency
+    Prune {
+        /// Show what would be pruned without modifying anything
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Skip confirmation and execute the prune
+        #[arg(long)]
+        force: bool,
+        /// Preserve the last N commits (default: 1, squash to current state)
+        #[arg(long = "keep-commits", default_value = "1")]
+        keep_commits: usize,
+        /// Only prune the hub branch
+        #[arg(long = "hub-only")]
+        hub_only: bool,
+        /// Only prune the knowledge branch
+        #[arg(long = "knowledge-only")]
+        knowledge_only: bool,
+    },
+
+    /// Launch an agent to implement a feature (local process or container)
+    Kickoff {
+        #[command(subcommand)]
+        action: Option<KickoffCommands>,
+    },
+    /// Launch a foreground Claude session for design document authoring
+    Design {
+        /// Feature description (e.g. "add batch retry logic")
+        description: Option<String>,
+        /// Pull context from a crosslink issue
+        #[arg(long)]
+        issue: Option<i64>,
+        /// Pull context from a GitHub issue
+        #[arg(long = "gh-issue")]
+        gh_issue: Option<i64>,
+        /// Resume iteration on an existing draft (.design/<slug>.md)
+        #[arg(long = "continue", value_name = "SLUG")]
+        continue_slug: Option<String>,
+    },
+    /// Multi-agent swarm coordination (plan, status, resume)
+    Swarm {
+        #[command(subcommand)]
+        action: SwarmCommands,
+    },
+    /// Autonomous maintenance sentinel (monitors sources, dispatches agents)
+    Sentinel {
+        #[command(subcommand)]
+        action: SentinelCommands,
+    },
+    /// Interactive terminal dashboard (read-only)
+    Tui,
+    /// Mission control: tmux dashboard showing all active agents
+    #[command(alias = "mission-control")]
+    Mc {
+        /// Panel layout: tiled, even-horizontal, even-vertical
+        #[arg(long, default_value = "tiled")]
+        layout: String,
+    },
+    /// Multi-project SCADA-style control panel (GH #429).
+    ///
+    /// Group command: `crosslink dashboard serve` runs the local server,
+    /// `track`/`untrack`/`list` manage the tracked-project set. See
+    /// DESIGN-CROSSLINK-DASHBOARD.md for the architecture.
+    Dashboard {
+        #[command(subcommand)]
+        action: DashboardCommands,
+    },
+    /// Deprecated: alias for `crosslink dashboard`.
+    ///
+    /// Will be removed in a future release. See GH #429 and
+    /// DESIGN-CROSSLINK-DASHBOARD.md §17 for the deprecation timeline.
+    #[command(hide = true)]
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "3100")]
+        port: u16,
+        /// Directory to serve the React dashboard from (optional)
+        #[arg(long)]
+        dashboard_dir: Option<PathBuf>,
+    },
+    /// Manage container-based agent execution
+    Container {
+        #[command(subcommand)]
+        action: ContainerCommands,
+    },
+
+    // === Hidden top-level shortcuts (delegate to `issue <verb>`) ===
+    /// Create a new issue (shortcut for `issue create`)
+    #[command(hide = true)]
+    Create {
+        /// Issue title
+        title: String,
+        /// Issue description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Priority (low, medium, high, critical)
+        #[arg(short, long, default_value = "medium")]
+        priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
+        /// Add labels to the issue
+        #[arg(short, long)]
+        label: Vec<String>,
+        /// Set as current session work item
+        #[arg(short, long)]
+        work: bool,
+        /// Skip compaction after creation (batch mode -- display ID assigned later)
+        #[arg(long)]
+        defer_id: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
+        /// Parent issue ID (creates a subissue)
+        #[arg(long, value_parser = parse_issue_id_clap)]
+        parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+    },
+
+    /// Quick-create an issue (shortcut for `issue quick`)
+    #[command(hide = true)]
+    Quick {
+        /// Issue title
+        title: String,
+        /// Issue description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Priority (low, medium, high, critical)
+        #[arg(short, long, default_value = "medium")]
+        priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
+        /// Add labels to the issue
+        #[arg(short, long)]
+        label: Vec<String>,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
+        /// Parent issue ID (creates a subissue)
+        #[arg(long, value_parser = parse_issue_id_clap)]
+        parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+    },
+
+    /// List issues (shortcut for `issue list`)
+    #[command(hide = true)]
+    List {
+        /// Filter by status (open, closed, all)
+        #[arg(short, long, default_value = "open")]
+        status: String,
+        /// Filter by label
+        #[arg(short, long)]
+        label: Option<String>,
+        /// Filter by priority
+        #[arg(short, long)]
+        priority: Option<String>,
+    },
+
+    /// Show issue details (shortcut for `issue show`)
+    #[command(hide = true)]
+    Show {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+
+    /// Close an issue (shortcut for `issue close`)
+    #[command(hide = true)]
+    Close {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Skip changelog entry
+        #[arg(long)]
+        no_changelog: bool,
+    },
+
+    // === Hidden aliases for common agent mistakes ===
+    /// Alias for `issue create`
+    #[command(hide = true)]
+    New {
+        /// Issue title
+        title: String,
+        /// Issue description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Priority (low, medium, high, critical)
+        #[arg(short, long, default_value = "medium")]
+        priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
+        /// Add labels to the issue
+        #[arg(short, long)]
+        label: Vec<String>,
+        /// Set as current session work item
+        #[arg(short, long)]
+        work: bool,
+        /// Parent issue ID (creates a subissue)
+        #[arg(long, value_parser = parse_issue_id_clap)]
+        parent: Option<i64>,
+    },
+
+    /// Alias for `issue list`
+    #[command(hide = true)]
+    Issues {
+        #[command(subcommand)]
+        action: Option<IssuesAliasCommands>,
+    },
+
+    /// Alias for `issue create --parent`
+    #[command(hide = true)]
+    Subissue {
+        /// Parent issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        parent: i64,
+        /// Subissue title
+        title: String,
+        /// Subissue description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Priority (low, medium, high, critical)
+        #[arg(short, long, default_value = "medium")]
+        priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
+        /// Add labels to the subissue
+        #[arg(short, long)]
+        label: Vec<String>,
+        /// Set as current session work item
+        #[arg(short, long)]
+        work: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Alias for `timer start`
+    #[command(hide = true, name = "start")]
+    TimerStart {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+
+    /// Alias for `timer stop`
+    #[command(hide = true, name = "stop")]
+    TimerStop,
+
+    // === Hidden migration aliases ===
+    /// Alias for `migrate to-shared`
+    #[command(hide = true, name = "migrate-to-shared")]
+    MigrateToShared,
+
+    /// Alias for `migrate from-shared`
+    #[command(hide = true, name = "migrate-from-shared")]
+    MigrateFromShared,
+
+    /// Alias for `migrate rename-branch`
+    #[command(hide = true, name = "migrate-rename-branch")]
+    MigrateRenameBranch,
+}
+
+/// Issue lifecycle subcommands
+#[derive(Subcommand)]
+enum IssueCommands {
+    /// Create a new issue
+    Create {
+        /// Issue title
+        title: String,
+        /// Issue description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Priority (low, medium, high, critical)
+        #[arg(short, long, default_value = "medium")]
+        priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
+        /// Add labels to the issue
+        #[arg(short, long)]
+        label: Vec<String>,
+        /// Set as current session work item
+        #[arg(short, long)]
+        work: bool,
+        /// Skip compaction after creation (batch mode -- display ID assigned later)
+        #[arg(long)]
+        defer_id: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
+        /// Parent issue ID (creates a subissue)
+        #[arg(long, value_parser = parse_issue_id_clap)]
+        parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+    },
+
+    /// Quick-create an issue and start working on it (create + label + session work)
+    Quick {
+        /// Issue title
+        title: String,
+        /// Issue description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Priority (low, medium, high, critical)
+        #[arg(short, long, default_value = "medium")]
+        priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
+        /// Add labels to the issue
+        #[arg(short, long)]
+        label: Vec<String>,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
+        /// Parent issue ID (creates a subissue)
+        #[arg(long, value_parser = parse_issue_id_clap)]
+        parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+    },
+
+    /// List issues
+    List {
+        /// Filter by status (open, closed, all)
+        #[arg(short, long, default_value = "open")]
+        status: String,
+        /// Filter by label
+        #[arg(short, long)]
+        label: Option<String>,
+        /// Filter by priority
+        #[arg(short, long)]
+        priority: Option<String>,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
+    },
+
+    /// Search issues by text
+    Search {
+        /// Search query
+        query: String,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
+    },
+
+    /// Show issue details
+    Show {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
+    },
+
+    /// Update an issue
+    Update {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// New title
+        #[arg(short, long)]
+        title: Option<String>,
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// New priority
+        #[arg(short, long)]
+        priority: Option<String>,
+        /// Set scheduled-at (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Clear scheduled-at (mutually exclusive with --scheduled)
+        #[arg(long, conflicts_with = "scheduled")]
+        no_scheduled: bool,
+        /// Set due-at (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+        /// Clear due-at (mutually exclusive with --due)
+        #[arg(long, conflicts_with = "due")]
+        no_due: bool,
+    },
+
+    /// Close an issue
+    Close {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Skip changelog entry
+        #[arg(long)]
+        no_changelog: bool,
+    },
+
+    /// Close all issues matching filters
+    CloseAll {
+        /// Filter by label
+        #[arg(short, long)]
+        label: Option<String>,
+        /// Filter by priority
+        #[arg(short, long)]
+        priority: Option<String>,
+        /// Skip changelog entries
+        #[arg(long)]
+        no_changelog: bool,
+    },
+
+    /// Reopen a closed issue
+    Reopen {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+
+    /// Delete an issue
+    Delete {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Skip confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Add a comment to an issue
+    Comment {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Comment text
+        text: String,
+        /// Comment kind (note, plan, decision, observation, blocker, resolution, result, handoff, human)
+        #[arg(long, default_value = "note")]
+        kind: String,
+    },
+
+    /// Log a driver intervention on an issue
+    Intervene {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Description of the intervention
+        description: String,
+        /// Trigger type (`tool_rejected`, `tool_blocked`, `redirect`, `context_provided`, `manual_action`, `question_answered`)
+        #[arg(long)]
+        trigger: String,
+        /// Context: what the agent was attempting when intervention occurred
+        #[arg(long)]
+        context: Option<String>,
+    },
+
+    /// Add a label to an issue
+    Label {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Label name
+        label: String,
+    },
+
+    /// Remove a label from an issue
+    Unlabel {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Label name
+        label: String,
+    },
+
+    /// Mark an issue as blocked by another
+    Block {
+        /// Issue ID that is blocked
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Issue ID that is blocking
+        #[arg(value_parser = parse_issue_id_clap)]
+        blocker: i64,
+    },
+
+    /// Remove a blocking relationship
+    Unblock {
+        /// Issue ID that was blocked
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Issue ID that was blocking
+        #[arg(value_parser = parse_issue_id_clap)]
+        blocker: i64,
+    },
+
+    /// List blocked issues
+    Blocked,
+
+    /// List issues ready to work on (no open blockers)
+    Ready,
+
+    /// Link two related issues
+    Relate {
+        /// First issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Second issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        related: i64,
+    },
+
+    /// Remove a relation between issues
+    Unrelate {
+        /// First issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Second issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        related: i64,
+    },
+
+    /// List related issues
+    Related {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+
+    /// Suggest the next issue to work on
+    Next,
+
+    /// Show issues as a tree hierarchy
+    Tree {
+        /// Filter by status (open, closed, all)
+        #[arg(short, long, default_value = "all")]
+        status: String,
+    },
+
+    /// Mark tests as run (resets test reminder)
+    Tested,
+}
+
+/// Timer subcommands
+#[derive(Subcommand)]
+enum TimerCommands {
+    /// Start a timer for an issue
+    Start {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+    /// Stop the current timer
+    Stop,
+    /// Show current timer status
+    Show,
+}
+
+/// Migration subcommands
+#[derive(Subcommand)]
+enum MigrateCommands {
+    /// Migrate local `SQLite` issues to shared coordination branch
+    ToShared,
+    /// Import shared issues from coordination branch into local `SQLite`
+    FromShared,
+    /// Rename coordination branch from crosslink/locks to crosslink/hub
+    RenameBranch,
+    /// Convert a v2 hub to the v3 per-agent-ref layout (one-shot, verified).
+    ///
+    /// Without `--finalize`: seeds per-agent refs + a genesis checkpoint from
+    /// the current hub state, runs the AC-6 full-state verification gate, and
+    /// pushes the v3 refs. The legacy crosslink/hub branch is left intact as a
+    /// read-only escape hatch.
+    ///
+    /// With `--finalize --yes-delete-v2`: re-verifies, then deletes the legacy
+    /// crosslink/hub branch locally and on the remote (the hard cutover).
+    ///
+    /// With `--remigrate-from-v2`: regenerates the v3 genesis from the CURRENT
+    /// crosslink/hub tip and force-pushes it, superseding a stale remote v3 hub
+    /// (the recovery path when a v2-only binary kept writing after an earlier
+    /// migration — forecast-bio/crosslink#653).
+    HubV3 {
+        /// Delete the legacy crosslink/hub branch (destructive cutover).
+        #[arg(long)]
+        finalize: bool,
+        /// Required confirmation for `--finalize` (it deletes the v2 branch).
+        #[arg(long)]
+        yes_delete_v2: bool,
+        /// Adopt a remote v3 hub even when it is STALE relative to the live
+        /// crosslink/hub (v2) branch. Without this flag, adopting a v3 hub that
+        /// is behind the v2 branch is refused (it would hide newer issues).
+        #[arg(long)]
+        adopt_stale: bool,
+        /// Regenerate v3 from the CURRENT crosslink/hub (v2) tip and force-push
+        /// it, superseding any existing (stale) remote v3 hub.
+        #[arg(long)]
+        remigrate_from_v2: bool,
+    },
+    /// Move the v3 hub refs to VISIBLE branches (#767), one-shot per machine.
+    ///
+    /// Renames every old hidden ref (`refs/crosslink/agents/*`,
+    /// `refs/crosslink/checkpoint`, `refs/crosslink/meta`) to the matching branch
+    /// under `refs/heads/crosslink/*` at the same SHA — local and on the remote —
+    /// then deletes the old refs and runs one compaction so the browsable state
+    /// tree materializes. Idempotent: a second run (or a hub already on visible
+    /// branches) is a clean no-op.
+    HubBranches,
+}
+
+/// Subcommands for `crosslink dashboard` (GH #429).
+#[derive(Subcommand)]
+enum DashboardCommands {
+    /// Start the dashboard server (binds 127.0.0.1:3100 by default).
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "3100")]
+        port: u16,
+        /// Override bundled dashboard assets with a local build output
+        /// (development only — bundled assets are preferred otherwise)
+        #[arg(long)]
+        dashboard_dir: Option<PathBuf>,
+        /// Force-rotate the persisted auth token at
+        /// `~/.crosslink/.dashboard-token`. Without this flag the
+        /// server reuses the existing token so open browser tabs keep
+        /// working across binary rebuilds.
+        #[arg(long)]
+        rotate_token: bool,
+    },
+    /// Track a repository by pointing at your existing local working copy.
+    ///
+    /// The dashboard reads hub state and shells out to the real
+    /// `crosslink` CLI in this workspace for write operations — so no
+    /// extra setup is needed beyond a normal `git clone` +
+    /// `crosslink init` of the target project.
+    ///
+    /// Pass `--init --agent-id <ID>` to run `crosslink init` +
+    /// `crosslink agent init` in the workspace after tracking, so
+    /// dashboard write actions (close, release, etc.) work without
+    /// a manual bootstrap step.
+    Track {
+        /// Path to a locally-cloned crosslink-managed repository.
+        path: PathBuf,
+        /// Override the owner/repo slug (default: derived from origin URL).
+        #[arg(long)]
+        slug: Option<String>,
+        /// Run `crosslink init --defaults` + `crosslink agent init` in
+        /// the workspace after tracking. Requires `--agent-id`.
+        #[arg(long)]
+        init: bool,
+        /// Agent identifier for `crosslink agent init`. Required when
+        /// `--init` is passed.
+        #[arg(long)]
+        agent_id: Option<String>,
+    },
+    /// Stop tracking a repository. The user's working copy is left
+    /// untouched — only the dashboard's DB row is removed.
+    Untrack {
+        /// Repository slug to stop tracking
+        slug: String,
+    },
+    /// List tracked repositories.
+    List,
+    /// Scan local filesystem for crosslink-enabled repos and
+    /// (optionally) track the hits. Looks for directories that are
+    /// both git repos and have a `.crosslink/` directory at the root.
+    ///
+    /// Roots are bounded by `--depth` and skip standard noise
+    /// directories (`node_modules`, `target`, hidden dirs, etc.) so
+    /// a full `$HOME` scan typically finishes in under a second.
+    Discover {
+        /// Root directory to walk. Repeatable. Defaults to `$HOME`.
+        #[arg(long)]
+        root: Vec<PathBuf>,
+        /// Maximum directory depth below each root. Default 4.
+        #[arg(long, default_value_t = crate::dashboard::discover::DEFAULT_DEPTH)]
+        depth: usize,
+        /// Track every discovered repo that isn't already tracked.
+        /// Without this flag the command only reports.
+        #[arg(long)]
+        track: bool,
+    },
+}
+
+/// Helper enum for `crosslink issues <subcommand>` alias
+#[derive(Subcommand)]
+enum IssuesAliasCommands {
+    /// Alias for `issue list`
+    List {
+        /// Filter by status (open, closed, all)
+        #[arg(short, long, default_value = "open")]
+        status: String,
+        /// Filter by label
+        #[arg(short, long)]
+        label: Option<String>,
+        /// Filter by priority
+        #[arg(short, long)]
+        priority: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContainerCommands {
+    /// Build the crosslink agent container image locally.
+    ///
+    /// Produces `ghcr.io/dollspace-gay/crosslink-agent:<tag>` (default tag
+    /// `local`) so it composes with `crosslink kickoff run --container
+    /// docker|podman --image ghcr.io/dollspace-gay/crosslink-agent:<tag>`.
+    /// For routine use prefer `docker pull ghcr.io/dollspace-gay/crosslink-agent:latest`
+    /// or `:nightly` — this command exists for offline / Dockerfile-iteration work.
+    Build {
+        /// Rebuild from scratch (no cache)
+        #[arg(long)]
+        force: bool,
+        /// Image tag suffix (default: `local`). Image is always namespaced
+        /// `ghcr.io/dollspace-gay/crosslink-agent:<tag>`.
+        #[arg(long)]
+        tag: Option<String>,
+        /// Path to a custom Dockerfile
+        #[arg(long)]
+        dockerfile: Option<String>,
+    },
+    /// Start a task container for a worktree
+    Start {
+        /// Path to the worktree directory
+        worktree: String,
+        /// Container name (default: derived from worktree slug)
+        #[arg(long)]
+        name: Option<String>,
+        /// Path to the prompt file (default: KICKOFF.md in worktree)
+        #[arg(long)]
+        prompt: Option<String>,
+        /// Crosslink issue ID being worked on
+        #[arg(long)]
+        issue: Option<i64>,
+        /// Memory limit (default: auto-detect from host)
+        #[arg(long)]
+        memory: Option<String>,
+    },
+    /// List running task containers
+    Ps,
+    /// Stream logs from a container
+    Logs {
+        /// Container name
+        name: String,
+        /// Follow log output
+        #[arg(short, long)]
+        follow: bool,
+        /// Number of lines to show (default: 100)
+        #[arg(long)]
+        tail: Option<u32>,
+    },
+    /// Stop a running container
+    Stop {
+        /// Container name
+        name: String,
+    },
+    /// Remove a stopped container
+    Rm {
+        /// Container name
+        name: String,
+    },
+    /// Stop and remove a container
+    Kill {
+        /// Container name
+        name: String,
+    },
+    /// Open a shell inside a running container
+    Shell {
+        /// Container name
+        name: String,
+    },
+    /// Snapshot a container as a cached image (preserves installed toolchains)
+    Snapshot {
+        /// Container name
+        name: String,
+        /// Image tag for the snapshot (default: cached)
+        #[arg(long)]
+        tag: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+enum ArchiveCommands {
+    /// Archive a closed issue
+    Add {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+    /// Unarchive an issue (restore to closed)
+    Remove {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+    /// List archived issues
+    List,
+    /// Archive all issues closed more than N days ago
+    Older {
+        /// Days threshold
+        days: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum MilestoneCommands {
+    /// Create a new milestone
+    Create {
+        /// Milestone name
+        name: String,
+        /// Description
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+    /// List milestones
+    List {
+        /// Filter by status (open, closed, all)
+        #[arg(short, long, default_value = "open")]
+        status: String,
+    },
+    /// Show milestone details
+    Show {
+        /// Milestone ID
+        id: i64,
+    },
+    /// Add issues to a milestone
+    Add {
+        /// Milestone ID
+        id: i64,
+        /// Issue IDs to add
+        issues: Vec<i64>,
+    },
+    /// Remove an issue from a milestone
+    Remove {
+        /// Milestone ID
+        id: i64,
+        /// Issue ID to remove
+        issue: i64,
+    },
+    /// Close a milestone
+    Close {
+        /// Milestone ID
+        id: i64,
+    },
+    /// Delete a milestone
+    Delete {
+        /// Milestone ID
+        id: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionCommands {
+    /// Start a new session
+    Start,
+    /// End the current session
+    End {
+        /// Handoff notes for the next session
+        #[arg(short, long)]
+        notes: Option<String>,
+    },
+    /// Show current session status
+    Status,
+    /// Set the issue being worked on
+    Work {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+    /// Show handoff notes from the previous session
+    LastHandoff,
+    /// Record last action for context compression breadcrumbs
+    Action {
+        /// Description of what you just did or are doing
+        text: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CpitdCommands {
+    /// Scan for code clones and create issues
+    Scan {
+        /// Paths to scan (defaults to current directory)
+        paths: Vec<String>,
+        /// Minimum token sequence length to report
+        #[arg(long, default_value = "50")]
+        min_tokens: u32,
+        /// Glob patterns to exclude (repeatable)
+        #[arg(long)]
+        ignore: Vec<String>,
+        /// Show what would be created without creating issues
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
+    /// Show open clone issues
+    Status,
+    /// Close all open clone issues
+    Clear,
+}
+
+#[derive(Subcommand)]
+enum DaemonCommands {
+    /// Start the background daemon
+    Start,
+    /// Stop the background daemon
+    Stop,
+    /// Check daemon status
+    Status,
+    /// Internal: run the daemon loop (used by start)
+    #[command(hide = true)]
+    Run {
+        #[arg(long)]
+        dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentCommands {
+    /// Initialize agent identity on this machine
+    Init {
+        /// Agent ID (alphanumeric, hyphens, underscores)
+        agent_id: String,
+        /// Agent description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Skip SSH key generation
+        #[arg(long)]
+        no_key: bool,
+        /// Overwrite existing agent configuration
+        #[arg(long)]
+        force: bool,
+        /// Role this identity plays — `driver` for the main human-
+        /// operated workspace (commits sign with the driver's
+        /// GitHub-registered key), `agent` for subagent worktrees
+        /// spawned by kickoff/swarm (commits sign with the agent's
+        /// own key for attribution). Default: `agent` — preserves
+        /// pre-#718 behaviour for kickoff/swarm flows; dashboard
+        /// retrofits pass `--role driver` explicitly.
+        #[arg(long, value_parser = ["driver", "agent"])]
+        role: Option<String>,
+    },
+    /// Show current agent identity
+    Status,
+    /// Send a prompt to a running tmux-based agent session
+    Prompt {
+        /// Agent slug or tmux session name
+        session: String,
+        /// Prompt text to send (supports multiline)
+        message: String,
+        /// Don't press Enter after pasting (just type, don't submit)
+        #[arg(long)]
+        no_submit: bool,
+    },
+    /// Bootstrap agent identity in a new or existing repo clone
+    Bootstrap {
+        /// Git repository URL to clone
+        #[arg(long)]
+        repo: String,
+        /// Agent ID (alphanumeric, hyphens, underscores)
+        #[arg(long)]
+        identity: String,
+        /// Branch to checkout after cloning
+        #[arg(long)]
+        branch: Option<String>,
+        /// Agent description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Skip SSH key generation
+        #[arg(long)]
+        no_key: bool,
+        /// Target directory (default: current directory)
+        #[arg(long, default_value = ".")]
+        target: String,
+    },
+    /// Send a control request to an agent via the hub branch
+    ///
+    /// Writes a signed JSON file under `agents/<target>/requests/` on
+    /// `crosslink/hub`. The target agent's poll loop picks it up and
+    /// acts (kill / pause / resume / reprioritise). See design doc §9.
+    Request {
+        /// Target agent ID (the one that should act, not this driver)
+        target: String,
+        /// What to do: kill | pause | resume | reprioritise
+        kind: String,
+        /// Issue display-id to attach as request subject
+        #[arg(long)]
+        subject_issue: Option<i64>,
+        /// Human-readable reason recorded alongside the request
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// List agent control requests on the hub branch
+    Requests {
+        /// Target agent to filter by (omit to list for all agents)
+        #[arg(long)]
+        target: Option<String>,
+        /// Only show pending (unacknowledged) requests
+        #[arg(long)]
+        pending: bool,
+    },
+    /// Process pending control requests for this agent (applies
+    /// pause/kill/reprioritise flags locally, writes acks to the hub)
+    PollRequests,
+    /// Show local agent control flag state (paused / kill / reprioritise)
+    ///
+    /// Designed for hooks: `--json` output is `{paused, kill, reprioritise}`
+    /// where each value is a boolean (or null for `reprioritise`'s hint
+    /// payload). Exit code is non-zero only when --strict is set and a
+    /// blocking flag is active.
+    Flags {
+        /// Exit non-zero if `paused` or `kill` is set (use from `PreToolUse` hooks).
+        #[arg(long)]
+        strict: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum TrustCommands {
+    /// Approve an agent's signing key
+    Approve {
+        /// Agent ID to approve
+        agent_id: String,
+    },
+    /// Revoke an agent's signing key
+    Revoke {
+        /// Agent ID to revoke
+        agent_id: String,
+    },
+    /// List all trusted signers
+    List,
+    /// Show agent keys awaiting approval
+    Pending,
+    /// Check trust status of a specific agent
+    Check {
+        /// Agent ID to check
+        agent_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LocksCommands {
+    /// List all active locks
+    List,
+    /// Check if a specific issue is locked
+    Check {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+    /// Claim a lock on an issue
+    Claim {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Branch name for context
+        #[arg(short, long)]
+        branch: Option<String>,
+    },
+    /// Release a lock on an issue
+    Release {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+    /// Steal a stale lock from another agent
+    Steal {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkflowCommands {
+    /// Compare deployed policy files against embedded defaults
+    Diff {
+        /// Filter by section: tracking, rules, languages, hooks
+        #[arg(short, long)]
+        section: Option<String>,
+        /// CI mode: exit 1 if any files have drifted without '# crosslink:custom' marker
+        #[arg(long)]
+        check: bool,
+    },
+    /// Show chronological comment trail for an issue
+    Trail {
+        /// Issue ID
+        #[arg(value_parser = parse_issue_id_clap)]
+        id: i64,
+        /// Filter by comment kind(s), comma-separated (e.g. plan,decision)
+        #[arg(long)]
+        kind: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum StyleCommands {
+    /// Set the house style source (a git repo URL + optional ref)
+    Set {
+        /// Git repository URL for the house style
+        url: String,
+        /// Branch or tag to track (default: main)
+        #[arg(long, name = "ref")]
+        ref_name: Option<String>,
+    },
+    /// Sync: pull latest from the house style source
+    Sync {
+        /// Show what would change without writing
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
+    /// Diff: show what's drifted from house style
+    Diff,
+    /// Show current house style configuration
+    Show,
+    /// Remove house style association
+    Unset,
+}
+
+#[derive(Subcommand)]
+enum KnowledgeCommands {
+    /// Create a new knowledge page
+    Add {
+        /// Page slug (filename without .md)
+        slug: String,
+        /// Page title
+        #[arg(short, long)]
+        title: Option<String>,
+        /// Tags for the page (repeatable)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Source URL (repeatable)
+        #[arg(long)]
+        source: Vec<String>,
+        /// Page content (body text after frontmatter)
+        #[arg(long)]
+        content: Option<String>,
+        /// Import from a design document file
+        #[arg(long, value_name = "PATH")]
+        from_doc: Option<PathBuf>,
+        /// Attribute the page to this contributor instead of the local
+        /// agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
+    /// Display a knowledge page
+    Show {
+        /// Page slug
+        slug: String,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// List all knowledge pages
+    List {
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+        /// Filter by contributor
+        #[arg(long)]
+        contributor: Option<String>,
+        /// Filter pages updated since date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Update an existing knowledge page
+    Edit {
+        /// Page slug
+        slug: String,
+        /// Append content to the page (mutually exclusive with section flags)
+        #[arg(long, group = "content_mode")]
+        append: Option<String>,
+        /// Replace page content entirely
+        #[arg(long)]
+        content: Option<String>,
+        /// Replace the content of a specific markdown section (requires --content)
+        #[arg(long, value_name = "HEADING", group = "content_mode")]
+        replace_section: Option<String>,
+        /// Append to a specific markdown section (requires --content)
+        #[arg(long, value_name = "HEADING", group = "content_mode")]
+        append_to_section: Option<String>,
+        /// Add tags (repeatable)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Add source URL (repeatable)
+        #[arg(long)]
+        source: Vec<String>,
+        /// Replace content from a document file
+        #[arg(long, value_name = "PATH")]
+        from_doc: Option<PathBuf>,
+        /// Attribute this edit to this contributor instead of the local
+        /// agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
+    /// Remove a knowledge page
+    Remove {
+        /// Page slug
+        slug: String,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
+    /// Manually sync from remote
+    Sync {
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
+    /// Bulk import markdown files as knowledge pages
+    Import {
+        /// Directory containing .md files to import
+        directory: PathBuf,
+        /// Extra tags to apply to all imports (repeatable)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Overwrite existing pages
+        #[arg(long)]
+        overwrite: bool,
+        /// Preview imports without writing
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Attribute imported pages to this contributor instead of the
+        /// local agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
+    /// Search knowledge page content
+    Search {
+        /// Search query (case-insensitive substring match)
+        query: Option<String>,
+        /// Number of context lines around each match
+        #[arg(short = 'C', long, default_value = "1")]
+        context: usize,
+        /// Search by source URL domain instead of content
+        #[arg(long)]
+        source: Option<String>,
+        /// Filter results by tag
+        #[arg(long)]
+        tag: Option<String>,
+        /// Filter results updated since date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+        /// Filter results by contributor
+        #[arg(long)]
+        contributor: Option<String>,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum IntegrityCommands {
+    /// Check counter consistency (`next_display_id`, `next_comment_id`)
+    Counters {
+        /// Repair inconsistencies by recalculating from data
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Verify `SQLite` matches JSON issue files
+    Hydration {
+        /// Re-hydrate `SQLite` from JSON. Tries to re-emit SQLite-only
+        /// state back to JSON first; falls back to refusing destructive
+        /// repair unless `--accept-data-loss` is also given.
+        #[arg(long)]
+        repair: bool,
+        /// Allow `--repair` to destroy `SQLite` rows that have no `JSON`
+        /// representation (comments, time entries). A snapshot of the
+        /// pre-repair database is always written under
+        /// `.crosslink/integrity/` regardless of this flag.
+        #[arg(long)]
+        accept_data_loss: bool,
+    },
+    /// Check for stale or orphaned locks
+    Locks {
+        /// Release stale locks
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Verify `SQLite` schema version
+    Schema {
+        /// Re-run migrations to update schema
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Detect mixed V1/V2 hub layout files
+    Layout {
+        /// Migrate V1 files to V2 and remove stale duplicates
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Retroactively sign unsigned hub entries with a human key (attestation)
+    SignBackfill {
+        /// Actually apply signatures (dry-run without this flag)
+        #[arg(long)]
+        confirm: bool,
+        /// Path to SSH private key (defaults to git's configured signing key)
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum KickoffCommands {
+    /// Launch a new agent to implement a feature
+    Run {
+        /// Human-readable feature description
+        description: String,
+        /// Existing issue to work on (creates one if omitted)
+        #[arg(long)]
+        issue: Option<i64>,
+        /// Container runtime: none (local process), docker, podman
+        #[arg(long, default_value = "none")]
+        container: String,
+        /// Verification level: local, ci, thorough
+        #[arg(long, default_value = "local")]
+        verify: String,
+        /// LLM model to use
+        #[arg(long, default_value = "opus")]
+        model: String,
+        /// Container image (for --container docker/podman)
+        #[arg(long, default_value = "ghcr.io/dollspace-gay/crosslink-agent:latest")]
+        image: String,
+        /// Max runtime before killing agent (e.g. "1h", "30m")
+        #[arg(long, default_value = "1h")]
+        timeout: String,
+        /// Print the agent prompt without launching
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Branch to use (auto-creates feature branch if omitted)
+        #[arg(long)]
+        branch: Option<String>,
+        /// Path to a design document (markdown) with structured requirements
+        #[arg(long, value_name = "PATH")]
+        doc: Option<PathBuf>,
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// One-shot override that bypasses ALL Claude permission prompts for
+        /// this launch. Persistent policy lives in the worktree's
+        /// .claude/settings.json (allowedTools / permissions blocks); reach
+        /// for that instead of this flag for repeatable configuration.
+        #[arg(long)]
+        skip_permissions: bool,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions`. Claude
+        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
+        /// `default`, `dontAsk`, `plan`. `auto` is the common choice
+        /// for unattended runs on the host (`--container none`) — the
+        /// permission classifier stays active for anomalous calls.
+        /// Mutually exclusive with `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
+        /// Reasoning effort for the dispatched claude session (gh#61).
+        ///
+        /// Emitted as `claude --effort <level>` right after `--model`.
+        /// Omitting it reproduces the previous invocation exactly.
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+        /// Spend ceiling in USD for the dispatched claude session (gh#61).
+        ///
+        /// Emitted as `claude --max-budget-usd <amount>` — a fail-closed cap
+        /// for unattended dispatch. Per-session: under swarm each agent gets
+        /// this cap, so a wave of N agents can spend up to N x amount.
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
+        /// Prompt template file interpolated with the built prompt (gh#62).
+        ///
+        /// The file's body has the placeholders `{{built_prompt}}`,
+        /// `{{issue_id}}`, `{{branch}}`, `{{description}}`, `{{model}}`,
+        /// `{{effort}}`, `{{doc_path}}`, and `{{allowed_tools}}` substituted;
+        /// a file with no placeholders replaces the prompt wholesale. Takes
+        /// precedence over the `agent.kickoff_template` config setting.
+        #[arg(long, value_name = "PATH")]
+        template: Option<PathBuf>,
+    },
+    /// Check status of a running kickoff agent (no args = pipeline overview)
+    Status {
+        /// Agent ID or branch name (omit for pipeline overview)
+        agent: Option<String>,
+    },
+    /// Tail an agent's event log
+    Logs {
+        /// Agent ID or branch name
+        agent: String,
+        /// Number of recent events to show
+        #[arg(short, long, default_value = "20")]
+        lines: usize,
+    },
+    /// Stop a running kickoff agent
+    Stop {
+        /// Agent ID or branch name
+        agent: String,
+        /// Force kill (SIGKILL instead of SIGTERM)
+        #[arg(long)]
+        force: bool,
+    },
+    /// Analyze a design document against the codebase (read-only)
+    Plan {
+        /// Path to design document
+        doc: PathBuf,
+        /// Existing issue to associate with
+        #[arg(long)]
+        issue: Option<i64>,
+        /// LLM model to use
+        #[arg(long, default_value = "opus")]
+        model: String,
+        /// Max runtime (e.g. "30m", "1h")
+        #[arg(long, default_value = "30m")]
+        timeout: String,
+        /// Print the analysis prompt without launching
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// Plan mode is read-only, so it launches WITHOUT any permission flag
+        /// by default — which means claude shows its interactive workspace-trust
+        /// dialog for the fresh worktree. A headless dispatcher (no TTY to
+        /// answer the dialog) must pass this so the agent can start (gh#66);
+        /// `--permission-mode` alone does NOT clear the trust dialog. The
+        /// read-only `--allowedTools` set still constrains what the agent runs.
+        #[arg(long)]
+        skip_permissions: bool,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions` (same modes as
+        /// `kickoff run`). Note it does not, by itself, clear the first-run
+        /// workspace-trust dialog; use `--skip-permissions` for headless plan
+        /// dispatch. Mutually exclusive with `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
+        /// Reasoning effort for the dispatched claude session (gh#61).
+        ///
+        /// Same levels and placement as `kickoff run --effort`.
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+        /// Spend ceiling in USD for the dispatched claude session (gh#61).
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
+        /// Prompt template file interpolated with the plan prompt (gh#62).
+        ///
+        /// Same placeholders as `kickoff run --template`; plan mode has no
+        /// feature branch/description/tool set, so `{{branch}}`,
+        /// `{{description}}`, and `{{allowed_tools}}` render empty. Takes
+        /// precedence over the `agent.kickoff_template` config setting.
+        #[arg(long, value_name = "PATH")]
+        template: Option<PathBuf>,
+    },
+    /// Display a gap report from a previous plan analysis
+    ShowPlan {
+        /// Agent ID or branch slug
+        agent: String,
+    },
+    /// Display the spec validation report from a completed agent
+    Report {
+        /// Agent ID or branch slug (required unless --all)
+        agent: Option<String>,
+        /// Output as raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Output as PR-ready markdown
+        #[arg(long)]
+        markdown: bool,
+        /// Show aggregated reports from all agent worktrees
+        #[arg(long)]
+        all: bool,
+    },
+    /// List all kickoff agents across worktrees, tmux, and Docker
+    List {
+        /// Filter by status: running, done, failed, all
+        #[arg(long, default_value = "all")]
+        status: String,
+    },
+    /// Remove completed/stale agent worktrees, tmux sessions, and containers
+    Cleanup {
+        /// Show what would be cleaned without doing anything
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Also clean up potentially stale agents (not just confirmed-done)
+        #[arg(long)]
+        force: bool,
+        /// Keep the N most recently completed agents
+        #[arg(long, default_value = "0")]
+        keep: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show branch topology of kickoff feature branches
+    Graph {
+        /// Include completed, stopped, and orphaned branches
+        #[arg(long)]
+        all: bool,
+        /// Reserved for future pager support (no-op in V1)
+        #[arg(long)]
+        no_pager: bool,
+    },
+    /// Interactive pipeline wizard or direct launch from a design doc
+    #[command(alias = "go")]
+    Launch {
+        /// Path to design document (skips source selection in wizard)
+        doc: Option<PathBuf>,
+        /// Run gap analysis (plan mode) — non-interactive
+        #[arg(long)]
+        plan: bool,
+        /// Run implementation — non-interactive
+        #[arg(long)]
+        run: bool,
+        /// Verification level: local, ci, thorough
+        #[arg(long, default_value = "local")]
+        verify: String,
+        /// LLM model to use
+        #[arg(long, default_value = "opus")]
+        model: String,
+        /// Max runtime (e.g. "1h", "30m")
+        #[arg(long, default_value = "1h")]
+        timeout: String,
+        /// Container runtime: none, docker, podman
+        #[arg(long, default_value = "none")]
+        container: String,
+        /// Existing issue to work on
+        #[arg(long)]
+        issue: Option<i64>,
+        /// Print the prompt without launching
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// One-shot override that bypasses ALL Claude permission prompts.
+        /// Persistent policy lives in the worktree's .claude/settings.json
+        /// (allowedTools / permissions blocks).
+        #[arg(long)]
+        skip_permissions: bool,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions`. Claude
+        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
+        /// `default`, `dontAsk`, `plan`. Mutually exclusive with
+        /// `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Show all configuration with default annotations
+    Show,
+    /// Get a specific config value
+    Get {
+        /// Config key name
+        key: String,
+    },
+    /// Set a config value
+    Set {
+        /// Config key name
+        key: String,
+        /// Value to set (for arrays: comma-separated, or use --add/--remove)
+        value: Option<String>,
+        /// Add a value to an array field
+        #[arg(long)]
+        add: Option<String>,
+        /// Remove a value from an array field
+        #[arg(long)]
+        remove: Option<String>,
+        /// Write to hook-config.local.json instead of hook-config.json
+        #[arg(long)]
+        local: bool,
+    },
+    /// List all available config keys with descriptions
+    List,
+    /// Reset config to defaults (all keys, or a single key)
+    Reset {
+        /// Specific key to reset (omit for full reset)
+        key: Option<String>,
+    },
+    /// Show differences from default config
+    Diff,
+}
+
+#[derive(Subcommand)]
+enum SwarmCommands {
+    /// Initialize a swarm plan from a design document
+    Init {
+        /// Path to design document (markdown)
+        #[arg(long, value_name = "PATH")]
+        doc: PathBuf,
+    },
+    /// Show current swarm status (agents, phases, progress, next steps)
+    Status,
+    /// Reconstruct state and show next steps for resuming
+    Resume,
+    /// Sync agent statuses from live worktree state into phase JSON
+    SyncStatus,
+    /// Associate an external agent/branch with a swarm slot
+    Adopt {
+        /// Agent slug or branch name of the external agent
+        agent: String,
+        /// Swarm slot slug to assign the agent to
+        #[arg(long, value_name = "SLUG")]
+        slot: String,
+    },
+    /// Archive the current swarm and clear the active slot
+    Archive,
+    /// Reset the active swarm (archives by default)
+    Reset {
+        /// Delete without archiving
+        #[arg(long)]
+        no_archive: bool,
+    },
+    /// List active and archived swarms
+    #[command(name = "list")]
+    ListSwarms,
+    /// Launch all planned agents for a phase
+    Launch {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+        /// Retry only previously failed agents
+        #[arg(long)]
+        retry_failed: bool,
+        /// Check budget before launching; block if insufficient
+        #[arg(long)]
+        budget_aware: bool,
+    },
+    /// Run the project test suite as a phase gate
+    Gate {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Record a checkpoint after a phase completes
+    Checkpoint {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+        /// Handoff notes for the next session
+        #[arg(long)]
+        notes: Option<String>,
+        /// Checkpoint even if gate hasn't passed
+        #[arg(long)]
+        force: bool,
+    },
+    /// Set budget parameters (window duration, model, dispatch dials)
+    Config {
+        /// Budget time window (e.g. "5h", "3h30m")
+        #[arg(long, value_name = "DURATION")]
+        budget_window: String,
+        /// Model to estimate costs for — also the model swarm dispatches
+        /// its agents with (gh#61)
+        #[arg(long, default_value = "opus")]
+        model: String,
+        /// Reasoning effort for every agent swarm dispatches (gh#61)
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+        /// Per-agent spend ceiling in USD for swarm dispatch (gh#61).
+        ///
+        /// Applied to each dispatched session, so a wave of N agents can
+        /// spend up to N x this amount.
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
+    },
+    /// Estimate wall-clock cost for a phase
+    Estimate {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Scan completed agents and update cost history
+    Harvest,
+    /// Plan a multi-phase build across budget windows
+    Plan {
+        /// Budget window duration (e.g. "5h"); uses saved config if omitted
+        #[arg(long, value_name = "DURATION")]
+        budget_window: Option<String>,
+    },
+    /// Show the current window plan (alias for plan with saved config)
+    PlanShow,
+    /// Launch parallel adversarial review agents across codebase partitions
+    Review {
+        /// Number of review agents to launch
+        #[arg(long, default_value = "4")]
+        agents: usize,
+        /// Review mandate type
+        #[arg(long, default_value = "adversarial")]
+        mandate: String,
+        /// Output path for consolidated findings document
+        #[arg(long, value_name = "PATH")]
+        doc: Option<PathBuf>,
+        /// Also file issues for findings after review
+        #[arg(long)]
+        file_issues: bool,
+        /// Also launch fix agents after filing issues
+        #[arg(long)]
+        fix: bool,
+    },
+    /// Launch parallel fix agents, one per issue
+    Fix {
+        /// Comma-separated issue numbers (e.g., "326,327,328")
+        #[arg(long, value_name = "IDS")]
+        issues: Option<String>,
+        /// Label filter to select issues (e.g., "review-finding")
+        #[arg(long, value_name = "LABEL")]
+        from_label: Option<String>,
+        /// Maximum number of concurrent agents
+        #[arg(long, default_value = "6")]
+        max_agents: usize,
+        /// Check budget before launching
+        #[arg(long)]
+        budget_aware: bool,
+    },
+    /// Merge changes from completed agent worktrees into a single branch
+    Merge {
+        /// Target branch name for merged changes
+        #[arg(long, default_value = "swarm-combined")]
+        branch: String,
+        /// Base branch to create the target from (default: auto-detect develop or main)
+        #[arg(long)]
+        base: Option<String>,
+        /// Only analyze conflicts, don't apply changes
+        #[arg(long)]
+        dry_run: bool,
+        /// Agent slugs to merge (default: all completed agents from current swarm)
+        #[arg(long, value_name = "SLUGS")]
+        agents: Option<String>,
+    },
+    /// Move an agent to a different phase
+    #[command(name = "move")]
+    MoveAgent {
+        /// Agent slug to move
+        agent: String,
+        /// Target phase name
+        #[arg(long, value_name = "PHASE")]
+        to_phase: String,
+    },
+    /// Merge two phases into one
+    MergePhases {
+        /// First phase name
+        phase_a: String,
+        /// Second phase name
+        phase_b: String,
+    },
+    /// Split a phase after a specific agent
+    SplitPhase {
+        /// Phase name to split
+        phase: String,
+        /// Split after this agent slug
+        #[arg(long, value_name = "SLUG")]
+        after: String,
+    },
+    /// Remove an agent from the plan
+    RemoveAgent {
+        /// Agent slug to remove
+        agent: String,
+    },
+    /// Reorder a phase to a new position
+    Reorder {
+        /// Phase name to move
+        phase: String,
+        /// New position (1-based)
+        #[arg(long)]
+        position: usize,
+    },
+    /// Rename a phase
+    RenamePhase {
+        /// Current phase name
+        old: String,
+        /// New phase name
+        new: String,
+    },
+    /// Continue a paused pipeline (e.g., after human checkpoint)
+    ReviewContinue,
+    /// Show pipeline status
+    ReviewStatus,
+    /// Run the full review→fix pipeline (standalone pipeline driver with stage logging)
+    Pipeline {
+        /// Number of agents
+        #[arg(long, default_value = "4")]
+        agents: usize,
+        /// Review mandate
+        #[arg(long, default_value = "adversarial")]
+        mandate: String,
+        /// Target branch for merging fixes
+        #[arg(long, default_value = "main")]
+        target_branch: String,
+        /// Automatically fix findings
+        #[arg(long)]
+        auto_fix: bool,
+        /// Automatically file issues for findings
+        #[arg(long)]
+        auto_file_issues: bool,
+    },
+    /// Initialize trust model configuration (writes swarm.toml)
+    TrustInit {
+        /// Trust model type: local-only, multi-tenant, public-api
+        #[arg(long, default_value = "local-only")]
+        model: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SentinelCommands {
+    /// One-shot sentinel sweep
+    Run {
+        /// Print what would be dispatched without acting
+        #[arg(long)]
+        dry_run: bool,
+        /// Only process signals matching this label
+        #[arg(long)]
+        label: Option<String>,
+        /// Override the model used for dispatched agents
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Start persistent sentinel daemon
+    Watch {
+        /// Poll interval in minutes
+        #[arg(long, default_value = "10")]
+        interval: u64,
+        /// Override the model used for dispatched agents
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Show sentinel daemon status and in-flight agents
+    Status,
+    /// Show past sentinel runs and outcomes
+    History {
+        /// Maximum number of runs to show
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        /// Show per-dispatch details for each run
+        #[arg(long)]
+        detail: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop the sentinel daemon
+    Stop,
+    /// Show dispatch success rates per model and rule
+    Metrics {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Analyze dispatch history for recurring patterns and hotspots
+    Patterns {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Internal: run the sentinel watch loop (used by watch)
+    #[command(hide = true)]
+    RunDaemon {
+        #[arg(long)]
+        dir: std::path::PathBuf,
+        #[arg(long, default_value = "10")]
+        interval: u64,
+        /// Override the model used for dispatched agents
+        #[arg(long)]
+        model: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+enum ContextCommands {
+    /// Measure context injection sizes and estimate token overhead
+    Measure {
+        /// Show additional details (hook config contents, etc.)
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Verify all expected crosslink files are deployed and valid
+    Check,
+}
+
+fn init_tracing(log_level: &str, log_format: &str) {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    let filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("warn"));
+    if log_format == "json" {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().json().with_writer(std::io::stderr))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().with_target(false).with_writer(std::io::stderr))
+            .init();
+    }
+}
+
+fn find_crosslink_dir() -> Result<PathBuf> {
+    find_crosslink_dir_from(&env::current_dir()?)
+}
+
+/// Whether a `.crosslink` candidate is an initialized crosslink project dir.
+///
+/// `crosslink init` always writes `hook-config.json`, and agent worktrees
+/// carry it (committed on their branch or written by the worktree init).
+/// Stray `.crosslink/` directories seeded by cwd drift (GH#625) lack it —
+/// they contain only hydration caches (`issues.db`, `.cache/`). Binding to
+/// a stray silently splits the database, so candidates without the marker
+/// are skipped with a warning instead of bound.
+fn is_initialized_crosslink_dir(candidate: &std::path::Path) -> bool {
+    candidate.join("hook-config.json").is_file()
+}
+
+fn find_crosslink_dir_from(start: &std::path::Path) -> Result<PathBuf> {
+    let mut current = start.to_path_buf();
+    let mut skipped_strays: Vec<PathBuf> = Vec::new();
+
+    // First, walk up from the start dir looking for an INITIALIZED
+    // .crosslink (works in main repo). Stray dirs are skipped, not bound.
+    loop {
+        let candidate = current.join(".crosslink");
+        if candidate.is_dir() {
+            if is_initialized_crosslink_dir(&candidate) {
+                for stray in &skipped_strays {
+                    tracing::warn!(
+                        "ignoring stray .crosslink at {} (no hook-config.json — likely \
+                         created by cwd drift, GH#625); using {} — consider deleting \
+                         the stray",
+                        stray.display(),
+                        candidate.display()
+                    );
+                }
+                return Ok(candidate);
+            }
+            skipped_strays.push(candidate);
+        }
+
+        if !current.pop() {
+            break;
+        }
+    }
+
+    // Not found — check if we're in a git worktree and look in the main repo root
+    if let Some(main_root) = utils::resolve_main_repo_root(start) {
+        let candidate = main_root.join(".crosslink");
+        if candidate.is_dir() && is_initialized_crosslink_dir(&candidate) {
+            return Ok(candidate);
+        }
+    }
+
+    if skipped_strays.is_empty() {
+        bail!("Not a crosslink repository (or any parent). Run 'crosslink init' first.");
+    }
+    bail!(
+        "Not a crosslink repository (or any parent). Found stray uninitialized \
+         .crosslink director{} (no hook-config.json) at: {} — likely created by \
+         cwd drift (GH#625). Delete {} or run 'crosslink init' at the project root.",
+        if skipped_strays.len() == 1 {
+            "y"
+        } else {
+            "ies"
+        },
+        skipped_strays
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        if skipped_strays.len() == 1 {
+            "it"
+        } else {
+            "them"
+        },
+    );
+}
+
+fn get_db() -> Result<Database> {
+    let crosslink_dir = find_crosslink_dir()?;
+    let db_path = crosslink_dir.join("issues.db");
+    let db = Database::open(&db_path).context("Failed to open database")?;
+
+    // Auto-hydrate if the hub branch has moved since last hydration (#500).
+    // This is a sub-millisecond check (git rev-parse HEAD in the cache
+    // worktree) that only triggers re-hydration when the ref actually changed.
+    if let Err(e) = hydration::maybe_auto_hydrate(&crosslink_dir, &db) {
+        tracing::debug!("auto-hydration skipped: {}", e);
+    }
+
+    Ok(db)
+}
+
+/// Try to create a `SharedWriter` for multi-agent mode.
+/// Returns None if agent.json is absent or sync cache isn't initialized.
+fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWriter> {
+    match shared_writer::SharedWriter::new(crosslink_dir) {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::warn!("SharedWriter unavailable: {}", e);
+            None
+        }
+    }
+}
+
+/// Clap value parser for issue IDs (supports `L1` offline notation).
+fn parse_issue_id_clap(s: &str) -> std::result::Result<i64, String> {
+    parse_issue_id(s).map_err(|e| e.to_string())
+}
+
+/// Parse an issue ID string, supporting both regular IDs and offline local IDs.
+///
+/// - `"42"` → `42` (regular display ID)
+/// - `"L1"` or `"l1"` → `-1` (offline local ID, stored as negative in `SQLite`)
+///
+/// Used when offline issue creation is enabled (`display_id`: null in JSON).
+fn parse_issue_id(s: &str) -> Result<i64> {
+    if let Some(n) = s.strip_prefix('L').or_else(|| s.strip_prefix('l')) {
+        let num: i64 = n
+            .parse()
+            .with_context(|| format!("Invalid local issue ID: {s}"))?;
+        if num <= 0 {
+            bail!("Local issue ID must be positive: {s}");
+        }
+        Ok(-num)
+    } else {
+        s.parse().with_context(|| format!("Invalid issue ID: {s}"))
+    }
+}
+
+/// Emit a hint to stderr (suppressed in quiet mode).
+fn hint(quiet: bool, msg: &str) {
+    if !quiet {
+        tracing::info!("hint: {}", msg);
+    }
+}
+
+/// Fold a (set, clear-flag) pair from clap into a `FieldUpdate` for the
+/// shared-writer update path. Used by the `Update` dispatch to translate
+/// `--scheduled` / `--no-scheduled` (and `--due` / `--no-due`) into a
+/// single three-valued update (GH #361).
+const fn scheduled_update(
+    set: Option<chrono::DateTime<chrono::Utc>>,
+    clear: bool,
+) -> shared_writer::FieldUpdate<chrono::DateTime<chrono::Utc>> {
+    use shared_writer::FieldUpdate;
+    if clear {
+        FieldUpdate::Clear
+    } else if let Some(dt) = set {
+        FieldUpdate::Set(dt)
+    } else {
+        FieldUpdate::Unchanged
+    }
+}
+
+/// Dispatch an `IssueCommands` variant.
+fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> {
+    match action {
+        IssueCommands::Create {
+            title,
+            description,
+            priority,
+            template,
+            label,
+            work,
+            defer_id,
+            force,
+            parent,
+            scheduled,
+            due,
+        } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            let opts = commands::create::CreateOpts {
+                labels: &label,
+                work,
+                quiet,
+                crosslink_dir: Some(&crosslink_dir),
+                defer_id: parent.is_none() && defer_id,
+                force,
+            };
+            // Subissues don't carry scheduling dates (GH #361 REQ-12); the
+            // command handler rejects the combination with a clear error.
+            if let Some(parent_id) = parent {
+                if scheduled.is_some() || due.is_some() {
+                    anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
+                }
+                commands::create::run_subissue(
+                    &db,
+                    writer.as_ref(),
+                    parent_id,
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    &opts,
+                )
+            } else {
+                commands::create::run(
+                    &db,
+                    writer.as_ref(),
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    scheduled,
+                    due,
+                    &opts,
+                )
+            }
+        }
+
+        IssueCommands::Quick {
+            title,
+            description,
+            priority,
+            template,
+            label,
+            force,
+            parent,
+            scheduled,
+            due,
+        } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            let opts = commands::create::CreateOpts {
+                labels: &label,
+                work: true,
+                quiet,
+                crosslink_dir: Some(&crosslink_dir),
+                defer_id: false,
+                force,
+            };
+            if let Some(parent_id) = parent {
+                if scheduled.is_some() || due.is_some() {
+                    anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
+                }
+                commands::create::run_subissue(
+                    &db,
+                    writer.as_ref(),
+                    parent_id,
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    &opts,
+                )
+            } else {
+                commands::create::run(
+                    &db,
+                    writer.as_ref(),
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    scheduled,
+                    due,
+                    &opts,
+                )
+            }
+        }
+
+        IssueCommands::List {
+            status,
+            label,
+            priority,
+            repo,
+            refresh,
+        } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::list(
+                    &crosslink_dir,
+                    &repo_value,
+                    Some(&status),
+                    label.as_deref(),
+                    priority.as_deref(),
+                    refresh,
+                    json,
+                    quiet,
+                )
+            } else {
+                let db = get_db()?;
+                if json {
+                    commands::list::run_json(
+                        &db,
+                        Some(&status),
+                        label.as_deref(),
+                        priority.as_deref(),
+                    )
+                } else {
+                    commands::list::run(&db, Some(&status), label.as_deref(), priority.as_deref())
+                }
+            }
+        }
+
+        IssueCommands::Search {
+            query,
+            repo,
+            refresh,
+        } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::search(
+                    &crosslink_dir,
+                    &repo_value,
+                    &query,
+                    refresh,
+                    json,
+                    quiet,
+                )
+            } else {
+                let db = get_db()?;
+                if json {
+                    commands::search::run_json(&db, &query)
+                } else {
+                    commands::search::run(&db, &query)
+                }
+            }
+        }
+
+        IssueCommands::Show { id, repo, refresh } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::show(
+                    &crosslink_dir,
+                    &repo_value,
+                    id,
+                    refresh,
+                    json,
+                    quiet,
+                )
+            } else {
+                let db = get_db()?;
+                if json {
+                    commands::show::run_json(&db, id)
+                } else {
+                    commands::show::run(&db, id)
+                }
+            }
+        }
+
+        IssueCommands::Update {
+            id,
+            title,
+            description,
+            priority,
+            scheduled,
+            no_scheduled,
+            due,
+            no_due,
+        } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            let update = shared_writer::IssueUpdate {
+                title: title.as_deref(),
+                description: description
+                    .as_deref()
+                    .map_or(shared_writer::DescriptionUpdate::Unchanged, |s| {
+                        shared_writer::DescriptionUpdate::Set(s)
+                    }),
+                status: None,
+                priority: priority.as_deref(),
+                scheduled_at: scheduled_update(scheduled, no_scheduled),
+                due_at: scheduled_update(due, no_due),
+            };
+            commands::update::run(&db, writer.as_ref(), id, update)
+        }
+
+        IssueCommands::Close { id, no_changelog } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            if quiet {
+                commands::lifecycle::close_quiet(
+                    &db,
+                    writer.as_ref(),
+                    id,
+                    !no_changelog,
+                    &crosslink_dir,
+                )
+            } else {
+                commands::lifecycle::close(&db, writer.as_ref(), id, !no_changelog, &crosslink_dir)
+            }
+        }
+
+        IssueCommands::CloseAll {
+            label,
+            priority,
+            no_changelog,
+        } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::lifecycle::close_all(
+                &db,
+                writer.as_ref(),
+                label.as_deref(),
+                priority.as_deref(),
+                !no_changelog,
+                &crosslink_dir,
+            )
+        }
+
+        IssueCommands::Reopen { id } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::lifecycle::reopen(&db, writer.as_ref(), id)
+        }
+
+        IssueCommands::Delete { id, force } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::delete::run(&db, writer.as_ref(), id, force)
+        }
+
+        IssueCommands::Comment { id, text, kind } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::comment::run(&db, writer.as_ref(), id, &text, &kind)
+        }
+
+        IssueCommands::Intervene {
+            id,
+            description,
+            trigger,
+            context,
+        } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::intervene::run(
+                &db,
+                writer.as_ref(),
+                id,
+                &description,
+                &trigger,
+                context.as_deref(),
+                &crosslink_dir,
+            )
+        }
+
+        IssueCommands::Label { id, label } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::label::add(&db, writer.as_ref(), id, &label)
+        }
+
+        IssueCommands::Unlabel { id, label } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::label::remove(&db, writer.as_ref(), id, &label)
+        }
+
+        IssueCommands::Block { id, blocker } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::deps::block(&db, writer.as_ref(), id, blocker)
+        }
+
+        IssueCommands::Unblock { id, blocker } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::deps::unblock(&db, writer.as_ref(), id, blocker)
+        }
+
+        IssueCommands::Blocked => {
+            let db = get_db()?;
+            commands::deps::list_blocked(&db, json)
+        }
+
+        IssueCommands::Ready => {
+            let db = get_db()?;
+            commands::deps::list_ready(&db, json)
+        }
+
+        IssueCommands::Relate { id, related } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::relate::add(&db, writer.as_ref(), id, related)
+        }
+
+        IssueCommands::Unrelate { id, related } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::relate::remove(&db, writer.as_ref(), id, related)
+        }
+
+        IssueCommands::Related { id } => {
+            let db = get_db()?;
+            commands::relate::list(&db, id)
+        }
+
+        IssueCommands::Next => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::next::run(&db, &crosslink_dir)
+        }
+
+        IssueCommands::Tree { status } => {
+            let db = get_db()?;
+            commands::tree::run(&db, Some(&status), json)
+        }
+
+        IssueCommands::Tested => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::tested::run(&crosslink_dir)
+        }
+    }
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let log_format = match &cli.command {
+        Commands::Dashboard {
+            action: DashboardCommands::Serve { .. },
+        }
+        | Commands::Serve { .. }
+            if cli.log_format == "text" =>
+        {
+            "json"
+        }
+        _ => cli.log_format.as_str(),
+    };
+    init_tracing(&cli.log_level, log_format);
+
+    match cli.command {
+        Commands::Init {
+            force,
+            update,
+            dry_run,
+            no_prompt,
+            python_prefix,
+            skip_cpitd,
+            skip_signing,
+            signing_key,
+            reconfigure,
+            defaults,
+        } => {
+            let cwd = env::current_dir()?;
+            let opts = commands::init::InitOpts {
+                force,
+                update,
+                dry_run,
+                no_prompt,
+                python_prefix: python_prefix.as_deref(),
+                skip_cpitd,
+                skip_signing,
+                signing_key: signing_key.as_deref(),
+                reconfigure,
+                defaults,
+            };
+            commands::init::run(&cwd, &opts)
+        }
+
+        // === Canonical grouped commands ===
+        Commands::Issue { action } => dispatch_issue(action, cli.quiet, cli.json),
+
+        Commands::Timer { action } => {
+            let db = get_db()?;
+            match action {
+                TimerCommands::Start { id } => commands::timer::start(&db, id),
+                TimerCommands::Stop => commands::timer::stop(&db),
+                TimerCommands::Show => commands::timer::status(&db),
+            }
+        }
+
+        Commands::Migrate { action } => match action {
+            MigrateCommands::ToShared => {
+                let crosslink_dir = find_crosslink_dir()?;
+                let db = get_db()?;
+                commands::migrate::to_shared(&crosslink_dir, &db)
+            }
+            MigrateCommands::FromShared => {
+                let crosslink_dir = find_crosslink_dir()?;
+                let db = get_db()?;
+                commands::migrate::from_shared(&crosslink_dir, &db)
+            }
+            MigrateCommands::RenameBranch => {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::migrate::rename_branch(&crosslink_dir)
+            }
+            MigrateCommands::HubV3 {
+                finalize,
+                yes_delete_v2,
+                adopt_stale,
+                remigrate_from_v2,
+            } => {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::migrate_hub_v3::hub_v3(
+                    &crosslink_dir,
+                    finalize,
+                    yes_delete_v2,
+                    adopt_stale,
+                    remigrate_from_v2,
+                )
+            }
+            MigrateCommands::HubBranches => {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::migrate_hub_v3::hub_branches(&crosslink_dir)
+            }
+        },
+
+        // === Hidden top-level shortcuts ===
+        Commands::Create {
+            title,
+            description,
+            priority,
+            template,
+            label,
+            work,
+            defer_id,
+            force,
+            parent,
+            scheduled,
+            due,
+        } => dispatch_issue(
+            IssueCommands::Create {
+                title,
+                description,
+                priority,
+                template,
+                label,
+                work,
+                defer_id,
+                force,
+                parent,
+                scheduled,
+                due,
+            },
+            cli.quiet,
+            cli.json,
+        ),
+
+        Commands::Quick {
+            title,
+            description,
+            priority,
+            template,
+            label,
+            force,
+            parent,
+            scheduled,
+            due,
+        } => dispatch_issue(
+            IssueCommands::Quick {
+                title,
+                description,
+                priority,
+                template,
+                label,
+                force,
+                parent,
+                scheduled,
+                due,
+            },
+            cli.quiet,
+            cli.json,
+        ),
+
+        Commands::List {
+            status,
+            label,
+            priority,
+        } => dispatch_issue(
+            IssueCommands::List {
+                status,
+                label,
+                priority,
+                repo: None,
+                refresh: false,
+            },
+            cli.quiet,
+            cli.json,
+        ),
+
+        Commands::Show { id } => dispatch_issue(
+            IssueCommands::Show {
+                id,
+                repo: None,
+                refresh: false,
+            },
+            cli.quiet,
+            cli.json,
+        ),
+
+        Commands::Close { id, no_changelog } => dispatch_issue(
+            IssueCommands::Close { id, no_changelog },
+            cli.quiet,
+            cli.json,
+        ),
+
+        // === Hidden aliases (emit hints) ===
+        Commands::New {
+            title,
+            description,
+            priority,
+            template,
+            label,
+            work,
+            parent,
+        } => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink issue create'? Using that.",
+            );
+            dispatch_issue(
+                IssueCommands::Create {
+                    title,
+                    description,
+                    priority,
+                    template,
+                    label,
+                    work,
+                    defer_id: false,
+                    force: false,
+                    parent,
+                    scheduled: None,
+                    due: None,
+                },
+                cli.quiet,
+                cli.json,
+            )
+        }
+
+        Commands::Issues { action } => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink issue list'? Using that.",
+            );
+            if let Some(IssuesAliasCommands::List {
+                status,
+                label,
+                priority,
+            }) = action
+            {
+                dispatch_issue(
+                    IssueCommands::List {
+                        status,
+                        label,
+                        priority,
+                        repo: None,
+                        refresh: false,
+                    },
+                    cli.quiet,
+                    cli.json,
+                )
+            } else {
+                dispatch_issue(
+                    IssueCommands::List {
+                        status: "open".to_string(),
+                        label: None,
+                        priority: None,
+                        repo: None,
+                        refresh: false,
+                    },
+                    cli.quiet,
+                    cli.json,
+                )
+            }
+        }
+
+        Commands::Subissue {
+            parent,
+            title,
+            description,
+            priority,
+            template,
+            label,
+            work,
+            force,
+        } => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink issue create --parent'? Using that.",
+            );
+            dispatch_issue(
+                IssueCommands::Create {
+                    title,
+                    description,
+                    priority,
+                    template,
+                    label,
+                    work,
+                    defer_id: false,
+                    force,
+                    parent: Some(parent),
+                    scheduled: None,
+                    due: None,
+                },
+                cli.quiet,
+                cli.json,
+            )
+        }
+
+        Commands::TimerStart { id } => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink timer start'? Using that.",
+            );
+            let db = get_db()?;
+            commands::timer::start(&db, id)
+        }
+
+        Commands::TimerStop => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink timer stop'? Using that.",
+            );
+            let db = get_db()?;
+            commands::timer::stop(&db)
+        }
+
+        // === Hidden migration aliases ===
+        Commands::MigrateToShared => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink migrate to-shared'? Using that.",
+            );
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::migrate::to_shared(&crosslink_dir, &db)
+        }
+
+        Commands::MigrateFromShared => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink migrate from-shared'? Using that.",
+            );
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::migrate::from_shared(&crosslink_dir, &db)
+        }
+
+        Commands::MigrateRenameBranch => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink migrate rename-branch'? Using that.",
+            );
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::migrate::rename_branch(&crosslink_dir)
+        }
+
+        // === Remaining top-level commands (unchanged) ===
+        Commands::Export { output, format } => {
+            let db = get_db()?;
+            match format.as_str() {
+                "json" => commands::export::run_json(&db, output.as_deref()),
+                "markdown" | "md" => commands::export::run_markdown(&db, output.as_deref()),
+                _ => {
+                    bail!("Unknown format '{format}'. Use 'json' or 'markdown'");
+                }
+            }
+        }
+
+        Commands::Import { input } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            let path = std::path::Path::new(&input);
+            commands::import::run_json(&db, writer.as_ref(), path)
+        }
+
+        Commands::Archive { action } => {
+            let db = get_db()?;
+            commands::archive::run(action, &db)
+        }
+
+        Commands::Milestone { action } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::milestone::run(action, &db, &crosslink_dir)
+        }
+
+        Commands::Session { action } => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::session::run(action, &db, &crosslink_dir, cli.json)
+        }
+
+        Commands::Daemon { action } => match action {
+            DaemonCommands::Start => {
+                let crosslink_dir = find_crosslink_dir()?;
+                daemon::start(&crosslink_dir)
+            }
+            DaemonCommands::Stop => {
+                let crosslink_dir = find_crosslink_dir()?;
+                daemon::stop(&crosslink_dir)
+            }
+            DaemonCommands::Status => {
+                let crosslink_dir = find_crosslink_dir()?;
+                daemon::status(&crosslink_dir);
+                Ok(())
+            }
+            DaemonCommands::Run { dir } => daemon::run_daemon(&dir),
+        },
+
+        Commands::Cpitd { action } => {
+            let db = get_db()?;
+            commands::cpitd::run(action, &db, cli.quiet)
+        }
+
+        Commands::Agent { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::agent::run(action, &crosslink_dir)
+        }
+
+        Commands::Trust { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::trust::run(action, &crosslink_dir)
+        }
+
+        Commands::Locks { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::locks_cmd::run(action, &crosslink_dir, &db, cli.json)
+        }
+
+        Commands::Heartbeat => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let agent = crate::identity::AgentConfig::load(&crosslink_dir)?;
+            match agent {
+                Some(agent) => {
+                    let sync = crate::sync::SyncManager::new(&crosslink_dir)?;
+                    let _ = sync.init_cache();
+                    let db = get_db()?;
+                    let active_issue = db
+                        .get_current_session_for_agent(None)?
+                        .and_then(|s| s.active_issue_id);
+                    sync.push_heartbeat(&agent, active_issue)?;
+                    Ok(())
+                }
+                None => Ok(()),
+            }
+        }
+
+        Commands::Sync => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::locks_cmd::sync_cmd(&crosslink_dir, &db)
+        }
+
+        Commands::Integrity { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::integrity_cmd::run(action.as_ref(), &crosslink_dir, &db)
+        }
+
+        Commands::Prune {
+            dry_run,
+            force,
+            keep_commits,
+            hub_only,
+            knowledge_only,
+        } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let opts = commands::prune::PruneOpts {
+                dry_run,
+                force,
+                keep_commits,
+                hub_only,
+                knowledge_only,
+            };
+            commands::prune::run(&crosslink_dir, &opts, cli.json)
+        }
+
+        Commands::Compact { force } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::compact::run(&crosslink_dir, &db, force)
+        }
+
+        Commands::Container { action } => commands::container::run(action),
+
+        Commands::Style { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::style::run(command, &crosslink_dir)
+        }
+
+        Commands::Knowledge { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::knowledge::dispatch(command, &crosslink_dir, cli.json)
+        }
+
+        Commands::Config { command, preset } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            command.map_or_else(
+                || commands::config::run_bare(&crosslink_dir, preset.as_deref()),
+                |cmd| commands::config::run(cmd, &crosslink_dir),
+            )
+        }
+        Commands::Context { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::context::run(command, &crosslink_dir)
+        }
+        Commands::Workflow { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::workflow::run(command, &crosslink_dir, get_db)
+        }
+
+        Commands::Kickoff { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            let writer = get_writer(&crosslink_dir);
+            // Bare `crosslink kickoff` → launch the interactive wizard
+            let action = action.unwrap_or_else(|| KickoffCommands::Launch {
+                doc: None,
+                plan: false,
+                run: false,
+                verify: "local".to_string(),
+                model: "opus".to_string(),
+                timeout: "1h".to_string(),
+                container: "none".to_string(),
+                issue: None,
+                dry_run: false,
+                skip_permissions: false,
+                permission_mode: None,
+            });
+            commands::kickoff::dispatch(
+                action,
+                &crosslink_dir,
+                &db,
+                writer.as_ref(),
+                cli.quiet,
+                cli.json,
+            )
+        }
+        Commands::Design {
+            description,
+            issue,
+            gh_issue,
+            continue_slug,
+        } => commands::design_cmd::run(
+            description.as_deref(),
+            issue,
+            gh_issue,
+            continue_slug.as_deref(),
+        ),
+        Commands::Swarm { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            match action {
+                SwarmCommands::Init { doc } => commands::swarm::init(&crosslink_dir, &doc),
+                SwarmCommands::Status => commands::swarm::status(&crosslink_dir, cli.json),
+                SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
+                SwarmCommands::SyncStatus => commands::swarm::sync_status(&crosslink_dir),
+                SwarmCommands::Adopt { agent, slot } => {
+                    commands::swarm::adopt(&crosslink_dir, &agent, &slot)
+                }
+                SwarmCommands::Archive => commands::swarm::archive(&crosslink_dir),
+                SwarmCommands::Reset { no_archive } => {
+                    commands::swarm::reset(&crosslink_dir, no_archive)
+                }
+                SwarmCommands::ListSwarms => commands::swarm::list_swarms(&crosslink_dir),
+                SwarmCommands::Launch {
+                    phase,
+                    budget_aware,
+                    retry_failed,
+                } => {
+                    let db = get_db()?;
+                    let writer = get_writer(&crosslink_dir);
+                    if retry_failed {
+                        commands::swarm::launch_retry_failed(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    } else if budget_aware {
+                        commands::swarm::launch_budget_aware(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    } else {
+                        commands::swarm::launch(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    }
+                }
+                SwarmCommands::Gate { phase } => commands::swarm::gate(&crosslink_dir, &phase),
+                SwarmCommands::Checkpoint {
+                    phase,
+                    notes,
+                    force,
+                } => commands::swarm::checkpoint(&crosslink_dir, &phase, notes.as_deref(), force),
+                SwarmCommands::Config {
+                    budget_window,
+                    model,
+                    effort,
+                    budget_usd,
+                } => commands::swarm::config_budget(
+                    &crosslink_dir,
+                    &budget_window,
+                    &model,
+                    effort.as_deref(),
+                    budget_usd.as_deref(),
+                ),
+                SwarmCommands::Estimate { phase } => {
+                    commands::swarm::estimate(&crosslink_dir, &phase)
+                }
+                SwarmCommands::Harvest => commands::swarm::harvest_costs(&crosslink_dir),
+                SwarmCommands::Plan { budget_window } => {
+                    commands::swarm::plan(&crosslink_dir, budget_window.as_deref())
+                }
+                SwarmCommands::PlanShow => commands::swarm::plan_show(&crosslink_dir),
+                SwarmCommands::Review {
+                    agents,
+                    mandate,
+                    doc,
+                    file_issues,
+                    fix,
+                } => commands::swarm::review(
+                    &crosslink_dir,
+                    agents,
+                    &mandate,
+                    doc.as_deref(),
+                    file_issues,
+                    fix,
+                ),
+                SwarmCommands::Fix {
+                    issues,
+                    from_label,
+                    max_agents,
+                    budget_aware,
+                } => commands::swarm::fix(
+                    &crosslink_dir,
+                    issues.as_deref(),
+                    from_label.as_deref(),
+                    max_agents,
+                    budget_aware,
+                ),
+                SwarmCommands::Merge {
+                    branch,
+                    base,
+                    dry_run,
+                    agents,
+                } => commands::swarm::merge(
+                    &crosslink_dir,
+                    &branch,
+                    base.as_deref(),
+                    dry_run,
+                    agents.as_deref(),
+                ),
+                SwarmCommands::MoveAgent { agent, to_phase } => {
+                    commands::swarm::move_agent(&crosslink_dir, &agent, &to_phase)
+                }
+                SwarmCommands::MergePhases { phase_a, phase_b } => {
+                    commands::swarm::merge_phases(&crosslink_dir, &phase_a, &phase_b)
+                }
+                SwarmCommands::SplitPhase { phase, after } => {
+                    commands::swarm::split_phase(&crosslink_dir, &phase, &after)
+                }
+                SwarmCommands::RemoveAgent { agent } => {
+                    commands::swarm::remove_agent(&crosslink_dir, &agent)
+                }
+                SwarmCommands::Reorder { phase, position } => {
+                    commands::swarm::reorder_phase(&crosslink_dir, &phase, position)
+                }
+                SwarmCommands::RenamePhase { old, new } => {
+                    commands::swarm::rename_phase(&crosslink_dir, &old, &new)
+                }
+                SwarmCommands::ReviewContinue => commands::swarm::review_continue(&crosslink_dir),
+                SwarmCommands::ReviewStatus => commands::swarm::review_status(&crosslink_dir),
+                SwarmCommands::Pipeline {
+                    agents,
+                    mandate,
+                    target_branch,
+                    auto_fix,
+                    auto_file_issues,
+                } => commands::swarm::run_pipeline_cmd(
+                    &crosslink_dir,
+                    agents,
+                    &mandate,
+                    &target_branch,
+                    auto_fix,
+                    auto_file_issues,
+                ),
+                SwarmCommands::TrustInit { model } => {
+                    commands::swarm::trust_init(&crosslink_dir, &model)
+                }
+            }
+        }
+        Commands::Sentinel { action } => {
+            // RunDaemon is the internal loop entry point — dir is explicit, no auto-detection
+            if let SentinelCommands::RunDaemon {
+                ref dir,
+                interval,
+                ref model,
+            } = action
+            {
+                return commands::sentinel::watch::run_watch_loop(dir, interval, model.clone());
+            }
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            let writer = get_writer(&crosslink_dir);
+            let sentinel_model = match &action {
+                SentinelCommands::Run { model, .. }
+                | SentinelCommands::Watch { model, .. }
+                | SentinelCommands::RunDaemon { model, .. } => model.clone(),
+                _ => None,
+            };
+            commands::sentinel::dispatch_cmd(
+                action,
+                &crosslink_dir,
+                &db,
+                writer.as_ref(),
+                cli.quiet,
+                cli.json,
+                sentinel_model,
+            )
+        }
+        Commands::Tui => {
+            let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::tui::run(&db, &crosslink_dir)
+        }
+        Commands::Mc { layout } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::mission_control::run(&crosslink_dir, &layout)
+        }
+        Commands::Dashboard { action } => match action {
+            DashboardCommands::Serve {
+                port,
+                dashboard_dir,
+                rotate_token,
+            } => {
+                let crosslink_dir = find_crosslink_dir()?;
+                let db = get_db()?;
+                // Bootstrap the per-user dashboard index at
+                // ~/.crosslink/dashboard.db. Schema is applied idempotently.
+                let dashboard_db_path = dashboard::db::DashboardDb::default_path()?;
+                dashboard::db::DashboardDb::open(&dashboard_db_path)?;
+                if rotate_token {
+                    // Discard the cached token so the next AppState::new
+                    // generates a fresh one.
+                    let _ = crate::server::state::rotate_auth_token();
+                    println!("auth token rotated at ~/.crosslink/.dashboard-token");
+                }
+
+                // Server owns the poll loop + shutdown coordination
+                // now (see `server::run_with_dashboard_db`) — that's
+                // where the broadcast sender that the poll loop
+                // publishes to lives alongside the WS fanout.
+                tokio::runtime::Runtime::new()?.block_on(server::run_with_dashboard_db(
+                    port,
+                    dashboard_dir,
+                    db,
+                    crosslink_dir,
+                    Some(dashboard_db_path),
+                ))
+            }
+            DashboardCommands::Track {
+                path,
+                slug,
+                init,
+                agent_id,
+            } => {
+                if init {
+                    let id = agent_id.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--init requires --agent-id <ID> \
+                             (alphanumeric, hyphens, underscores)"
+                        )
+                    })?;
+                    dashboard::projects::track_with_init(&path, slug.as_deref(), &id)
+                } else {
+                    dashboard::projects::track(&path, slug.as_deref())
+                }
+            }
+            DashboardCommands::Untrack { slug } => dashboard::projects::untrack(&slug),
+            DashboardCommands::List => dashboard::projects::list(),
+            DashboardCommands::Discover { root, depth, track } => {
+                let opts = if root.is_empty() {
+                    let mut o = dashboard::discover::DiscoverOptions::defaults();
+                    o.depth = depth;
+                    o
+                } else {
+                    dashboard::discover::DiscoverOptions { roots: root, depth }
+                };
+                let db_path = dashboard::db::DashboardDb::default_path()?;
+                let db = dashboard::db::DashboardDb::open(&db_path)?;
+                let hits = dashboard::discover::discover(&db, &opts)?;
+                if hits.is_empty() {
+                    println!(
+                        "No crosslink-enabled repos found under: {}",
+                        opts.roots
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    return Ok(());
+                }
+                println!("{:<40} {:<10} PATH", "SLUG", "TRACKED?");
+                for h in &hits {
+                    println!(
+                        "{:<40} {:<10} {}",
+                        h.slug,
+                        if h.already_tracked { "yes" } else { "no" },
+                        h.path.display()
+                    );
+                }
+                if track {
+                    let to_track: Vec<_> = hits.iter().filter(|h| !h.already_tracked).collect();
+                    if to_track.is_empty() {
+                        println!("\nAll {} hits already tracked.", hits.len());
+                    } else {
+                        println!("\nTracking {} new repo(s)…", to_track.len());
+                        for h in to_track {
+                            if let Err(e) = dashboard::projects::track(&h.path, None) {
+                                eprintln!("  {}: {e}", h.slug);
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+        },
+        Commands::Serve {
+            port,
+            dashboard_dir,
+        } => {
+            eprintln!(
+                "warning: `crosslink serve` is deprecated. \
+                 Use `crosslink dashboard` instead. \
+                 See https://github.com/forecast-bio/crosslink/issues/429. \
+                 This alias will be removed in a future release."
+            );
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            tokio::runtime::Runtime::new()?.block_on(server::run(
+                port,
+                dashboard_dir,
+                db,
+                crosslink_dir,
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod find_crosslink_dir_tests {
+    use super::find_crosslink_dir_from;
+
+    fn mk_initialized(dir: &std::path::Path) {
+        let cl = dir.join(".crosslink");
+        std::fs::create_dir_all(&cl).unwrap();
+        std::fs::write(cl.join("hook-config.json"), "{}").unwrap();
+    }
+
+    fn mk_stray(dir: &std::path::Path) {
+        // GH#625 stray shape: hydration cache only, no hook-config.json.
+        let cl = dir.join(".crosslink");
+        std::fs::create_dir_all(cl.join(".cache")).unwrap();
+        std::fs::write(cl.join("issues.db"), b"sqlite").unwrap();
+    }
+
+    #[test]
+    fn binds_initialized_dir_directly() {
+        let root = tempfile::tempdir().unwrap();
+        mk_initialized(root.path());
+        let found = find_crosslink_dir_from(root.path()).unwrap();
+        assert_eq!(found, root.path().join(".crosslink"));
+    }
+
+    #[test]
+    fn skips_stray_in_subdir_and_binds_root() {
+        // The GH#625 scenario: cwd drifted to web/, which holds a stray.
+        let root = tempfile::tempdir().unwrap();
+        mk_initialized(root.path());
+        let web = root.path().join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        mk_stray(&web);
+
+        let found = find_crosslink_dir_from(&web).unwrap();
+        assert_eq!(
+            found,
+            root.path().join(".crosslink"),
+            "must bind the initialized root, not the stray"
+        );
+    }
+
+    #[test]
+    fn stray_only_errors_naming_the_stray() {
+        let root = tempfile::tempdir().unwrap();
+        let web = root.path().join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        mk_stray(&web);
+
+        let err = find_crosslink_dir_from(&web).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("stray") && msg.contains("GH#625"),
+            "error must explain the stray, got: {msg}"
+        );
+        assert!(
+            msg.contains(&web.join(".crosslink").display().to_string()),
+            "error must name the stray path, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn nested_initialized_dir_still_wins_over_parent() {
+        // An intentionally initialized nested project (has hook-config.json)
+        // must keep binding locally -- the marker, not depth, decides.
+        let root = tempfile::tempdir().unwrap();
+        mk_initialized(root.path());
+        let sub = root.path().join("subproject");
+        std::fs::create_dir_all(&sub).unwrap();
+        mk_initialized(&sub);
+
+        let found = find_crosslink_dir_from(&sub).unwrap();
+        assert_eq!(found, sub.join(".crosslink"));
+    }
+}

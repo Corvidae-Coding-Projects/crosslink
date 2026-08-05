@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.27">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>Hook configuration – crosslink</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../reference/rules.html" rel="next">
+<link href="../reference/commands.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>
+.navbar {
+  background-color: rgba(249, 88, 56, 0.2);
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
+}
+.navbar-logo {
+  max-height: unset;
+  height: 18px;
+  margin-top: -1px;
+}
+.navbar-brand {
+  margin-top: -4px;
+}
+.navbar-brand.navbar-brand-logo {
+  margin-right: 0px;
+}
+.navbar-title {
+  color: #F95838;
+  font-size: 19pt;
+  font-family: 'Times New Roman';
+  font-style: italic;
+  letter-spacing: -0.6px;
+}
+</style>
+
+
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="../assets/styles.css">
+</head>
+
+<body class="nav-sidebar floating nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">crosslink</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-getting-started" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Getting Started</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-getting-started">    
+        <li>
+    <a class="dropdown-item" href="../getting-started/quickstart.html">
+ <span class="dropdown-text">Your first agent session</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../getting-started/installation.html">
+ <span class="dropdown-text">Installation</span></a>
+  </li>  
+    </ul>
+  </li>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-guides" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Guides</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-guides">    
+        <li>
+    <a class="dropdown-item" href="../guides/session-workflow.html">
+ <span class="dropdown-text">Session workflow</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/multi-agent.html">
+ <span class="dropdown-text">Multi-agent coordination</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/design-workflow.html">
+ <span class="dropdown-text">Design document workflow</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/kickoff.html">
+ <span class="dropdown-text">Kickoff: Autonomous feature agents</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/swarm.html">
+ <span class="dropdown-text">Swarm orchestration</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/container-agents.html">
+ <span class="dropdown-text">Container-based agents</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/knowledge.html">
+ <span class="dropdown-text">Knowledge management</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/tui.html">
+ <span class="dropdown-text">Terminal dashboard</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/web-dashboard.html">
+ <span class="dropdown-text">Web dashboard</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/hooks.html">
+ <span class="dropdown-text">Behavioral hooks</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/tracking-modes.html">
+ <span class="dropdown-text">Tracking modes</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/maintenance.html">
+ <span class="dropdown-text">Maintenance operations</span></a>
+  </li>  
+    </ul>
+  </li>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-reference" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Reference</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-reference">    
+        <li>
+    <a class="dropdown-item" href="../reference/commands.html">
+ <span class="dropdown-text">CLI reference</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../reference/hook-config.html">
+ <span class="dropdown-text">Hook configuration</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../reference/rules.html">
+ <span class="dropdown-text">Rules customization</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../reference/kickoff-report.html">
+ <span class="dropdown-text">Kickoff report schema</span></a>
+  </li>  
+    </ul>
+  </li>
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../reference/commands.html">Reference</a></li><li class="breadcrumb-item"><a href="../reference/hook-config.html">Hook configuration</a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Reference</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/commands.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">CLI reference</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/hook-config.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text">Hook configuration</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/rules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Rules customization</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/kickoff-report.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Kickoff report schema</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active" data-toc-expanded="99">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#configuration-file" id="toc-configuration-file" class="nav-link active" data-scroll-target="#configuration-file">Configuration file</a></li>
+  <li><a href="#fields" id="toc-fields" class="nav-link" data-scroll-target="#fields">Fields</a>
+  <ul>
+  <li><a href="#tracking_mode" id="toc-tracking_mode" class="nav-link" data-scroll-target="#tracking_mode"><code>tracking_mode</code></a></li>
+  <li><a href="#intervention_tracking" id="toc-intervention_tracking" class="nav-link" data-scroll-target="#intervention_tracking"><code>intervention_tracking</code></a></li>
+  <li><a href="#cpitd_auto_install" id="toc-cpitd_auto_install" class="nav-link" data-scroll-target="#cpitd_auto_install"><code>cpitd_auto_install</code></a></li>
+  <li><a href="#comment_discipline" id="toc-comment_discipline" class="nav-link" data-scroll-target="#comment_discipline"><code>comment_discipline</code></a></li>
+  <li><a href="#kickoff_verification" id="toc-kickoff_verification" class="nav-link" data-scroll-target="#kickoff_verification"><code>kickoff_verification</code></a></li>
+  <li><a href="#signing_enforcement" id="toc-signing_enforcement" class="nav-link" data-scroll-target="#signing_enforcement"><code>signing_enforcement</code></a></li>
+  <li><a href="#auto_steal_stale_locks" id="toc-auto_steal_stale_locks" class="nav-link" data-scroll-target="#auto_steal_stale_locks"><code>auto_steal_stale_locks</code></a></li>
+  <li><a href="#reminder_drift_threshold" id="toc-reminder_drift_threshold" class="nav-link" data-scroll-target="#reminder_drift_threshold"><code>reminder_drift_threshold</code></a></li>
+  <li><a href="#gated_git_commands" id="toc-gated_git_commands" class="nav-link" data-scroll-target="#gated_git_commands"><code>gated_git_commands</code></a></li>
+  <li><a href="#blocked_git_commands" id="toc-blocked_git_commands" class="nav-link" data-scroll-target="#blocked_git_commands"><code>blocked_git_commands</code></a></li>
+  <li><a href="#allowed_bash_prefixes" id="toc-allowed_bash_prefixes" class="nav-link" data-scroll-target="#allowed_bash_prefixes"><code>allowed_bash_prefixes</code></a></li>
+  </ul></li>
+  <li><a href="#how-the-hook-processes-commands" id="toc-how-the-hook-processes-commands" class="nav-link" data-scroll-target="#how-the-hook-processes-commands">How the hook processes commands</a></li>
+  <li><a href="#customizing-for-your-stack" id="toc-customizing-for-your-stack" class="nav-link" data-scroll-target="#customizing-for-your-stack">Customizing for your stack</a></li>
+  <li><a href="#resetting-to-defaults" id="toc-resetting-to-defaults" class="nav-link" data-scroll-target="#resetting-to-defaults">Resetting to defaults</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../reference/commands.html">Reference</a></li><li class="breadcrumb-item"><a href="../reference/hook-config.html">Hook configuration</a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title">Hook configuration</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>Hooks run automatically during agent sessions and rarely need manual configuration. This reference documents the full configuration surface for fine-tuning enforcement behavior.</p>
+<p>Hook behavior is controlled by <code>.crosslink/hook-config.json</code>. This file is created by <code>crosslink init</code> and can be edited to customize enforcement.</p>
+<section id="configuration-file" class="level2">
+<h2 class="anchored" data-anchor-id="configuration-file">Configuration file</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"tracking_mode"</span><span class="fu">:</span> <span class="st">"strict"</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"intervention_tracking"</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"cpitd_auto_install"</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"comment_discipline"</span><span class="fu">:</span> <span class="st">"encouraged"</span><span class="fu">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"kickoff_verification"</span><span class="fu">:</span> <span class="st">"local"</span><span class="fu">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"signing_enforcement"</span><span class="fu">:</span> <span class="st">"audit"</span><span class="fu">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"auto_steal_stale_locks"</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"reminder_drift_threshold"</span><span class="fu">:</span> <span class="dv">3</span><span class="fu">,</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"blocked_git_commands"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git push"</span><span class="ot">,</span> <span class="st">"git merge"</span><span class="ot">,</span> <span class="st">"git rebase"</span><span class="ot">,</span> <span class="st">"git cherry-pick"</span><span class="ot">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git reset"</span><span class="ot">,</span> <span class="st">"git checkout ."</span><span class="ot">,</span> <span class="st">"git restore ."</span><span class="ot">,</span> <span class="st">"git clean"</span><span class="ot">,</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git stash"</span><span class="ot">,</span> <span class="st">"git tag"</span><span class="ot">,</span> <span class="st">"git am"</span><span class="ot">,</span> <span class="st">"git apply"</span><span class="ot">,</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git branch -d"</span><span class="ot">,</span> <span class="st">"git branch -D"</span><span class="ot">,</span> <span class="st">"git branch -m"</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"gated_git_commands"</span><span class="fu">:</span> <span class="ot">[</span><span class="st">"git commit"</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"allowed_bash_prefixes"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="st">"crosslink "</span><span class="ot">,</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git status"</span><span class="ot">,</span> <span class="st">"git diff"</span><span class="ot">,</span> <span class="st">"git log"</span><span class="ot">,</span> <span class="st">"git branch"</span><span class="ot">,</span> <span class="st">"git show"</span><span class="ot">,</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"cargo test"</span><span class="ot">,</span> <span class="st">"cargo build"</span><span class="ot">,</span> <span class="st">"cargo check"</span><span class="ot">,</span> <span class="st">"cargo clippy"</span><span class="ot">,</span> <span class="st">"cargo fmt"</span><span class="ot">,</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="st">"npm test"</span><span class="ot">,</span> <span class="st">"npm run"</span><span class="ot">,</span> <span class="st">"npx "</span><span class="ot">,</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"tsc"</span><span class="ot">,</span> <span class="st">"node "</span><span class="ot">,</span> <span class="st">"python "</span><span class="ot">,</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"ls"</span><span class="ot">,</span> <span class="st">"dir"</span><span class="ot">,</span> <span class="st">"pwd"</span><span class="ot">,</span> <span class="st">"echo"</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="fields" class="level2">
+<h2 class="anchored" data-anchor-id="fields">Fields</h2>
+<section id="tracking_mode" class="level3">
+<h3 class="anchored" data-anchor-id="tracking_mode"><code>tracking_mode</code></h3>
+<p>Controls how aggressively crosslink enforces issue creation before code changes. See <a href="../guides/tracking-modes.html">Tracking Modes</a> for details.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Value</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>"strict"</code></td>
+<td>Blocks code changes without an active issue</td>
+</tr>
+<tr class="even">
+<td><code>"normal"</code></td>
+<td>Reminds but allows proceeding</td>
+</tr>
+<tr class="odd">
+<td><code>"relaxed"</code></td>
+<td>No enforcement, only git mutation blocks</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="intervention_tracking" class="level3">
+<h3 class="anchored" data-anchor-id="intervention_tracking"><code>intervention_tracking</code></h3>
+<p>When <code>true</code>, hooks log driver interventions (tool rejections, redirects, etc.) for audit and agent improvement. Default: <code>true</code>.</p>
+</section>
+<section id="cpitd_auto_install" class="level3">
+<h3 class="anchored" data-anchor-id="cpitd_auto_install"><code>cpitd_auto_install</code></h3>
+<p>When <code>true</code>, crosslink automatically installs the cpitd code clone detection tool if not present. Default: <code>true</code>.</p>
+</section>
+<section id="comment_discipline" class="level3">
+<h3 class="anchored" data-anchor-id="comment_discipline"><code>comment_discipline</code></h3>
+<p>Controls how aggressively hooks enforce typed comments on issues. Values: <code>"required"</code> (blocks close without comments), <code>"encouraged"</code> (reminds), <code>"off"</code>. Default: <code>"encouraged"</code>.</p>
+</section>
+<section id="kickoff_verification" class="level3">
+<h3 class="anchored" data-anchor-id="kickoff_verification"><code>kickoff_verification</code></h3>
+<p>Default verification level for kickoff agents. Values: <code>"local"</code>, <code>"ci"</code>, <code>"thorough"</code>. Default: <code>"local"</code>.</p>
+</section>
+<section id="signing_enforcement" class="level3">
+<h3 class="anchored" data-anchor-id="signing_enforcement"><code>signing_enforcement</code></h3>
+<p>Controls SSH signature verification strictness. Values: <code>"enforce"</code> (reject unsigned), <code>"audit"</code> (warn on unsigned), <code>"off"</code>. Default: <code>"audit"</code>.</p>
+</section>
+<section id="auto_steal_stale_locks" class="level3">
+<h3 class="anchored" data-anchor-id="auto_steal_stale_locks"><code>auto_steal_stale_locks</code></h3>
+<p>When <code>true</code>, agents automatically steal locks from agents with stale heartbeats. Default: <code>false</code>.</p>
+</section>
+<section id="reminder_drift_threshold" class="level3">
+<h3 class="anchored" data-anchor-id="reminder_drift_threshold"><code>reminder_drift_threshold</code></h3>
+<p>Number of drift events before hooks escalate reminder frequency. Default: <code>3</code>.</p>
+</section>
+<section id="gated_git_commands" class="level3">
+<h3 class="anchored" data-anchor-id="gated_git_commands"><code>gated_git_commands</code></h3>
+<p>Git commands that require an active crosslink issue before execution. Unlike <code>blocked_git_commands</code>, these are allowed when the agent has an active work item. Default: <code>["git commit"]</code>.</p>
+</section>
+<section id="blocked_git_commands" class="level3">
+<h3 class="anchored" data-anchor-id="blocked_git_commands"><code>blocked_git_commands</code></h3>
+<p>Git commands that are <strong>always blocked</strong>, regardless of tracking mode. These are mutation commands that should only be run by a human.</p>
+<p>The hook checks if the bash command starts with any of these prefixes. To allow a blocked command, remove it from the list.</p>
+</section>
+<section id="allowed_bash_prefixes" class="level3">
+<h3 class="anchored" data-anchor-id="allowed_bash_prefixes"><code>allowed_bash_prefixes</code></h3>
+<p>Bash commands that bypass the issue-required check. These are typically read-only or infrastructure commands that don’t require issue tracking.</p>
+<p>The hook splits chained commands (using <code>&amp;&amp;</code>, <code>;</code>, <code>|</code>) and checks that <strong>every</strong> component matches an allowed prefix. A command like <code>crosslink list &amp;&amp; rm -rf /</code> would be blocked because <code>rm -rf /</code> doesn’t match any allowed prefix.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+</section>
+<section id="how-the-hook-processes-commands" class="level2">
+<h2 class="anchored" data-anchor-id="how-the-hook-processes-commands">How the hook processes commands</h2>
+<ol type="1">
+<li><strong>Git mutation check</strong> — If command matches any <code>blocked_git_commands</code> prefix, block it (all modes)</li>
+<li><strong>Allowed prefix check</strong> — If command matches <code>allowed_bash_prefixes</code>, allow it (all modes)</li>
+<li><strong>Tracking mode check</strong> — Apply mode-specific behavior:
+<ul>
+<li>Strict: block if no active issue</li>
+<li>Normal: warn if no active issue</li>
+<li>Relaxed: allow</li>
+</ul></li>
+</ol>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="customizing-for-your-stack" class="level2">
+<h2 class="anchored" data-anchor-id="customizing-for-your-stack">Customizing for your stack</h2>
+<p>Add your project’s build and test commands to <code>allowed_bash_prefixes</code>:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"allowed_bash_prefixes"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"crosslink "</span><span class="ot">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"make "</span><span class="ot">,</span> <span class="st">"cmake "</span><span class="ot">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"go test"</span><span class="ot">,</span> <span class="st">"go build"</span><span class="ot">,</span> <span class="st">"go vet"</span><span class="ot">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"dotnet test"</span><span class="ot">,</span> <span class="st">"dotnet build"</span><span class="ot">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"mvn "</span><span class="ot">,</span> <span class="st">"gradle "</span><span class="ot">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"docker "</span><span class="ot">,</span> <span class="st">"docker-compose "</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="resetting-to-defaults" class="level2">
+<h2 class="anchored" data-anchor-id="resetting-to-defaults">Resetting to defaults</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init <span class="at">--force</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This resets <code>hook-config.json</code> and all rules to their default values.</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../reference/commands.html" class="pagination-link" aria-label="CLI reference">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text">CLI reference</span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../reference/rules.html" class="pagination-link" aria-label="Rules customization">
+        <span class="nav-page-text">Rules customization</span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="forecast-footer" id="forecast-footer">
+  <hr class="forecast-rule">
+  <div class="forecast-wordmark-row">
+    <a href="https://forecast.bio" class="forecast-wordmark-link">
+      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+    </a>
+    <div class="forecast-confetti" id="forecastConfetti"></div>
+  </div>
+  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+</footer>
+
+<script>
+(function() {
+  // Move footer below Quarto's page navigation links
+  var footer = document.getElementById('forecast-footer');
+  var pageNav = document.querySelector('nav.page-navigation');
+  if (footer && pageNav && pageNav.parentNode) {
+    // Insert footer after the page navigation element
+    pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
+  } else {
+    // Fallback: append to content area
+    var contentArea = document.querySelector('#quarto-content main.content');
+    if (!contentArea) {
+      contentArea = document.querySelector('#quarto-content > .page-columns');
+    }
+    if (footer && contentArea) {
+      contentArea.appendChild(footer);
+    }
+  }
+
+  // Resolve wordmark path
+  var img = document.getElementById('forecastWordmark');
+  if (img) {
+    var candidates = [
+      'assets/img/forecast-wordmark.svg',
+      '../assets/img/forecast-wordmark.svg',
+      '../../assets/img/forecast-wordmark.svg',
+    ];
+    var tryIndex = 0;
+    function tryNext() {
+      if (tryIndex < candidates.length) {
+        img.src = candidates[tryIndex++];
+      }
+    }
+    img.onerror = tryNext;
+    tryNext();
+  }
+
+  // Confetti dots — cone shape emanating up-right from logo baseline.
+  // Color distribution matches forecast.bio home page:
+  //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
+  var COLOR_TABLE = [
+    { color: '#ede2e4', weight: 10 }, // warm grey
+    { color: '#FFB6C6', weight: 5 },  // pink
+    { color: '#F95838', weight: 5 },  // red
+    { color: '#00A6DB', weight: 8 },  // blue
+    { color: '#FFCE02', weight: 7 },  // yellow
+  ];
+  var TOTAL_WEIGHT = 0;
+  for (var ci = 0; ci < COLOR_TABLE.length; ci++) TOTAL_WEIGHT += COLOR_TABLE[ci].weight;
+
+  function pickColor() {
+    var r = Math.random() * TOTAL_WEIGHT;
+    for (var ci = 0; ci < COLOR_TABLE.length; ci++) {
+      r -= COLOR_TABLE[ci].weight;
+      if (r <= 0) return COLOR_TABLE[ci].color;
+    }
+    return COLOR_TABLE[0].color;
+  }
+
+  var DOT_COUNT = 14;
+  var DOT_SIZE = 11;
+
+  var holder = document.getElementById('forecastConfetti');
+  if (!holder) return;
+
+  // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
+  var FIELD_W = 180;
+  var ORIGIN_Y = 45;       // logo baseline within the confetti container
+  var SLOPE = -0.28;       // mean trend: rises 28px per 100px rightward
+  var CONE_HALF_ANGLE = 0.22; // cone half-width as fraction of x distance
+  var NOISE = 10;          // extra random noise on top of cone positioning
+
+  function sampleDot() {
+    for (var attempts = 0; attempts < 50; attempts++) {
+      var x = Math.random() * FIELD_W;
+      var meanY = ORIGIN_Y + SLOPE * x;
+      var spread = Math.max(5, x * CONE_HALF_ANGLE);
+      var y = meanY + (Math.random() - 0.5) * 2 * spread;
+      // Extra noise to fuzz the cone edges
+      x += (Math.random() - 0.5) * NOISE;
+      y += (Math.random() - 0.5) * NOISE;
+      if (x >= 0) return { x: Math.floor(x), y: Math.floor(y) };
+    }
+    return { x: 0, y: ORIGIN_Y };
+  }
+
+  var dots = [];
+  for (var i = 0; i < DOT_COUNT; i++) {
+    var dot = document.createElement('div');
+    dot.className = 'forecast-dot';
+    dot.style.width = DOT_SIZE + 'px';
+    dot.style.height = DOT_SIZE + 'px';
+    dot.style.backgroundColor = pickColor();
+
+    var pos = sampleDot();
+    dot.style.left = pos.x + 'px';
+    dot.style.top = pos.y + 'px';
+    dot.style.opacity = '0';
+    holder.appendChild(dot);
+    dots.push(dot);
+  }
+
+  // Sort left-to-right for sequential reveal (emanating from logo)
+  dots.sort(function(a, b) {
+    return parseFloat(a.style.left) - parseFloat(b.style.left);
+  });
+
+  var revealed = false;
+  function revealDots() {
+    if (revealed) return;
+    revealed = true;
+    dots.forEach(function(dot, i) {
+      setTimeout(function() {
+        dot.style.transition = 'opacity 0.4s ease-in';
+        dot.style.opacity = '1';
+      }, i * 50);
+    });
+  }
+
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function(entries) {
+      if (entries[0].isIntersecting) {
+        revealDots();
+        observer.disconnect();
+      }
+    }, { threshold: 0.1 });
+    observer.observe(holder);
+  } else {
+    revealDots();
+  }
+})();
+</script>
+
+
+
+
+</body></html>

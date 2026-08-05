@@ -1,0 +1,177 @@
+---
+pagetitle: "crosslink — Persistent Memory for Human-Agent Development"
+toc: false
+sidebar: false
+---
+
+::: {.full-width-banner}
+![](assets/img/banner.svg){.hero-banner}
+:::
+
+::: {.hero-section}
+
+# crosslink
+
+::: {.subtitle}
+You direct. Your agents remember. Nothing gets lost.
+:::
+
+::: {.cta-buttons}
+[Get Started](getting-started/quickstart.qmd){.btn-primary}
+[View on GitHub](https://github.com/forecast-bio/crosslink){.btn-secondary}
+:::
+
+:::
+
+---
+
+::: {.feature-cards}
+
+::: {.feature-card}
+![](assets/img/cards/session-memory.svg){.card-icon}
+
+### Session Memory
+Your agents remember everything — handoff notes, breadcrumbs, and session state survive context compression and restarts. Pick up exactly where you left off.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/local-first.svg){.card-icon}
+
+### Local-First Tracking
+All data lives in a single SQLite file (`.crosslink/issues.db`). No cloud, no sync complexity, no network requests. Your project state stays on your machine.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/multi-agent.svg){.card-icon}
+
+### Multi-Agent Coordination
+Launch multiple agents on the same repo and let them sort it out. Distributed locking via a git coordination branch prevents conflicts automatically.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/hooks.svg){.card-icon}
+
+### Behavioral Hooks
+Your agents follow the rules without being told. Hooks inject best practices automatically — no stubs, proper error handling, issue tracking enforcement, and language-specific guidelines.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/swarm.svg){.card-icon}
+
+### Swarm Orchestration
+Point a swarm of agents at a design document. `crosslink swarm` coordinates phased builds with budget-aware scheduling, phase gates, and checkpoint/resume for interrupted work.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/knowledge.svg){.card-icon}
+
+### Knowledge Management
+Research done by one agent is available to all. Shared markdown knowledge pages synced via git with full-text search, bulk import, and auto-injection into agent context.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/tui.svg){.card-icon}
+
+### Terminal Dashboard
+`crosslink tui` gives you a live view of issues, active agents, knowledge pages, milestones, and config — all in your terminal with mouse support and keyboard navigation.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/web-dashboard.svg){.card-icon}
+
+### Web Dashboard
+`crosslink serve` launches a browser-based dashboard for visual project oversight. Same data, richer interface — charts, drag-and-drop, and real-time agent monitoring.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/containers.svg){.card-icon}
+
+### Container Agents
+Run agents in isolated Docker containers for stronger sandboxing. Same hook enforcement, same coordination — works cross-platform.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/workflow.svg){.card-icon}
+
+### Smart Workflow
+Tell your agent what to fix and it handles the rest — `quick` creates, labels, and starts work in one command. `next` recommends what to tackle. `tree` visualizes your issue hierarchy.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/maintenance.svg){.card-icon}
+
+### Maintenance
+`crosslink prune` squashes stale hub and knowledge branch history. `crosslink integrity` runs health checks, and `crosslink compact` keeps the database lean.
+:::
+
+::: {.feature-card}
+![](assets/img/cards/everywhere.svg){.card-icon}
+
+### Works Everywhere
+Native CLI + VS Code extension. Integrates with Claude Code, Aider, Cursor, Continue.dev, or any AI agent via the context provider.
+:::
+
+:::
+
+---
+
+## How it works
+
+::: {.columns}
+::: {.column width="35%"}
+**You say:**
+
+> "Fix the auth token refresh bug"
+
+Your agent handles everything — creates a tracked issue, explores the code, implements the fix, runs tests, and leaves handoff notes for the next session.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Your agent executes:**
+
+```bash
+crosslink quick "Fix auth token refresh" -p high -l bug
+crosslink session action "Exploring auth module..."
+# ... implements, tests ...
+/commit
+crosslink close 1
+crosslink session end --notes "Fixed. PR ready."
+```
+:::
+:::
+
+&nbsp;
+
+---
+
+## Install
+
+```bash
+# From crates.io
+cargo install crosslink
+
+# Or build from source
+git clone https://github.com/forecast-bio/crosslink.git
+cd crosslink/crosslink && cargo install --path .
+```
+
+Also available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).
+
+&nbsp;
+
+---
+
+## Learn more
+
+- [Your First Agent Session](getting-started/quickstart.qmd) — get running in under a minute
+- [Installation](getting-started/installation.qmd) — all install methods and requirements
+- [Session Workflow](guides/session-workflow.qmd) — deep dive into session management
+- [Kickoff: Autonomous Agents](guides/kickoff.qmd) — launch background agents in worktrees
+- [Swarm Orchestration](guides/swarm.qmd) — multi-agent phased builds from design documents
+- [Knowledge Management](guides/knowledge.qmd) — shared research pages synced via git
+- [Web Dashboard](guides/web-dashboard.qmd) — browser-based project oversight
+- [Terminal Dashboard](guides/tui.qmd) — interactive TUI for issues and agents
+- [Maintenance](guides/maintenance.qmd) — pruning, health checks, and database compaction
+- [CLI Reference](reference/commands.qmd) — full command reference

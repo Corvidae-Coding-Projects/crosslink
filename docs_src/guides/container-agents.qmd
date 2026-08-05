@@ -1,0 +1,212 @@
+---
+title: "Container-based agents"
+---
+
+::: {.guide-card}
+![](../assets/img/cards/containers.svg){.card-icon}
+
+## tl;dr
+
+Container execution gives your agents the same workflow with stronger sandboxing. Agents run inside Docker or Podman containers instead of local tmux sessions -- they cannot access your host filesystem outside the worktree, and crosslink hooks still enforce all policy automatically.
+:::
+
+&nbsp;
+
+## Why containers?
+
+- **Isolation** -- agents cannot access your host filesystem outside the worktree
+- **Reproducibility** -- consistent environment regardless of host OS
+- **Security** -- `--dangerously-skip-permissions` becomes safe inside a container because crosslink hooks still enforce policy (no merge/rebase, commits gated on an active issue, force-push always blocked; plain push is reserved for the CI-verify draft-PR flow)
+- **Cross-platform** -- works on Windows, Linux, and macOS anywhere Docker runs
+
+&nbsp;
+
+### Local sandbox alternative
+
+If you can't run Docker or Podman but still want some host isolation for local kickoffs, set the `sandbox.command` key in `hook-config.json` (see [hook configuration reference](../reference/hook-config.qmd#sandbox-command)). The configured command is prefixed to every local kickoff `claude` invocation, so you can wrap the agent in `firejail`, `bwrap`, `nsjail`, macOS `sandbox-exec`, or any tool that accepts the command to run as its trailing argument.
+
+```bash
+crosslink config set sandbox.command "firejail --quiet --net=none"
+```
+
+A container is still the stronger answer when one is available -- this lever just makes the local path less raw when it's the only option.
+
+&nbsp;
+
+---
+
+## Quick start
+
+::: {.columns}
+::: {.column width="35%"}
+**You say / do:**
+
+> "Run this feature agent in a container so it's fully sandboxed."
+
+You want stronger isolation than a local tmux session. The container approach is a single flag change.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
+
+```bash
+crosslink kickoff run "add batch retry logic" \
+  --container docker
+```
+
+Creates branch, worktree, builds the image (if needed), starts a container, and launches the agent inside it.
+:::
+:::
+
+&nbsp;
+
+---
+
+## Managing container lifecycle
+
+### Getting the image
+
+The default image used by `--container docker|podman` is published to GitHub Container Registry as
+[`ghcr.io/forecast-bio/crosslink-agent`](https://github.com/forecast-bio/crosslink/pkgs/container/crosslink-agent),
+built for both `linux/amd64` and `linux/arm64`. Published tags:
+
+- `:latest` — the most recent tagged release
+- `:<version>` (e.g. `:0.5.2`) — pinned release
+- `:nightly` — floating tag tracking `develop`
+- `:nightly-<short-sha>` — immutable nightly snapshots
+
+The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/forecast-bio/crosslink-agent:<version>` for reproducible runs.
+
+### Building the image locally
+
+::: {.columns}
+::: {.column width="35%"}
+**You say / do:**
+
+> "Build the agent image from source instead of pulling."
+
+Useful when iterating on `crosslink/resources/container/Dockerfile` or running offline. Produces a single-arch image tagged `:local`.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
+
+```bash
+just build-image            # tags :local
+crosslink kickoff run "..." \
+  --container docker \
+  --image ghcr.io/forecast-bio/crosslink-agent:local
+```
+
+The recipe builds a static musl crosslink binary for the host architecture and bakes it into the image alongside the entrypoint. The image includes git, openssh, jq, python3, sudo, the Claude CLI, and gosu for UID-remapping; project-specific toolchains (Rust/Node/Python/Go) are installed by the entrypoint on first run.
+:::
+:::
+
+### Monitoring containers
+
+::: {.columns}
+::: {.column width="35%"}
+**You say / do:**
+
+> "What are my container agents doing?"
+
+You can list running containers, stream logs, and open interactive shells for debugging.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
+
+```bash
+crosslink container ps
+crosslink container logs my-feature -f
+```
+
+Lists all running agent containers and streams live output from a specific agent.
+:::
+:::
+
+### Manual control
+
+```bash
+# Start a container manually for an existing worktree
+crosslink container start .worktrees/my-feature \
+  --issue 42 \
+  --prompt .worktrees/my-feature/KICKOFF.md
+
+# Graceful stop
+crosslink container stop my-feature
+
+# Stop and remove
+crosslink container kill my-feature
+
+# Remove a stopped container
+crosslink container rm my-feature
+```
+
+&nbsp;
+
+---
+
+## Hook enforcement inside containers
+
+The same crosslink hooks that enforce policy in local sessions also run inside containers -- automatically, with zero additional configuration:
+
+- **Git mutations blocked** -- `git push`, `git merge`, `git rebase` are blocked by hooks
+- **Commits gated** -- `git commit` requires an active crosslink issue
+- **Stub detection** -- post-edit hooks catch TODOs and incomplete code
+- **Language rules** -- project-specific best practices are injected
+
+This means you can use `--dangerously-skip-permissions` for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.
+
+That CLI flag is a **per-invocation override**, not a configuration. Persistent agent permissions are set in the worktree's `.claude/settings.json` -- specifically the `allowedTools` array and Claude Code's `permissions` block -- which crosslink writes via `init` and preserves across `init --force` merges. If you find yourself passing `--skip-permissions` to every container kickoff, the right move is to add the relevant tool patterns to `allowedTools` instead, so the agent runs unattended for that surface while every other tool still prompts. See [Configuring agent permissions](kickoff.qmd#configuring-agent-permissions) in the kickoff guide for the full contrast.
+
+&nbsp;
+
+---
+
+## Integration with kickoff
+
+The `--container` flag on `crosslink kickoff run` handles the full workflow:
+
+1. Creates a feature branch and worktree
+2. Builds the container image (if not already built)
+3. Starts a container with the worktree mounted
+4. Launches the agent inside the container
+5. The agent works autonomously: explore, implement, test, commit
+
+```bash
+# Local tmux (default)
+crosslink kickoff run "my feature"
+
+# Docker container
+crosslink kickoff run "my feature" --container docker
+
+# Podman container
+crosslink kickoff run "my feature" --container podman
+```
+
+<!-- &nbsp;
+
+---
+
+## Command reference
+
+| Command | Description |
+|---------|-------------|
+| `container build` | Build the agent container image |
+| `container start <worktree>` | Start a container for a worktree |
+| `container ps` | List running containers |
+| `container logs <name>` | Stream container logs |
+| `container stop <name>` | Gracefully stop a container |
+| `container kill <name>` | Stop and remove a container |
+| `container rm <name>` | Remove a stopped container |
+| `container shell <name>` | Open a shell in a container |
+| `container snapshot <name>` | Save container state as an image |
+
+See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination](multi-agent.qmd) for distributed locking. -->

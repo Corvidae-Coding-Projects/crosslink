@@ -1,0 +1,110 @@
+[package]
+name = "crosslink-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dependencies.crosslink]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_create_issue"
+path = "fuzz_targets/fuzz_create_issue.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_search"
+path = "fuzz_targets/fuzz_search.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_import"
+path = "fuzz_targets/fuzz_import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_dependency_graph"
+path = "fuzz_targets/fuzz_dependency_graph.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_state_machine"
+path = "fuzz_targets/fuzz_state_machine.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_cli_output"
+path = "fuzz_targets/fuzz_cli_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_comments"
+path = "fuzz_targets/fuzz_comments.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_labels"
+path = "fuzz_targets/fuzz_labels.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_update_operations"
+path = "fuzz_targets/fuzz_update_operations.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_milestones"
+path = "fuzz_targets/fuzz_milestones.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_subissues"
+path = "fuzz_targets/fuzz_subissues.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_relations"
+path = "fuzz_targets/fuzz_relations.rs"
+test = false
+doc = false
+bench = false

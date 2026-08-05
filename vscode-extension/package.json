@@ -1,0 +1,216 @@
+{
+  "name": "crosslink-issue-tracker",
+  "displayName": "Crosslink Issue Tracker",
+  "description": "A simple, lean issue tracker for AI-assisted development",
+  "version": "0.5.1",
+  "publisher": "forecast-bio",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "issue tracker",
+    "task management",
+    "AI development",
+    "session management"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:.crosslink"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "crosslink.init",
+        "title": "Crosslink: Initialize Project"
+      },
+      {
+        "command": "crosslink.sessionStart",
+        "title": "Crosslink: Start Session"
+      },
+      {
+        "command": "crosslink.sessionEnd",
+        "title": "Crosslink: End Session"
+      },
+      {
+        "command": "crosslink.sessionStatus",
+        "title": "Crosslink: Session Status"
+      },
+      {
+        "command": "crosslink.sessionWork",
+        "title": "Crosslink: Set Working Issue"
+      },
+      {
+        "command": "crosslink.sessionAction",
+        "title": "Crosslink: Record Action Breadcrumb"
+      },
+      {
+        "command": "crosslink.sessionLastHandoff",
+        "title": "Crosslink: Show Last Handoff Notes"
+      },
+      {
+        "command": "crosslink.daemonStart",
+        "title": "Crosslink: Start Daemon"
+      },
+      {
+        "command": "crosslink.daemonStop",
+        "title": "Crosslink: Stop Daemon"
+      },
+      {
+        "command": "crosslink.daemonStatus",
+        "title": "Crosslink: Daemon Status"
+      },
+      {
+        "command": "crosslink.listIssues",
+        "title": "Crosslink: List Issues"
+      },
+      {
+        "command": "crosslink.createIssue",
+        "title": "Crosslink: Create Issue"
+      },
+      {
+        "command": "crosslink.quickCreate",
+        "title": "Crosslink: Quick Create (Create + Label + Work)"
+      },
+      {
+        "command": "crosslink.createWithTemplate",
+        "title": "Crosslink: Create from Template"
+      },
+      {
+        "command": "crosslink.createSubissue",
+        "title": "Crosslink: Create Subissue"
+      },
+      {
+        "command": "crosslink.showIssue",
+        "title": "Crosslink: Show Issue Details"
+      },
+      {
+        "command": "crosslink.updateIssue",
+        "title": "Crosslink: Update Issue"
+      },
+      {
+        "command": "crosslink.closeIssue",
+        "title": "Crosslink: Close Issue"
+      },
+      {
+        "command": "crosslink.closeAllIssues",
+        "title": "Crosslink: Close All Issues"
+      },
+      {
+        "command": "crosslink.reopenIssue",
+        "title": "Crosslink: Reopen Issue"
+      },
+      {
+        "command": "crosslink.deleteIssue",
+        "title": "Crosslink: Delete Issue"
+      },
+      {
+        "command": "crosslink.addComment",
+        "title": "Crosslink: Add Comment"
+      },
+      {
+        "command": "crosslink.addLabel",
+        "title": "Crosslink: Add Label"
+      },
+      {
+        "command": "crosslink.removeLabel",
+        "title": "Crosslink: Remove Label"
+      },
+      {
+        "command": "crosslink.blockIssue",
+        "title": "Crosslink: Block Issue"
+      },
+      {
+        "command": "crosslink.unblockIssue",
+        "title": "Crosslink: Unblock Issue"
+      },
+      {
+        "command": "crosslink.readyIssues",
+        "title": "Crosslink: Show Ready Issues"
+      },
+      {
+        "command": "crosslink.blockedIssues",
+        "title": "Crosslink: Show Blocked Issues"
+      },
+      {
+        "command": "crosslink.relateIssues",
+        "title": "Crosslink: Relate Issues"
+      },
+      {
+        "command": "crosslink.unrelateIssues",
+        "title": "Crosslink: Unrelate Issues"
+      },
+      {
+        "command": "crosslink.nextIssue",
+        "title": "Crosslink: Suggest Next Issue"
+      },
+      {
+        "command": "crosslink.treeView",
+        "title": "Crosslink: Show Issue Tree"
+      },
+      {
+        "command": "crosslink.searchIssues",
+        "title": "Crosslink: Search Issues"
+      }
+    ],
+    "configuration": {
+      "title": "Crosslink Issue Tracker",
+      "properties": {
+        "crosslink.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the crosslink binary (for development/debugging). Leave empty to use bundled binary."
+        },
+        "crosslink.autoStartDaemon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the daemon when a .crosslink project is detected."
+        },
+        "crosslink.showOutputChannel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show output channel for daemon logs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build:binaries && npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "vscode-test",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "build:binaries": "node scripts/build-binaries.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.2.2",
+    "@types/vscode": "^1.109.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.7.1",
+    "eslint": "^9.39.3",
+    "mocha": "^11.5.0",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "minimatch@>=3.0.0 <3.1.5": "3.1.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dollspace-gay/crosslink"
+  },
+  "bugs": {
+    "url": "https://github.com/dollspace-gay/crosslink/issues"
+  },
+  "homepage": "https://github.com/dollspace-gay/crosslink#readme",
+  "license": "MIT"
+}

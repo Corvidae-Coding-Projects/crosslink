@@ -1,0 +1,122 @@
+project:
+  type: website
+  output-dir: ../docs
+  resources:
+    - "assets/img/banner.svg"
+    - "assets/img/forecast-wordmark.svg"
+
+website:
+  title: "crosslink"
+  navbar:
+    # background: "#F9F4F5"
+    left:
+      - text: Getting Started
+        menu:
+          - getting-started/quickstart.qmd
+          - getting-started/installation.qmd
+      - text: Guides
+        menu:
+          - guides/session-workflow.qmd
+          - guides/multi-agent.qmd
+          - guides/design-workflow.qmd
+          - guides/kickoff.qmd
+          - guides/swarm.qmd
+          - guides/container-agents.qmd
+          - guides/knowledge.qmd
+          - guides/tui.qmd
+          - guides/web-dashboard.qmd
+          - guides/hooks.qmd
+          - guides/tracking-modes.qmd
+          - guides/maintenance.qmd
+      - text: Reference
+        menu:
+          - reference/commands.qmd
+          - reference/hook-config.qmd
+          - reference/state-files.qmd
+          - reference/rules.qmd
+          - reference/kickoff-report.qmd
+    right:
+      - icon: github
+        href: https://github.com/forecast-bio/crosslink
+
+  sidebar:
+    - title: "Getting Started"
+      style: floating
+      contents:
+        - section: Getting started
+          contents:
+            - getting-started/quickstart.qmd
+            - getting-started/installation.qmd
+    - title: "Guides"
+      contents:
+        - section: Guides
+          contents:
+            - guides/session-workflow.qmd
+            - guides/multi-agent.qmd
+            - guides/design-workflow.qmd
+            - guides/kickoff.qmd
+            - guides/swarm.qmd
+            - guides/container-agents.qmd
+            - guides/knowledge.qmd
+            - guides/tui.qmd
+            - guides/web-dashboard.qmd
+            - guides/hooks.qmd
+            - guides/tracking-modes.qmd
+            - guides/maintenance.qmd
+    - title: "Reference"
+      contents:
+        - section: Reference
+          contents:
+            - reference/commands.qmd
+            - reference/hook-config.qmd
+            - reference/state-files.qmd
+            - reference/rules.qmd
+            - reference/kickoff-report.qmd
+
+format:
+  html:
+    theme:
+      - pandoc
+      - brand
+      - theme-light.scss
+    css:
+      - styles.css
+      - assets/styles.css
+    toc: true
+    toc-depth: 4
+    toc-expand: true
+    toc-location: right
+    page-navigation: true
+    include-in-header:
+      - text: |
+          <style>
+          .navbar {
+            background-color: rgba(249, 88, 56, 0.2);
+            -webkit-backdrop-filter: blur(15px);
+            backdrop-filter: blur(15px);
+          }
+          .navbar-logo {
+            max-height: unset;
+            height: 18px;
+            margin-top: -1px;
+          }
+          .navbar-brand {
+            margin-top: -4px;
+          }
+          .navbar-brand.navbar-brand-logo {
+            margin-right: 0px;
+          }
+          .navbar-title {
+            color: #F95838;
+            font-size: 19pt;
+            font-family: 'Times New Roman';
+            font-style: italic;
+            letter-spacing: -0.6px;
+          }
+          </style>
+
+    include-after-body:
+      - file: _footer.html
+    code-copy: true
+    code-overflow: scroll
+    highlight-style: github

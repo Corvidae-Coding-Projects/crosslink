@@ -1,0 +1,228 @@
+name: CI
+
+# Triggers: develop push validation + PRs to main/develop.
+# Feature branches use ci-feature.yml (fast path) instead.
+# Release and hotfix branches are validated via PR trigger (not push) to avoid
+# concurrency conflicts where push and PR runs cancel each other.
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ===========================================
+  # Linting - runs on Ubuntu for speed
+  # ===========================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (strict)
+        run: cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used
+
+  # ===========================================
+  # Security Audit
+  # ===========================================
+  security:
+    needs: lint
+    name: Security Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run security audit
+        run: cargo audit
+
+  # ===========================================
+  # Tests - Cross Platform
+  # ===========================================
+  test:
+    needs: lint
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: crosslink
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      # Proptests only run on Ubuntu here; the dedicated Property Tests job runs 1000 cases
+      PROPTEST_CASES: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --locked --verbose
+
+      - name: Run unit tests (with proptests, Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --bin crosslink --verbose
+
+      - name: Run unit tests (skip proptests, macOS/Windows)
+        if: matrix.os != 'ubuntu-latest'
+        run: cargo test --bin crosslink --verbose -- --skip proptest
+
+      - name: Run integration tests
+        run: cargo test --test cli_integration --verbose
+
+  # ===========================================
+  # Property-Based Tests (extended)
+  # ===========================================
+  proptest:
+    needs: test
+    name: Property Tests
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-proptest-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Run property-based tests (extended)
+        run: cargo test proptest --bin crosslink -- --test-threads=1
+        env:
+          PROPTEST_CASES: 1000
+
+  # ===========================================
+  # Fuzzing - smoke test (Linux only, nightly Rust)
+  # ===========================================
+  fuzz:
+    needs: test
+    name: Fuzz Tests
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+            crosslink/fuzz/target/
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Fuzz create_issue (60s)
+        run: cargo +nightly fuzz run fuzz_create_issue -- -max_total_time=60
+
+      - name: Fuzz search (60s)
+        run: cargo +nightly fuzz run fuzz_search -- -max_total_time=60
+
+      - name: Fuzz import (60s)
+        run: cargo +nightly fuzz run fuzz_import -- -max_total_time=60
+
+      - name: Fuzz dependency_graph (60s)
+        run: cargo +nightly fuzz run fuzz_dependency_graph -- -max_total_time=60
+
+      - name: Fuzz state_machine (60s)
+        run: cargo +nightly fuzz run fuzz_state_machine -- -max_total_time=60
+
+      - name: Fuzz cli_output (60s)
+        run: cargo +nightly fuzz run fuzz_cli_output -- -max_total_time=60
+
+      - name: Fuzz comments (60s)
+        run: cargo +nightly fuzz run fuzz_comments -- -max_total_time=60
+
+      - name: Fuzz labels (60s)
+        run: cargo +nightly fuzz run fuzz_labels -- -max_total_time=60
+
+      - name: Fuzz update_operations (60s)
+        run: cargo +nightly fuzz run fuzz_update_operations -- -max_total_time=60
+
+      - name: Fuzz milestones (60s)
+        run: cargo +nightly fuzz run fuzz_milestones -- -max_total_time=60
+
+      - name: Fuzz subissues (60s)
+        run: cargo +nightly fuzz run fuzz_subissues -- -max_total_time=60
+
+      - name: Fuzz relations (60s)
+        run: cargo +nightly fuzz run fuzz_relations -- -max_total_time=60

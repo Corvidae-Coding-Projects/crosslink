@@ -1,0 +1,16 @@
+# Mutation testing configuration for crosslink
+# cargo-mutants reads this from .cargo/mutants.toml
+
+# Exclude files that use include_str! with relative paths outside the crate
+# These fail when the source is copied to a temp directory because the
+# referenced files (../../../.crosslink/*, ../../../.claude/*) don't exist
+exclude_globs = [
+    "src/commands/init.rs",
+]
+
+# Timeout for each mutant test run (in seconds)
+timeout_multiplier = 2.0
+minimum_test_timeout = 30.0
+
+# Cap lints to avoid denied warnings making mutants unviable
+cap_lints = true

@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.27">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>Rules customization – crosslink</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../reference/kickoff-report.html" rel="next">
+<link href="../reference/hook-config.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>
+.navbar {
+  background-color: rgba(249, 88, 56, 0.2);
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
+}
+.navbar-logo {
+  max-height: unset;
+  height: 18px;
+  margin-top: -1px;
+}
+.navbar-brand {
+  margin-top: -4px;
+}
+.navbar-brand.navbar-brand-logo {
+  margin-right: 0px;
+}
+.navbar-title {
+  color: #F95838;
+  font-size: 19pt;
+  font-family: 'Times New Roman';
+  font-style: italic;
+  letter-spacing: -0.6px;
+}
+</style>
+
+
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="../assets/styles.css">
+</head>
+
+<body class="nav-sidebar floating nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">crosslink</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-getting-started" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Getting Started</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-getting-started">    
+        <li>
+    <a class="dropdown-item" href="../getting-started/quickstart.html">
+ <span class="dropdown-text">Your first agent session</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../getting-started/installation.html">
+ <span class="dropdown-text">Installation</span></a>
+  </li>  
+    </ul>
+  </li>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-guides" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Guides</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-guides">    
+        <li>
+    <a class="dropdown-item" href="../guides/session-workflow.html">
+ <span class="dropdown-text">Session workflow</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/multi-agent.html">
+ <span class="dropdown-text">Multi-agent coordination</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/design-workflow.html">
+ <span class="dropdown-text">Design document workflow</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/kickoff.html">
+ <span class="dropdown-text">Kickoff: Autonomous feature agents</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/swarm.html">
+ <span class="dropdown-text">Swarm orchestration</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/container-agents.html">
+ <span class="dropdown-text">Container-based agents</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/knowledge.html">
+ <span class="dropdown-text">Knowledge management</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/tui.html">
+ <span class="dropdown-text">Terminal dashboard</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/web-dashboard.html">
+ <span class="dropdown-text">Web dashboard</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/hooks.html">
+ <span class="dropdown-text">Behavioral hooks</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/tracking-modes.html">
+ <span class="dropdown-text">Tracking modes</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../guides/maintenance.html">
+ <span class="dropdown-text">Maintenance operations</span></a>
+  </li>  
+    </ul>
+  </li>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-reference" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Reference</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-reference">    
+        <li>
+    <a class="dropdown-item" href="../reference/commands.html">
+ <span class="dropdown-text">CLI reference</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../reference/hook-config.html">
+ <span class="dropdown-text">Hook configuration</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../reference/rules.html">
+ <span class="dropdown-text">Rules customization</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../reference/kickoff-report.html">
+ <span class="dropdown-text">Kickoff report schema</span></a>
+  </li>  
+    </ul>
+  </li>
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../reference/commands.html">Reference</a></li><li class="breadcrumb-item"><a href="../reference/rules.html">Rules customization</a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Reference</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/commands.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">CLI reference</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/hook-config.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Hook configuration</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/rules.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text">Rules customization</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../reference/kickoff-report.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Kickoff report schema</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active" data-toc-expanded="99">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#rule-files" id="toc-rule-files" class="nav-link active" data-scroll-target="#rule-files">Rule files</a></li>
+  <li><a href="#how-rules-are-loaded" id="toc-how-rules-are-loaded" class="nav-link" data-scroll-target="#how-rules-are-loaded">How rules are loaded</a></li>
+  <li><a href="#customizing-global.md" id="toc-customizing-global.md" class="nav-link" data-scroll-target="#customizing-global.md">Customizing <code>global.md</code></a></li>
+  <li><a href="#customizing-project.md" id="toc-customizing-project.md" class="nav-link" data-scroll-target="#customizing-project.md">Customizing <code>project.md</code></a></li>
+  <li><a href="#language-rules" id="toc-language-rules" class="nav-link" data-scroll-target="#language-rules">Language rules</a></li>
+  <li><a href="#tracking-mode-rules" id="toc-tracking-mode-rules" class="nav-link" data-scroll-target="#tracking-mode-rules">Tracking mode rules</a></li>
+  <li><a href="#resetting-rules" id="toc-resetting-rules" class="nav-link" data-scroll-target="#resetting-rules">Resetting rules</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../reference/commands.html">Reference</a></li><li class="breadcrumb-item"><a href="../reference/rules.html">Rules customization</a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title">Rules customization</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>Rules are injected into agent sessions automatically and shape how agents write code, handle errors, and follow project conventions. Most teams only need to edit <code>project.md</code> — the rest works out of the box.</p>
+<p>Crosslink uses markdown files in <code>.crosslink/rules/</code> to define behavioral rules that are injected into AI sessions. You can customize these files to match your project’s conventions.</p>
+<section id="rule-files" class="level2">
+<h2 class="anchored" data-anchor-id="rule-files">Rule files</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 21%">
+<col style="width: 32%">
+<col style="width: 46%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+<th>Injected By</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>global.md</code></td>
+<td>Security, correctness, and style rules</td>
+<td><code>prompt-guard.py</code> (every prompt)</td>
+</tr>
+<tr class="even">
+<td><code>project.md</code></td>
+<td>Your project-specific rules</td>
+<td><code>prompt-guard.py</code> (every prompt)</td>
+</tr>
+<tr class="odd">
+<td><code>tracking-strict.md</code></td>
+<td>Strict mode enforcement wording</td>
+<td><code>work-check.py</code></td>
+</tr>
+<tr class="even">
+<td><code>tracking-normal.md</code></td>
+<td>Normal mode enforcement wording</td>
+<td><code>work-check.py</code></td>
+</tr>
+<tr class="odd">
+<td><code>tracking-relaxed.md</code></td>
+<td>Relaxed mode enforcement wording</td>
+<td><code>work-check.py</code></td>
+</tr>
+<tr class="even">
+<td><code>web.md</code></td>
+<td>RFIP (prompt injection defense)</td>
+<td><code>pre-web-check.py</code></td>
+</tr>
+<tr class="odd">
+<td><code>rust.md</code>, <code>python.md</code>, etc.</td>
+<td>Language-specific best practices</td>
+<td><code>prompt-guard.py</code> (auto-detected)</td>
+</tr>
+</tbody>
+</table>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="how-rules-are-loaded" class="level2">
+<h2 class="anchored" data-anchor-id="how-rules-are-loaded">How rules are loaded</h2>
+<ol type="1">
+<li><strong><code>prompt-guard.py</code></strong> detects project languages by scanning for source files</li>
+<li>It loads <code>global.md</code>, <code>project.md</code>, and any relevant language rule files</li>
+<li>On the first prompt, full rules are injected; on subsequent prompts, a condensed version is used</li>
+<li><strong><code>work-check.py</code></strong> loads the tracking mode file matching <code>hook-config.json</code>’s <code>tracking_mode</code></li>
+<li><strong><code>pre-web-check.py</code></strong> loads <code>web.md</code> before any web fetch</li>
+</ol>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="customizing-global.md" class="level2">
+<h2 class="anchored" data-anchor-id="customizing-global.md">Customizing <code>global.md</code></h2>
+<p>This file contains the core behavioral rules. Key sections:</p>
+<ul>
+<li><strong>Security</strong> — OWASP prevention, input validation, parameterized queries</li>
+<li><strong>Correctness</strong> — No stubs, no dead code, complete implementations</li>
+<li><strong>Style</strong> — Consistent formatting, meaningful names, appropriate comments</li>
+</ul>
+<p>Edit to match your team’s standards.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="customizing-project.md" class="level2">
+<h2 class="anchored" data-anchor-id="customizing-project.md">Customizing <code>project.md</code></h2>
+<p>This is your project-specific rules file. It starts empty. Use it for:</p>
+<ul>
+<li>Architecture conventions (“always use repository pattern for data access”)</li>
+<li>Naming conventions (“prefix all API handlers with <code>handle_</code>”)</li>
+<li>Testing requirements (“every public function must have a unit test”)</li>
+<li>Dependency preferences (“use <code>reqwest</code> for HTTP, not <code>hyper</code> directly”)</li>
+</ul>
+<p>Example:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">## Project Conventions</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">### Architecture</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Use the repository pattern for all database access</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>All API endpoints go in <span class="in">`src/api/`</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Business logic belongs in <span class="in">`src/domain/`</span>, never in API handlers</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">### Testing</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Every public function must have at least one unit test</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Integration tests go in <span class="in">`tests/`</span> and use the <span class="in">`test_db`</span> fixture</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Mock external APIs, never hit real endpoints in tests</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="fu">### Dependencies</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>HTTP client: reqwest</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Serialization: serde + serde_json</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Error handling: anyhow for applications, thiserror for libraries</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="language-rules" class="level2">
+<h2 class="anchored" data-anchor-id="language-rules">Language rules</h2>
+<p>Language-specific rule files are auto-detected based on source files in the project. Each file contains best practices for that language.</p>
+<p>Available language rules:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Language</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>rust.md</code></td>
+<td>Rust</td>
+</tr>
+<tr class="even">
+<td><code>python.md</code></td>
+<td>Python</td>
+</tr>
+<tr class="odd">
+<td><code>javascript.md</code></td>
+<td>JavaScript</td>
+</tr>
+<tr class="even">
+<td><code>typescript.md</code></td>
+<td>TypeScript</td>
+</tr>
+<tr class="odd">
+<td><code>go.md</code></td>
+<td>Go</td>
+</tr>
+<tr class="even">
+<td><code>java.md</code></td>
+<td>Java</td>
+</tr>
+<tr class="odd">
+<td><code>c.md</code></td>
+<td>C</td>
+</tr>
+<tr class="even">
+<td><code>cpp.md</code></td>
+<td>C++</td>
+</tr>
+<tr class="odd">
+<td><code>csharp.md</code></td>
+<td>C#</td>
+</tr>
+<tr class="even">
+<td><code>ruby.md</code></td>
+<td>Ruby</td>
+</tr>
+<tr class="odd">
+<td><code>php.md</code></td>
+<td>PHP</td>
+</tr>
+<tr class="even">
+<td><code>swift.md</code></td>
+<td>Swift</td>
+</tr>
+<tr class="odd">
+<td><code>kotlin.md</code></td>
+<td>Kotlin</td>
+</tr>
+<tr class="even">
+<td><code>scala.md</code></td>
+<td>Scala</td>
+</tr>
+<tr class="odd">
+<td><code>zig.md</code></td>
+<td>Zig</td>
+</tr>
+<tr class="even">
+<td><code>odin.md</code></td>
+<td>Odin</td>
+</tr>
+<tr class="odd">
+<td><code>elixir.md</code></td>
+<td>Elixir</td>
+</tr>
+</tbody>
+</table>
+<p>You can edit these files to add project-specific language conventions, or remove files for languages not used in your project to reduce noise.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="tracking-mode-rules" class="level2">
+<h2 class="anchored" data-anchor-id="tracking-mode-rules">Tracking mode rules</h2>
+<p>Each tracking mode has its own markdown file that defines the enforcement wording. You can customize the tone and instructions per mode:</p>
+<ul>
+<li><code>tracking-strict.md</code> — Forceful, mandatory language</li>
+<li><code>tracking-normal.md</code> — Gentle reminders</li>
+<li><code>tracking-relaxed.md</code> — Minimal, informational</li>
+</ul>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="resetting-rules" class="level2">
+<h2 class="anchored" data-anchor-id="resetting-rules">Resetting rules</h2>
+<p>To reset all rules to defaults:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init <span class="at">--force</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This regenerates all rule files from the built-in templates.</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../reference/hook-config.html" class="pagination-link" aria-label="Hook configuration">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text">Hook configuration</span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../reference/kickoff-report.html" class="pagination-link" aria-label="Kickoff report schema">
+        <span class="nav-page-text">Kickoff report schema</span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="forecast-footer" id="forecast-footer">
+  <hr class="forecast-rule">
+  <div class="forecast-wordmark-row">
+    <a href="https://forecast.bio" class="forecast-wordmark-link">
+      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+    </a>
+    <div class="forecast-confetti" id="forecastConfetti"></div>
+  </div>
+  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+</footer>
+
+<script>
+(function() {
+  // Move footer below Quarto's page navigation links
+  var footer = document.getElementById('forecast-footer');
+  var pageNav = document.querySelector('nav.page-navigation');
+  if (footer && pageNav && pageNav.parentNode) {
+    // Insert footer after the page navigation element
+    pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
+  } else {
+    // Fallback: append to content area
+    var contentArea = document.querySelector('#quarto-content main.content');
+    if (!contentArea) {
+      contentArea = document.querySelector('#quarto-content > .page-columns');
+    }
+    if (footer && contentArea) {
+      contentArea.appendChild(footer);
+    }
+  }
+
+  // Resolve wordmark path
+  var img = document.getElementById('forecastWordmark');
+  if (img) {
+    var candidates = [
+      'assets/img/forecast-wordmark.svg',
+      '../assets/img/forecast-wordmark.svg',
+      '../../assets/img/forecast-wordmark.svg',
+    ];
+    var tryIndex = 0;
+    function tryNext() {
+      if (tryIndex < candidates.length) {
+        img.src = candidates[tryIndex++];
+      }
+    }
+    img.onerror = tryNext;
+    tryNext();
+  }
+
+  // Confetti dots — cone shape emanating up-right from logo baseline.
+  // Color distribution matches forecast.bio home page:
+  //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
+  var COLOR_TABLE = [
+    { color: '#ede2e4', weight: 10 }, // warm grey
+    { color: '#FFB6C6', weight: 5 },  // pink
+    { color: '#F95838', weight: 5 },  // red
+    { color: '#00A6DB', weight: 8 },  // blue
+    { color: '#FFCE02', weight: 7 },  // yellow
+  ];
+  var TOTAL_WEIGHT = 0;
+  for (var ci = 0; ci < COLOR_TABLE.length; ci++) TOTAL_WEIGHT += COLOR_TABLE[ci].weight;
+
+  function pickColor() {
+    var r = Math.random() * TOTAL_WEIGHT;
+    for (var ci = 0; ci < COLOR_TABLE.length; ci++) {
+      r -= COLOR_TABLE[ci].weight;
+      if (r <= 0) return COLOR_TABLE[ci].color;
+    }
+    return COLOR_TABLE[0].color;
+  }
+
+  var DOT_COUNT = 14;
+  var DOT_SIZE = 11;
+
+  var holder = document.getElementById('forecastConfetti');
+  if (!holder) return;
+
+  // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
+  var FIELD_W = 180;
+  var ORIGIN_Y = 45;       // logo baseline within the confetti container
+  var SLOPE = -0.28;       // mean trend: rises 28px per 100px rightward
+  var CONE_HALF_ANGLE = 0.22; // cone half-width as fraction of x distance
+  var NOISE = 10;          // extra random noise on top of cone positioning
+
+  function sampleDot() {
+    for (var attempts = 0; attempts < 50; attempts++) {
+      var x = Math.random() * FIELD_W;
+      var meanY = ORIGIN_Y + SLOPE * x;
+      var spread = Math.max(5, x * CONE_HALF_ANGLE);
+      var y = meanY + (Math.random() - 0.5) * 2 * spread;
+      // Extra noise to fuzz the cone edges
+      x += (Math.random() - 0.5) * NOISE;
+      y += (Math.random() - 0.5) * NOISE;
+      if (x >= 0) return { x: Math.floor(x), y: Math.floor(y) };
+    }
+    return { x: 0, y: ORIGIN_Y };
+  }
+
+  var dots = [];
+  for (var i = 0; i < DOT_COUNT; i++) {
+    var dot = document.createElement('div');
+    dot.className = 'forecast-dot';
+    dot.style.width = DOT_SIZE + 'px';
+    dot.style.height = DOT_SIZE + 'px';
+    dot.style.backgroundColor = pickColor();
+
+    var pos = sampleDot();
+    dot.style.left = pos.x + 'px';
+    dot.style.top = pos.y + 'px';
+    dot.style.opacity = '0';
+    holder.appendChild(dot);
+    dots.push(dot);
+  }
+
+  // Sort left-to-right for sequential reveal (emanating from logo)
+  dots.sort(function(a, b) {
+    return parseFloat(a.style.left) - parseFloat(b.style.left);
+  });
+
+  var revealed = false;
+  function revealDots() {
+    if (revealed) return;
+    revealed = true;
+    dots.forEach(function(dot, i) {
+      setTimeout(function() {
+        dot.style.transition = 'opacity 0.4s ease-in';
+        dot.style.opacity = '1';
+      }, i * 50);
+    });
+  }
+
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function(entries) {
+      if (entries[0].isIntersecting) {
+        revealDots();
+        observer.disconnect();
+      }
+    }, { threshold: 0.1 });
+    observer.observe(holder);
+  } else {
+    revealDots();
+  }
+})();
+</script>
+
+
+
+
+</body></html>

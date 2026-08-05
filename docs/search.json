@@ -1,0 +1,1563 @@
+[
+  {
+    "objectID": "reference/hook-config.html",
+    "href": "reference/hook-config.html",
+    "title": "Hook configuration",
+    "section": "",
+    "text": "Hooks run automatically during agent sessions and rarely need manual configuration. This reference documents the full configuration surface for fine-tuning enforcement behavior.\nHook behavior is controlled by .crosslink/hook-config.json. This file is created by crosslink init and can be edited to customize enforcement.",
+    "crumbs": [
+      "Reference",
+      "Hook configuration"
+    ]
+  },
+  {
+    "objectID": "reference/hook-config.html#configuration-file",
+    "href": "reference/hook-config.html#configuration-file",
+    "title": "Hook configuration",
+    "section": "Configuration file",
+    "text": "Configuration file\n{\n  \"tracking_mode\": \"strict\",\n  \"intervention_tracking\": true,\n  \"cpitd_auto_install\": true,\n  \"comment_discipline\": \"encouraged\",\n  \"kickoff_verification\": \"local\",\n  \"signing_enforcement\": \"audit\",\n  \"auto_steal_stale_locks\": false,\n  \"reminder_drift_threshold\": 3,\n  \"blocked_git_commands\": [\n    \"git push\", \"git merge\", \"git rebase\", \"git cherry-pick\",\n    \"git reset\", \"git checkout .\", \"git restore .\", \"git clean\",\n    \"git stash\", \"git tag\", \"git am\", \"git apply\",\n    \"git branch -d\", \"git branch -D\", \"git branch -m\"\n  ],\n  \"gated_git_commands\": [\"git commit\"],\n  \"allowed_bash_prefixes\": [\n    \"crosslink \",\n    \"git status\", \"git diff\", \"git log\", \"git branch\", \"git show\",\n    \"cargo test\", \"cargo build\", \"cargo check\", \"cargo clippy\", \"cargo fmt\",\n    \"npm test\", \"npm run\", \"npx \",\n    \"tsc\", \"node \", \"python \",\n    \"ls\", \"dir\", \"pwd\", \"echo\"\n  ]\n}",
+    "crumbs": [
+      "Reference",
+      "Hook configuration"
+    ]
+  },
+  {
+    "objectID": "reference/hook-config.html#fields",
+    "href": "reference/hook-config.html#fields",
+    "title": "Hook configuration",
+    "section": "Fields",
+    "text": "Fields\n\ntracking_mode\nControls how aggressively crosslink enforces issue creation before code changes. See Tracking Modes for details.\n\n\n\nValue\nBehavior\n\n\n\n\n\"strict\"\nBlocks code changes without an active issue\n\n\n\"normal\"\nReminds but allows proceeding\n\n\n\"relaxed\"\nNo enforcement, only git mutation blocks\n\n\n\n\n\nintervention_tracking\nWhen true, hooks log driver interventions (tool rejections, redirects, etc.) for audit and agent improvement. Default: true.\n\n\ncpitd_auto_install\nWhen true, crosslink automatically installs the cpitd code clone detection tool if not present. Default: true.\n\n\ncomment_discipline\nControls how aggressively hooks enforce typed comments on issues. Values: \"required\" (blocks close without comments), \"encouraged\" (reminds), \"off\". Default: \"encouraged\".\n\n\nkickoff_verification\nDefault verification level for kickoff agents. Values: \"local\", \"ci\", \"thorough\". Default: \"local\".\n\n\nsigning_enforcement\nControls SSH signature verification strictness. Values: \"enforce\" (reject unsigned), \"audit\" (warn on unsigned), \"off\". Default: \"audit\".\n\n\nauto_steal_stale_locks\nWhen true, agents automatically steal locks from agents with stale heartbeats. Default: false.\n\n\nreminder_drift_threshold\nNumber of drift events before hooks escalate reminder frequency. Default: 3.\n\n\ngated_git_commands\nGit commands that require an active crosslink issue before execution. Unlike blocked_git_commands, these are allowed when the agent has an active work item. Default: [\"git commit\"].\n\n\nblocked_git_commands\nGit commands that are always blocked, regardless of tracking mode. These are mutation commands that should only be run by a human.\nThe hook checks if the bash command starts with any of these prefixes. To allow a blocked command, remove it from the list.\n\n\nallowed_bash_prefixes\nBash commands that bypass the issue-required check. These are typically read-only or infrastructure commands that don’t require issue tracking.\nThe hook splits chained commands (using &&, ;, |) and checks that every component matches an allowed prefix. A command like crosslink list && rm -rf / would be blocked because rm -rf / doesn’t match any allowed prefix.",
+    "crumbs": [
+      "Reference",
+      "Hook configuration"
+    ]
+  },
+  {
+    "objectID": "reference/hook-config.html#how-the-hook-processes-commands",
+    "href": "reference/hook-config.html#how-the-hook-processes-commands",
+    "title": "Hook configuration",
+    "section": "How the hook processes commands",
+    "text": "How the hook processes commands\n\nGit mutation check — If command matches any blocked_git_commands prefix, block it (all modes)\nAllowed prefix check — If command matches allowed_bash_prefixes, allow it (all modes)\nTracking mode check — Apply mode-specific behavior:\n\nStrict: block if no active issue\nNormal: warn if no active issue\nRelaxed: allow",
+    "crumbs": [
+      "Reference",
+      "Hook configuration"
+    ]
+  },
+  {
+    "objectID": "reference/hook-config.html#customizing-for-your-stack",
+    "href": "reference/hook-config.html#customizing-for-your-stack",
+    "title": "Hook configuration",
+    "section": "Customizing for your stack",
+    "text": "Customizing for your stack\nAdd your project’s build and test commands to allowed_bash_prefixes:\n{\n  \"allowed_bash_prefixes\": [\n    \"crosslink \",\n    \"make \", \"cmake \",\n    \"go test\", \"go build\", \"go vet\",\n    \"dotnet test\", \"dotnet build\",\n    \"mvn \", \"gradle \",\n    \"docker \", \"docker-compose \"\n  ]\n}",
+    "crumbs": [
+      "Reference",
+      "Hook configuration"
+    ]
+  },
+  {
+    "objectID": "reference/hook-config.html#resetting-to-defaults",
+    "href": "reference/hook-config.html#resetting-to-defaults",
+    "title": "Hook configuration",
+    "section": "Resetting to defaults",
+    "text": "Resetting to defaults\ncrosslink init --force\nThis resets hook-config.json and all rules to their default values.",
+    "crumbs": [
+      "Reference",
+      "Hook configuration"
+    ]
+  },
+  {
+    "objectID": "reference/kickoff-report.html",
+    "href": "reference/kickoff-report.html",
+    "title": "Kickoff report schema",
+    "section": "",
+    "text": "Kickoff reports are generated automatically when an agent finishes its task. You typically consume them via crosslink kickoff report rather than reading the JSON directly. This reference documents the schema for tooling integration and custom dashboards.\nWhen a kickoff agent completes its work, it writes a .kickoff-report.json file to the worktree root. This file captures criteria verdicts, phase timing, metrics, and traceability data.",
+    "crumbs": [
+      "Reference",
+      "Kickoff report schema"
+    ]
+  },
+  {
+    "objectID": "reference/kickoff-report.html#overview",
+    "href": "reference/kickoff-report.html#overview",
+    "title": "Kickoff report schema",
+    "section": "",
+    "text": "Kickoff reports are generated automatically when an agent finishes its task. You typically consume them via crosslink kickoff report rather than reading the JSON directly. This reference documents the schema for tooling integration and custom dashboards.\nWhen a kickoff agent completes its work, it writes a .kickoff-report.json file to the worktree root. This file captures criteria verdicts, phase timing, metrics, and traceability data.",
+    "crumbs": [
+      "Reference",
+      "Kickoff report schema"
+    ]
+  },
+  {
+    "objectID": "reference/kickoff-report.html#schema-v1",
+    "href": "reference/kickoff-report.html#schema-v1",
+    "title": "Kickoff report schema",
+    "section": "Schema (v1)",
+    "text": "Schema (v1)\n{\n  \"schema_version\": 1,\n  \"agent_id\": \"driver--feature-slug\",\n  \"issue_id\": 42,\n  \"status\": \"completed\",\n  \"started_at\": \"2026-03-03T12:00:00Z\",\n  \"completed_at\": \"2026-03-03T13:30:00Z\",\n  \"validated_at\": \"2026-03-03T13:25:00Z\",\n  \"phases\": {\n    \"exploration\": { \"duration_s\": 120, \"files_read\": 34 },\n    \"planning\": { \"duration_s\": 60, \"comments_added\": 2 },\n    \"implementation\": { \"duration_s\": 480, \"files_modified\": 8, \"lines_added\": 340, \"lines_removed\": 45 },\n    \"testing\": { \"duration_s\": 90, \"tests_run\": 146, \"tests_passed\": 146, \"tests_failed\": 0 },\n    \"validation\": { \"duration_s\": 30, \"criteria_checked\": 5 },\n    \"review\": { \"duration_s\": 45, \"issues_found\": 1, \"issues_fixed\": 1 }\n  },\n  \"criteria\": [\n    { \"id\": \"AC-1\", \"verdict\": \"pass\", \"evidence\": \"test_upload passes with 100MB file\" },\n    { \"id\": \"AC-2\", \"verdict\": \"partial\", \"evidence\": \"HTTP only, not WebSocket\" }\n  ],\n  \"summary\": {\n    \"total\": 2, \"pass\": 1, \"fail\": 0, \"partial\": 1,\n    \"not_applicable\": 0, \"needs_clarification\": 0\n  },\n  \"unresolved_questions\": [\"Should we cap the maximum backoff at 30 seconds?\"],\n  \"commits\": [\"abc1234\", \"def5678\"],\n  \"files_changed\": [\"src/retry.rs\", \"src/batch.rs\"]\n}",
+    "crumbs": [
+      "Reference",
+      "Kickoff report schema"
+    ]
+  },
+  {
+    "objectID": "reference/kickoff-report.html#field-reference",
+    "href": "reference/kickoff-report.html#field-reference",
+    "title": "Kickoff report schema",
+    "section": "Field reference",
+    "text": "Field reference\n\nRequired fields\n\n\n\n\n\n\n\n\nField\nType\nDescription\n\n\n\n\nvalidated_at\nstring (ISO-8601)\nTimestamp when validation completed\n\n\ncriteria\narray\nPer-criterion verdicts (see below)\n\n\nsummary\nobject\nVerdict count totals\n\n\n\n\n\nOptional fields (Phase 4)\n\n\n\n\n\n\n\n\nField\nType\nDescription\n\n\n\n\nschema_version\ninteger\nSchema version (currently 1)\n\n\nagent_id\nstring\nAgent identifier, e.g. driver--batch-retry\n\n\nissue_id\ninteger\nCrosslink issue number\n\n\nstatus\nstring\ncompleted, failed, or partial\n\n\nstarted_at\nstring (ISO-8601)\nWhen the agent started work\n\n\ncompleted_at\nstring (ISO-8601)\nWhen the agent finished\n\n\nphases\nobject\nPhase-level timing breakdown\n\n\nunresolved_questions\narray of strings\nOpen questions from the design doc\n\n\ncommits\narray of strings\nCommit SHAs produced\n\n\nfiles_changed\narray of strings\nFiles modified during implementation\n\n\n\n \n\n\n\nCriterion verdict\n\n\n\n\n\n\n\n\nField\nType\nValues\n\n\n\n\nid\nstring\ne.g. AC-1\n\n\nverdict\nstring\npass, fail, partial, not_applicable, needs_clarification\n\n\nevidence\nstring\nJustification for the verdict\n\n\n\n \n\n\n\nPhase timing\nEach phase object has a required duration_s (seconds) and optional metric fields relevant to that phase:\n\n\n\nPhase\nTypical Metrics\n\n\n\n\nexploration\nfiles_read\n\n\nplanning\ncomments_added\n\n\nimplementation\nfiles_modified, lines_added, lines_removed\n\n\ntesting\ntests_run, tests_passed, tests_failed\n\n\nvalidation\ncriteria_checked\n\n\nreview\nissues_found, issues_fixed",
+    "crumbs": [
+      "Reference",
+      "Kickoff report schema"
+    ]
+  },
+  {
+    "objectID": "reference/kickoff-report.html#backward-compatibility",
+    "href": "reference/kickoff-report.html#backward-compatibility",
+    "title": "Kickoff report schema",
+    "section": "Backward compatibility",
+    "text": "Backward compatibility\nReports from Phase 3 (containing only validated_at, criteria, and summary) are fully supported. All Phase 4 fields default to null when absent.",
+    "crumbs": [
+      "Reference",
+      "Kickoff report schema"
+    ]
+  },
+  {
+    "objectID": "reference/kickoff-report.html#viewing-reports",
+    "href": "reference/kickoff-report.html#viewing-reports",
+    "title": "Kickoff report schema",
+    "section": "Viewing reports",
+    "text": "Viewing reports\ncrosslink kickoff report &lt;agent-id&gt;           # table view\ncrosslink kickoff report &lt;agent-id&gt; --json    # raw JSON\ncrosslink kickoff report &lt;agent-id&gt; --markdown # PR-ready format\ncrosslink kickoff report --all                # aggregate all agents",
+    "crumbs": [
+      "Reference",
+      "Kickoff report schema"
+    ]
+  },
+  {
+    "objectID": "guides/session-workflow.html",
+    "href": "guides/session-workflow.html",
+    "title": "Session workflow",
+    "section": "",
+    "text": "Sessions are crosslink’s memory system. Your agents use them automatically to preserve context across conversations — tracking what’s being worked on, recording breadcrumbs, and passing handoff notes to the next session.",
+    "crumbs": [
+      "Guides",
+      "Session workflow"
+    ]
+  },
+  {
+    "objectID": "guides/session-workflow.html#tldr",
+    "href": "guides/session-workflow.html#tldr",
+    "title": "Session workflow",
+    "section": "",
+    "text": "Sessions are crosslink’s memory system. Your agents use them automatically to preserve context across conversations — tracking what’s being worked on, recording breadcrumbs, and passing handoff notes to the next session.",
+    "crumbs": [
+      "Guides",
+      "Session workflow"
+    ]
+  },
+  {
+    "objectID": "guides/session-workflow.html#the-session-lifecycle",
+    "href": "guides/session-workflow.html#the-session-lifecycle",
+    "title": "Session workflow",
+    "section": "The session lifecycle",
+    "text": "The session lifecycle\nEvery agent conversation follows this cycle. The hooks handle most of it automatically — you just provide direction.\n\n\n\n\n\nStarting a session\n\n\nYou start a new conversation:\nThe agent’s session-start hook fires automatically, showing handoff notes from the previous session, cleaning up stale sessions, and displaying open issues.\nYour agent picks up exactly where the last one left off.\n\n→\n\nAgent executes:\n# Hook fires automatically on session start\ncrosslink session start\n# Output:\n# Previous handoff: \"Fixed auth bug #3.\n#   Dark mode (#2) is next priority.\"\n# Open issues: #2 (high), #5 (medium)\n\n\n\n\nSetting focus\n\n\nYou say:\n\n“Work on the dark mode feature”\n\nThe agent finds the matching issue and claims it as its active focus. The work-check hook uses this to track which issue is active — all subsequent code changes are attributed to this issue.\n\n→\n\nAgent executes:\ncrosslink session work 2\n# Output: Now working on: #2 Add dark mode toggle\nOr if no issue exists yet:\ncrosslink quick \"Add dark mode toggle\" -p high -l feature\n# Creates issue AND sets it as focus in one step\n\n\n\n\nRecording breadcrumbs\n\n\nWhile working, the agent periodically records what it’s doing. These breadcrumbs survive context compression — when the AI’s context window fills up and resets, the session hook restores the last breadcrumb so the agent knows where it left off.\n\n→\n\nAgent executes:\ncrosslink session action \"Found theme toggle in settings.tsx, \\\n  implementing CSS variable approach\"\ncrosslink session action \"Dark mode CSS done, writing tests\"\n\n\n\n\nEnding a session\n\n\nYou say:\n\n“That’s good for now, let’s wrap up”\n\nThe agent writes handoff notes summarizing what was done, what’s in progress, and what’s next — as if briefing a colleague taking over.\n\n→\n\nAgent executes:\ncrosslink session end --notes \"Implemented dark mode \\\n  toggle in settings.tsx. CSS variables working, tests \\\n  passing. Still need: system preference detection and \\\n  persistence to localStorage. Issue #5 is next.\"\n\n\n\n\nChecking status\n\n\nYou ask:\n\n“What are you working on?”\n\n\n→\n\nAgent executes:\ncrosslink session status\n# Session #12 (started 2026-03-11 14:30)\n# Working on: #2 Add dark mode toggle\n# Duration: 23 minutes",
+    "crumbs": [
+      "Guides",
+      "Session workflow"
+    ]
+  },
+  {
+    "objectID": "guides/session-workflow.html#extra-features",
+    "href": "guides/session-workflow.html#extra-features",
+    "title": "Session workflow",
+    "section": "Extra features",
+    "text": "Extra features\n\nStale session detection\nSessions idle for more than 4 hours are automatically ended on the next session start. This prevents “ghost sessions” from accumulating when an agent session is abandoned without a clean end. The auto-end message notes that handoff notes may be incomplete.\n\n\nContext compression recovery\nWhen Claude Code’s context window fills up, it compresses earlier messages. The session-start.py hook fires on resume and:\n\nDetects the active session is still running (resume vs. fresh start)\nAdds an auto-comment on the active issue noting the compression event\nInjects the last recorded session action as a breadcrumb\nDisplays current session state\n\nThis happens transparently — the agent recovers and continues working without losing track of what it was doing.",
+    "crumbs": [
+      "Guides",
+      "Session workflow"
+    ]
+  },
+  {
+    "objectID": "guides/session-workflow.html#tips",
+    "href": "guides/session-workflow.html#tips",
+    "title": "Session workflow",
+    "section": "Tips",
+    "text": "Tips\n\nAgents handle sessions automatically. The hooks manage start, focus, breadcrumbs, and end — you just provide high-level direction.\nWrite handoff notes for your future self. Be specific about what’s done, what’s in progress, and what’s next.\nBreadcrumbs are insurance. session action is your safeguard against context loss — agents record them frequently during complex work.\ncrosslink quick is the fast path. Creates an issue, labels it, and sets focus in one command.",
+    "crumbs": [
+      "Guides",
+      "Session workflow"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html",
+    "href": "guides/kickoff.html",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "",
+    "text": "The /kickoff flow launches an autonomous Claude agent in an isolated git worktree to implement a feature in the background. You describe what you want, and a fully instrumented agent handles the rest – tracked through crosslink the entire way.",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html#tldr",
+    "href": "guides/kickoff.html#tldr",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "",
+    "text": "The /kickoff flow launches an autonomous Claude agent in an isolated git worktree to implement a feature in the background. You describe what you want, and a fully instrumented agent handles the rest – tracked through crosslink the entire way.",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html#overview",
+    "href": "guides/kickoff.html#overview",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "Overview",
+    "text": "Overview\nTo start a new parallel feature agent, ask your agent:\n/kickoff \"github issue #37\"\nor, from the CLI, use crosslink kickoff run for a task description:\ncrosslink kickoff run \"add batch retry logic\"\nor a design document:\ncrosslink kickoff run --doc .design/batch-retry-logic.md",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html#usage",
+    "href": "guides/kickoff.html#usage",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "Usage",
+    "text": "Usage\n\n\nYou say / do:\n\n“Build batch retry logic for the job queue.”\n\nYou describe the feature in natural language. Optionally specify a verification level.\n\n→\n\nAgent executes:\ncrosslink kickoff run \"add batch retry logic\"\nCreates branch, worktree, agent identity, prompt, and launches a background tmux session.\n\n\n\n\nYou say / do:\n\n“Build it and make sure CI passes before you call it done.”\n\nAdding verification means the agent will push, open a draft PR, and iterate until CI is green.\n\n→\n\nAgent executes:\ncrosslink kickoff run \"add batch retry logic\" \\\n  --verify ci\n\n\n\n\nYou say / do:\n\n“Build it, get CI green, and do a thorough self-review before finishing.”\n\nThe agent runs CI plus an adversarial review pass – checking for debug code, TODOs, and incomplete error handling.\n\n→\n\nAgent executes:\ncrosslink kickoff run \"add batch retry logic\" \\\n  --verify thorough",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html#what-happens-step-by-step",
+    "href": "guides/kickoff.html#what-happens-step-by-step",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "What happens step by step",
+    "text": "What happens step by step\n\n1. Feature branch\nA branch is created from the current HEAD using the /feature skill:\n\"add batch retry logic\" -&gt; feature/add-batch-retry-logic\nA crosslink issue is created and labeled feature to track the work.\n\n\n2. Git worktree\nThe /featree skill creates an isolated worktree at .worktrees/&lt;slug&gt;/ so the agent works on a separate copy of the repo. Your main working directory is untouched.\nInside the worktree, crosslink is initialized with a unique agent identity (e.g., m1--add-batch-retry-logic) so multi-agent lock coordination works.\n\n\n3. Tool detection\nKickoff scans the project for build and test tooling and auto-configures which shell commands the agent is allowed to run:\n\n\n\nDetected File\nTools Allowed\n\n\n\n\nCargo.toml\ncargo test, cargo clippy, cargo fmt\n\n\npackage.json\nnpm test, npm run, npx\n\n\npyproject.toml\nuv run pytest, pytest\n\n\njustfile\njust\n\n\nMakefile\nmake\n\n\n\nRead-only git commands and crosslink commands are always allowed. Git mutations (push, commit, merge) are gated by crosslink hooks.\n\n\n4. Agent prompt (KICKOFF.md)\nA comprehensive prompt is written to KICKOFF.md in the worktree. It includes:\n\nThe feature description and any file/module references you provided\nFull crosslink workflow instructions (session start, work tracking, breadcrumbs)\nProject-specific test and lint commands\nA self-review checklist\nThe verification level and CI instructions (if applicable)\n\nThis file is git-excluded so it doesn’t end up in commits.\n\n\n5. tmux session\nA detached tmux session is created and claude is launched inside it with the KICKOFF.md prompt and pre-approved tool permissions.\nFeature agent launched.\n\n  Worktree: .worktrees/add-batch-retry-logic\n  Branch:   feature/add-batch-retry-logic\n  Session:  feat-add-batch-retry-logic\n\n  Approve trust:   tmux attach -t feat-add-batch-retry-logic\n  Check status:    /check feat-add-batch-retry-logic\nImportant: The agent waits for you to approve trust before it begins. Attach to the tmux session and approve the initial prompt.\n\n\n6. Implementation script\nOnce trust is approved, the background agent:\n\nStarts a crosslink session and marks the feature issue as its focus\nReads CLAUDE.md and explores relevant code\nDocuments its plan via crosslink issue comment\nImplements the feature (no stubs, full error handling)\nRecords breadcrumbs with crosslink session action to survive context compression\nRuns tests and linters\nCommits with /commit (which also documents the commit on the crosslink issue)\nPerforms self-review against a checklist\nWrites DONE to .kickoff-status when finished\nEnds the crosslink session with handoff notes",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html#controlled-agent-execution",
+    "href": "guides/kickoff.html#controlled-agent-execution",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "Controlled agent execution",
+    "text": "Controlled agent execution\n\nVerification levels\n\n--verify local (default)\nThe agent runs the project’s test suite and linter locally. No network operations.\n\n\n\n--verify ci\nAfter local tests pass, the agent also:\n\nPushes the branch to origin\nOpens a draft pull request via gh pr create --draft\nPolls CI status every 30 seconds via gh run list\nIf CI fails: reads logs with gh run view --log-failed, fixes issues, re-pushes\nRetries up to 5 times before giving up\n\n\n\n--verify thorough\nEverything from --verify ci, plus an adversarial self-review:\n\nChecks for debug code (dbg!, console.log, println!, TODO, FIXME)\nChecks for commented-out code and unintended file changes\nVerifies commit messages are clean and changes match the feature description\nVerifies complete error handling and no new warnings\nFixes any issues found and pushes again\n\n\n\nSafety constraints\nThe background agent operates under the same crosslink hook enforcement as interactive sessions:\n\nAlways blocked: git push, git merge, git rebase, git reset, and other destructive git commands (except when CI verification is enabled, where push is allowed)\nGated on active issue: git commit requires an active crosslink work item\nTool auto-approval: Only pre-approved tools run without prompting; anything else pauses the agent\nIsolated worktree: All changes are confined to .worktrees/ – your main checkout is untouched\nFull audit trail: Every decision, discovery, and intervention is logged on the crosslink issue",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/kickoff.html#managing-kickoffs",
+    "href": "guides/kickoff.html#managing-kickoffs",
+    "title": "Kickoff: Autonomous feature agents",
+    "section": "Managing kickoffs",
+    "text": "Managing kickoffs\n\nMonitoring with /check\nWhile the agent works, use /check to monitor progress:\n# Check a specific session\n/check feat-add-batch-retry-logic\n\n# Check all feature sessions in this repo\n/check\n/check reads the tmux pane, the .kickoff-status sentinel file, and crosslink issue state to report whether the agent is working, waiting for input, errored, or done.\n\n\nListing active agents\nSee which agents are currently running across all execution backends:\n\n\nYou say / do:\n\n“What agents are running right now?”\n\nYou want a quick view of all active agents – whether they are in worktrees, tmux sessions, or Docker containers.\n\n→\n\nAgent executes:\ncrosslink kickoff list\nOutput includes agent name, worktree path, branch, backend (tmux/docker), uptime, and current status.\n\n\n\n\nCleaning up\nAfter reviewing the agent’s work, clean up the worktree and session infrastructure.\n\n\nYou say / do:\n\n“Clean up all the finished agents.”\n\nYou want to remove worktrees, tmux sessions, and containers for agents that are done.\n\n→\n\nAgent executes:\ncrosslink kickoff cleanup\nPrunes stale worktrees, terminates dead tmux sessions, and removes stopped Docker containers. Only cleans up agents whose .kickoff-status is DONE or whose processes are no longer running.\n\n\n\n\nRunning multiple agents\nYou can launch multiple kickoff agents simultaneously on different features. Each gets its own worktree, branch, crosslink agent identity, and tmux session. Lock coordination via the crosslink/hub branch prevents two agents from working on the same issue.\n/kickoff \"add batch retry logic\"\n/kickoff \"refactor config parser\"\n/kickoff \"fix auth token refresh\" --verify ci\n\n# Monitor all at once\n/check\nSee Multi-Agent Coordination for details on distributed locking.",
+    "crumbs": [
+      "Guides",
+      "Kickoff: Autonomous feature agents"
+    ]
+  },
+  {
+    "objectID": "guides/tui.html",
+    "href": "guides/tui.html",
+    "title": "Terminal dashboard",
+    "section": "",
+    "text": "The terminal dashboard is your window into agent activity — browse issues, monitor running agents, view shared knowledge, and check project configuration without leaving the terminal.",
+    "crumbs": [
+      "Guides",
+      "Terminal dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/tui.html#tldr",
+    "href": "guides/tui.html#tldr",
+    "title": "Terminal dashboard",
+    "section": "",
+    "text": "The terminal dashboard is your window into agent activity — browse issues, monitor running agents, view shared knowledge, and check project configuration without leaving the terminal.",
+    "crumbs": [
+      "Guides",
+      "Terminal dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/tui.html#overview",
+    "href": "guides/tui.html#overview",
+    "title": "Terminal dashboard",
+    "section": "Overview",
+    "text": "Overview\nWhile agents handle implementation, the TUI lets you monitor what’s happening across your project. Open it from your local repo with:\ncrosslink tui\n\nThe TUI syncs data on startup and refreshes periodically in the background — press r for a manual refresh.",
+    "crumbs": [
+      "Guides",
+      "Terminal dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/tui.html#tabs",
+    "href": "guides/tui.html#tabs",
+    "title": "Terminal dashboard",
+    "section": "Tabs",
+    "text": "Tabs\nThe dashboard has five tabs, accessible via number keys 1-5 or Tab/Shift+Tab:\n\nIssues (1)\nBrowse all issues with tree view, detail view, filtering, and sorting.\n\nTree view shows parent-child relationships between issues and subissues\nDetail view shows full issue details including description, comments, labels, and dependencies\nFilter by status (open/closed/all), label, and priority\nSort by priority, creation date, or update date\n\n\n\nAgents (2)\nLive coordination dashboard for multi-agent setups. See which agents are running, what they’re working on, and whether they’re healthy.\n\nAgents view — merged activity table showing all registered agents, their status, and held locks\nLocks view — all active locks with stale detection (highlights locks from agents with no recent heartbeat)\nTrust view — allowed signers list for SSH signature verification\nDetail view — agent-specific information and history\n\n\n\nKnowledge (3)\nBrowse the shared knowledge base that agents contribute to.\n\nPage list with tags and last-updated timestamps\nFull page content rendered with vivid syntax highlighting\nNavigate between pages\n\n\n\nMilestones (4)\nProject milestone overview.\n\nMilestone list with progress bars\nIssue counts per milestone\nCompletion percentages\n\n\n\nConfig (5)\nView repository configuration at a glance.\n\nCurrent tracking mode\nHook configuration\nAgent identity\nBlocked and allowed commands",
+    "crumbs": [
+      "Guides",
+      "Terminal dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/tui.html#navigation",
+    "href": "guides/tui.html#navigation",
+    "title": "Terminal dashboard",
+    "section": "Navigation",
+    "text": "Navigation\n\n\n\nKey\nAction\n\n\n\n\nq or Ctrl+C\nQuit\n\n\nTab / Shift+Tab\nNext / previous tab\n\n\n1-5\nJump to tab directly\n\n\nj / k or Up / Down\nNavigate lists\n\n\nEnter\nOpen detail view\n\n\nEsc\nBack to list view\n\n\nr\nRefresh data\n\n\n:\nOpen command palette\n\n\n?\nShow help overlay\n\n\n/\nSearch / filter",
+    "crumbs": [
+      "Guides",
+      "Terminal dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/tui.html#tips",
+    "href": "guides/tui.html#tips",
+    "title": "Terminal dashboard",
+    "section": "Tips",
+    "text": "Tips\n\nMouse support\nThe TUI also supports mouse interactions:\n\nClick tabs to switch between them\nClick list items to select\nScroll with mouse wheel\n\n\n\nCommand palette\nPress : to open the command palette (Ctrl+P also works). Type to filter available actions.\n\n\nClipboard export\nSelect an issue or knowledge page and use the command palette to copy its content to the clipboard.\n\n\nTUI vs. Dashboard\nThe TUI is ideal for quick checks while working in the terminal — glance at agent status, browse an issue, or check a knowledge page. For richer visualization (DAG charts, Gantt timelines, interactive editing), use the Web Dashboard with crosslink serve.",
+    "crumbs": [
+      "Guides",
+      "Terminal dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html",
+    "href": "guides/design-workflow.html",
+    "title": "Design document workflow",
+    "section": "",
+    "text": "The /design flow turns a rough feature idea into a validated, codebase-grounded design document through interactive iteration. The output feeds directly into /kickoff and crosslink swarm for implementation.",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#tldr",
+    "href": "guides/design-workflow.html#tldr",
+    "title": "Design document workflow",
+    "section": "",
+    "text": "The /design flow turns a rough feature idea into a validated, codebase-grounded design document through interactive iteration. The output feeds directly into /kickoff and crosslink swarm for implementation.",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#overview",
+    "href": "guides/design-workflow.html#overview",
+    "title": "Design document workflow",
+    "section": "Overview",
+    "text": "Overview\nTo start a design session, ask your agent:\n/design \"add batch retry logic for sync\"\nThis triggers the conversational design document workflow.",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#starting-a-design",
+    "href": "guides/design-workflow.html#starting-a-design",
+    "title": "Design document workflow",
+    "section": "Starting a design",
+    "text": "Starting a design\n\n\nYou say:\n\n“Design the batch retry logic for sync”\n\nDescribe the feature in natural language. Optionally reference an existing crosslink or GitHub issue.\n\n→\n\nYour agent runs:\n/design \"add batch retry logic for sync\"\n\n# Or grounded in an existing issue:\n/design --issue 42\n/design --gh-issue 178\nThe agent explores the codebase and asks 3-5 clarifying questions before writing anything.",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#design-workflow",
+    "href": "guides/design-workflow.html#design-workflow",
+    "title": "Design document workflow",
+    "section": "Design workflow",
+    "text": "Design workflow\n\nPhase 1: Explore and Interview\nThe agent reads architecture files, searches for related code, checks existing knowledge pages, and scans .design/ for prior work. Then it asks questions grounded in what it found — every question references specific files, functions, or patterns from the codebase.\nAgent: I found these relevant modules:\n  - src/sync/mod.rs — current sync pipeline, no retry logic\n  - src/sync/error.rs — SyncError enum with 6 variants\n  - src/queue/batch.rs — BatchProcessor with configurable concurrency\n\nQuestions:\n  1. Should retries apply to all SyncError variants, or only\n     transient ones (NetworkTimeout, RateLimit)?\n  2. BatchProcessor already has a max_concurrency field — should\n     retry backoff reduce concurrency, or just delay?\n  3. What's the upper bound on retries before we escalate to\n     the dead-letter queue in src/queue/dlq.rs?\nAnswer the questions and the agent proceeds to drafting.\n\n\nPhase 2: Draft\n\n\nYou answer the questions:\n\n“Only transient errors. Back off with jitter, don’t reduce concurrency. Max 5 retries, then DLQ.”\n\n\n→\n\nYour agent produces:\n.design/add-batch-retry-logic.md\nA structured document with:\n\nRequirements — grounded in real codebase concepts\nAcceptance criteria — mechanically testable\nArchitecture — references actual file paths\nOpen questions — genuine ambiguities, not guesses\nOut of scope — explicit exclusions\n\n\n\n\n\nDocument structure\n# Feature: Add batch retry logic\n\n## Summary\nAdd exponential backoff with jitter for transient\nsync errors in the batch processor pipeline.\n\n## Requirements\n- REQ-1: Retry only transient SyncError variants\n  (NetworkTimeout, RateLimit) up to 5 attempts\n- REQ-2: Use exponential backoff with jitter\n  between retries\n- REQ-3: Route permanently failed items to the\n  dead-letter queue after exhausting retries\n\n## Acceptance Criteria\n- [ ] AC-1: NetworkTimeout errors retry up to 5 times\n      with increasing delay\n- [ ] AC-2: Non-transient errors (InvalidPayload,\n      AuthFailure) fail immediately without retry\n- [ ] AC-3: Items exceeding max retries appear in\n      DLQ with original error context\n\n## Architecture\nModify `src/sync/mod.rs` to wrap the existing\n`process_batch()` call in a retry loop...\n\n## Open Questions\n\n&lt;!-- OPEN: Q1 --&gt;\n### Q1: Metrics and observability\nShould retry counts be exposed via the existing\nmetrics in `src/telemetry/mod.rs`?\n&lt;!-- /OPEN --&gt;\n\n## Out of Scope\n- Circuit breaker pattern (separate feature)\n- Retry configuration via runtime config file\n\n\nValidation\nAfter writing the document, the agent runs automatic validation:\nDesign doc validation:\n  [PASS] Summary present\n  [PASS] Requirements: 3 items\n  [PASS] Acceptance Criteria: 3 items\n  [PASS] Architecture references real files\n  [PASS] No placeholder text\n  [OPEN] 1 unresolved open question remains",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#phase-3-iterate",
+    "href": "guides/design-workflow.html#phase-3-iterate",
+    "title": "Design document workflow",
+    "section": "Phase 3: Iterate",
+    "text": "Phase 3: Iterate\n\n\nYou say:\n\n“Yes, add metrics. And also handle partial batch failures.”\n\nYou can edit the document directly in your editor, resolve open questions by removing the &lt;!-- OPEN --&gt; markers, or tell your agent to continue iterating.\n\n→\n\nYour agent runs:\n/design --continue add-batch-retry-logic\nThe agent detects which open questions you resolved, re-explores the codebase if scope changed, updates requirements and acceptance criteria, and writes the updated document.\n\n\nEach iteration strengthens the document:\n\nResolved questions become concrete requirements\nNew scope additions get new acceptance criteria\nArchitecture references are updated if new files are involved\nNew ambiguities surface as &lt;!-- OPEN --&gt; blocks",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#from-design-to-implementation",
+    "href": "guides/design-workflow.html#from-design-to-implementation",
+    "title": "Design document workflow",
+    "section": "From design to implementation",
+    "text": "From design to implementation\nOnce the design document has no unresolved open questions, it’s ready to drive implementation.\n\nGap analysis\nBefore launching an agent, run a read-only gap analysis:\ncrosslink kickoff plan .design/add-batch-retry-logic.md\nThis compares the design against the current codebase and reports:\n\nWhich files need modification\nWhich acceptance criteria can be verified by existing tests\nWhich new tests are needed\nEstimated scope and complexity\n\n\n\nSingle agent\nLaunch one agent to implement the entire feature:\ncrosslink kickoff run \"add batch retry logic\" \\\n  --doc .design/add-batch-retry-logic.md\nThe agent receives the full design document as context and implements against the requirements and acceptance criteria. See Kickoff.\n\n\nMulti-agent swarm\nFor larger designs, initialize a swarm that coordinates multiple agents across phases:\ncrosslink swarm init \\\n  --doc .design/add-batch-retry-logic.md\ncrosslink swarm launch 1\nThe swarm planner splits the design into phases with dependency ordering, budget windows, and phase gates. See Swarm Orchestration.",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#knowledge-integration",
+    "href": "guides/design-workflow.html#knowledge-integration",
+    "title": "Design document workflow",
+    "section": "Knowledge integration",
+    "text": "Knowledge integration\nDesign documents are automatically stored as crosslink knowledge pages after validation:\ncrosslink knowledge add \"add-batch-retry-logic\" \\\n  --from-doc .design/add-batch-retry-logic.md \\\n  --tag design-doc\nThis makes the design searchable by all agents via crosslink knowledge search. If the design was started from a crosslink issue, a plan comment is also recorded on the issue.",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/design-workflow.html#quality-standards",
+    "href": "guides/design-workflow.html#quality-standards",
+    "title": "Design document workflow",
+    "section": "Quality standards",
+    "text": "Quality standards\nThe /design skill enforces these standards on every document:\n\nRequirements reference real codebase concepts, not generic statements\nAcceptance criteria are mechanically testable (a CI system could verify them)\nArchitecture references actual file paths verified against the working tree\nNo placeholder text (&lt;...&gt;, TODO, TBD)\nEvery requirement maps to at least one acceptance criterion\nGenuine ambiguities become open question blocks, not guesses",
+    "crumbs": [
+      "Guides",
+      "Design document workflow"
+    ]
+  },
+  {
+    "objectID": "guides/knowledge.html",
+    "href": "guides/knowledge.html",
+    "title": "Knowledge management",
+    "section": "",
+    "text": "Crosslink’s knowledge system is shared memory for your agents. When one agent researches an API, evaluates a library, or documents an architectural decision, that knowledge is automatically available to every other agent working on the project. Knowledge pages live on a dedicated crosslink/knowledge git branch (separate from your code) and sync automatically when agents start sessions.",
+    "crumbs": [
+      "Guides",
+      "Knowledge management"
+    ]
+  },
+  {
+    "objectID": "guides/knowledge.html#tldr",
+    "href": "guides/knowledge.html#tldr",
+    "title": "Knowledge management",
+    "section": "",
+    "text": "Crosslink’s knowledge system is shared memory for your agents. When one agent researches an API, evaluates a library, or documents an architectural decision, that knowledge is automatically available to every other agent working on the project. Knowledge pages live on a dedicated crosslink/knowledge git branch (separate from your code) and sync automatically when agents start sessions.",
+    "crumbs": [
+      "Guides",
+      "Knowledge management"
+    ]
+  },
+  {
+    "objectID": "guides/knowledge.html#how-agents-use-knowledge",
+    "href": "guides/knowledge.html#how-agents-use-knowledge",
+    "title": "Knowledge management",
+    "section": "How agents use knowledge",
+    "text": "How agents use knowledge\n\n\nYou say:\n\n“Research the best approach for rate limiting”\n\nThe agent investigates, then saves its findings as a knowledge page — tagged, sourced, and searchable.\n\n→\n\nAgent executes:\ncrosslink knowledge add rate-limiting \\\n  --title \"Rate Limiting Strategy\" \\\n  --tag architecture --tag performance \\\n  --source \"https://example.com/rate-limits\" \\\n  --content \"After evaluating token bucket vs \\\n  sliding window...\"\n\n\nLater, when another agent starts a session on a related issue, the session-start hook and knowledge MCP server automatically surface relevant pages. Research done once benefits every agent.\n\nCreating pages\n\n\nYou say:\n\n“Save that auth research to knowledge”\n\nAgents create pages with descriptive slugs, tags for discoverability, and source links for provenance.\n\n→\n\nAgent executes:\n# Basic page\ncrosslink knowledge add api-auth \\\n  --title \"API Authentication Patterns\" \\\n  --content \"Findings from investigating...\"\n\n# With tags and sources\ncrosslink knowledge add api-auth \\\n  --tag security --tag architecture \\\n  --source \"https://docs.example.com/auth\"\n\n# Import from a design document\ncrosslink knowledge add auth-design \\\n  --from-doc .design/auth-system.md\n\n\n\n\nBrowsing and searching\n\n\nYou ask:\n\n“What do we know about caching?”\n\nThe agent searches across all knowledge pages with full-text search, filtering by tags, contributors, or date range.\n\n→\n\nAgent executes:\ncrosslink knowledge search \"caching\" --context 3\ncrosslink knowledge search \"oauth\" --tag security\ncrosslink knowledge list --tag architecture\ncrosslink knowledge show api-auth\n\n\nYou can also browse knowledge visually through the TUI (Knowledge tab) or Web Dashboard.\n\n\nEditing pages\nYour agents have a detailed surface to update knowledge as the project evolves.\n\nAppend and replace\n# Append a new finding\ncrosslink knowledge edit rate-limiting \\\n  --append \"Update: switched to sliding window after load testing\"\n\n# Replace all content\ncrosslink knowledge edit rate-limiting \\\n  --content \"Completely revised strategy...\"\n\n# Add more tags or sources\ncrosslink knowledge edit rate-limiting \\\n  --tag load-testing --source \"https://example.com/new-ref\"\n\n\nSection-based editing (v0.5.0)\nFor surgical updates to specific parts of a page:\n# Replace an entire section by heading\ncrosslink knowledge edit api-auth \\\n  --replace-section \"Token Refresh\" \\\n  --content \"New approach: use rotating refresh tokens...\"\n\n# Append to a specific section\ncrosslink knowledge edit api-auth \\\n  --append-to-section \"Open Questions\" \\\n  --content \"- How do we handle token revocation at scale?\"\nThis is especially useful when agents update knowledge incrementally — adding findings to the right section without disturbing the rest of the page.\n\n\n\nSyncing and conflict resolution\nKnowledge syncs automatically during crosslink session start and crosslink sync. When two agents edit the same page concurrently, crosslink uses an accept-both merge strategy: both versions are preserved with clear markers, so no work is lost.",
+    "crumbs": [
+      "Guides",
+      "Knowledge management"
+    ]
+  },
+  {
+    "objectID": "guides/knowledge.html#bulk-import",
+    "href": "guides/knowledge.html#bulk-import",
+    "title": "Knowledge management",
+    "section": "Bulk import",
+    "text": "Bulk import\nImport existing documentation into the knowledge base:\ncrosslink knowledge import ./docs/research/\ncrosslink knowledge import ./docs/ --tag imported --overwrite\ncrosslink knowledge import ./notes/ --dry-run  # preview without writing",
+    "crumbs": [
+      "Guides",
+      "Knowledge management"
+    ]
+  },
+  {
+    "objectID": "guides/knowledge.html#tips",
+    "href": "guides/knowledge.html#tips",
+    "title": "Knowledge management",
+    "section": "Tips",
+    "text": "Tips\n\nSave research as you go. When an agent reads API docs, evaluates libraries, or investigates a bug, it should save findings to knowledge so other agents benefit.\nUse descriptive slugs. api-auth-patterns is better than research-1.\nTag consistently. Use tags like architecture, security, performance, debugging, api, dependency to make pages discoverable.\nInclude sources. Link to the original documentation, blog post, or discussion that informed the page.",
+    "crumbs": [
+      "Guides",
+      "Knowledge management"
+    ]
+  },
+  {
+    "objectID": "guides/hooks.html",
+    "href": "guides/hooks.html",
+    "title": "Behavioral hooks",
+    "section": "",
+    "text": "Crosslink’s hooks are guardrails that agents follow automatically. You configure them once; every agent session is checked on every action — enforcing code quality, issue tracking, and security without manual prompting.",
+    "crumbs": [
+      "Guides",
+      "Behavioral hooks"
+    ]
+  },
+  {
+    "objectID": "guides/hooks.html#tldr",
+    "href": "guides/hooks.html#tldr",
+    "title": "Behavioral hooks",
+    "section": "",
+    "text": "Crosslink’s hooks are guardrails that agents follow automatically. You configure them once; every agent session is checked on every action — enforcing code quality, issue tracking, and security without manual prompting.",
+    "crumbs": [
+      "Guides",
+      "Behavioral hooks"
+    ]
+  },
+  {
+    "objectID": "guides/hooks.html#how-it-works",
+    "href": "guides/hooks.html#how-it-works",
+    "title": "Behavioral hooks",
+    "section": "How it works",
+    "text": "How it works\n\n\nYou configure once:\nRun crosslink init in your project. Hooks are installed into .claude/hooks/ and activate automatically for every Claude Code session.\nNo per-agent setup. No manual prompting. Every agent that touches this repo follows the same rules.\n\n→\n\nAgents get checked on every action:\nAgent tries to edit a file\n  → work-check.py fires\n  → Has active issue? ✓ Proceed\n  → Is it a blocked git command? ✗ Block\n\nAgent finishes editing\n  → post-edit-check.py fires\n  → Stubs detected? Flag them\n  → Tests stale? Remind to run\n\n\n\nRequirements\n\nPython 3.6+ must be installed and available in your PATH",
+    "crumbs": [
+      "Guides",
+      "Behavioral hooks"
+    ]
+  },
+  {
+    "objectID": "guides/hooks.html#hook-overview",
+    "href": "guides/hooks.html#hook-overview",
+    "title": "Behavioral hooks",
+    "section": "Hook overview",
+    "text": "Hook overview\n\n\n\n\n\n\n\n\nHook\nFires When\nWhat It Does\n\n\n\n\nsession-start.py\nSession start/resume\nLoads context, syncs locks, restores breadcrumbs from last session\n\n\nprompt-guard.py\nEvery prompt\nInjects language-specific best practices (condensed after first prompt)\n\n\nwork-check.py\nBefore write/edit/bash\nEnforces issue tracking, blocks git mutations, warns on lock conflicts\n\n\npost-edit-check.py\nAfter file edits\nDetects stubs, runs linter (debounced), reminds about tests\n\n\npre-web-check.py\nBefore web fetch\nInjects prompt injection defense before fetching external content\n\n\n\n\nWhat agents must follow\nThe hooks enforce these principles transparently:\n\nNo Stubs — Complete, working code. No placeholder functions, TODO comments, or unimplemented!() macros.\nNo Dead Code — Identify incomplete features and complete them, or remove truly dead code.\nFull Features — Implement complete features as requested. Don’t stop partway.\nError Handling — Proper error handling everywhere. No panics on bad input.\nSecurity — Validate input, use parameterized queries, no command injection.\n\n\n\nLarge task management\nWhen code will exceed 500 lines, the hooks guide agents to:\n\nCreate a parent issue for the feature\nBreak it into subissues for trackable components\nWork on one subissue at a time\nInform the user about the multi-part implementation\n\n\n\nLanguage detection\nThe hooks auto-detect project languages and inject relevant best practices:\n\nRust: ? operator, clippy, parameterized SQL, avoid .unwrap()\nPython: Type hints, proper exceptions, pathlib, context managers\nJavaScript/TypeScript: const/let, async/await, strict mode, input validation\nGo: Check errors, context.Context, defer for cleanup\nAnd 16 more: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir, Haskell\n\n\n\nPost-edit checking\nAfter every file edit, post-edit-check.py automatically:\n\nStub detection — Scans for TODO, FIXME, pass, ..., unimplemented!(), empty functions\nLinting — Runs the appropriate linter (cargo clippy, flake8, eslint, go vet) with 10-second debouncing\nTest reminders — Checks if code has been modified since the last test run and reminds to run tests\n\n\n\nWeb security (RFIP)\nThe pre-web-check.py hook injects the Recursive Framing Interdiction Protocol before any web fetch. This defends against prompt injection by establishing that external content is data, not instructions — any instruction-like text in fetched content is flagged, not followed.\n\n\nDrift detection\nWhen an agent’s behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency automatically. The reminder_drift_threshold in hook-config.json controls sensitivity.\n\n\nIntervention tracking\nWhen a hook blocks an agent’s action, or a human redirects the agent’s approach, the intervention is logged for audit:\ncrosslink issue intervene &lt;issue-id&gt; \"Hook blocked git push attempt\" \\\n  --trigger tool_blocked \\\n  --context \"Agent tried to push directly\"",
+    "crumbs": [
+      "Guides",
+      "Behavioral hooks"
+    ]
+  },
+  {
+    "objectID": "guides/hooks.html#context-verification",
+    "href": "guides/hooks.html#context-verification",
+    "title": "Behavioral hooks",
+    "section": "Context verification",
+    "text": "Context verification\nVerify that all hook and rule files are deployed correctly:\ncrosslink context check    # verify all files exist and are valid\ncrosslink context measure  # measure context injection overhead",
+    "crumbs": [
+      "Guides",
+      "Behavioral hooks"
+    ]
+  },
+  {
+    "objectID": "guides/hooks.html#customization",
+    "href": "guides/hooks.html#customization",
+    "title": "Behavioral hooks",
+    "section": "Customization",
+    "text": "Customization\nHook behavior is controlled by .crosslink/hook-config.json. See Hook Configuration Reference for details.\nRules are stored as markdown files in .crosslink/rules/. See Rules Customization.\n\nInstalling hooks in other projects\n# Automatic setup (recommended)\ncrosslink init\n\n# Or manual copy\ncp -r /path/to/crosslink/.claude /your/project/\ncp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/",
+    "crumbs": [
+      "Guides",
+      "Behavioral hooks"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html",
+    "href": "getting-started/quickstart.html",
+    "title": "Your first agent session",
+    "section": "",
+    "text": "Get crosslink running and watch your agent handle a task with persistent memory — in under a minute.",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#tldr",
+    "href": "getting-started/quickstart.html#tldr",
+    "title": "Your first agent session",
+    "section": "",
+    "text": "Get crosslink running and watch your agent handle a task with persistent memory — in under a minute.",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#install-and-initialize",
+    "href": "getting-started/quickstart.html#install-and-initialize",
+    "title": "Your first agent session",
+    "section": "1. Install and initialize",
+    "text": "1. Install and initialize\ncargo install crosslink\ncd your-project\ncrosslink init\nThis creates .crosslink/ (config, rules, database), .claude/hooks/ (behavioral hooks), and .claude/settings.json (hook wiring). See Installation for more install options.",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#start-a-session",
+    "href": "getting-started/quickstart.html#start-a-session",
+    "title": "Your first agent session",
+    "section": "2. Start a session",
+    "text": "2. Start a session\n\n\nYou say:\n\n“Let’s get started”\n\nEvery conversation begins with a session. If a previous session left handoff notes, your agent sees them immediately.\n\n→\n\nYour agent runs:\ncrosslink session start\nOn the first session this is a no-op. On subsequent sessions, handoff notes from the previous agent (or your past self) appear automatically.",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#create-an-issue",
+    "href": "getting-started/quickstart.html#create-an-issue",
+    "title": "Your first agent session",
+    "section": "3. Create an issue",
+    "text": "3. Create an issue\n\n\nYou say:\n\n“Fix the login bug — it’s high priority”\n\n\n→\n\nYour agent runs:\ncrosslink quick \"Fix login bug\" \\\n  -p high -l bug\nOne command: creates the issue, labels it, and marks it as the active work item.",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#work-with-breadcrumbs",
+    "href": "getting-started/quickstart.html#work-with-breadcrumbs",
+    "title": "Your first agent session",
+    "section": "4. Work with breadcrumbs",
+    "text": "4. Work with breadcrumbs\n\n\nYou say:\n\n“Dig into the auth module and find the root cause”\n\nYour agent explores the code, leaving breadcrumbs as it goes. These survive context compression — if the window fills up, the trail of what was found and decided persists.\n\n→\n\nYour agent runs:\n# Breadcrumb — survives context compression\ncrosslink session action \\\n  \"Found root cause in refresh_token()\"\n\n# Permanent comment on the issue\ncrosslink issue comment 1 \\\n  \"Token wasn't refreshed on 401\"\n\n# ... implements the fix, runs tests ...",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#commit-and-close",
+    "href": "getting-started/quickstart.html#commit-and-close",
+    "title": "Your first agent session",
+    "section": "5. Commit and close",
+    "text": "5. Commit and close\n\n\nYou say:\n\n“Commit that and close the issue”\n\nThe agent uses the built-in /commit skill, which creates the commit and records a result comment on the active issue. Closing auto-appends a changelog entry.\n\n→\n\nYour agent runs:\n# /commit stages, writes the message,\n# and records the result on the issue\n/commit\n\ncrosslink close 1",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#end-the-session",
+    "href": "getting-started/quickstart.html#end-the-session",
+    "title": "Your first agent session",
+    "section": "6. End the session",
+    "text": "6. End the session\n\n\nYou say:\n\n“Wrap up and leave notes for next time”\n\n\n→\n\nYour agent runs:\ncrosslink session end \\\n  --notes \"Fixed auth bug #1. Dark mode is next.\"\nThe next session — whether it is you, another agent, or the same agent after a restart — sees these handoff notes automatically.",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "getting-started/quickstart.html#whats-next",
+    "href": "getting-started/quickstart.html#whats-next",
+    "title": "Your first agent session",
+    "section": "What’s next?",
+    "text": "What’s next?\n\nSession Workflow — deep dive into session management\nDesign Workflow — iterate on design documents before implementation\nKickoff — launch autonomous background agents\nSwarm Orchestration — multi-agent phased builds\nKnowledge Management — shared research across agents\nWeb Dashboard — browser-based project oversight\nTerminal Dashboard — interactive TUI for browsing issues\nMaintenance — pruning and health checks\nMulti-Agent — coordinate multiple AI agents\nHooks Guide — behavioral guardrails for AI coding\nCLI Reference — full command reference",
+    "crumbs": [
+      "Getting started",
+      "Your first agent session"
+    ]
+  },
+  {
+    "objectID": "index.html#how-it-works",
+    "href": "index.html#how-it-works",
+    "title": "crosslink",
+    "section": "How it works",
+    "text": "How it works\n\n\nYou say:\n\n“Fix the auth token refresh bug”\n\nYour agent handles everything — creates a tracked issue, explores the code, implements the fix, runs tests, and leaves handoff notes for the next session.\n\n→\n\nYour agent executes:\ncrosslink quick \"Fix auth token refresh\" -p high -l bug\ncrosslink session action \"Exploring auth module...\"\n# ... implements, tests ...\n/commit\ncrosslink close 1\ncrosslink session end --notes \"Fixed. PR ready.\""
+  },
+  {
+    "objectID": "index.html#install",
+    "href": "index.html#install",
+    "title": "crosslink",
+    "section": "Install",
+    "text": "Install\n# From crates.io\ncargo install crosslink\n\n# Or build from source\ngit clone https://github.com/forecast-bio/crosslink.git\ncd crosslink/crosslink && cargo install --path .\nAlso available as a VS Code extension."
+  },
+  {
+    "objectID": "index.html#learn-more",
+    "href": "index.html#learn-more",
+    "title": "crosslink",
+    "section": "Learn more",
+    "text": "Learn more\n\nYour First Agent Session — get running in under a minute\nInstallation — all install methods and requirements\nSession Workflow — deep dive into session management\nKickoff: Autonomous Agents — launch background agents in worktrees\nSwarm Orchestration — multi-agent phased builds from design documents\nKnowledge Management — shared research pages synced via git\nWeb Dashboard — browser-based project oversight\nTerminal Dashboard — interactive TUI for issues and agents\nMaintenance — pruning, health checks, and database compaction\nCLI Reference — full command reference"
+  },
+  {
+    "objectID": "getting-started/installation.html#tldr",
+    "href": "getting-started/installation.html#tldr",
+    "title": "Installation",
+    "section": "tl;dr",
+    "text": "tl;dr\nInstall crosslink via cargo install crosslink, then run crosslink init in your project directory to get started.",
+    "crumbs": [
+      "Getting started",
+      "Installation"
+    ]
+  },
+  {
+    "objectID": "getting-started/installation.html#from-crates.io",
+    "href": "getting-started/installation.html#from-crates.io",
+    "title": "Installation",
+    "section": "From crates.io",
+    "text": "From crates.io\ncargo install crosslink\nThe crosslink binary will be available in your PATH after install.",
+    "crumbs": [
+      "Getting started",
+      "Installation"
+    ]
+  },
+  {
+    "objectID": "getting-started/installation.html#build-from-source",
+    "href": "getting-started/installation.html#build-from-source",
+    "title": "Installation",
+    "section": "Build from source",
+    "text": "Build from source\ngit clone https://github.com/forecast-bio/crosslink.git\ncd crosslink/crosslink\ncargo install --path .\nOr build without installing:\ncargo build --release\n# Binary at target/release/crosslink",
+    "crumbs": [
+      "Getting started",
+      "Installation"
+    ]
+  },
+  {
+    "objectID": "getting-started/installation.html#vs-code-extension",
+    "href": "getting-started/installation.html#vs-code-extension",
+    "title": "Installation",
+    "section": "VS Code extension",
+    "text": "VS Code extension\nSearch “Crosslink Issue Tracker” in VS Code Extensions, or visit the VS Code Marketplace.\nThe extension bundles the CLI binary and provides:\n\nCommand Palette access to all crosslink commands\nStatus bar indicator for daemon status\nAuto-starts daemon when a .crosslink project is detected\nCross-platform: Windows, Linux, macOS",
+    "crumbs": [
+      "Getting started",
+      "Installation"
+    ]
+  },
+  {
+    "objectID": "getting-started/installation.html#requirements",
+    "href": "getting-started/installation.html#requirements",
+    "title": "Installation",
+    "section": "Requirements",
+    "text": "Requirements\n\nRust 1.87+ (for cargo install) — install rustup\nPython 3.6+ — required for Claude Code hooks\nGit — required for multi-agent coordination features",
+    "crumbs": [
+      "Getting started",
+      "Installation"
+    ]
+  },
+  {
+    "objectID": "getting-started/installation.html#initialize-a-project",
+    "href": "getting-started/installation.html#initialize-a-project",
+    "title": "Installation",
+    "section": "Initialize a project",
+    "text": "Initialize a project\nAfter installing, run in any project directory:\ncrosslink init\nThe interactive TUI walkthrough guides you through initial configuration — choosing tracking mode, setting up hooks, and configuring agent identity. Sensible defaults are pre-selected so you can accept them all to get started fast.\nThis sets up the .crosslink/ directory, Claude Code hooks, and default rules. See Your First Agent Session for next steps.",
+    "crumbs": [
+      "Getting started",
+      "Installation"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html",
+    "href": "guides/container-agents.html",
+    "title": "Container-based agents",
+    "section": "",
+    "text": "Container execution gives your agents the same workflow with stronger sandboxing. Agents run inside Docker or Podman containers instead of local tmux sessions – they cannot access your host filesystem outside the worktree, and crosslink hooks still enforce all policy automatically.",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html#tldr",
+    "href": "guides/container-agents.html#tldr",
+    "title": "Container-based agents",
+    "section": "",
+    "text": "Container execution gives your agents the same workflow with stronger sandboxing. Agents run inside Docker or Podman containers instead of local tmux sessions – they cannot access your host filesystem outside the worktree, and crosslink hooks still enforce all policy automatically.",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html#why-containers",
+    "href": "guides/container-agents.html#why-containers",
+    "title": "Container-based agents",
+    "section": "Why containers?",
+    "text": "Why containers?\n\nIsolation – agents cannot access your host filesystem outside the worktree\nReproducibility – consistent environment regardless of host OS\nSecurity – --dangerously-skip-permissions becomes safe inside a container because crosslink hooks still enforce policy (no push, no merge, gated commits)\nCross-platform – works on Windows, Linux, and macOS anywhere Docker runs",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html#quick-start",
+    "href": "guides/container-agents.html#quick-start",
+    "title": "Container-based agents",
+    "section": "Quick start",
+    "text": "Quick start\n\n\nYou say / do:\n\n“Run this feature agent in a container so it’s fully sandboxed.”\n\nYou want stronger isolation than a local tmux session. The container approach is a single flag change.\n\n→\n\nAgent executes:\ncrosslink kickoff run \"add batch retry logic\" \\\n  --container docker\nCreates branch, worktree, builds the image (if needed), starts a container, and launches the agent inside it.",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html#managing-container-lifecycle",
+    "href": "guides/container-agents.html#managing-container-lifecycle",
+    "title": "Container-based agents",
+    "section": "Managing container lifecycle",
+    "text": "Managing container lifecycle\n\nBuilding the image\n\n\nYou say / do:\n\n“Set up the container image for this project.”\n\nThe image is built once and reused for all subsequent agent launches. It includes the full toolchain for your project.\n\n→\n\nAgent executes:\ncrosslink container build\nThe default image includes: Rust toolchain (matches project’s rust-version), Python 3, Git, Claude Code CLI, and crosslink binary.\n\n\n\n\nMonitoring containers\n\n\nYou say / do:\n\n“What are my container agents doing?”\n\nYou can list running containers, stream logs, and open interactive shells for debugging.\n\n→\n\nAgent executes:\ncrosslink container ps\ncrosslink container logs my-feature -f\nLists all running agent containers and streams live output from a specific agent.\n\n\n\n\nManual control\n# Start a container manually for an existing worktree\ncrosslink container start .worktrees/my-feature \\\n  --issue 42 \\\n  --prompt .worktrees/my-feature/KICKOFF.md\n\n# Graceful stop\ncrosslink container stop my-feature\n\n# Stop and remove\ncrosslink container kill my-feature\n\n# Remove a stopped container\ncrosslink container rm my-feature",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html#hook-enforcement-inside-containers",
+    "href": "guides/container-agents.html#hook-enforcement-inside-containers",
+    "title": "Container-based agents",
+    "section": "Hook enforcement inside containers",
+    "text": "Hook enforcement inside containers\nThe same crosslink hooks that enforce policy in local sessions also run inside containers – automatically, with zero additional configuration:\n\nGit mutations blocked – git push, git merge, git rebase are blocked by hooks\nCommits gated – git commit requires an active crosslink issue\nStub detection – post-edit hooks catch TODOs and incomplete code\nLanguage rules – project-specific best practices are injected\n\nThis means you can use --dangerously-skip-permissions for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/container-agents.html#integration-with-kickoff",
+    "href": "guides/container-agents.html#integration-with-kickoff",
+    "title": "Container-based agents",
+    "section": "Integration with kickoff",
+    "text": "Integration with kickoff\nThe --container flag on crosslink kickoff run handles the full workflow:\n\nCreates a feature branch and worktree\nBuilds the container image (if not already built)\nStarts a container with the worktree mounted\nLaunches the agent inside the container\nThe agent works autonomously: explore, implement, test, commit\n\n# Local tmux (default)\ncrosslink kickoff run \"my feature\"\n\n# Docker container\ncrosslink kickoff run \"my feature\" --container docker\n\n# Podman container\ncrosslink kickoff run \"my feature\" --container podman",
+    "crumbs": [
+      "Guides",
+      "Container-based agents"
+    ]
+  },
+  {
+    "objectID": "guides/maintenance.html",
+    "href": "guides/maintenance.html",
+    "title": "Maintenance operations",
+    "section": "",
+    "text": "Keep your crosslink data lean and your agent infrastructure clean. Over time, the coordination and knowledge branches accumulate history, worktrees pile up, and stale tmux sessions or containers linger. These maintenance operations keep everything tidy.",
+    "crumbs": [
+      "Guides",
+      "Maintenance operations"
+    ]
+  },
+  {
+    "objectID": "guides/maintenance.html#tldr",
+    "href": "guides/maintenance.html#tldr",
+    "title": "Maintenance operations",
+    "section": "",
+    "text": "Keep your crosslink data lean and your agent infrastructure clean. Over time, the coordination and knowledge branches accumulate history, worktrees pile up, and stale tmux sessions or containers linger. These maintenance operations keep everything tidy.",
+    "crumbs": [
+      "Guides",
+      "Maintenance operations"
+    ]
+  },
+  {
+    "objectID": "guides/maintenance.html#pruning-history",
+    "href": "guides/maintenance.html#pruning-history",
+    "title": "Maintenance operations",
+    "section": "Pruning history",
+    "text": "Pruning history\nThe crosslink/hub and crosslink/knowledge branches grow with every lock operation, heartbeat, and knowledge entry. Pruning squashes old history to keep these branches fast.\n\n\nYou say / do:\n\n“The hub branch is getting bloated. Squash it down.”\n\nYou want to squash coordination history while keeping current state intact.\n\n→\n\nAgent executes:\ncrosslink prune --force\nSquashes both hub and knowledge branch history down to the current state. Lock and heartbeat data is preserved.\n\n\n\n\nYou say / do:\n\n“Just prune the knowledge branch.”\n\nPrune only the knowledge branch, leaving hub history intact.\n\n→\n\nAgent executes:\ncrosslink prune --knowledge-only --force",
+    "crumbs": [
+      "Guides",
+      "Maintenance operations"
+    ]
+  },
+  {
+    "objectID": "guides/maintenance.html#kickoff-cleanup",
+    "href": "guides/maintenance.html#kickoff-cleanup",
+    "title": "Maintenance operations",
+    "section": "Kickoff cleanup",
+    "text": "Kickoff cleanup\nAfter agents finish their work, worktrees, tmux sessions, and Docker containers remain until explicitly cleaned up.\n\n\nYou say / do:\n\n“Clean up all the finished agent infrastructure.”\n\nYou want to reclaim disk space and remove stale processes from completed agents.\n\n→\n\nAgent executes:\ncrosslink kickoff cleanup\nRemoves worktrees for completed agents (.kickoff-status is DONE or process is dead), kills orphaned tmux sessions, and removes stopped Docker containers.",
+    "crumbs": [
+      "Guides",
+      "Maintenance operations"
+    ]
+  },
+  {
+    "objectID": "guides/maintenance.html#the-maintain-skill",
+    "href": "guides/maintenance.html#the-maintain-skill",
+    "title": "Maintenance operations",
+    "section": "The /maintain skill",
+    "text": "The /maintain skill\nFrom Claude Code, you can run an automated maintenance pass that combines pruning and cleanup:\n/maintain\nThis runs the equivalent of:\ncrosslink prune --force\ncrosslink kickoff cleanup\ncrosslink sync\nIt prunes both coordination branches, cleans up stale agent infrastructure, and re-syncs to verify everything is consistent.",
+    "crumbs": [
+      "Guides",
+      "Maintenance operations"
+    ]
+  },
+  {
+    "objectID": "guides/maintenance.html#routine-checklist",
+    "href": "guides/maintenance.html#routine-checklist",
+    "title": "Maintenance operations",
+    "section": "Routine checklist",
+    "text": "Routine checklist\nUse this checklist to keep your crosslink installation healthy:\n\n\n\n\n\n\n\n\nWhen\nWhat to do\nCommand\n\n\n\n\nAfter a swarm completes\nClean up finished agent worktrees and sessions\ncrosslink kickoff cleanup\n\n\nWeekly (active projects)\nPrune hub and knowledge history\ncrosslink prune --force\n\n\nBefore a release\nVerify no stale locks or orphaned agents\ncrosslink locks list and crosslink kickoff list\n\n\nAfter pruning\nRe-sync to verify branch integrity\ncrosslink sync\n\n\nWhen disk space is low\nDry-run cleanup to see what can be reclaimed\ncrosslink kickoff cleanup --dry-run\n\n\n\n\nVerifying after maintenance\nAfter any maintenance operation, verify that state is consistent:\n# Re-sync and verify signatures\ncrosslink sync\n\n# Check that no locks were lost\ncrosslink locks list\n\n# Verify agents can still coordinate\ncrosslink agent status",
+    "crumbs": [
+      "Guides",
+      "Maintenance operations"
+    ]
+  },
+  {
+    "objectID": "guides/multi-agent.html",
+    "href": "guides/multi-agent.html",
+    "title": "Multi-agent coordination",
+    "section": "",
+    "text": "Crosslink lets you tell your agent to work on multiple features at once. Behind the scenes, agents self-coordinate through distributed locking so they never step on each other. You describe the work; the agents sort out who does what.",
+    "crumbs": [
+      "Guides",
+      "Multi-agent coordination"
+    ]
+  },
+  {
+    "objectID": "guides/multi-agent.html#tldr",
+    "href": "guides/multi-agent.html#tldr",
+    "title": "Multi-agent coordination",
+    "section": "",
+    "text": "Crosslink lets you tell your agent to work on multiple features at once. Behind the scenes, agents self-coordinate through distributed locking so they never step on each other. You describe the work; the agents sort out who does what.",
+    "crumbs": [
+      "Guides",
+      "Multi-agent coordination"
+    ]
+  },
+  {
+    "objectID": "guides/multi-agent.html#how-it-works",
+    "href": "guides/multi-agent.html#how-it-works",
+    "title": "Multi-agent coordination",
+    "section": "How it works",
+    "text": "How it works\nLock state is stored on a crosslink/hub git branch and synchronized via git. Each agent registers a machine-local identity and claims issues through locks. Other agents see which issues are taken and work on available ones instead. All of this happens automatically – you never need to manage locks yourself.\n\n\n\n\nAgent registration\n\n\nYou say / do:\n\n“Work on these three features in parallel.”\n\nYou describe the features. The agent (or agents) each register unique identities before starting work.\n\n→\n\nAgent executes:\n# Parallel session 1\ncrosslink agent init agent-frontend -d \"Frontend specialist\"\n# Parallel session 2\ncrosslink agent init agent-backend -d \"API work\"\n# Parallel session 3\ncrosslink agent init agent-infra -d \"Infrastructure\"\n\n\n\n\nLock coordination\n\n\nYou say / do:\n\n“Go ahead, all three of you.”\n\nYou launch multiple agents. Each one automatically claims its issue via a distributed lock. No two agents will work on the same issue.\n\n→\n\nAgent executes:\n# Each agent automatically locks its issue\ncrosslink session work 12   # agent-frontend claims #12\ncrosslink session work 15   # agent-backend claims #15\ncrosslink session work 18   # agent-infra claims #18\n\n# If an agent tries a locked issue, it moves on\ncrosslink issue next        # skips locked issues\n\n\n\nLock-aware commands\nThese commands automatically respect lock state – no manual lock management required:\n\n\n\n\n\n\n\nCommand\nLock Behavior\n\n\n\n\ncrosslink issue next\nSkips locked issues when recommending work\n\n\ncrosslink session work &lt;id&gt;\nWarns if issue is locked by another agent\n\n\ncrosslink create --work\nOnly sets as active if not locked",
+    "crumbs": [
+      "Guides",
+      "Multi-agent coordination"
+    ]
+  },
+  {
+    "objectID": "guides/multi-agent.html#daemon-operation",
+    "href": "guides/multi-agent.html#daemon-operation",
+    "title": "Multi-agent coordination",
+    "section": "Daemon operation",
+    "text": "Daemon operation\n\n\nYou say / do:\n\n“Keep everything in sync while the agents work.”\n\nThe daemon runs in the background, pushing heartbeats and flushing state so agents stay coordinated without any manual intervention.\n\n→\n\nAgent executes:\ncrosslink daemon start    # background process\ncrosslink daemon status   # verify it's running\nThe daemon auto-flushes session state every 30s, pushes heartbeats every 2.5 min, and detects stale locks from dead agents.",
+    "crumbs": [
+      "Guides",
+      "Multi-agent coordination"
+    ]
+  },
+  {
+    "objectID": "guides/multi-agent.html#coordinating-agents",
+    "href": "guides/multi-agent.html#coordinating-agents",
+    "title": "Multi-agent coordination",
+    "section": "Coordinating agents",
+    "text": "Coordinating agents\n\nHub branch\nLock state lives on the crosslink/hub branch, separate from your code branches. The branch contains:\n\nLock files (one per locked issue)\nAgent heartbeat timestamps\nGPG/SSH signatures for integrity verification\n\nAgents push to this branch when claiming/releasing locks and pull from it during crosslink sync.\n\n\nSignature verification\nCrosslink supports SSH signature verification for the coordination branch to ensure lock state comes from trusted agents.\n\n\nYou say / do:\n\n“Make sure only our agents can modify coordination state.”\n\nYou set up trust once, and all subsequent sync operations verify signatures automatically.\n\n→\n\nAgent executes:\n# Each agent generates a signing key on init\ncrosslink agent init my-agent-1\n\n# Approve trusted agents\ncrosslink trust approve my-agent-1\ncrosslink trust list\n\n# Sync with automatic verification\ncrosslink sync",
+    "crumbs": [
+      "Guides",
+      "Multi-agent coordination"
+    ]
+  },
+  {
+    "objectID": "guides/multi-agent.html#launching-agents",
+    "href": "guides/multi-agent.html#launching-agents",
+    "title": "Multi-agent coordination",
+    "section": "Launching agents",
+    "text": "Launching agents\n\nKickoff (single agent)\nLaunch a single background agent to implement a feature:\ncrosslink kickoff run \"add batch retry logic\"\ncrosslink kickoff run \"add retry logic\" --container docker  # in a container\nSee Kickoff for the full guide.\n\n\nSwarm (multi-agent phased builds)\nCoordinate multiple agents across phases from a design document:\ncrosslink swarm init --doc DESIGN.md\ncrosslink swarm launch 1\nSee Swarm Orchestration for the full guide.\n\n\nContainer execution\nRun agents in isolated Docker containers instead of tmux:\ncrosslink kickoff run \"my feature\" --container docker\nSee Container-Based Agents for the full guide.",
+    "crumbs": [
+      "Guides",
+      "Multi-agent coordination"
+    ]
+  },
+  {
+    "objectID": "guides/tracking-modes.html",
+    "href": "guides/tracking-modes.html",
+    "title": "Tracking modes",
+    "section": "",
+    "text": "Crosslink enforces issue tracking at three levels. You set the mode once; agents are automatically held to it on every action.",
+    "crumbs": [
+      "Guides",
+      "Tracking modes"
+    ]
+  },
+  {
+    "objectID": "guides/tracking-modes.html#tldr",
+    "href": "guides/tracking-modes.html#tldr",
+    "title": "Tracking modes",
+    "section": "",
+    "text": "Crosslink enforces issue tracking at three levels. You set the mode once; agents are automatically held to it on every action.",
+    "crumbs": [
+      "Guides",
+      "Tracking modes"
+    ]
+  },
+  {
+    "objectID": "guides/tracking-modes.html#how-it-works",
+    "href": "guides/tracking-modes.html#how-it-works",
+    "title": "Tracking modes",
+    "section": "How it works",
+    "text": "How it works\n\n\nYou configure:\nSet tracking_mode in .crosslink/hook-config.json to control how strictly agents must track their work.\n\n→\n\nAgents experience:\n\nstrict — blocked from editing without an active issue\nnormal — reminded but allowed to proceed\nrelaxed — no enforcement, only git mutation blocks",
+    "crumbs": [
+      "Guides",
+      "Tracking modes"
+    ]
+  },
+  {
+    "objectID": "guides/tracking-modes.html#mode-comparison",
+    "href": "guides/tracking-modes.html#mode-comparison",
+    "title": "Tracking modes",
+    "section": "Mode comparison",
+    "text": "Mode comparison\n\n\n\n\n\n\n\n\nMode\nHook Behavior\nBest For\n\n\n\n\nstrict\nBlocks Write/Edit/Bash without an active issue\nTeams that want every change tracked\n\n\nnormal\nReminds but allows proceeding without an issue\nBalanced tracking without blocking quick fixes\n\n\nrelaxed\nNo enforcement — only git mutation blocks\nUsers who want tracking opt-in only",
+    "crumbs": [
+      "Guides",
+      "Tracking modes"
+    ]
+  },
+  {
+    "objectID": "guides/tracking-modes.html#setting-the-mode",
+    "href": "guides/tracking-modes.html#setting-the-mode",
+    "title": "Tracking modes",
+    "section": "Setting the mode",
+    "text": "Setting the mode\nEdit .crosslink/hook-config.json:\n{\n  \"tracking_mode\": \"strict\"\n}\nChanges take effect on the next prompt.\n\nWhat’s always enforced\nRegardless of tracking mode, these are always blocked:\n\nGit mutations: git push, git merge, git rebase, git reset, git stash, git tag, etc.\nThese are human-only operations. Agents should never push code without explicit instruction.\n\nGated (require an active crosslink issue):\n\ngit commit — allowed only when the agent has an active work item via crosslink session work &lt;id&gt; or the /commit skill.\n\nRead-only git commands (git status, git diff, git log, git show, git branch) are always allowed.\n\n\nStrict mode\nFile: .crosslink/rules/tracking-strict.md\nThe hook checks if the agent has an active work item (crosslink session work &lt;id&gt;). If not, all Write, Edit, and Bash operations are blocked. The agent must create an issue first:\ncrosslink quick \"describe the work\" -p medium -l feature\nThis is the recommended mode for teams and production codebases.\n\n\nNormal mode\nFile: .crosslink/rules/tracking-normal.md\nSame check, but the hook reminds the agent instead of blocking. Operations proceed with a gentle nudge to create an issue. Good for solo developers who want tracking most of the time.\n\n\nRelaxed mode\nFile: .crosslink/rules/tracking-relaxed.md\nNo issue-tracking enforcement. Only git mutations are blocked (same as all modes). Best for projects where crosslink is used occasionally.",
+    "crumbs": [
+      "Guides",
+      "Tracking modes"
+    ]
+  },
+  {
+    "objectID": "guides/tracking-modes.html#customizing-mode-rules",
+    "href": "guides/tracking-modes.html#customizing-mode-rules",
+    "title": "Tracking modes",
+    "section": "Customizing mode rules",
+    "text": "Customizing mode rules\nEach mode loads its instructions from .crosslink/rules/tracking-{mode}.md. Edit these files to customize wording or add project-specific rules.\nTo reset to defaults:\ncrosslink init --force",
+    "crumbs": [
+      "Guides",
+      "Tracking modes"
+    ]
+  },
+  {
+    "objectID": "guides/web-dashboard.html",
+    "href": "guides/web-dashboard.html",
+    "title": "Web dashboard",
+    "section": "",
+    "text": "Monitor your agents and browse project state through a browser-based dashboard. The web dashboard provides real-time visibility into agent activity, issue state, knowledge entries, and orchestration progress – all without touching the CLI.",
+    "crumbs": [
+      "Guides",
+      "Web dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/web-dashboard.html#tldr",
+    "href": "guides/web-dashboard.html#tldr",
+    "title": "Web dashboard",
+    "section": "",
+    "text": "Monitor your agents and browse project state through a browser-based dashboard. The web dashboard provides real-time visibility into agent activity, issue state, knowledge entries, and orchestration progress – all without touching the CLI.",
+    "crumbs": [
+      "Guides",
+      "Web dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/web-dashboard.html#starting-the-dashboard",
+    "href": "guides/web-dashboard.html#starting-the-dashboard",
+    "title": "Web dashboard",
+    "section": "Starting the dashboard",
+    "text": "Starting the dashboard\n\n\nYou say / do:\n\n“Open the dashboard so I can watch the agents work.”\n\nYou want a visual overview of everything happening in the project. The dashboard opens in your browser and streams live updates.\n\n→\n\nAgent executes:\ncrosslink serve\nStarts the web server at http://localhost:3100. Real-time agent data streams in via WebSocket.",
+    "crumbs": [
+      "Guides",
+      "Web dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/web-dashboard.html#navigating-the-ui",
+    "href": "guides/web-dashboard.html#navigating-the-ui",
+    "title": "Web dashboard",
+    "section": "Navigating the UI",
+    "text": "Navigating the UI\nThe dashboard provides these main pages:\n\n\n\n\n\n\n\nPage\nWhat it shows\n\n\n\n\nIssues\nAll crosslink issues with status, priority, labels, assignee, and blockers\n\n\nAgents\nRegistered agents, their lock state, heartbeat status, and current work item\n\n\nKnowledge\nBrowsable knowledge entries stored on the crosslink/knowledge branch\n\n\nSessions\nActive and historical sessions with timeline, actions, and handoff notes\n\n\nMilestones\nMilestone progress, linked issues, and completion percentage\n\n\nConfig\nCurrent crosslink configuration, hook status, and trust settings\n\n\nSync\nHub branch sync status, last sync time, and signature verification results\n\n\n\n\nAgent monitoring\nThe Agents page provides real-time visibility into what each agent is doing:\n\nHeartbeat timeline – see when each agent last checked in, with stale detection highlighted\nLock visualization – which issues are locked by which agents, with lock age\nWebSocket updates – the page updates live as agents claim locks, release them, and push heartbeats\n\nNo polling required. Open the page and watch agents coordinate in real time.\n\n\nOrchestrator view\nFor swarm builds, the dashboard includes an orchestrator view:\n\nDAG visualization – see the dependency graph between phases and work units\nGantt chart – timeline view of phase execution, agent start/end times, and idle gaps\nDocument decomposition – how the design document was split into phases and assigned to agents\nBudget tracking – estimated vs. actual cost per phase, remaining budget in the current window",
+    "crumbs": [
+      "Guides",
+      "Web dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/web-dashboard.html#rest-api",
+    "href": "guides/web-dashboard.html#rest-api",
+    "title": "Web dashboard",
+    "section": "REST API",
+    "text": "REST API\nThe dashboard is backed by a REST API that you can use for custom integrations and scripting. See docs/api.md for the full API reference, including endpoints for issues, agents, locks, sessions, knowledge, and swarm state.",
+    "crumbs": [
+      "Guides",
+      "Web dashboard"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html",
+    "href": "guides/swarm.html",
+    "title": "Swarm orchestration",
+    "section": "",
+    "text": "Swarm orchestration lets you build a complex feature across multiple phases. You hand the system a design document and a budget, and the swarm decomposes it into phases, launches agents, gates quality between phases, and manages spending – all automatically.",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html#tldr",
+    "href": "guides/swarm.html#tldr",
+    "title": "Swarm orchestration",
+    "section": "",
+    "text": "Swarm orchestration lets you build a complex feature across multiple phases. You hand the system a design document and a budget, and the swarm decomposes it into phases, launches agents, gates quality between phases, and manages spending – all automatically.",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html#overview",
+    "href": "guides/swarm.html#overview",
+    "title": "Swarm orchestration",
+    "section": "Overview",
+    "text": "Overview\nWhen a feature is too large for a single agent, swarm orchestration breaks it into phases and runs multiple agents in parallel. You provide a design document and optionally a budget window; the swarm handles decomposition, scheduling, and quality gating automatically.\ncrosslink swarm init --doc DESIGN.md",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html#developing-with-swarms",
+    "href": "guides/swarm.html#developing-with-swarms",
+    "title": "Swarm orchestration",
+    "section": "Developing with swarms",
+    "text": "Developing with swarms\n\nInitializing a swarm\n\n\nYou say / do:\n\n“Build this feature across multiple phases. Here’s my design doc.”\n\nYou provide a design document describing the feature. The swarm decomposes it into phases and work units automatically.\n\n→\n\nAgent executes:\ncrosslink swarm init --doc DESIGN-AUTH-SYSTEM.md\ncrosslink swarm plan-show\nParses the document, creates a phased plan, and stores it on the crosslink/hub branch so all agents can see it.\n\n\n\n\nPlanning with budget awareness\n\n\nYou say / do:\n\n“I have a 3-hour budget window. Schedule the phases to fit.”\n\nYou set a budget and the swarm figures out how to distribute phases across your available time. Cost estimates improve with each completed phase.\n\n→\n\nAgent executes:\ncrosslink swarm plan --budget-window 3h\ncrosslink swarm config --budget-window 3h --model opus\ncrosslink swarm estimate 1\nPlans phase scheduling, configures the cost model, and estimates wall-clock cost for the first phase.\n\n\n\n\nLaunching a phase\nSwarm planning automatically phases development based on dependency structure into phases, each with multiple components that can be developed in parallel.\n\n\nYou say / do:\n\n“Launch phase 1.”\n\nEach agent in the phase gets its own worktree, branch, crosslink issue, and agent identity. They run in parallel, coordinated through distributed locks.\n\n→\n\nAgent executes:\ncrosslink swarm launch 1\ncrosslink swarm status\nLaunches all agents for phase 1 and shows progress.\n\n\n\n\nYou say / do:\n\n“Launch phase 2 – but only if I have budget left.”\n\nBudget-aware launch checks remaining budget before starting. If the estimated cost exceeds your window, the launch is blocked with a warning.\n\n→\n\nAgent executes:\ncrosslink swarm launch 2 --budget-aware\n\n\n\n\nPhase gates\n\n\nYou say / do:\n\n“Run the quality gate for phase 1.”\n\nThe gate runs the project’s full test suite. All tests must pass before the phase is considered complete and you can advance.\n\n→\n\nAgent executes:\ncrosslink swarm gate 1\nRuns the test suite. Reports pass/fail and any failures.\n\n\n\n\nCheckpointing\n\n\nYou say / do:\n\n“Phase 1 looks good. Record it and move on.”\n\nCheckpointing records timing data, agent results, and handoff notes. This is what resume reads if you come back later.\n\n→\n\nAgent executes:\ncrosslink swarm checkpoint 1 \\\n  --notes \"Auth models and DB migrations done\"\nRecords phase completion on the hub branch.\n\n\nUse --force to checkpoint even if the gate hasn’t passed (for partial progress):\ncrosslink swarm checkpoint 1 --force --notes \"3 of 4 agents complete, one blocked\"\n\n\nResuming after interruption\n\n\nYou say / do:\n\n“I’m back. Where did we leave off?”\n\nResume reconstructs swarm state from the hub branch and tells you exactly what to do next.\n\n→\n\nAgent executes:\ncrosslink swarm resume\nReads checkpoints, lock state, heartbeats, and budget to show: which phases are done, which agents are still running, and which phases are ready to launch.",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html#harvesting-cost-data",
+    "href": "guides/swarm.html#harvesting-cost-data",
+    "title": "Swarm orchestration",
+    "section": "Harvesting cost data",
+    "text": "Harvesting cost data\nAfter agents finish, harvest cost data to improve future estimates:\ncrosslink swarm harvest\nScans completed agents and updates the cost history. The more phases you complete, the more accurate future estimate calls become.",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html#full-workflow-example",
+    "href": "guides/swarm.html#full-workflow-example",
+    "title": "Swarm orchestration",
+    "section": "Full workflow example",
+    "text": "Full workflow example\n# 1. Initialize from a design document\ncrosslink swarm init --doc DESIGN-AUTH-SYSTEM.md\n\n# 2. Review the plan\ncrosslink swarm plan-show\n\n# 3. Launch phase 1\ncrosslink swarm launch 1\n\n# 4. Monitor agents\ncrosslink swarm status\n\n# 5. Once agents complete, run the gate\ncrosslink swarm gate 1\n\n# 6. Checkpoint and advance\ncrosslink swarm checkpoint 1 --notes \"Auth models and DB migrations done\"\n\n# 7. Launch phase 2\ncrosslink swarm launch 2\n\n# 8. If interrupted, resume later\ncrosslink swarm resume",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "guides/swarm.html#see-also",
+    "href": "guides/swarm.html#see-also",
+    "title": "Swarm orchestration",
+    "section": "See also",
+    "text": "See also\n\nKickoff for launching individual agents\nMulti-Agent Coordination for distributed locking",
+    "crumbs": [
+      "Guides",
+      "Swarm orchestration"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html",
+    "href": "reference/rules.html",
+    "title": "Rules customization",
+    "section": "",
+    "text": "Rules are injected into agent sessions automatically and shape how agents write code, handle errors, and follow project conventions. Most teams only need to edit project.md — the rest works out of the box.\nCrosslink uses markdown files in .crosslink/rules/ to define behavioral rules that are injected into AI sessions. You can customize these files to match your project’s conventions.",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#rule-files",
+    "href": "reference/rules.html#rule-files",
+    "title": "Rules customization",
+    "section": "Rule files",
+    "text": "Rule files\n\n\n\n\n\n\n\n\nFile\nPurpose\nInjected By\n\n\n\n\nglobal.md\nSecurity, correctness, and style rules\nprompt-guard.py (every prompt)\n\n\nproject.md\nYour project-specific rules\nprompt-guard.py (every prompt)\n\n\ntracking-strict.md\nStrict mode enforcement wording\nwork-check.py\n\n\ntracking-normal.md\nNormal mode enforcement wording\nwork-check.py\n\n\ntracking-relaxed.md\nRelaxed mode enforcement wording\nwork-check.py\n\n\nweb.md\nRFIP (prompt injection defense)\npre-web-check.py\n\n\nrust.md, python.md, etc.\nLanguage-specific best practices\nprompt-guard.py (auto-detected)",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#how-rules-are-loaded",
+    "href": "reference/rules.html#how-rules-are-loaded",
+    "title": "Rules customization",
+    "section": "How rules are loaded",
+    "text": "How rules are loaded\n\nprompt-guard.py detects project languages by scanning for source files\nIt loads global.md, project.md, and any relevant language rule files\nOn the first prompt, full rules are injected; on subsequent prompts, a condensed version is used\nwork-check.py loads the tracking mode file matching hook-config.json’s tracking_mode\npre-web-check.py loads web.md before any web fetch",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#customizing-global.md",
+    "href": "reference/rules.html#customizing-global.md",
+    "title": "Rules customization",
+    "section": "Customizing global.md",
+    "text": "Customizing global.md\nThis file contains the core behavioral rules. Key sections:\n\nSecurity — OWASP prevention, input validation, parameterized queries\nCorrectness — No stubs, no dead code, complete implementations\nStyle — Consistent formatting, meaningful names, appropriate comments\n\nEdit to match your team’s standards.",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#customizing-project.md",
+    "href": "reference/rules.html#customizing-project.md",
+    "title": "Rules customization",
+    "section": "Customizing project.md",
+    "text": "Customizing project.md\nThis is your project-specific rules file. It starts empty. Use it for:\n\nArchitecture conventions (“always use repository pattern for data access”)\nNaming conventions (“prefix all API handlers with handle_”)\nTesting requirements (“every public function must have a unit test”)\nDependency preferences (“use reqwest for HTTP, not hyper directly”)\n\nExample:\n## Project Conventions\n\n### Architecture\n- Use the repository pattern for all database access\n- All API endpoints go in `src/api/`\n- Business logic belongs in `src/domain/`, never in API handlers\n\n### Testing\n- Every public function must have at least one unit test\n- Integration tests go in `tests/` and use the `test_db` fixture\n- Mock external APIs, never hit real endpoints in tests\n\n### Dependencies\n- HTTP client: reqwest\n- Serialization: serde + serde_json\n- Error handling: anyhow for applications, thiserror for libraries",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#language-rules",
+    "href": "reference/rules.html#language-rules",
+    "title": "Rules customization",
+    "section": "Language rules",
+    "text": "Language rules\nLanguage-specific rule files are auto-detected based on source files in the project. Each file contains best practices for that language.\nAvailable language rules:\n\n\n\nFile\nLanguage\n\n\n\n\nrust.md\nRust\n\n\npython.md\nPython\n\n\njavascript.md\nJavaScript\n\n\ntypescript.md\nTypeScript\n\n\ngo.md\nGo\n\n\njava.md\nJava\n\n\nc.md\nC\n\n\ncpp.md\nC++\n\n\ncsharp.md\nC#\n\n\nruby.md\nRuby\n\n\nphp.md\nPHP\n\n\nswift.md\nSwift\n\n\nkotlin.md\nKotlin\n\n\nscala.md\nScala\n\n\nzig.md\nZig\n\n\nodin.md\nOdin\n\n\nelixir.md\nElixir\n\n\n\nYou can edit these files to add project-specific language conventions, or remove files for languages not used in your project to reduce noise.",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#tracking-mode-rules",
+    "href": "reference/rules.html#tracking-mode-rules",
+    "title": "Rules customization",
+    "section": "Tracking mode rules",
+    "text": "Tracking mode rules\nEach tracking mode has its own markdown file that defines the enforcement wording. You can customize the tone and instructions per mode:\n\ntracking-strict.md — Forceful, mandatory language\ntracking-normal.md — Gentle reminders\ntracking-relaxed.md — Minimal, informational",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/rules.html#resetting-rules",
+    "href": "reference/rules.html#resetting-rules",
+    "title": "Rules customization",
+    "section": "Resetting rules",
+    "text": "Resetting rules\nTo reset all rules to defaults:\ncrosslink init --force\nThis regenerates all rule files from the built-in templates.",
+    "crumbs": [
+      "Reference",
+      "Rules customization"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html",
+    "href": "reference/commands.html",
+    "title": "CLI reference",
+    "section": "",
+    "text": "These commands are typically executed by agents automatically. This reference documents the full CLI for manual use and scripting.\nComplete command reference for the crosslink CLI.",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#global-flags",
+    "href": "reference/commands.html#global-flags",
+    "title": "CLI reference",
+    "section": "Global flags",
+    "text": "Global flags\n\n\n\n\n\n\n\nFlag\nDescription\n\n\n\n\n--json\nJSON output (supported by list, show, search, session status)\n\n\n--quiet / -q\nMinimal output (just IDs, counts), useful for scripting",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#issue-management",
+    "href": "reference/commands.html#issue-management",
+    "title": "CLI reference",
+    "section": "Issue management",
+    "text": "Issue management\nTop-level shortcuts exist for common commands: create, quick, list, show, close, subissue, start, stop. All other issue commands require the crosslink issue prefix.\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink create &lt;title&gt;\nCreate a new issue\n\n\ncrosslink create &lt;title&gt; -p high\nCreate with priority (low/medium/high/critical)\n\n\ncrosslink create &lt;title&gt; -d \"desc\"\nCreate with description\n\n\ncrosslink create &lt;title&gt; -t bug\nCreate from template (bug/feature/refactor/research)\n\n\ncrosslink create &lt;title&gt; -w -l bug\nCreate, label, and start working on it\n\n\ncrosslink quick &lt;title&gt; [-p high] [-l label]\nShorthand: create + label + set as active work item\n\n\ncrosslink subissue &lt;parent_id&gt; &lt;title&gt;\nCreate a subissue under a parent\n\n\ncrosslink subissue &lt;parent_id&gt; &lt;title&gt; -p high\nSubissue with priority\n\n\ncrosslink list\nList open issues\n\n\ncrosslink list -s all\nList all issues (open + closed)\n\n\ncrosslink list -s closed\nList closed issues\n\n\ncrosslink list -l bug\nFilter by label\n\n\ncrosslink list -p high\nFilter by priority\n\n\ncrosslink issue search &lt;query&gt;\nSearch issues by text\n\n\ncrosslink show &lt;id&gt;\nShow issue details\n\n\ncrosslink show &lt;id&gt; --json\nShow issue details as JSON\n\n\ncrosslink issue update &lt;id&gt; --title \"New\"\nUpdate title\n\n\ncrosslink issue update &lt;id&gt; -d \"desc\"\nUpdate description\n\n\ncrosslink issue update &lt;id&gt; -p critical\nUpdate priority\n\n\ncrosslink close &lt;id&gt;\nClose an issue\n\n\ncrosslink close &lt;id&gt; --no-changelog\nClose without changelog entry\n\n\ncrosslink issue close-all\nClose all open issues\n\n\ncrosslink issue close-all -l bug\nClose all with a specific label\n\n\ncrosslink issue close-all -p low\nClose all with a specific priority\n\n\ncrosslink issue close-all --no-changelog\nClose all without changelog entries\n\n\ncrosslink issue reopen &lt;id&gt;\nReopen a closed issue\n\n\ncrosslink issue delete &lt;id&gt;\nDelete an issue (with confirmation)\n\n\ncrosslink issue delete &lt;id&gt; -f\nDelete without confirmation",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#comments-and-labels",
+    "href": "reference/commands.html#comments-and-labels",
+    "title": "CLI reference",
+    "section": "Comments and labels",
+    "text": "Comments and labels\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink issue comment &lt;id&gt; \"text\"\nAdd a comment to an issue\n\n\ncrosslink issue intervene &lt;id&gt; \"desc\" --trigger &lt;type&gt;\nLog a driver intervention (tool_rejected, tool_blocked, redirect, context_provided, manual_action, question_answered)\n\n\ncrosslink issue label &lt;id&gt; &lt;label&gt;\nAdd a label\n\n\ncrosslink issue unlabel &lt;id&gt; &lt;label&gt;\nRemove a label",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#dependencies",
+    "href": "reference/commands.html#dependencies",
+    "title": "CLI reference",
+    "section": "Dependencies",
+    "text": "Dependencies\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink issue block &lt;id&gt; &lt;blocker_id&gt;\nMark issue as blocked by another\n\n\ncrosslink issue unblock &lt;id&gt; &lt;blocker_id&gt;\nRemove blocking relationship\n\n\ncrosslink issue blocked\nList all blocked issues\n\n\ncrosslink issue ready\nList issues ready to work on (no blockers)",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#related-issues",
+    "href": "reference/commands.html#related-issues",
+    "title": "CLI reference",
+    "section": "Related issues",
+    "text": "Related issues\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink issue relate &lt;id1&gt; &lt;id2&gt;\nLink two related issues\n\n\ncrosslink issue unrelate &lt;id1&gt; &lt;id2&gt;\nRemove relationship\n\n\ncrosslink issue related &lt;id&gt;\nList issues related to the given issue",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#milestones",
+    "href": "reference/commands.html#milestones",
+    "title": "CLI reference",
+    "section": "Milestones",
+    "text": "Milestones\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink milestone create &lt;name&gt;\nCreate a milestone\n\n\ncrosslink milestone create &lt;name&gt; -d \"desc\"\nCreate with description\n\n\ncrosslink milestone list\nList all milestones\n\n\ncrosslink milestone show &lt;id&gt;\nShow milestone details and progress\n\n\ncrosslink milestone add &lt;milestone_id&gt; &lt;issue_id&gt;\nAdd issue to milestone\n\n\ncrosslink milestone remove &lt;milestone_id&gt; &lt;issue_id&gt;\nRemove issue from milestone\n\n\ncrosslink milestone close &lt;id&gt;\nClose a milestone\n\n\ncrosslink milestone delete &lt;id&gt;\nDelete a milestone",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#archiving",
+    "href": "reference/commands.html#archiving",
+    "title": "CLI reference",
+    "section": "Archiving",
+    "text": "Archiving\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink archive add &lt;id&gt;\nArchive a closed issue\n\n\ncrosslink archive remove &lt;id&gt;\nRestore an archived issue\n\n\ncrosslink archive list\nList all archived issues\n\n\ncrosslink archive older &lt;days&gt;\nArchive issues closed more than N days ago",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#export-import",
+    "href": "reference/commands.html#export-import",
+    "title": "CLI reference",
+    "section": "Export / import",
+    "text": "Export / import\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink export\nExport all issues to JSON (stdout)\n\n\ncrosslink export -o backup.json\nExport to a file\n\n\ncrosslink export -f markdown\nExport as markdown\n\n\ncrosslink import backup.json\nImport issues from JSON",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#smart-navigation",
+    "href": "reference/commands.html#smart-navigation",
+    "title": "CLI reference",
+    "section": "Smart navigation",
+    "text": "Smart navigation\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink issue next\nRecommend the next issue to work on\n\n\ncrosslink issue tree\nShow issue hierarchy tree\n\n\ncrosslink issue tree -s open\nTree view filtered to open issues",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#time-tracking",
+    "href": "reference/commands.html#time-tracking",
+    "title": "CLI reference",
+    "section": "Time tracking",
+    "text": "Time tracking\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink start &lt;id&gt;\nStart a timer for an issue\n\n\ncrosslink stop\nStop the current timer\n\n\ncrosslink timer show\nShow current timer status\n\n\ncrosslink issue tested\nMark tests as run (resets test reminder)",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#session-management",
+    "href": "reference/commands.html#session-management",
+    "title": "CLI reference",
+    "section": "Session management",
+    "text": "Session management\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink session start\nStart a session (shows previous handoff)\n\n\ncrosslink session work &lt;id&gt;\nSet current focus issue\n\n\ncrosslink session action \"...\"\nRecord a breadcrumb (survives context compression)\n\n\ncrosslink session status\nShow current session info\n\n\ncrosslink session end\nEnd current session\n\n\ncrosslink session end --notes \"...\"\nEnd with handoff notes\n\n\ncrosslink session last-handoff\nRetrieve previous session’s handoff notes",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#multi-agent-coordination",
+    "href": "reference/commands.html#multi-agent-coordination",
+    "title": "CLI reference",
+    "section": "Multi-agent coordination",
+    "text": "Multi-agent coordination\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink agent init &lt;id&gt;\nRegister this machine as an agent\n\n\ncrosslink agent init &lt;id&gt; -d \"desc\"\nRegister with description\n\n\ncrosslink agent status\nShow agent identity and held locks\n\n\ncrosslink locks list\nShow all active issue locks\n\n\ncrosslink --json locks list\nLocks as JSON\n\n\ncrosslink locks check &lt;id&gt;\nCheck if issue is available or locked\n\n\ncrosslink sync\nFetch lock state from coordination branch",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#trust-and-signing",
+    "href": "reference/commands.html#trust-and-signing",
+    "title": "CLI reference",
+    "section": "Trust and signing",
+    "text": "Trust and signing\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink trust approve &lt;agent-id&gt;\nApprove an agent’s signing key\n\n\ncrosslink trust revoke &lt;agent-id&gt;\nRevoke an agent’s signing key\n\n\ncrosslink trust list\nList all trusted signers\n\n\ncrosslink trust pending\nShow agent keys awaiting approval\n\n\ncrosslink trust check &lt;agent-id&gt;\nCheck trust status of a specific agent",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#daemon",
+    "href": "reference/commands.html#daemon",
+    "title": "CLI reference",
+    "section": "Daemon",
+    "text": "Daemon\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink daemon start\nStart background daemon\n\n\ncrosslink daemon status\nCheck daemon status\n\n\ncrosslink daemon stop\nStop daemon",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#configuration",
+    "href": "reference/commands.html#configuration",
+    "title": "CLI reference",
+    "section": "Configuration",
+    "text": "Configuration\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink config show\nShow all configuration with default annotations\n\n\ncrosslink config get &lt;key&gt;\nGet a specific config value\n\n\ncrosslink config set &lt;key&gt; &lt;value&gt;\nSet a config value\n\n\ncrosslink config list\nList all available config keys with descriptions\n\n\ncrosslink config reset\nReset config to defaults\n\n\ncrosslink config diff\nShow differences from default config",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#knowledge-pages",
+    "href": "reference/commands.html#knowledge-pages",
+    "title": "CLI reference",
+    "section": "Knowledge pages",
+    "text": "Knowledge pages\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink knowledge add &lt;slug&gt;\nCreate a new knowledge page\n\n\ncrosslink knowledge add &lt;slug&gt; --title \"T\" --tag t --source url --content \"...\"\nCreate with metadata\n\n\ncrosslink knowledge add &lt;slug&gt; --from-doc DESIGN.md\nImport from a design document\n\n\ncrosslink knowledge show &lt;slug&gt;\nDisplay a knowledge page\n\n\ncrosslink knowledge list\nList all knowledge pages\n\n\ncrosslink knowledge list --tag t --contributor id --since DATE --json\nFilter and format\n\n\ncrosslink knowledge edit &lt;slug&gt; --append \"text\"\nAppend content to a page\n\n\ncrosslink knowledge edit &lt;slug&gt; --content \"text\"\nReplace page content\n\n\ncrosslink knowledge edit &lt;slug&gt; --replace-section &lt;heading&gt;\nReplace an entire section by heading\n\n\ncrosslink knowledge edit &lt;slug&gt; --append-to-section &lt;heading&gt;\nAppend content to a section\n\n\ncrosslink knowledge edit &lt;slug&gt; --tag t --source url\nAdd tags or sources\n\n\ncrosslink knowledge remove &lt;slug&gt;\nRemove a knowledge page\n\n\ncrosslink knowledge sync\nManually sync from remote\n\n\ncrosslink knowledge search &lt;query&gt;\nFull-text search across pages\n\n\ncrosslink knowledge search &lt;query&gt; -C 3 --tag t --since DATE\nSearch with filters\n\n\ncrosslink knowledge import &lt;directory&gt;\nBulk import markdown files\n\n\ncrosslink knowledge import &lt;dir&gt; --tag t --overwrite --dry-run\nImport with options",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#house-style",
+    "href": "reference/commands.html#house-style",
+    "title": "CLI reference",
+    "section": "House style",
+    "text": "House style\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink style set &lt;url&gt;\nSet the house style source (a git repo URL)\n\n\ncrosslink style sync\nPull latest from the house style source\n\n\ncrosslink style diff\nShow what’s drifted from house style\n\n\ncrosslink style show\nShow current house style configuration\n\n\ncrosslink style unset\nRemove house style association",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#workflow",
+    "href": "reference/commands.html#workflow",
+    "title": "CLI reference",
+    "section": "Workflow",
+    "text": "Workflow\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink workflow diff\nCompare deployed policy files against embedded defaults\n\n\ncrosslink workflow trail &lt;id&gt;\nShow chronological comment trail for an issue",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#code-clone-detection",
+    "href": "reference/commands.html#code-clone-detection",
+    "title": "CLI reference",
+    "section": "Code clone detection",
+    "text": "Code clone detection\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink cpitd scan\nScan for code clones and create issues\n\n\ncrosslink cpitd status\nShow open clone issues\n\n\ncrosslink cpitd clear\nClose all open clone issues",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#data-integrity",
+    "href": "reference/commands.html#data-integrity",
+    "title": "CLI reference",
+    "section": "Data integrity",
+    "text": "Data integrity\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink integrity\nRun all integrity checks\n\n\ncrosslink integrity counters\nCheck counter consistency\n\n\ncrosslink integrity hydration\nVerify SQLite matches JSON issue files\n\n\ncrosslink integrity locks\nCheck for stale or orphaned locks\n\n\ncrosslink integrity schema\nVerify SQLite schema version\n\n\ncrosslink compact\nRun event compaction manually\n\n\ncrosslink compact --force\nForce compaction even if lease is held by another agent",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#migration",
+    "href": "reference/commands.html#migration",
+    "title": "CLI reference",
+    "section": "Migration",
+    "text": "Migration\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink migrate to-shared\nMigrate local SQLite issues to shared coordination branch\n\n\ncrosslink migrate from-shared\nImport shared issues from coordination branch into local SQLite\n\n\ncrosslink migrate rename-branch\nRename coordination branch from crosslink/locks to crosslink/hub",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#kickoff",
+    "href": "reference/commands.html#kickoff",
+    "title": "CLI reference",
+    "section": "Kickoff",
+    "text": "Kickoff\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink kickoff run &lt;description&gt;\nLaunch an agent to implement a feature\n\n\ncrosslink kickoff run &lt;desc&gt; --container docker\nLaunch in a Docker container\n\n\ncrosslink kickoff run &lt;desc&gt; --verify ci\nLaunch with CI verification\n\n\ncrosslink kickoff run &lt;desc&gt; --doc DESIGN.md\nLaunch from a design document\n\n\ncrosslink kickoff run &lt;desc&gt; --timeout 2h --model opus\nWith timeout and model\n\n\ncrosslink kickoff run &lt;desc&gt; --dry-run\nPrint prompt without launching\n\n\ncrosslink kickoff list\nList active kickoff agents with worktree, tmux, and Docker discovery\n\n\ncrosslink kickoff list --status running\nFilter by status (running/done/failed/all)\n\n\ncrosslink kickoff cleanup\nRemove stale worktrees, tmux sessions, and Docker containers from previous runs\n\n\ncrosslink kickoff cleanup --dry-run\nPreview what would be removed\n\n\ncrosslink kickoff status &lt;agent&gt;\nCheck agent status\n\n\ncrosslink kickoff logs &lt;agent&gt;\nTail agent event log\n\n\ncrosslink kickoff logs &lt;agent&gt; -l 50\nShow last 50 events\n\n\ncrosslink kickoff stop &lt;agent&gt;\nStop a running agent\n\n\ncrosslink kickoff stop &lt;agent&gt; --force\nForce kill (SIGKILL)\n\n\ncrosslink kickoff plan &lt;doc&gt;\nAnalyze design doc against codebase (read-only)\n\n\ncrosslink kickoff show-plan &lt;agent&gt;\nDisplay gap report from a plan analysis\n\n\ncrosslink kickoff report [agent]\nShow spec validation report\n\n\ncrosslink kickoff report --all\nAggregate reports from all agents\n\n\ncrosslink kickoff report &lt;agent&gt; --json\nReport as JSON\n\n\ncrosslink kickoff report &lt;agent&gt; --markdown\nReport as PR-ready markdown",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#swarm-orchestration",
+    "href": "reference/commands.html#swarm-orchestration",
+    "title": "CLI reference",
+    "section": "Swarm orchestration",
+    "text": "Swarm orchestration\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink swarm init --doc &lt;PATH&gt;\nInitialize swarm plan from a design document\n\n\ncrosslink swarm status\nShow current swarm state and progress\n\n\ncrosslink swarm plan\nPlan multi-phase build across budget windows\n\n\ncrosslink swarm plan --budget-window 2h\nPlan with budget constraint\n\n\ncrosslink swarm plan-show\nDisplay the current window plan\n\n\ncrosslink swarm launch &lt;phase&gt;\nLaunch all agents for a phase\n\n\ncrosslink swarm launch &lt;phase&gt; --budget-aware\nLaunch with budget check\n\n\ncrosslink swarm gate &lt;phase&gt;\nRun test suite as phase gate\n\n\ncrosslink swarm checkpoint &lt;phase&gt; --notes \"...\"\nRecord phase completion\n\n\ncrosslink swarm checkpoint &lt;phase&gt; --force\nCheckpoint without passing gate\n\n\ncrosslink swarm estimate &lt;phase&gt;\nEstimate wall-clock cost for a phase\n\n\ncrosslink swarm harvest\nUpdate cost history from completed agents\n\n\ncrosslink swarm resume\nReconstruct state after interruption\n\n\ncrosslink swarm config --budget-window &lt;DUR&gt; --model &lt;MODEL&gt;\nConfigure budget parameters",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#container-execution",
+    "href": "reference/commands.html#container-execution",
+    "title": "CLI reference",
+    "section": "Container execution",
+    "text": "Container execution\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink container build\nBuild the agent container image\n\n\ncrosslink container build --force --tag v2\nRebuild from scratch with custom tag\n\n\ncrosslink container build --dockerfile PATH\nBuild with custom Dockerfile\n\n\ncrosslink container start &lt;worktree&gt;\nStart a container for a worktree\n\n\ncrosslink container start &lt;wt&gt; --issue 42 --prompt PATH\nStart with options\n\n\ncrosslink container ps\nList running containers\n\n\ncrosslink container logs &lt;name&gt;\nStream container logs\n\n\ncrosslink container logs &lt;name&gt; -f --tail 50\nFollow logs, last 50 lines\n\n\ncrosslink container stop &lt;name&gt;\nGracefully stop a container\n\n\ncrosslink container kill &lt;name&gt;\nStop and remove a container\n\n\ncrosslink container rm &lt;name&gt;\nRemove a stopped container\n\n\ncrosslink container shell &lt;name&gt;\nOpen a shell in a running container\n\n\ncrosslink container snapshot &lt;name&gt; --tag cached\nSave container state as image",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#history-pruning",
+    "href": "reference/commands.html#history-pruning",
+    "title": "CLI reference",
+    "section": "History pruning",
+    "text": "History pruning\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink prune\nPrune git history on coordination branches (interactive)\n\n\ncrosslink prune --force\nPrune without confirmation\n\n\ncrosslink prune --hub-only\nSquash only hub branch history\n\n\ncrosslink prune --knowledge-only\nSquash only knowledge branch history\n\n\ncrosslink prune --keep-commits 5\nPreserve last N commits (default: 1)\n\n\ncrosslink prune --dry-run\nShow what would be pruned without acting",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#web-dashboard",
+    "href": "reference/commands.html#web-dashboard",
+    "title": "CLI reference",
+    "section": "Web dashboard",
+    "text": "Web dashboard\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink serve\nStart the web dashboard HTTP server (default port: 3100)\n\n\ncrosslink serve --port &lt;port&gt;\nPort to listen on\n\n\ncrosslink serve --dashboard-dir &lt;path&gt;\nServe a custom React dashboard directory",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#terminal-ui",
+    "href": "reference/commands.html#terminal-ui",
+    "title": "CLI reference",
+    "section": "Terminal UI",
+    "text": "Terminal UI\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink tui\nLaunch the interactive terminal dashboard",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#context-management",
+    "href": "reference/commands.html#context-management",
+    "title": "CLI reference",
+    "section": "Context management",
+    "text": "Context management\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink context measure\nMeasure context injection sizes and token overhead\n\n\ncrosslink context measure -v\nVerbose measurement with hook config details\n\n\ncrosslink context check\nVerify all expected crosslink files are deployed",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  },
+  {
+    "objectID": "reference/commands.html#project-setup",
+    "href": "reference/commands.html#project-setup",
+    "title": "CLI reference",
+    "section": "Project setup",
+    "text": "Project setup\n\n\n\n\n\n\n\nCommand\nDescription\n\n\n\n\ncrosslink init\nInitialize crosslink in current project\n\n\ncrosslink init --force\nRe-initialize, resetting rules to defaults",
+    "crumbs": [
+      "Reference",
+      "CLI reference"
+    ]
+  }
+]

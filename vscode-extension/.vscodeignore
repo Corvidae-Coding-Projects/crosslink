@@ -1,0 +1,38 @@
+# Ignore everything by default
+*
+
+# Keep the compiled output
+!out/**
+
+# Keep the binaries folder (CRITICAL for sidecar)
+!bin/**
+
+# Keep package files
+!package.json
+
+# Keep license and readme
+!LICENSE
+!README.md
+
+# Keep images (icon)
+!images/**
+
+# Ignore source TypeScript (we ship compiled JS)
+src/**
+
+# Ignore development files
+.gitignore
+.eslintrc*
+tsconfig.json
+*.ts
+*.map
+
+# Ignore test files
+test/**
+**/*.test.js
+
+# Ignore node_modules (vsce handles this)
+node_modules/**
+
+# Ignore build scripts
+scripts/**
