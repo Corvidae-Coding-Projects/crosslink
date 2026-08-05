@@ -36,6 +36,16 @@ pub struct AppendOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchAppendOutcome {
+    pub writer_id: String,
+    pub first_sequence: u64,
+    pub last_sequence: u64,
+    pub records: u64,
+    pub old_commit: Option<String>,
+    pub new_commit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactionOutcome {
     pub writer_id: String,
     pub records: u64,
@@ -121,22 +131,60 @@ impl GitEventStore {
         self.append_with_abort(writer_id, json_line, AbortAfter::Never)
     }
 
+    /// Atomically append one or more JSON records to a writer stream.
+    ///
+    /// The complete batch is validated before any Git object is written. One
+    /// writer lock, one commit, and one compare-and-swap ref update publish the
+    /// entire batch, so readers observe either all records or none of them.
+    pub fn append_batch(
+        &self,
+        writer_id: &str,
+        json_lines: &[Vec<u8>],
+    ) -> Result<BatchAppendOutcome> {
+        let lines = json_lines.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        self.append_batch_with_abort(writer_id, &lines, AbortAfter::Never)
+    }
+
     fn append_with_abort(
         &self,
         writer_id: &str,
         json_line: &[u8],
         abort: AbortAfter,
     ) -> Result<AppendOutcome> {
+        let batch = self.append_batch_with_abort(writer_id, &[json_line], abort)?;
+        Ok(AppendOutcome {
+            writer_id: batch.writer_id,
+            sequence: batch.first_sequence,
+            old_commit: batch.old_commit,
+            new_commit: batch.new_commit,
+        })
+    }
+
+    fn append_batch_with_abort(
+        &self,
+        writer_id: &str,
+        json_lines: &[&[u8]],
+        abort: AbortAfter,
+    ) -> Result<BatchAppendOutcome> {
         validate_writer_id(writer_id)?;
-        validate_json_line(json_line)?;
+        ensure!(!json_lines.is_empty(), "append batch cannot be empty");
+        for json_line in json_lines {
+            validate_json_line(json_line)?;
+        }
         let _lock = self.lock_writer(writer_id)?;
         let ref_name = writer_ref(writer_id)?;
         let old_commit = git_rev_parse_optional(&self.repo, &ref_name)?;
         let mut bytes = self.read_log_at(old_commit.as_deref())?;
         let existing = parse_log(&bytes).context("existing writer stream is corrupt")?;
-        let sequence = u64::try_from(existing.len())? + 1;
-        bytes.extend_from_slice(trim_line_ending(json_line));
-        bytes.push(b'\n');
+        let first_sequence = u64::try_from(existing.len())? + 1;
+        let records = u64::try_from(json_lines.len())?;
+        let last_sequence = first_sequence
+            .checked_add(records - 1)
+            .context("writer sequence overflow")?;
+        for json_line in json_lines {
+            bytes.extend_from_slice(trim_line_ending(json_line));
+            bytes.push(b'\n');
+        }
 
         let blob = git_output(&self.repo, &["hash-object", "-w", "--stdin"], Some(&bytes))?;
         if abort == AbortAfter::HashObject {
@@ -151,16 +199,18 @@ impl GitEventStore {
             &self.repo,
             &tree,
             old_commit.as_deref(),
-            &format!("runtime event: writer {writer_id} seq {sequence}"),
+            &format!("runtime events: writer {writer_id} seq {first_sequence}-{last_sequence}"),
             writer_id,
         )?;
         if abort == AbortAfter::Commit {
             bail!("injected abort after commit-tree");
         }
         update_ref_cas(&self.repo, &ref_name, &commit, old_commit.as_deref())?;
-        Ok(AppendOutcome {
+        Ok(BatchAppendOutcome {
             writer_id: writer_id.to_owned(),
-            sequence,
+            first_sequence,
+            last_sequence,
+            records,
             old_commit,
             new_commit: commit,
         })
@@ -711,6 +761,80 @@ mod tests {
     }
 
     #[test]
+    fn batch_append_publishes_all_records_in_one_commit() {
+        let (_dir, store) = store();
+        let lines = (1..=100)
+            .map(|n| format!(r#"{{"n":{n}}}"#).into_bytes())
+            .collect::<Vec<_>>();
+        let outcome = store.append_batch("writer-one", &lines).unwrap();
+
+        assert_eq!(outcome.first_sequence, 1);
+        assert_eq!(outcome.last_sequence, 100);
+        assert_eq!(outcome.records, 100);
+        assert_eq!(store.read_writer("writer-one").unwrap(), lines);
+        let reference = writer_ref("writer-one").unwrap();
+        assert_eq!(
+            git_output(store.repo(), &["rev-list", "--count", &reference], None).unwrap(),
+            "1"
+        );
+    }
+
+    #[test]
+    fn invalid_record_rejects_entire_batch_without_moving_tip() {
+        let (_dir, store) = store();
+        store.append("writer-one", br#"{"n":0}"#).unwrap();
+        let before_tip = store.writer_tip("writer-one").unwrap();
+        let before_records = store.read_writer("writer-one").unwrap();
+        let lines = vec![
+            br#"{"n":1}"#.to_vec(),
+            b"not-json".to_vec(),
+            br#"{"n":2}"#.to_vec(),
+        ];
+
+        assert!(store.append_batch("writer-one", &lines).is_err());
+        assert_eq!(store.writer_tip("writer-one").unwrap(), before_tip);
+        assert_eq!(store.read_writer("writer-one").unwrap(), before_records);
+        assert!(store.append_batch("writer-one", &[]).is_err());
+    }
+
+    #[test]
+    fn concurrent_batches_are_serialized_without_partial_ranges() {
+        let (_dir, store) = store();
+        let store = Arc::new(store);
+        let barrier = Arc::new(Barrier::new(3));
+        let handles = (0..2)
+            .map(|batch| {
+                let store = Arc::clone(&store);
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    let lines = (0..8)
+                        .map(|n| format!(r#"{{"batch":{batch},"n":{n}}}"#).into_bytes())
+                        .collect::<Vec<_>>();
+                    barrier.wait();
+                    store.append_batch("writer-one", &lines).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+        let mut outcomes = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        outcomes.sort_by_key(|outcome| outcome.first_sequence);
+
+        assert_eq!(outcomes[0].first_sequence, 1);
+        assert_eq!(outcomes[0].last_sequence, 8);
+        assert_eq!(outcomes[1].first_sequence, 9);
+        assert_eq!(outcomes[1].last_sequence, 16);
+        assert_eq!(store.read_writer("writer-one").unwrap().len(), 16);
+        let reference = writer_ref("writer-one").unwrap();
+        assert_eq!(
+            git_output(store.repo(), &["rev-list", "--count", &reference], None).unwrap(),
+            "2"
+        );
+    }
+
+    #[test]
     fn same_writer_concurrency_is_serialized_without_loss() {
         let (_dir, store) = store();
         let store = Arc::new(store);
@@ -758,6 +882,23 @@ mod tests {
             assert!(store.read_writer("writer-one").unwrap().is_empty());
             let outcome = store.append("writer-one", br#"{"n":2}"#).unwrap();
             assert_eq!(outcome.sequence, 1);
+        }
+    }
+
+    #[test]
+    fn crash_before_ref_update_does_not_publish_batch() {
+        let lines = [br#"{"n":1}"#.as_slice(), br#"{"n":2}"#.as_slice()];
+        for abort in [AbortAfter::HashObject, AbortAfter::Tree, AbortAfter::Commit] {
+            let (_dir, store) = store();
+            assert!(store
+                .append_batch_with_abort("writer-one", &lines, abort)
+                .is_err());
+            assert!(store.writer_tip("writer-one").unwrap().is_none());
+            assert!(store.read_writer("writer-one").unwrap().is_empty());
+            let outcome = store
+                .append_batch_with_abort("writer-one", &lines, AbortAfter::Never)
+                .unwrap();
+            assert_eq!((outcome.first_sequence, outcome.last_sequence), (1, 2));
         }
     }
 
