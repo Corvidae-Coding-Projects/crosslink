@@ -36,6 +36,15 @@ pub struct AppendOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionOutcome {
+    pub writer_id: String,
+    pub records: u64,
+    pub log_sha256: String,
+    pub old_commit: String,
+    pub new_commit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredLine {
     pub writer_id: String,
     pub sequence: u64,
@@ -171,6 +180,42 @@ impl GitEventStore {
         let expected = self.writer_tip(writer_id)?;
         ensure!(expected.is_some(), "writer {writer_id} does not exist");
         parse_log(&self.read_log_at(Some(tip))?)
+    }
+
+    /// Replace one writer's commit ancestry with a parentless commit containing
+    /// the exact same append log. This compacts Git history without pruning any
+    /// audit record or changing writer sequences.
+    pub fn compact_writer_history(&self, writer_id: &str) -> Result<CompactionOutcome> {
+        validate_writer_id(writer_id)?;
+        let _lock = self.lock_writer(writer_id)?;
+        let ref_name = writer_ref(writer_id)?;
+        let old_commit = git_rev_parse_optional(&self.repo, &ref_name)?
+            .context("cannot compact a writer without records")?;
+        let bytes = self.read_log_at(Some(&old_commit))?;
+        let records = parse_log(&bytes)?;
+        ensure!(!records.is_empty(), "cannot compact an empty writer stream");
+        let blob = git_output(&self.repo, &["hash-object", "-w", "--stdin"], Some(&bytes))?;
+        let tree_input = format!("100644 blob {blob}\t{LOG_NAME}\n");
+        let tree = git_output(&self.repo, &["mktree"], Some(tree_input.as_bytes()))?;
+        let new_commit = commit_tree(
+            &self.repo,
+            &tree,
+            None,
+            &format!("compact runtime writer {writer_id}"),
+            writer_id,
+        )?;
+        update_ref_cas(&self.repo, &ref_name, &new_commit, Some(&old_commit))?;
+        ensure!(
+            self.read_log_at(Some(&new_commit))? == bytes,
+            "compacted writer bytes differ"
+        );
+        Ok(CompactionOutcome {
+            writer_id: writer_id.to_owned(),
+            records: u64::try_from(records.len())?,
+            log_sha256: sha256(&bytes),
+            old_commit,
+            new_commit,
+        })
     }
 
     pub fn list_writers(&self) -> Result<Vec<String>> {
@@ -806,6 +851,38 @@ mod tests {
         )
         .unwrap();
         assert!(GitEventStore::verify_export(export.path()).is_err());
+    }
+
+    #[test]
+    fn compaction_squashes_commit_ancestry_without_pruning_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = GitEventStore::open_or_init(directory.path().join("events.git")).unwrap();
+        for sequence in 1..=4 {
+            store
+                .append(
+                    "agent-one",
+                    format!(r#"{{"sequence":{sequence}}}"#).as_bytes(),
+                )
+                .unwrap();
+        }
+        let before = store.read_writer("agent-one").unwrap();
+        let reference = writer_ref("agent-one").unwrap();
+        assert_eq!(
+            git_output(store.repo(), &["rev-list", "--count", &reference], None).unwrap(),
+            "4"
+        );
+        let outcome = store.compact_writer_history("agent-one").unwrap();
+        assert_eq!(outcome.records, 4);
+        assert_ne!(outcome.old_commit, outcome.new_commit);
+        assert_eq!(store.read_writer("agent-one").unwrap(), before);
+        assert_eq!(
+            git_output(store.repo(), &["rev-list", "--count", &reference], None).unwrap(),
+            "1"
+        );
+        let appended = store.append("agent-one", br#"{"sequence":5}"#).unwrap();
+        assert_eq!(appended.sequence, 5);
+        assert_eq!(store.read_writer("agent-one").unwrap().len(), 5);
+        assert!(store.integrity().unwrap().valid);
     }
 
     #[test]
