@@ -8,7 +8,6 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-
   <text x="340.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Knowledge management</text>
   <text x="340.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">shared research pages synced via git</text>
   <text x="115" y="95" class="heading" font-size="16" fill="#000000" text-anchor="middle">Writers</text>

@@ -257,7 +257,7 @@ pub static REGISTRY: &[ConfigKey] = &[
     ConfigKey {
         key: "sentinel.escalation.enabled",
         config_type: ConfigType::Bool,
-        description: "Enable automatic Sonnet->Opus escalation on failure",
+        description: "Enable automatic standard-to-advanced model escalation on failure",
         group: ConfigGroup::Sentinel,
         hot_swappable: true,
     },

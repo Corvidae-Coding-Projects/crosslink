@@ -8,6 +8,16 @@ use super::plan::*;
 use super::prompt::*;
 use super::types::*;
 
+fn test_policy(timeout: Duration) -> crate::agents::ExecutionPolicy {
+    crate::agents::ExecutionPolicy {
+        approval: crate::agents::ApprovalPolicy::Interactive,
+        sandbox: crate::agents::SandboxPosture::WorkspaceWrite,
+        effort: None,
+        monetary_budget_usd: None,
+        timeout,
+    }
+}
+
 #[test]
 fn test_slugify_basic() {
     assert_eq!(slugify("add batch retry logic"), "add-batch-retry-logic");
@@ -102,6 +112,69 @@ fn test_parse_verify_level() {
 }
 
 #[test]
+fn execution_policy_maps_legacy_aliases_without_dropping_dials() {
+    let agent = crate::agents::ResolvedAgent {
+        provider: crate::agents::AgentProvider::Codex,
+        binary: "codex".into(),
+        options: crate::agents::ProviderOptions {
+            models: crate::agents::ProviderModels::default(),
+            sandbox: "workspace-write".into(),
+            approval: "interactive".into(),
+        },
+        legacy_inferred: false,
+    };
+    let timeout = Duration::from_secs(91);
+    let policy = resolve_execution_policy(
+        &agent,
+        Some("plan"),
+        false,
+        Some("high"),
+        Some("5"),
+        timeout,
+        None,
+    )
+    .unwrap();
+    assert_eq!(policy.approval, crate::agents::ApprovalPolicy::Interactive);
+    assert_eq!(policy.sandbox, crate::agents::SandboxPosture::ReadOnly);
+    assert_eq!(policy.effort.as_deref(), Some("high"));
+    assert_eq!(policy.monetary_budget_usd.as_deref(), Some("5"));
+    assert_eq!(policy.timeout, timeout);
+    let error = resolve_execution_policy(&agent, Some("auto"), true, None, None, timeout, None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cannot be combined"));
+}
+
+#[test]
+fn execution_policy_uses_provider_defaults_and_explicit_external_isolation() {
+    let agent = crate::agents::ResolvedAgent {
+        provider: crate::agents::AgentProvider::Codex,
+        binary: "codex".into(),
+        options: crate::agents::ProviderOptions {
+            models: crate::agents::ProviderModels::default(),
+            sandbox: "read-only".into(),
+            approval: "dont-ask".into(),
+        },
+        legacy_inferred: false,
+    };
+    let policy = resolve_execution_policy(
+        &agent,
+        None,
+        false,
+        None,
+        None,
+        Duration::from_secs(10),
+        Some(crate::agents::SandboxPosture::ExternalIsolation),
+    )
+    .unwrap();
+    assert_eq!(policy.approval, crate::agents::ApprovalPolicy::DontAsk);
+    assert_eq!(
+        policy.sandbox,
+        crate::agents::SandboxPosture::ExternalIsolation
+    );
+}
+
+#[test]
 fn test_tmux_session_name() {
     assert_eq!(
         tmux_session_name("XZ3j-81jF-add-batch-retry-logic"),
@@ -144,12 +217,8 @@ fn test_build_prompt_contains_essentials() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -181,12 +250,8 @@ fn test_build_prompt_ci_verification() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -215,12 +280,8 @@ fn test_build_prompt_thorough_verification() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -886,12 +947,8 @@ fn test_build_prompt_local_has_no_ci_or_adversarial() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -920,12 +977,8 @@ fn test_build_prompt_contains_blocked_actions() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -955,12 +1008,8 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -989,12 +1038,8 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -1035,12 +1080,8 @@ fn test_build_prompt_with_design_doc() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
 
@@ -1185,12 +1226,8 @@ fn test_build_prompt_with_design_doc_open_questions() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
 
@@ -1357,12 +1394,8 @@ fn test_build_prompt_with_criteria_includes_validation() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(prompt.contains("Spec Validation"));
@@ -1402,12 +1435,8 @@ fn test_build_prompt_without_criteria_no_validation() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(!prompt.contains("Spec Validation"));
@@ -1444,12 +1473,8 @@ fn test_build_prompt_validation_ordering() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     let test_pos = prompt.find("Run tests").expect("should have test section");
@@ -2210,42 +2235,6 @@ fn test_read_sandbox_command_not_configured() {
 }
 
 #[test]
-fn test_read_agent_binary_defaults_to_claude() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
-}
-
-#[test]
-fn test_read_agent_binary_configured() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("hook-config.json"),
-        r#"{"agent": {"binary": "opencode"}}"#,
-    )
-    .unwrap();
-    assert_eq!(crate::utils::read_agent_binary(dir.path()), "opencode");
-}
-
-#[test]
-fn test_read_agent_binary_empty_string_ignored() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("hook-config.json"),
-        r#"{"agent": {"binary": ""}}"#,
-    )
-    .unwrap();
-    assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
-}
-
-#[test]
-fn test_read_agent_binary_missing_file_defaults_to_claude() {
-    let dir = tempfile::tempdir().unwrap();
-
-    assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
-}
-
-#[test]
 fn test_read_sandbox_command_configured() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -2486,12 +2475,8 @@ fn test_build_prompt_contains_report_json_schema() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: Some("test.md"),
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -2535,12 +2520,8 @@ fn test_build_prompt_contains_validation_section() {
         quiet: false,
         design_doc: Some(&doc),
         doc_path: Some("test.md"),
-        skip_permissions: false,
-        permission_mode: None,
-        effort: None,
-        budget_usd: None,
+        policy: test_policy(Duration::from_secs(3600)),
         template: None,
-        agent_binary: "claude".to_string(),
     };
     let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
 
@@ -3186,6 +3167,9 @@ fn dialed_opts<'a>(
     effort: Option<&'a str>,
     budget: Option<&'a str>,
 ) -> KickoffOpts<'a> {
+    let mut policy = test_policy(Duration::from_secs(3600));
+    policy.effort = effort.map(str::to_string);
+    policy.monetary_budget_usd = budget.map(str::to_string);
     KickoffOpts {
         description: "add retry logic",
         issue: None,
@@ -3199,12 +3183,8 @@ fn dialed_opts<'a>(
         quiet: false,
         design_doc: None,
         doc_path: None,
-        skip_permissions: false,
-        permission_mode: None,
-        effort,
-        budget_usd: budget,
+        policy,
         template: None,
-        agent_binary: "claude".to_string(),
     }
 }
 

@@ -446,7 +446,8 @@ mod tests {
         assert!(dir.path().join(".claude/commands/workflow.md").exists());
         let content = fs::read_to_string(dir.path().join(".claude/commands/workflow.md")).unwrap();
         assert!(content.contains("hook registrations"));
-        assert!(content.contains("zero-byte"));
+        assert!(content.contains("active rule files"));
+        assert!(content.contains("zero bytes"));
     }
 
     #[test]

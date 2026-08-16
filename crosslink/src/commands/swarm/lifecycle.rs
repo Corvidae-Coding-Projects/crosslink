@@ -699,6 +699,17 @@ pub fn launch(
         let issue_id = phase.agents[*idx].issue_id;
         let branch = phase.agents[*idx].branch.clone();
 
+        let timeout = std::time::Duration::from_secs(3600);
+        let agent = crate::agents::resolve_agent(crosslink_dir)?;
+        let policy = kickoff::resolve_execution_policy(
+            &agent,
+            None,
+            false,
+            dials.effort.as_deref(),
+            dials.budget_usd.as_deref(),
+            timeout,
+            None,
+        )?;
         let opts = KickoffOpts {
             description: &description,
             issue: issue_id,
@@ -706,18 +717,14 @@ pub fn launch(
             verify: VerifyLevel::Local,
             model: &dials.model,
             image: kickoff::DEFAULT_AGENT_IMAGE,
-            timeout: std::time::Duration::from_secs(3600),
+            timeout,
             dry_run: false,
             branch: branch.as_deref(),
             quiet,
             design_doc: None,
             doc_path: None,
-            skip_permissions: false,
-            permission_mode: None,
-            effort: dials.effort.as_deref(),
-            budget_usd: dials.budget_usd.as_deref(),
+            policy,
             template: phase_template.as_deref(),
-            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {

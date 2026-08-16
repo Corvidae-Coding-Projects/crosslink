@@ -432,6 +432,17 @@ fn spawn_agent(
             .join("\n")
     );
 
+    let agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let policy = crate::commands::kickoff::resolve_execution_policy(
+        &agent,
+        None,
+        true,
+        None,
+        None,
+        scope.timeout,
+        None,
+    )?;
+
     let opts = KickoffOpts {
         description: &scoped_description,
         issue: Some(issue_id),
@@ -445,13 +456,8 @@ fn spawn_agent(
         quiet: true,
         design_doc: None,
         doc_path: None,
-        skip_permissions: true,
-        permission_mode: None,
-
-        effort: None,
-        budget_usd: None,
+        policy,
         template: None,
-        agent_binary: crate::utils::read_agent_binary(crosslink_dir),
     };
 
     run(crosslink_dir, db, writer, &opts)

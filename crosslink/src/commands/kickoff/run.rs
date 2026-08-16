@@ -37,13 +37,7 @@ pub fn run(
         &root,
         opts.model,
         &validation_tools,
-        opts.skip_permissions,
-        opts.permission_mode,
-        opts.effort,
-        opts.budget_usd,
-        opts.timeout,
-        false,
-        opts.container != ContainerMode::None,
+        &opts.policy,
     )?;
     let base_slug = slugify(opts.description);
     let slug = if base_slug.is_empty() {
@@ -126,7 +120,7 @@ pub fn run(
                     branch: &branch_name,
                     description: opts.description,
                     model: opts.model,
-                    effort: opts.effort,
+                    effort: opts.policy.effort.as_deref(),
                     doc_path: opts.doc_path,
                     allowed_tools: &allowed_tools,
                 };
@@ -219,14 +213,10 @@ pub fn run(
                 &session_name,
                 opts.model,
                 &allowed_tools,
-                opts.timeout,
                 preflight.timeout_cmd,
                 preflight.sandbox_command.as_deref(),
                 crosslink_dir,
-                opts.skip_permissions,
-                opts.permission_mode,
-                opts.effort,
-                opts.budget_usd,
+                &opts.policy,
             )?;
 
             let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
@@ -263,10 +253,7 @@ pub fn run(
                 &allowed_tools,
                 opts.timeout,
                 protected_doc_rel.as_deref(),
-                opts.skip_permissions,
-                opts.permission_mode,
-                opts.effort,
-                opts.budget_usd,
+                &opts.policy,
             )?;
 
             if opts.quiet {

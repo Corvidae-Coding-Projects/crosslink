@@ -309,7 +309,7 @@ The existing init and kickoff unit suites become provider matrices. New fixture 
 
 ## Implementation amendments
 
-The bundled Markdown rule surfaces remain installed and wired into `UserPromptSubmit`, `SubagentStart`, session restoration, kickoff guidance, manifest tracking, drift checks, and `rules.local` overrides. Every bundled file under `.crosslink/rules/` and `resources/crosslink/rules/` is intentionally zero bytes. Initialization and updates preserve those empty compatibility files instead of deleting the loader or treating emptiness as damage.
+The bundled Markdown rule surfaces remain installed and wired into `UserPromptSubmit`, `SubagentStart`, session restoration, kickoff guidance, manifest tracking, drift checks, and `rules.local` overrides. Every bundled file under `.crosslink/rules/` and `resources/crosslink/rules/` is intentionally zero bytes. Initialization and updates preserve the active rule files and every loader connection while changing only their bundled contents to empty files.
 
 The native-web boundary is implemented by a fixed pre-web notice and provider context hooks. It performs no network request, page download, content rewrite, keyword filter, bot-detector workaround, or API-key exchange. The retired safe-fetch server, dependency, registration, sanitization data, and Anthropic trigger are absent.
 

@@ -156,13 +156,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         &root,
         opts.model,
         &validation_tools,
-        opts.skip_permissions,
-        opts.permission_mode,
-        opts.effort,
-        opts.budget_usd,
-        opts.timeout,
-        true,
-        false,
+        &opts.policy,
     )?;
     let title_slug = if opts.doc.title.is_empty() {
         "analysis".to_string()
@@ -190,7 +184,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
                 branch: "",
                 description: "",
                 model: opts.model,
-                effort: opts.effort,
+                effort: opts.policy.effort.as_deref(),
                 doc_path: opts.doc_path.and_then(|p| p.to_str()),
                 allowed_tools: "",
             };
@@ -228,8 +222,8 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         timeout_secs: opts.timeout.as_secs(),
         provider: Some(validation_agent.provider.to_string()),
         model: validation_agent.resolve_model(Some(opts.model)),
-        effort: opts.effort.map(ToOwned::to_owned),
-        budget_usd: opts.budget_usd.map(ToOwned::to_owned),
+        effort: opts.policy.effort.clone(),
+        budget_usd: opts.policy.monetary_budget_usd.clone(),
     };
     std::fs::write(
         worktree_dir.join(".kickoff-metadata.json"),
@@ -266,13 +260,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         "PLAN_KICKOFF.md",
         preflight.sandbox_command.as_deref(),
         &worktree_dir,
-        opts.skip_permissions,
-        opts.permission_mode,
-        opts.effort,
-        opts.budget_usd,
-        opts.timeout,
-        true,
-        false,
+        &opts.policy,
     )?;
 
     let output = Command::new("tmux")

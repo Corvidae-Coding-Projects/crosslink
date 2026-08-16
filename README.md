@@ -224,7 +224,7 @@ serve` for new work.
 - **Driver intervention tracking** — `crosslink issue intervene` logs human corrections for agent improvement
 - **Typed comments** — Comments carry `kind` (plan, decision, observation, blocker, resolution, result)
 - **Clock skew detection** — Uses git commit timestamps as witness to detect time drift
-- **Agent asset measurement** — `crosslink context` reports installed hooks, skills, references, and compatibility files
+- **Agent asset measurement** — `crosslink context` reports installed hooks, skills, references, and rule-loader inputs
 - **Lazy auto-hydration** — Local database auto-refreshes when the hub branch moves, no manual sync needed
 - **Config presets** — `--team` and `--solo` presets for quick setup; layered config with local overrides
 - **Configurable git remote** — Use any remote for hub/knowledge branches, not just `origin`
