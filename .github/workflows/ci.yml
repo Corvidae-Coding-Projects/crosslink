@@ -87,7 +87,11 @@ jobs:
     needs: lint
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # The native Windows runner needs over 60 minutes for the complete unit,
+    # integration, and provider-hook suite. Keep enough headroom for runner
+    # variance so the job reports test results instead of infrastructure
+    # cancellation.
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: crosslink
