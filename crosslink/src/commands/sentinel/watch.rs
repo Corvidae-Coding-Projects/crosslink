@@ -476,13 +476,12 @@ fn is_process_running(pid: u32) -> bool {
 #[cfg(windows)]
 fn is_process_running(pid: u32) -> bool {
     Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()
-        .map(|output| {
+        .is_ok_and(|output| {
             let stdout = String::from_utf8_lossy(&output.stdout);
             stdout.contains(&pid.to_string())
         })
-        .unwrap_or(false)
 }
 
 #[cfg(not(windows))]

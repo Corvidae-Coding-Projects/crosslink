@@ -356,22 +356,21 @@ mod tests {
     }
 
     /// Return a native executable that is guaranteed to exist on the current
-    /// test host and exits successfully after writing output. Using the test
-    /// binary itself avoids conflating PTY behavior with `cmd.exe`/`sh`
-    /// command-line parsing.
-    fn native_test_command() -> (String, Vec<String>) {
-        (
-            std::env::current_exe()
-                .expect("resolve current test executable")
-                .to_string_lossy()
-                .into_owned(),
-            vec!["--help".to_string()],
-        )
+    /// test host and exits successfully after writing the current identity.
+    /// It needs no shell or arguments, which keeps the test focused on PTY
+    /// lifecycle behavior across Unix PTYs and Windows ConPTY.
+    fn identity_test_command() -> (String, Vec<String>) {
+        let command = if cfg!(target_os = "windows") {
+            "whoami.exe"
+        } else {
+            "whoami"
+        };
+        (command.to_string(), Vec::new())
     }
 
     #[tokio::test]
     async fn test_spawn_echo_completes_with_exit_zero() {
-        let (command, args) = native_test_command();
+        let (command, args) = identity_test_command();
         let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
         answer_windows_cursor_position_query(&session);
 
@@ -387,7 +386,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe_returns_replay_after_output() {
-        let (command, args) = native_test_command();
+        let (command, args) = identity_test_command();
+        let expected = std::process::Command::new(&command)
+            .output()
+            .expect("run identity command directly");
+        assert!(expected.status.success(), "identity command must succeed");
+        let expected = String::from_utf8_lossy(&expected.stdout)
+            .trim()
+            .to_ascii_lowercase();
+        assert!(!expected.is_empty(), "identity command must write output");
+
         let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
         answer_windows_cursor_position_query(&session);
 
@@ -395,13 +403,16 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let (_rx, snapshot) = session.subscribe();
         let s = String::from_utf8_lossy(&snapshot);
-        assert!(s.contains("Usage:"), "got: {s:?}");
+        assert!(
+            s.to_ascii_lowercase().contains(&expected),
+            "expected identity {expected:?}, got: {s:?}"
+        );
     }
 
     #[tokio::test]
     async fn test_session_registry_insert_get_remove() {
         let reg = SessionRegistry::new();
-        let (command, args) = native_test_command();
+        let (command, args) = identity_test_command();
         let s = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn");
         answer_windows_cursor_position_query(&s);
         let id = s.id.clone();
