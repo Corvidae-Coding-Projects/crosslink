@@ -261,9 +261,7 @@ pub fn spawn_pty(
 
     let tx_for_reader = tx.clone();
     let replay_for_reader = Arc::clone(&replay);
-    let exit_code_for_reader = Arc::clone(&exit_code);
-    let exit_notify_for_reader = Arc::clone(&exit_notify);
-
+    let (exit_ready_tx, exit_ready_rx) = std::sync::mpsc::sync_channel::<()>(0);
     // Reader runs on a blocking-friendly worker because portable_pty
     // gives us a sync Read. Copy each chunk into the replay buffer
     // and broadcast to subscribers.
@@ -286,21 +284,38 @@ pub fn spawn_pty(
             // Best effort: if no subscribers, send returns Err — fine.
             let _ = tx_for_reader.send(chunk);
         }
-        // Reader returned EOF — wait for the child to actually exit
-        // so we record the right code.
-        let code = child.wait().map_or(-1, |status| status.exit_code() as i32);
-        if let Ok(mut g) = exit_code_for_reader.lock() {
-            *g = Some(code);
-        }
-        exit_notify_for_reader.notify_waiters();
-        // Send a final empty chunk so any client polling the channel
-        // wakes up; ServerFrame::Exit is rendered separately.
+        // The child waiter closes the master after recording the exit code.
+        // Once that makes the reader reach EOF, wake clients with a sentinel;
+        // ServerFrame::Exit is rendered separately.
+        let _ = exit_ready_rx.recv();
         let _ = tx_for_reader.send(Vec::new());
     });
 
-    // Convert the join handle to a Tokio JoinHandle of () for storage.
+    let master = Arc::new(Mutex::new(Some(pair.master)));
+    let master_for_waiter = Arc::clone(&master);
+    let exit_code_for_waiter = Arc::clone(&exit_code);
+    let exit_notify_for_waiter = Arc::clone(&exit_notify);
+
+    // Wait for the child independently from output EOF. ConPTY keeps its
+    // output pipe open for as long as the pseudoconsole master exists, so
+    // waiting for EOF before calling child.wait() deadlocks exit detection on
+    // Windows. Record the child status first, then close the master so ConPTY
+    // flushes its remaining output and lets the reader deliver the sentinel.
+    let waiter_handle = tokio::task::spawn_blocking(move || {
+        let code = child.wait().map_or(-1, |status| status.exit_code() as i32);
+        if let Ok(mut g) = exit_code_for_waiter.lock() {
+            *g = Some(code);
+        }
+        if let Ok(mut g) = master_for_waiter.lock() {
+            *g = None;
+        }
+        exit_notify_for_waiter.notify_waiters();
+        let _ = exit_ready_tx.send(());
+    });
+
+    // Convert both blocking handles to one Tokio JoinHandle for storage.
     let reader_handle: JoinHandle<()> = tokio::spawn(async move {
-        let _ = reader_handle.await;
+        let _ = tokio::join!(reader_handle, waiter_handle);
     });
 
     Ok(Arc::new(PtySession {
@@ -308,7 +323,7 @@ pub fn spawn_pty(
         project_slug: cwd.to_string_lossy().into_owned(),
         command: command.to_string(),
         started_at,
-        master: Arc::new(Mutex::new(Some(pair.master))),
+        master,
         broadcaster: tx,
         replay,
         exit_code,
@@ -399,14 +414,22 @@ mod tests {
         let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
         answer_windows_cursor_position_query(&session);
 
-        // Give the reader thread time to drain.
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        let (_rx, snapshot) = session.subscribe();
-        let s = String::from_utf8_lossy(&snapshot);
-        assert!(
-            s.to_ascii_lowercase().contains(&expected),
-            "expected identity {expected:?}, got: {s:?}"
-        );
+        // ConPTY initialization can take substantially longer than Unix PTY
+        // startup on shared CI runners. Poll for the actual output rather than
+        // coupling the assertion to a fixed scheduling delay.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let (_rx, snapshot) = session.subscribe();
+            let s = String::from_utf8_lossy(&snapshot);
+            if s.to_ascii_lowercase().contains(&expected) {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "expected identity {expected:?}, got: {s:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
     }
 
     #[tokio::test]
