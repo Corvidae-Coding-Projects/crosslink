@@ -74,10 +74,12 @@ pub struct PtySession {
     pub project_slug: String,
     pub command: String,
     pub started_at: String,
-    /// Master end of the PTY. Wrapped in `Mutex<Option<...>>` so the
-    /// reader thread can take ownership of the read half while the
-    /// write half stays accessible from request handlers.
+    /// Master/control end of the PTY, retained for resize and lifecycle.
     master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
+    /// Persistent PTY input writer. `MasterPty::take_writer` is one-shot and
+    /// dropping the returned handle sends EOF, so request handlers must share
+    /// this handle instead of taking a new writer for each input frame.
+    writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
     /// Broadcast channel for stdout bytes — every connected WS gets a
     /// receiver. Replay buffer is filled from the same producer.
     broadcaster: broadcast::Sender<Vec<u8>>,
@@ -108,20 +110,19 @@ impl PtySession {
         (receiver, snapshot)
     }
 
-    /// Forward stdin bytes to the PTY. Returns an error if the master
-    /// has already been closed (process exited).
+    /// Forward stdin bytes to the PTY. Returns an error if its persistent
+    /// input writer has already been closed (process exited).
     ///
     /// # Errors
     /// Returns an error if the master end is unavailable or write fails.
     pub fn write_stdin(&self, data: &[u8]) -> Result<()> {
         let mut guard = self
-            .master
+            .writer
             .lock()
-            .map_err(|_| anyhow::anyhow!("pty master mutex poisoned"))?;
-        let master = guard
+            .map_err(|_| anyhow::anyhow!("pty writer mutex poisoned"))?;
+        let writer = guard
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("pty already closed"))?;
-        let mut writer = master.take_writer().context("take pty writer")?;
         writer.write_all(data).context("write to pty")?;
         Ok(())
     }
@@ -156,6 +157,9 @@ impl Drop for PtySession {
             if let Some(h) = g.take() {
                 h.abort();
             }
+        }
+        if let Ok(mut g) = self.writer.lock() {
+            *g = None;
         }
         // Dropping the master closes the PTY (kills the child).
         if let Ok(mut g) = self.master.lock() {
@@ -258,6 +262,7 @@ pub fn spawn_pty(
     // Take a clone of the master we can read from in the background
     // thread. portable_pty exposes try_clone_reader for exactly this.
     let mut reader = pair.master.try_clone_reader().context("clone pty reader")?;
+    let writer = pair.master.take_writer().context("take pty writer")?;
 
     let tx_for_reader = tx.clone();
     let replay_for_reader = Arc::clone(&replay);
@@ -292,7 +297,9 @@ pub fn spawn_pty(
     });
 
     let master = Arc::new(Mutex::new(Some(pair.master)));
+    let writer = Arc::new(Mutex::new(Some(writer)));
     let master_for_waiter = Arc::clone(&master);
+    let writer_for_waiter = Arc::clone(&writer);
     let exit_code_for_waiter = Arc::clone(&exit_code);
     let exit_notify_for_waiter = Arc::clone(&exit_notify);
 
@@ -305,6 +312,9 @@ pub fn spawn_pty(
         let code = child.wait().map_or(-1, |status| status.exit_code() as i32);
         if let Ok(mut g) = exit_code_for_waiter.lock() {
             *g = Some(code);
+        }
+        if let Ok(mut g) = writer_for_waiter.lock() {
+            *g = None;
         }
         if let Ok(mut g) = master_for_waiter.lock() {
             *g = None;
@@ -324,6 +334,7 @@ pub fn spawn_pty(
         command: command.to_string(),
         started_at,
         master,
+        writer,
         broadcaster: tx,
         replay,
         exit_code,
