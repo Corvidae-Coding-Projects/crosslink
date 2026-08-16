@@ -156,21 +156,18 @@ pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> Stri
     flags
 }
 
-#[derive(Clone, Copy)]
-struct ExecutionPolicyOptions<'a> {
-    permission_mode: Option<&'a str>,
-    skip_permissions: bool,
-    read_only: bool,
-    externally_isolated: bool,
-    effort: Option<&'a str>,
-    budget_usd: Option<&'a str>,
-    timeout: Duration,
-}
-
-fn execution_policy(
+pub(crate) fn resolve_execution_policy(
     agent: &ResolvedAgent,
-    options: ExecutionPolicyOptions<'_>,
+    permission_mode: Option<&str>,
+    skip_permissions: bool,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
+    timeout: Duration,
+    sandbox_override: Option<SandboxPosture>,
 ) -> Result<ExecutionPolicy> {
+    if skip_permissions && permission_mode.is_some_and(|mode| !mode.is_empty()) {
+        bail!("--skip-permissions cannot be combined with --permission-mode");
+    }
     let configured_sandbox = match agent.options.sandbox.as_str() {
         "read-only" => SandboxPosture::ReadOnly,
         "workspace-write" => SandboxPosture::WorkspaceWrite,
@@ -178,14 +175,8 @@ fn execution_policy(
             "Unsupported configured agent sandbox '{other}'; expected read-only or workspace-write"
         ),
     };
-    let mut sandbox = if options.externally_isolated {
-        SandboxPosture::ExternalIsolation
-    } else if options.read_only {
-        SandboxPosture::ReadOnly
-    } else {
-        configured_sandbox
-    };
-    let approval = match options.permission_mode.filter(|mode| !mode.is_empty()) {
+    let mut sandbox = sandbox_override.unwrap_or(configured_sandbox);
+    let approval = match permission_mode.filter(|mode| !mode.is_empty()) {
         Some("acceptEdits") => ApprovalPolicy::AutoReview,
         Some("auto") => ApprovalPolicy::Automatic,
         Some("bypassPermissions") => ApprovalPolicy::Never,
@@ -198,7 +189,7 @@ fn execution_policy(
         Some(mode) => bail!(
             "Unsupported --permission-mode '{mode}'; expected acceptEdits, auto, bypassPermissions, default, dontAsk, or plan"
         ),
-        None if options.skip_permissions => ApprovalPolicy::Never,
+        None if skip_permissions => ApprovalPolicy::Never,
         None => match agent.options.approval.as_str() {
             "interactive" | "on-request" => ApprovalPolicy::Interactive,
             "never" => ApprovalPolicy::Never,
@@ -211,15 +202,11 @@ fn execution_policy(
     Ok(ExecutionPolicy {
         approval,
         sandbox,
-        effort: options
-            .effort
+        effort: effort.filter(|value| !value.is_empty()).map(str::to_string),
+        monetary_budget_usd: budget_usd
             .filter(|value| !value.is_empty())
             .map(str::to_string),
-        monetary_budget_usd: options
-            .budget_usd
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
-        timeout: options.timeout,
+        timeout,
     })
 }
 
@@ -229,26 +216,8 @@ pub(super) fn validate_agent_request(
     cwd: &Path,
     model: &str,
     allowed_tools: &str,
-    skip_permissions: bool,
-    permission_mode: Option<&str>,
-    effort: Option<&str>,
-    budget_usd: Option<&str>,
-    timeout: Duration,
-    read_only: bool,
-    externally_isolated: bool,
+    policy: &ExecutionPolicy,
 ) -> Result<()> {
-    let policy = execution_policy(
-        agent,
-        ExecutionPolicyOptions {
-            permission_mode,
-            skip_permissions,
-            read_only,
-            externally_isolated,
-            effort,
-            budget_usd,
-            timeout,
-        },
-    )?;
     let model = agent.resolve_model(Some(model));
     build_invocation(
         agent,
@@ -257,7 +226,7 @@ pub(super) fn validate_agent_request(
             prompt_file: Path::new("KICKOFF.md"),
             model: model.as_deref(),
             allowed_tools: Some(allowed_tools),
-            policy,
+            policy: policy.clone(),
             output: OutputProtocol::JsonLines,
             verified_hook_trust: false,
             claude_config_dir: None,
@@ -275,26 +244,8 @@ pub(super) fn build_resolved_agent_command(
     kickoff_file: &str,
     sandbox_command: Option<&str>,
     worktree_dir: &Path,
-    skip_permissions: bool,
-    permission_mode: Option<&str>,
-    effort: Option<&str>,
-    budget_usd: Option<&str>,
-    timeout: Duration,
-    read_only: bool,
-    externally_isolated: bool,
+    policy: &ExecutionPolicy,
 ) -> Result<String> {
-    let policy = execution_policy(
-        agent,
-        ExecutionPolicyOptions {
-            permission_mode,
-            skip_permissions,
-            read_only,
-            externally_isolated,
-            effort,
-            budget_usd,
-            timeout,
-        },
-    )?;
     let verified_hook_trust = agent.provider == AgentProvider::Codex
         && crate::commands::init::codex_hook_trust_ready(worktree_dir)?;
     if agent.provider == AgentProvider::Codex && !verified_hook_trust {
@@ -313,7 +264,7 @@ pub(super) fn build_resolved_agent_command(
             prompt_file: Path::new(kickoff_file),
             model: model.as_deref(),
             allowed_tools: Some(allowed_tools),
-            policy,
+            policy: policy.clone(),
             output: OutputProtocol::JsonLines,
             verified_hook_trust,
             claude_config_dir: claude_config_dir.as_deref(),
@@ -329,7 +280,7 @@ pub(super) fn build_resolved_agent_command(
     }
     let mut launch = render_shell_command(&invocation, timeout_cmd);
     if let Some(command) = sandbox_command {
-        let prefix = format!("{timeout_cmd} {}s ", timeout.as_secs());
+        let prefix = format!("{timeout_cmd} {}s ", policy.timeout.as_secs());
         let escaped_worktree = crate::utils::shell_escape_path(worktree_dir);
         let wrapper = command.replace("{{worktree}}", &escaped_worktree);
         launch = launch.replacen(&prefix, &format!("{prefix}{wrapper} "), 1);
@@ -756,14 +707,10 @@ pub(super) fn launch_local(
     session_name: &str,
     model: &str,
     allowed_tools: &str,
-    timeout: Duration,
     timeout_cmd: &str,
     sandbox_command: Option<&str>,
     crosslink_dir: &Path,
-    skip_permissions: bool,
-    permission_mode: Option<&str>,
-    effort: Option<&str>,
-    budget_usd: Option<&str>,
+    policy: &ExecutionPolicy,
 ) -> Result<()> {
     std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
         .context("Failed to create provider runtime log directory")?;
@@ -793,13 +740,7 @@ pub(super) fn launch_local(
         "KICKOFF.md",
         sandbox_command,
         worktree_dir,
-        skip_permissions,
-        permission_mode,
-        effort,
-        budget_usd,
-        timeout,
-        false,
-        false,
+        policy,
     )?;
 
     std::fs::write(worktree_dir.join(".kickoff-status"), "LAUNCHING\n")
@@ -840,10 +781,7 @@ pub(super) fn launch_container(
     allowed_tools: &str,
     timeout: Duration,
     protected_doc_rel: Option<&Path>,
-    skip_permissions: bool,
-    permission_mode: Option<&str>,
-    effort: Option<&str>,
-    budget_usd: Option<&str>,
+    policy: &ExecutionPolicy,
 ) -> Result<String> {
     std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
         .context("Failed to create provider runtime log directory")?;
@@ -893,6 +831,8 @@ pub(super) fn launch_container(
         format!("{credential_volume}:/home/agent/.{}", agent.provider),
         "-e".to_string(),
         format!("CROSSLINK_AGENT_PROVIDER={}", agent.provider),
+        "-e".to_string(),
+        "CROSSLINK_REQUIRE_LOGIN=1".to_string(),
     ]);
 
     let host_git_dir = host_repo_root.join(".git");
@@ -941,13 +881,7 @@ pub(super) fn launch_container(
         "KICKOFF.md",
         None,
         Path::new("/workspaces/repo"),
-        skip_permissions,
-        permission_mode,
-        effort,
-        budget_usd,
-        timeout,
-        false,
-        true,
+        policy,
     )?;
     args.push(image.to_string());
     args.push("bash".to_string());

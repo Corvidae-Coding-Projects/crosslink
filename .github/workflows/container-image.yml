@@ -273,6 +273,32 @@ jobs:
             exit 1
           fi
 
+      - name: Verify isolated account volumes and redacted status
+        run: |
+          set -euo pipefail
+          for provider in claude codex; do
+            volume="crosslink-pr-auth-${provider}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            docker volume create "$volume" >/dev/null
+            docker run --rm -v "$volume:/home/agent/.${provider}" --entrypoint sh crosslink-agent:pr-smoke -c 'printf refreshed > "$1/session-state"' sh "/home/agent/.${provider}"
+            state="$(docker run --rm -v "$volume:/home/agent/.${provider}" --entrypoint sh crosslink-agent:pr-smoke -c 'cat "$1/session-state"' sh "/home/agent/.${provider}")"
+            test "$state" = refreshed
+            if [ "$provider" = codex ]; then
+              status_command='codex login status'
+            else
+              status_command='claude auth status'
+            fi
+            status="$(docker run --rm -v "$volume:/home/agent/.${provider}" crosslink-agent:pr-smoke sh -c "$status_command" 2>&1 || true)"
+            if printf '%s' "$status" | grep -E 'sk-[A-Za-z0-9]|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY'; then
+              echo 'Provider status exposed key-shaped account data.' >&2
+              exit 1
+            fi
+            docker volume rm "$volume" >/dev/null
+            if docker volume inspect "$volume" >/dev/null 2>&1; then
+              echo "Provider volume was not removed: $volume" >&2
+              exit 1
+            fi
+          done
+
 
 
 

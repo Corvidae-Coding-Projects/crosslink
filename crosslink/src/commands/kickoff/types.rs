@@ -66,8 +66,8 @@ impl KickoffMetadata {
             timeout_secs: opts.timeout.as_secs(),
             provider: None,
             model: Some(opts.model.to_string()),
-            effort: opts.effort.map(ToString::to_string),
-            budget_usd: opts.budget_usd.map(ToString::to_string),
+            effort: opts.policy.effort.clone(),
+            budget_usd: opts.policy.monetary_budget_usd.clone(),
         }
     }
 }
@@ -92,18 +92,9 @@ pub struct KickoffOpts<'a> {
     pub quiet: bool,
     pub design_doc: Option<&'a super::super::design_doc::DesignDoc>,
     pub doc_path: Option<&'a str>,
-    pub skip_permissions: bool,
-
-    pub permission_mode: Option<&'a str>,
-
-    pub effort: Option<&'a str>,
-
-    pub budget_usd: Option<&'a str>,
+    pub policy: crate::agents::ExecutionPolicy,
 
     pub template: Option<&'a Path>,
-
-    #[allow(dead_code)]
-    pub agent_binary: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -213,18 +204,9 @@ pub struct PlanOpts<'a> {
     pub issue: Option<i64>,
     pub quiet: bool,
 
-    pub skip_permissions: bool,
-
-    pub permission_mode: Option<&'a str>,
-
-    pub effort: Option<&'a str>,
-
-    pub budget_usd: Option<&'a str>,
+    pub policy: crate::agents::ExecutionPolicy,
 
     pub template: Option<&'a Path>,
-
-    #[allow(dead_code)]
-    pub agent_binary: String,
 }
 
 pub(crate) struct ProjectConventions {

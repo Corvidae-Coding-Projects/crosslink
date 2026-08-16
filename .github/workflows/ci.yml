@@ -87,7 +87,7 @@ jobs:
     needs: lint
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: crosslink
@@ -118,21 +118,32 @@ jobs:
       - name: Build
         run: cargo build --locked --verbose
 
-      - name: Run Windows PTY regression tests
-        if: matrix.os == 'windows-latest'
-        run: cargo test --bin crosslink --verbose dashboard::pty::tests -- --nocapture
-
-      - name: Run Windows CLI stack regression
-        if: matrix.os == 'windows-latest'
-        run: cargo test --test cli_integration --verbose test_init_creates_crosslink_directory -- --exact --nocapture
-
       - name: Run unit tests (with proptests, Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --bin crosslink --verbose
 
-      - name: Run unit tests (skip proptests, macOS/Windows)
-        if: matrix.os != 'ubuntu-latest'
+      - name: Run unit tests (skip proptests, macOS)
+        if: matrix.os == 'macos-latest'
         run: cargo test --bin crosslink --verbose -- --skip proptest --skip prop_
+
+      - name: Run platform and provider unit tests (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $filters = @(
+            "agents::",
+            "commands::container::",
+            "commands::design_cmd::",
+            "commands::doctor::",
+            "commands::init::",
+            "commands::kickoff::",
+            "dashboard::pty::tests",
+            "git_compat::",
+            "orchestrator::decompose::"
+          )
+          foreach ($filter in $filters) {
+            cargo test --bin crosslink --verbose $filter -- --skip proptest --skip prop_
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Run integration tests
         run: cargo test --test cli_integration --verbose

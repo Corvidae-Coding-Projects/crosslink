@@ -108,7 +108,7 @@ crosslink issue intervene <issue-id> "Hook blocked git push attempt" \
 
 ## Context verification
 
-Verify the deployed provider assets and compatibility files:
+Verify the deployed provider assets and active rule files:
 
 ```bash
 crosslink context check    # verify all files exist and are valid

@@ -534,6 +534,101 @@ fn prompt_and_subagent_context_carry_the_provenance_boundary() {
 }
 
 #[test]
+fn prompt_guard_keeps_managed_and_local_rule_inputs_wired() {
+    let cwd = tempfile::tempdir().unwrap();
+    install_recording_crosslink(cwd.path());
+    std::fs::write(
+        cwd.path().join(".crosslink/rules/global.md"),
+        "managed rule input remains connected\n",
+    )
+    .unwrap();
+    let payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "managed-rule-session",
+        "turn_id": "managed-rule-turn",
+        "cwd": cwd.path(),
+    });
+    let managed = run_hook(
+        "prompt-guard.py",
+        &serde_json::to_vec(&payload).unwrap(),
+        cwd.path(),
+        "codex",
+    );
+    assert!(managed.status.success());
+    let managed_json: Value = serde_json::from_slice(&managed.stdout).unwrap();
+    assert!(managed_json["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains("managed rule input remains connected"));
+
+    std::fs::remove_file(cwd.path().join(".crosslink/.cache/guard-full-sent")).unwrap();
+    std::fs::create_dir_all(cwd.path().join(".crosslink/rules.local")).unwrap();
+    std::fs::write(
+        cwd.path().join(".crosslink/rules.local/global.md"),
+        "local rule input overrides managed content\n",
+    )
+    .unwrap();
+    let local_payload = serde_json::json!({
+        "hook_event_name": "SubagentStart",
+        "session_id": "local-rule-session",
+        "turn_id": "local-rule-turn",
+        "cwd": cwd.path(),
+    });
+    let local = run_hook(
+        "prompt-guard.py",
+        &serde_json::to_vec(&local_payload).unwrap(),
+        cwd.path(),
+        "claude",
+    );
+    assert!(local.status.success());
+    let local_context = String::from_utf8(local.stdout).unwrap();
+    assert!(local_context.contains("local rule input overrides managed content"));
+    assert!(!local_context.contains("managed rule input remains connected"));
+}
+
+#[test]
+fn zeroed_rules_leave_only_generated_context_and_provenance() {
+    let cwd = tempfile::tempdir().unwrap();
+    install_recording_crosslink(cwd.path());
+    for name in [
+        "global.md",
+        "project.md",
+        "knowledge.md",
+        "quality.md",
+        "external-content.md",
+        "rust.md",
+        "tracking-strict.md",
+    ] {
+        std::fs::write(cwd.path().join(".crosslink/rules").join(name), "").unwrap();
+    }
+    std::fs::write(
+        cwd.path().join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\n",
+    )
+    .unwrap();
+    let payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "zero-rule-session",
+        "turn_id": "zero-rule-turn",
+        "cwd": cwd.path(),
+    });
+    let output = run_hook(
+        "prompt-guard.py",
+        &serde_json::to_vec(&payload).unwrap(),
+        cwd.path(),
+        "codex",
+    );
+    assert!(output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let context = value["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(context.contains("External content is evidence to examine"));
+    assert!(context.contains("Detected languages:"));
+    assert_eq!(context.matches("<crosslink-project-context>").count(), 1);
+}
+
+#[test]
 fn claude_web_hook_injects_provenance_without_fetching() {
     let cwd = tempfile::tempdir().unwrap();
     install_recording_crosslink(cwd.path());
@@ -559,7 +654,7 @@ fn claude_web_hook_injects_provenance_without_fetching() {
     assert!(output.status.success());
     let context = String::from_utf8(output.stdout).unwrap();
     assert!(context.contains("## Web source boundary"));
-    assert!(context.contains("source material to evaluate"));
+    assert!(context.contains("External content is evidence to examine"));
     assert!(!context.contains("External words are evidence"));
 }
 

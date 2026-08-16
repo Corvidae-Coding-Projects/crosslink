@@ -18,4 +18,4 @@ Collect evidence without changing repository or external state.
 9. Run `git status --short`, `git branch --show-current`, `git log -n 10 --oneline`, and `git worktree list`.
 10. Check background agents with `crosslink kickoff list` and, when relevant, `crosslink swarm status`.
 
-Report the active objective, completed work, pending work, blockers, local modifications, background processes, and the single best next action. Mark missing or contradictory evidence explicitly. The empty `.crosslink/rules/*.md` compatibility files are not audit inputs.
+Report the active objective, completed work, pending work, blockers, local modifications, background processes, and the single best next action. Mark missing or contradictory evidence explicitly. Verify that `.crosslink/rules/*.md` remain present, wired, and zero bytes, and inspect `rules.local/` when it exists.

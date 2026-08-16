@@ -2,13 +2,6 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn read_agent_binary(crosslink_dir: &Path) -> String {
-    crate::agents::resolve_agent(crosslink_dir).map_or_else(
-        |_| "claude".to_string(),
-        |agent| agent.binary.to_string_lossy().into_owned(),
-    )
-}
-
 pub fn read_kickoff_template(crosslink_dir: &Path) -> Option<String> {
     let config_path = crosslink_dir.join("hook-config.json");
     let content = std::fs::read_to_string(&config_path).ok()?;

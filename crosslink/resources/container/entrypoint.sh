@@ -22,6 +22,23 @@ fi
 PROVIDER="${CROSSLINK_AGENT_PROVIDER:-claude}"
 mkdir -p "/home/agent/.${PROVIDER}"
 chown -R agent:agent "/home/agent/.${PROVIDER}" 2>/dev/null || true
+export HOME=/home/agent
+export PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:/usr/local/go/bin:$PATH"
+
+if [ "${CROSSLINK_REQUIRE_LOGIN:-0}" = "1" ]; then
+    case "$PROVIDER" in
+        claude) LOGIN_STATUS=(claude auth status) ;;
+        codex) LOGIN_STATUS=(codex login status) ;;
+        *)
+            echo "[crosslink-entrypoint] Unsupported account-login provider: $PROVIDER" >&2
+            exit 78
+            ;;
+    esac
+    if ! gosu agent "${LOGIN_STATUS[@]}" >/dev/null 2>&1; then
+        echo "[crosslink-entrypoint] $PROVIDER account login is not ready; run crosslink container auth login --provider $PROVIDER" >&2
+        exit 78
+    fi
+fi
 
 
 AGENT_ID="${AGENT_ID:-container-agent}"
@@ -98,6 +115,4 @@ fi
 
 echo "[crosslink-entrypoint] Setup complete. Running command as agent..."
 
-export PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:/usr/local/go/bin:$PATH"
-export HOME=/home/agent
 exec gosu agent "$@"

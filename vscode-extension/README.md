@@ -217,7 +217,7 @@ This script generates intelligent context including:
 - Current session state and handoff notes
 - Open/ready issues
 - Project structure
-- Language-specific coding rules
+- Any non-empty repository-local rule overrides
 
 ### Shell Aliases
 
@@ -253,7 +253,7 @@ python .crosslink/integrations/context-provider.py
 # Markdown format (human readable)
 python .crosslink/integrations/context-provider.py --format md
 
-# Just coding rules
+# Only locally authored rule overrides
 python .crosslink/integrations/context-provider.py --rules
 
 # Copy to clipboard for web UIs
@@ -272,6 +272,7 @@ python .crosslink/integrations/context-provider.py --format md --rules > .cursor
 | **Continue.dev** | Add exec context provider in `.continue/config.json` |
 | **Web UIs** | `--clipboard` then paste as first message |
 | **Claude Code** | Built-in hooks, no setup needed |
+| **Codex** | Built-in hooks and skills, or the Crosslink Codex plugin |
 
 ### What Gets Injected
 
@@ -285,12 +286,6 @@ Working on: #12 Fix authentication bug
 Ready issues (unblocked):
   #12   high     Fix authentication bug
 </crosslink-issues>
-
-<coding-rules>
-### Rust Best Practices
-- Use `?` operator over `.unwrap()`
-...
-</coding-rules>
 ```
 
 For full documentation, see the [main README](https://github.com/Corvidae-Coding-Projects/crosslink#using-crosslink-with-any-ai-agent).

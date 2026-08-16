@@ -1,48 +1,26 @@
-
-
-
 set dotenv-load := false
-
-
-
 docs_src  := "docs_src"
 docs_out  := "docs"
 docs_tmp  := ".docs_build"
-
-
 render-docs force="": _docs-generate-svgs
-
+    #!/usr/bin/env bash
     set -euo pipefail
-
     tmp="{{docs_tmp}}"
     out="{{docs_out}}"
     force="{{force}}"
-
-
     rm -rf "$tmp"
-
-
     quarto render {{docs_src}} --output-dir "../$tmp"
-
-
     mkdir -p "$tmp/assets/img"
     cp {{docs_src}}/assets/img/banner.svg "$tmp/assets/img/banner.svg"
     cp {{docs_src}}/assets/img/crosslink-wordmark.svg "$tmp/assets/img/crosslink-wordmark.svg"
-
-
-
     collisions=0
     while IFS= read -r -d '' rendered; do
         rel="${rendered#$tmp/}"
         target="$out/$rel"
-
-
         case "$rel" in
             site_libs/*|search.json|styles.css|sitemap.xml|robots.txt) continue ;;
         esac
-
         if [ -f "$target" ]; then
-
             src_qmd="{{docs_src}}/${rel%.html}.qmd"
             src_direct="{{docs_src}}/$rel"
             if [ ! -f "$src_qmd" ] && [ ! -f "$src_direct" ]; then
@@ -51,7 +29,6 @@ render-docs force="": _docs-generate-svgs
             fi
         fi
     done < <(find "$tmp" -type f -print0)
-
     if [ "$collisions" -gt 0 ] && [ "$force" != "--force" ]; then
         echo ""
         echo "ERROR: $collisions collision(s) detected with manually-maintained files in $out/"
@@ -62,24 +39,15 @@ render-docs force="": _docs-generate-svgs
     elif [ "$collisions" -gt 0 ]; then
         echo "WARNING: $collisions collision(s) — overwriting due to --force"
     fi
-
-
     rsync -a --delete --exclude='.gitkeep' \
         --filter='protect *.md' \
         "$tmp/" "$out/"
-
-
     if [ "$force" = "--force" ] && [ "$collisions" -gt 0 ]; then
         rsync -a "$tmp/" "$out/"
     fi
-
-
     rm -rf "$tmp"
-
     just _docs-verify
     just _docs-lint
-
-
 _docs-generate-svgs:
     @echo "generating SVGs..."
     python3 scripts/generate-banner.py -o {{docs_src}}/assets/img/banner.svg
@@ -90,10 +58,8 @@ _docs-generate-svgs:
     python3 scripts/generate-diagram-kickoff.py -o {{docs_src}}/assets/img/kickoff-flow.svg
     python3 scripts/generate-diagram-swarm.py -o {{docs_src}}/assets/img/swarm-flow.svg
     python3 scripts/generate-diagram-knowledge.py -o {{docs_src}}/assets/img/knowledge-flow.svg
-
-
 _docs-verify:
-
+    #!/usr/bin/env bash
     set -euo pipefail
     missing=0
     for f in \
@@ -117,28 +83,19 @@ _docs-verify:
         exit 1
     fi
     echo "docs: all expected artifacts present"
-
-
 _docs-lint:
-
+    #!/usr/bin/env bash
     set -euo pipefail
     out="{{docs_out}}"
     file_count=0
-
-
     err_log=$(mktemp)
     warn_log=$(mktemp)
     trap 'rm -f "$err_log" "$warn_log"' EXIT
-
     echo "linting rendered docs..."
-
-
     extract_attr() {
         local attr="$1"
         sed -E "s/.*${attr}=\"([^\"]+)\".*/\1/"
     }
-
-
     check_refs() {
         local html="$1" pattern="$2" attr="$3" kind="$4" log="$5"
         local dir rel
@@ -147,20 +104,16 @@ _docs-lint:
         { grep -oE "$pattern" "$html" 2>/dev/null || true; } \
             | extract_attr "$attr" \
             | while IFS= read -r ref; do
-
                 case "$ref" in http://*|https://*|data:*|//*|mailto:*|javascript:*) continue ;; esac
-
                 local clean="${ref%%#*}"
                 clean="${clean%%\?*}"
                 [ -z "$clean" ] && continue
-
                 case "$clean" in */site_libs/*|site_libs/*) continue ;; esac
                 if [ ! -f "$dir/$clean" ]; then
                     echo "BROKEN $kind: $rel -> $clean" | tee -a "$log"
                 fi
             done
     }
-
     while IFS= read -r html; do
         file_count=$((file_count + 1))
         check_refs "$html" '<img [^>]*src="[^"]+"'     "src"  "IMAGE"      "$err_log"
@@ -168,10 +121,8 @@ _docs-lint:
         check_refs "$html" '<script [^>]*src="[^"]+"'   "src"  "SCRIPT"     "$err_log"
         check_refs "$html" 'href="[^"]+\.html"'         "href" "LINK"       "$warn_log"
     done < <(find "$out" -name '*.html' -type f)
-
     error_count=$(wc -l < "$err_log" | tr -d ' ')
     warn_count=$(wc -l < "$warn_log" | tr -d ' ')
-
     echo ""
     echo "docs-lint: scanned $file_count HTML files"
     [ "$warn_count" -gt 0 ] && echo "  warnings: $warn_count broken internal link(s)"
@@ -180,67 +131,30 @@ _docs-lint:
         exit 1
     fi
     echo "  result: all asset references valid"
-
-
-
-
 build:
     cd crosslink && cargo build --locked
-
-
 build-release:
     cd crosslink && cargo build --locked --release
-
-
-
-
 lint: fmt-check clippy
-
-
 fmt-check:
     cd crosslink && cargo fmt --all -- --check
-
-
 fmt:
     cd crosslink && cargo fmt --all
-
-
 clippy:
     cd crosslink && cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used
-
-
-
-
 test:
     cd crosslink && cargo test --bin crosslink --verbose -- --skip proptest
     cd crosslink && cargo test --test cli_integration --verbose
-
-
 test-unit:
     cd crosslink && cargo test --bin crosslink --verbose -- --skip proptest
-
-
 test-integration:
     cd crosslink && cargo test --test cli_integration --verbose
-
-
 test-proptest cases="1000":
     cd crosslink && PROPTEST_CASES={{cases}} cargo test proptest --bin crosslink -- --test-threads=1
-
-
-
-
 audit:
     cd crosslink && cargo audit
-
-
-
-
-
-
-
 build-image tag="local":
-
+    #!/usr/bin/env bash
     set -euo pipefail
     HOST_ARCH="$(uname -m)"
     case "$HOST_ARCH" in
@@ -262,14 +176,6 @@ build-image tag="local":
         -t "ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}}" \
         crosslink/resources/container
     echo "==> Built ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}} (${DOCKER_ARCH})"
-
-
-
-
 push-image tag:
     docker push "ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}}"
-
-
-
-
 ci: lint build test

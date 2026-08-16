@@ -1759,7 +1759,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_rule_files_are_zero_byte_placeholders() {
+    fn test_run_rule_files_remain_present_and_zero_bytes() {
         let dir = test_dir();
         run(dir.path(), &test_opts(false)).unwrap();
 

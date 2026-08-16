@@ -589,6 +589,7 @@ pub fn start(
         "-e",
         &format!("CROSSLINK_AGENT_PROVIDER={}", resolved.provider),
     ]);
+    cmd.args(["-e", "CROSSLINK_REQUIRE_LOGIN=1"]);
 
     if let Ok(uid_output) = Command::new("id").arg("-u").output() {
         if uid_output.status.success() {
@@ -854,5 +855,13 @@ mod tests {
         assert!(codex.starts_with("crosslink-auth-codex-"));
         assert_ne!(claude, codex);
         assert!(credential_volume(crate::agents::AgentProvider::Custom).is_err());
+    }
+
+    #[test]
+    fn container_entrypoint_requires_normal_account_login_when_requested() {
+        assert!(ENTRYPOINT.contains("CROSSLINK_REQUIRE_LOGIN"));
+        assert!(ENTRYPOINT.contains("claude auth status"));
+        assert!(ENTRYPOINT.contains("codex login status"));
+        assert!(!ENTRYPOINT.contains("API_KEY"));
     }
 }
