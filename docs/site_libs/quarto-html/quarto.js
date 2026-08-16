@@ -8,8 +8,8 @@ const sectionChanged = new CustomEvent("quarto-sectionChanged", {
 });
 
 const layoutMarginEls = () => {
-  // Find any conflicting margin elements and add margins to the
-  // top to prevent overlap
+
+
   const marginChildren = window.document.querySelectorAll(
     ".column-margin.column-container > *, .margin-caption, .aside"
   );
@@ -17,7 +17,7 @@ const layoutMarginEls = () => {
   let lastBottom = 0;
   for (const marginChild of marginChildren) {
     if (marginChild.offsetParent !== null) {
-      // clear the top margin so we recompute it
+
       marginChild.style.marginTop = null;
       const top = marginChild.getBoundingClientRect().top + window.scrollY;
       if (top < lastBottom) {
@@ -34,7 +34,7 @@ const layoutMarginEls = () => {
 };
 
 window.document.addEventListener("DOMContentLoaded", function (_event) {
-  // Recompute the position of margin elements anytime the body size changes
+
   if (window.ResizeObserver) {
     const resizeObserver = new window.ResizeObserver(
       throttle(() => {
@@ -56,7 +56,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
   const marginSidebarEl = window.document.getElementById(
     "quarto-margin-sidebar"
   );
-  // function to determine whether the element has a previous sibling that is active
+
   const prevSiblingIsActiveLink = (el) => {
     const sibling = el.previousElementSibling;
     if (sibling && sibling.tagName === "A") {
@@ -66,8 +66,8 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }
   };
 
-  // dispatch for htmlwidgets
-  // they use slideenter event to trigger resize
+
+
   function fireSlideEnter() {
     const event = window.document.createEvent("Event");
     event.initEvent("slideenter", true, true);
@@ -79,8 +79,8 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     tab.addEventListener("shown.bs.tab", fireSlideEnter);
   });
 
-  // dispatch for shiny
-  // they use BS shown and hidden events to trigger rendering
+
+
   function distpatchShinyEvents(previous, current) {
     if (window.jQuery) {
       if (previous) {
@@ -92,7 +92,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }
   }
 
-  // tabby.js listener: Trigger event for htmlwidget and shiny
+
   document.addEventListener(
     "tabby",
     function (event) {
@@ -102,8 +102,8 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     false
   );
 
-  // Track scrolling and mark TOC links as active
-  // get table of contents and sidebar (bail if we don't have at least one)
+
+
   const tocLinks = tocEl
     ? [...tocEl.querySelectorAll("a[data-scroll-target]")]
     : [];
@@ -112,7 +112,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
   const removeAllActive = () =>
     [...Array(tocLinks.length).keys()].forEach((link) => removeActive(link));
 
-  // activate the anchor for a section associated with this TOC entry
+
   tocLinks.forEach((link) => {
     link.addEventListener("click", () => {
       if (link.href.indexOf("#") !== -1) {
@@ -121,16 +121,16 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
           `[data-anchor-id="${anchor}"]`
         );
         if (heading) {
-          // Add the class
+
           heading.classList.add("reveal-anchorjs-link");
 
-          // function to show the anchor
+
           const handleMouseout = () => {
             heading.classList.remove("reveal-anchorjs-link");
             heading.removeEventListener("mouseout", handleMouseout);
           };
 
-          // add a function to clear the anchor when the user mouses out of it
+
           heading.addEventListener("mouseout", handleMouseout);
         }
       }
@@ -148,20 +148,20 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
 
   const sectionMargin = 200;
   let currentActive = 0;
-  // track whether we've initialized state the first time
+
   let init = false;
 
   const updateActiveLink = () => {
-    // The index from bottom to top (e.g. reversed list)
+
     let sectionIndex = -1;
     if (
       window.innerHeight + window.pageYOffset >=
       window.document.body.offsetHeight
     ) {
-      // This is the no-scroll case where last section should be the active one
+
       sectionIndex = 0;
     } else {
-      // This finds the last section visible on screen that should be made active
+
       sectionIndex = [...sections].reverse().findIndex((section) => {
         if (section) {
           return window.pageYOffset >= section.offsetTop - sectionMargin;
@@ -195,9 +195,9 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
 
   const categorySelector = "header.quarto-title-block .quarto-category";
   const activateCategories = (href) => {
-    // Find any categories
-    // Surround them with a link pointing back to:
-    // #category=Authoring
+
+
+
     try {
       const categoryEls = window.document.querySelectorAll(categorySelector);
       for (const categoryEl of categoryEls) {
@@ -213,7 +213,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
         }
       }
     } catch {
-      // Ignore errors
+
     }
   };
   function hasTitleCategories() {
@@ -237,7 +237,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }
   }
 
-  // read a meta tag value
+
   function getMeta(metaName) {
     const metas = window.document.getElementsByTagName("meta");
     for (let i = 0; i < metas.length; i++) {
@@ -249,7 +249,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
   }
 
   async function findAndActivateCategories() {
-    // Categories search with listing only use path without query
+
     const currentPagePath = offsetAbsoluteUrl(
       window.location.origin + window.location.pathname
     );
@@ -265,10 +265,10 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
               encodedItem === currentPagePath ||
               encodedItem === currentPagePath + "index.html"
             ) {
-              // Resolve this path against the offset to be sure
-              // we already are using the correct path to the listing
-              // (this adjusts the listing urls to be rooted against
-              // whatever root the page is actually running against)
+
+
+
+
               const relative = offsetRelativeUrl(pathWithoutLeadingSlash);
               const baseUrl = window.location;
               const resolvedPath = new URL(relative, baseUrl);
@@ -278,7 +278,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
           }
         }
 
-        // Look up the tree for a nearby linting and use that if we find one
+
         const nearestListing = findNearestParentListing(
           offsetAbsoluteUrl(window.location.pathname),
           listingHrefs
@@ -286,7 +286,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
         if (nearestListing) {
           activateCategories(nearestListing);
         } else {
-          // See if the referrer is a listing page for this item
+
           const referredRelativePath = offsetAbsoluteUrl(document.referrer);
           const referrerListing = listingHrefs.find((listingHref) => {
             const isListingReferrer =
@@ -296,10 +296,10 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
           });
 
           if (referrerListing) {
-            // Try to use the referrer if possible
+
             activateCategories(referrerListing);
           } else if (listingHrefs.length > 0) {
-            // Otherwise, just fall back to the first listing
+
             activateCategories(listingHrefs[0]);
           }
         }
@@ -314,7 +314,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     if (!href || !listingHrefs) {
       return undefined;
     }
-    // Look up the tree for a nearby linting and use that if we find one
+
     const relativeParts = href.substring(1).split("/");
     while (relativeParts.length > 0) {
       const path = relativeParts.join("/");
@@ -338,11 +338,11 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
         return;
       }
 
-      // Find the last element of the TOC
+
       const lastChildEl = el.lastElementChild;
 
       if (lastChildEl) {
-        // Converts the sidebar to a menu
+
         const convertToMenu = () => {
           for (const child of el.children) {
             child.style.opacity = 0;
@@ -355,7 +355,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             toggleContainer.style.width = "100%";
             toggleContainer.classList.add("zindex-over-content");
             toggleContainer.classList.add("quarto-sidebar-toggle");
-            toggleContainer.classList.add("headroom-target"); // Marks this to be managed by headeroom
+            toggleContainer.classList.add("headroom-target");
             toggleContainer.id = placeholderDescriptor.id;
             toggleContainer.style.position = "fixed";
 
@@ -395,7 +395,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             }
             toggleContents.style.height = "0px";
             const positionToggle = () => {
-              // position the element (top left of parent, same width as parent)
+
               if (!elRect) {
                 elRect = el.getBoundingClientRect();
               }
@@ -408,11 +408,11 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             toggleContainer.append(toggleContents);
             el.parentElement.prepend(toggleContainer);
 
-            // Process clicks
+
             let tocShowing = false;
-            // Allow the caller to control whether this is dismissed
-            // when it is clicked (e.g. sidebar navigation supports
-            // opening and closing the nav tree, so don't dismiss on click)
+
+
+
             const clickEl = placeholderDescriptor.dismissOnClick
               ? toggleContainer
               : toggleTitle;
@@ -425,7 +425,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
               }
             };
 
-            // Get rid of any expanded toggle if the user scrolls
+
             window.document.addEventListener(
               "scroll",
               throttle(() => {
@@ -433,7 +433,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
               }, 50)
             );
 
-            // Handle positioning of the toggle
+
             window.addEventListener(
               "resize",
               throttle(() => {
@@ -446,7 +446,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
               elRect = undefined;
             });
 
-            // Process the click
+
             clickEl.onclick = () => {
               if (!tocShowing) {
                 toggleContainer.classList.add("expanded");
@@ -459,7 +459,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
           });
         };
 
-        // Converts a sidebar from a menu back to a sidebar
+
         const convertToSidebar = () => {
           for (const child of el.children) {
             child.style.opacity = 1;
@@ -481,21 +481,21 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
           convertToMenu();
           isVisible = false;
         } else {
-          // Find the top and bottom o the element that is being managed
+
           const elTop = el.offsetTop;
           const elBottom =
             elTop + lastChildEl.offsetTop + lastChildEl.offsetHeight;
 
           if (!isVisible) {
-            // If the element is current not visible reveal if there are
-            // no conflicts with overlay regions
+
+
             if (!inHiddenRegion(elTop, elBottom, hiddenRegions)) {
               convertToSidebar();
               isVisible = true;
             }
           } else {
-            // If the element is visible, hide it if it conflicts with overlay regions
-            // and insert a placeholder toggle (or if we're in reader mode)
+
+
             if (inHiddenRegion(elTop, elBottom, hiddenRegions)) {
               convertToMenu();
               isVisible = false;
@@ -518,7 +518,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
           const el = event.srcElement;
           if (el) {
             const visibleCls = `${el.id}-margin-content`;
-            // walk up until we find a parent tabset
+
             let panelTabsetEl = el.parentElement;
             while (panelTabsetEl) {
               if (panelTabsetEl.classList.contains("panel-tabset")) {
@@ -552,7 +552,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }
   }
 
-  // Manage the visibility of the toc and the sidebar
+
   const marginScrollVisibility = manageSidebarVisiblity(marginSidebarEl, {
     id: "quarto-toc-toggle",
     titleSelector: "#toc-title",
@@ -572,13 +572,13 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     });
   }
 
-  // Find the first element that uses formatting in special columns
+
   const conflictingEls = window.document.body.querySelectorAll(
     '[class^="column-"], [class*=" column-"], aside, [class*="margin-caption"], [class*=" margin-caption"], [class*="margin-ref"], [class*=" margin-ref"]'
   );
 
-  // Filter all the possibly conflicting elements into ones
-  // the do conflict on the left or ride side
+
+
   const arrConflictingEls = Array.from(conflictingEls);
   const leftSideConflictEls = arrConflictingEls.filter((el) => {
     if (el.tagName === "ASIDE") {
@@ -680,8 +680,8 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
   };
 
   window.quartoToggleReader = () => {
-    // Applies a slow class (or removes it)
-    // to update the transition speed
+
+
     const slowTransition = (slow) => {
       const manageTransition = (id, slow) => {
         const el = document.getElementById(id);
@@ -700,14 +700,14 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     const readerMode = !isReaderMode();
     setReaderModeValue(readerMode);
 
-    // If we're entering reader mode, slow the transition
+
     if (readerMode) {
       slowTransition(readerMode);
     }
     highlightReaderToggle(readerMode);
     hideOverlappedSidebars();
 
-    // If we're exiting reader mode, restore the non-slow transition
+
     if (!readerMode) {
       slowTransition(!readerMode);
     }
@@ -746,33 +746,33 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
   const tocOpenDepthStr = tocEl?.getAttribute("data-toc-expanded");
   const tocOpenDepth = tocOpenDepthStr ? Number(tocOpenDepthStr) : 1;
 
-  // Walk the TOC and collapse/expand nodes
-  // Nodes are expanded if:
-  // - they are top level
-  // - they have children that are 'active' links
-  // - they are directly below an link that is 'active'
+
+
+
+
+
   const walk = (el, depth) => {
-    // Tick depth when we enter a UL
+
     if (el.tagName === "UL") {
       depth = depth + 1;
     }
 
-    // It this is active link
+
     let isActiveNode = false;
     if (el.tagName === "A" && el.classList.contains("active")) {
       isActiveNode = true;
     }
 
-    // See if there is an active child to this element
+
     let hasActiveChild = false;
     for (const child of el.children) {
       hasActiveChild = walk(child, depth) || hasActiveChild;
     }
 
-    // Process the collapse state if this is an UL
+
     if (el.tagName === "UL") {
       if (tocOpenDepth === -1 && depth > 1) {
-        // toc-expand: false
+
         el.classList.add("collapse");
       } else if (
         depth <= tocOpenDepth ||
@@ -784,19 +784,19 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
         el.classList.add("collapse");
       }
 
-      // untick depth when we leave a UL
+
       depth = depth - 1;
     }
     return hasActiveChild || isActiveNode;
   };
 
-  // walk the TOC and expand / collapse any items that should be shown
+
   if (tocEl) {
     updateActiveLink();
     walk(tocEl, 0);
   }
 
-  // Throttle the scroll event and walk peridiocally
+
   window.document.addEventListener(
     "scroll",
     throttle(() => {

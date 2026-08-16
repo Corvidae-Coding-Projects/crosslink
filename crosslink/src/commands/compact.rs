@@ -3,11 +3,6 @@ use std::path::Path;
 
 use crate::db::Database;
 
-/// `crosslink compact` — run event compaction manually.
-///
-/// `force` is accepted for CLI compatibility but is a no-op: the v2 lease
-/// override it once toggled is gone with the v2 compaction path (#754), and the
-/// v3 checkpoint compaction always runs.
 pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
     let _ = force;
     let sync = crate::sync::SyncManager::new(crosslink_dir)?;
@@ -15,18 +10,11 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
     sync.fetch()?;
     let cache_dir = sync.cache_path().to_path_buf();
 
-    // Load agent config for agent_id
     let agent = crate::identity::AgentConfig::load(crosslink_dir)?
         .ok_or_else(|| anyhow::anyhow!("No agent configured. Run 'crosslink agent init' first."))?;
 
-    // Acquire the hub write lock before compaction and hold it through
-    // hydration — prevents a concurrent write_commit_push from racing
-    // compaction's materialized-file writes (#750).
     let hub_lock = sync.acquire_lock()?;
 
-    // V3: route to compact_v3 (checkpoint ref + own-ref prune, REQ-7/REQ-11)
-    // and hydrate from the reduced state — the v2 compaction path requires the
-    // worktree materialized files that v3 does not maintain.
     if sync.hub_mode().is_v3() {
         let remote = if sync.remote_exists() {
             Some(sync.remote())
@@ -49,10 +37,6 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
         return Ok(());
     }
 
-    // V2 (frozen / pre-migration hub): standalone `crosslink compact` is refused
-    // (#754). Compaction of a v2 hub is now exclusively the migration's internal
-    // step (`migrate hub-v3` calls `compaction::compact` directly); operating it
-    // here would write worktree materialized files the v3 path never reads.
     drop(hub_lock);
     anyhow::bail!(
         "this hub uses the legacy v2 layout; `crosslink compact` is not available on it. \
@@ -64,8 +48,6 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
 mod tests {
     use std::process::Command;
 
-    /// `crosslink compact` on a frozen v2 hub bails with the migrate prompt
-    /// rather than running the v2 compaction (754b hygiene).
     #[test]
     fn compact_on_v2_hub_refuses_with_migrate_prompt() {
         let dir = tempfile::tempdir().unwrap();
@@ -76,7 +58,7 @@ mod tests {
             .status()
             .is_ok_and(|s| s.success());
         if !ok {
-            return; // git unavailable
+            return;
         }
         for cfg in [["user.email", "t@t"], ["user.name", "t"]] {
             let _ = Command::new("git")
@@ -92,7 +74,6 @@ mod tests {
         )
         .unwrap();
 
-        // Build an explicit v2 `crosslink/hub` worktree so the hub resolves V2.
         let cache_dir = crosslink_dir.join(".hub-cache");
         Command::new("git")
             .current_dir(repo)

@@ -132,7 +132,6 @@ pub fn add(
         bail!("Milestone #{milestone_id} not found");
     }
 
-    // Validate issue IDs and collect the ones that exist
     let mut valid_ids = Vec::new();
     for &issue_id in issue_ids {
         if db.get_issue(issue_id)?.is_none() {
@@ -146,7 +145,6 @@ pub fn add(
     }
 
     if let Some(sw) = shared {
-        // Shared writer path: write JSON then hydrate back to SQLite
         sw.set_milestone_on_issues(db, milestone_id, &valid_ids)?;
         for &issue_id in &valid_ids {
             println!(
@@ -156,7 +154,6 @@ pub fn add(
             );
         }
     } else {
-        // SQLite-only fallback (no coordination branch)
         for &issue_id in &valid_ids {
             if db.add_issue_to_milestone(milestone_id, issue_id)? {
                 println!(
@@ -184,7 +181,6 @@ pub fn remove(
     issue_id: i64,
 ) -> Result<()> {
     if let Some(sw) = shared {
-        // Shared writer path: write JSON then hydrate back to SQLite
         sw.clear_milestone_on_issue(db, issue_id)?;
         println!(
             "Removed {} from milestone #{}",

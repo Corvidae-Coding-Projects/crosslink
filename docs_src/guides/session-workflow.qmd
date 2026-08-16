@@ -21,11 +21,11 @@ Every agent conversation follows this cycle. The hooks handle most of it automat
 :::
 
 
-<!-- ```
-session start → session work <id> → session action "..." → session end --notes "..."
-     ↑                                                              ↓
-     └──────────────── next session reads handoff notes ────────────┘
-``` -->
+
+
+
+
+
 
 
 ### Starting a session

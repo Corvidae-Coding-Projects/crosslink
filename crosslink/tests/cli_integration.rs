@@ -1,7 +1,6 @@
 use std::process::Command;
 use tempfile::tempdir;
 
-/// Helper to run crosslink commands in a temp directory
 fn run_crosslink(dir: &std::path::Path, args: &[&str]) -> (bool, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
         .current_dir(dir)
@@ -15,7 +14,6 @@ fn run_crosslink(dir: &std::path::Path, args: &[&str]) -> (bool, String, String)
     (output.status.success(), stdout, stderr)
 }
 
-/// Like run_crosslink but with --log-level info so tracing::info! messages appear on stderr.
 fn run_crosslink_info(dir: &std::path::Path, args: &[&str]) -> (bool, String, String) {
     let mut full_args = vec!["--log-level", "info"];
     full_args.extend_from_slice(args);
@@ -31,8 +29,6 @@ fn run_crosslink_info(dir: &std::path::Path, args: &[&str]) -> (bool, String, St
     (output.status.success(), stdout, stderr)
 }
 
-/// Create a temp directory with a git repo and initial commit.
-/// Required because `crosslink init` verifies .git exists (#401).
 fn test_dir() -> tempfile::TempDir {
     let dir = tempdir().unwrap();
     assert!(Command::new("git")
@@ -42,7 +38,7 @@ fn test_dir() -> tempfile::TempDir {
         .expect("git init failed")
         .status
         .success());
-    // Use -c flags so identity works even when env vars or global config are absent
+
     assert!(Command::new("git")
         .current_dir(dir.path())
         .args([
@@ -62,18 +58,14 @@ fn test_dir() -> tempfile::TempDir {
     dir
 }
 
-/// Check if text contains an issue ref in either #N or LN format.
 fn contains_issue_ref(text: &str, id: u32) -> bool {
     text.contains(&format!("#{id}")) || text.contains(&format!("L{id}"))
 }
 
-/// Initialize crosslink in a temp directory
 fn init_crosslink(dir: &std::path::Path) {
     let (success, _, stderr) = run_crosslink(dir, &["init"]);
     assert!(success, "Failed to init: {stderr}");
 }
-
-// ==================== Init Tests ====================
 
 #[test]
 fn test_init_creates_crosslink_directory() {
@@ -96,8 +88,6 @@ fn test_init_twice_warns() {
     assert!(success);
     assert!(stdout.contains("Already") || stdout.contains("already") || stdout.contains("exists"));
 }
-
-// ==================== Issue Creation Tests ====================
 
 #[test]
 fn test_create_issue() {
@@ -123,7 +113,6 @@ fn test_create_issue_with_priority() {
 
     assert!(success);
 
-    // Verify it was created with correct priority
     let (_, list_out, _) = run_crosslink(dir.path(), &["list"]);
     assert!(list_out.contains("high"));
 }
@@ -145,7 +134,6 @@ fn test_create_issue_with_description() {
 
     assert!(success);
 
-    // Verify description in show
     let (_, show_out, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(show_out.contains("Detailed description"));
 }
@@ -164,12 +152,9 @@ fn test_create_subissue() {
         "Expected 'Created subissue #2' in output, got: {stdout}"
     );
 
-    // Verify parent-child relationship in show
     let (_, show_out, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(show_out.contains("Child") || show_out.contains("subissue"));
 }
-
-// ==================== Issue Listing Tests ====================
 
 #[test]
 fn test_list_empty() {
@@ -233,8 +218,6 @@ fn test_list_filter_by_label() {
     assert!(!bug_list.contains("Feature issue"));
 }
 
-// ==================== Issue Show Tests ====================
-
 #[test]
 fn test_show_issue() {
     let dir = test_dir();
@@ -258,8 +241,6 @@ fn test_show_nonexistent_issue() {
 
     assert!(!success || stderr.contains("not found") || stderr.contains("No issue"));
 }
-
-// ==================== Issue Update Tests ====================
 
 #[test]
 fn test_update_issue_title() {
@@ -289,8 +270,6 @@ fn test_update_issue_priority() {
     let (_, show_out, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(show_out.contains("critical"));
 }
-
-// ==================== Issue Close/Reopen Tests ====================
 
 #[test]
 fn test_close_issue() {
@@ -323,8 +302,6 @@ fn test_reopen_issue() {
     assert!(show_out.contains("open"));
 }
 
-// ==================== Issue Delete Tests ====================
-
 #[test]
 fn test_delete_issue() {
     let dir = test_dir();
@@ -345,8 +322,6 @@ fn test_delete_issue() {
         list_err.trim()
     );
 }
-
-// ==================== Labels Tests ====================
 
 #[test]
 fn test_add_label() {
@@ -377,8 +352,6 @@ fn test_remove_label() {
     assert!(!show_out.contains("bug") || show_out.contains("Labels: none"));
 }
 
-// ==================== Comments Tests ====================
-
 #[test]
 fn test_add_comment() {
     let dir = test_dir();
@@ -393,8 +366,6 @@ fn test_add_comment() {
     let (_, show_out, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(show_out.contains("This is a comment"));
 }
-
-// ==================== Dependencies Tests ====================
 
 #[test]
 fn test_block_issue() {
@@ -441,11 +412,9 @@ fn test_ready_issues() {
 
     assert!(success);
     assert!(stdout.contains("Ready issue"));
-    assert!(stdout.contains("Blocker issue")); // Blocker is also ready
+    assert!(stdout.contains("Blocker issue"));
     assert!(!stdout.contains("Blocked issue"));
 }
-
-// ==================== Session Tests ====================
 
 #[test]
 fn test_session_start() {
@@ -496,8 +465,6 @@ fn test_session_end() {
     assert!(stdout.contains("ended") || stdout.contains("Session"));
 }
 
-// ==================== Search Tests ====================
-
 #[test]
 fn test_search_issues() {
     let dir = test_dir();
@@ -514,25 +481,18 @@ fn test_search_issues() {
     assert!(!stdout.contains("Dark mode"));
 }
 
-// ==================== Error Handling Tests ====================
-
 #[test]
 fn test_command_without_init() {
     let dir = test_dir();
-    // Don't init
 
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["list"]);
 
-    // The CLI walks up parent directories to find .crosslink, so from a temp dir
-    // inside the project tree, it may find the project's own .crosslink.
-    // In that case it succeeds with the project DB. If truly isolated, it fails.
     if !success {
         assert!(
             stderr.contains("Not a crosslink repository") || stderr.contains("crosslink init"),
             "Error should mention missing repo, got stderr: {stderr}"
         );
     } else {
-        // Found a parent .crosslink - list should work normally
         assert!(
             stdout.contains("No issues") || stdout.contains("#"),
             "Should show valid list output, got: {stdout}"
@@ -554,8 +514,6 @@ fn test_invalid_priority() {
     );
 }
 
-// ==================== Security Tests ====================
-
 #[test]
 fn test_sql_injection_in_title_cli() {
     let dir = test_dir();
@@ -566,7 +524,6 @@ fn test_sql_injection_in_title_cli() {
 
     assert!(success);
 
-    // Verify database is intact
     let (success2, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success2);
     assert!(stdout.contains(malicious));
@@ -600,8 +557,6 @@ fn test_unicode_in_cli() {
     assert!(show_out.contains("测试") || show_out.contains("🐛"));
 }
 
-// ==================== Archive Tests ====================
-
 #[test]
 fn test_archive_closed_issue() {
     let dir = test_dir();
@@ -623,7 +578,6 @@ fn test_archive_open_issue_fails() {
     run_crosslink(dir.path(), &["create", "Open issue"]);
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["archive", "add", "1"]);
 
-    // Should fail or warn - can't archive open issues
     assert!(
         !success
             || stderr.contains("closed")
@@ -667,12 +621,9 @@ fn test_unarchive_issue() {
             || stdout.contains("Restored")
     );
 
-    // Should now be in closed list, not archived
     let (_, closed_list, _) = run_crosslink(dir.path(), &["list", "-s", "closed"]);
     assert!(closed_list.contains("Issue to archive"));
 }
-
-// ==================== Milestone Tests ====================
 
 #[test]
 fn test_milestone_create() {
@@ -735,7 +686,6 @@ fn test_milestone_add_issues() {
 
     assert!(success);
 
-    // Check milestone shows the issues
     let (_, show_out, _) = run_crosslink(dir.path(), &["milestone", "show", "1"]);
     assert!(show_out.contains("Feature 1") || contains_issue_ref(&show_out, 1));
 }
@@ -762,12 +712,9 @@ fn test_milestone_delete() {
 
     assert!(success);
 
-    // Should no longer appear in list
     let (_, list_out, _) = run_crosslink(dir.path(), &["milestone", "list", "-s", "all"]);
     assert!(!list_out.contains("v1.0") || list_out.contains("No milestones"));
 }
-
-// ==================== Timer Tests ====================
 
 #[test]
 fn test_timer_start() {
@@ -828,8 +775,6 @@ fn test_timer_status_no_timer() {
     );
 }
 
-// ==================== Relate Tests ====================
-
 #[test]
 fn test_relate_issues() {
     let dir = test_dir();
@@ -874,8 +819,6 @@ fn test_unrelate_issues() {
     assert!(!related_out.contains("Issue 2") || related_out.contains("No related"));
 }
 
-// ==================== Tree Tests ====================
-
 #[test]
 fn test_tree_command() {
     let dir = test_dir();
@@ -904,11 +847,9 @@ fn test_tree_with_status_filter() {
 
     assert!(success);
     assert!(stdout.contains("Open parent"));
-    // Closed issues should not appear
+
     assert!(!stdout.contains("Closed parent"));
 }
-
-// ==================== Next Tests ====================
 
 #[test]
 fn test_next_command() {
@@ -925,7 +866,7 @@ fn test_next_command() {
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "next"]);
 
     assert!(success);
-    // Should suggest critical or high priority issue
+
     assert!(
         stdout.contains("Critical priority")
             || stdout.contains("High priority")
@@ -948,8 +889,6 @@ fn test_next_no_issues() {
     );
 }
 
-// ==================== Export/Import Tests ====================
-
 #[test]
 fn test_export_json() {
     let dir = test_dir();
@@ -967,7 +906,6 @@ fn test_export_json() {
     assert!(success);
     assert!(export_path.exists());
 
-    // Verify JSON content
     let content = std::fs::read_to_string(&export_path).unwrap();
     assert!(content.contains("Issue 1"));
     assert!(content.contains("Issue 2"));
@@ -1008,7 +946,6 @@ fn test_import_json() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create issues and export
     run_crosslink(dir.path(), &["create", "Exported Issue"]);
     let export_path = dir.path().join("export.json");
     run_crosslink(
@@ -1016,7 +953,6 @@ fn test_import_json() {
         &["export", "-o", export_path.to_str().unwrap(), "-f", "json"],
     );
 
-    // Create a fresh crosslink instance and import
     let dir2 = test_dir();
     init_crosslink(dir2.path());
 
@@ -1024,12 +960,9 @@ fn test_import_json() {
 
     assert!(success);
 
-    // Verify imported issue exists
     let (_, list_out, _) = run_crosslink(dir2.path(), &["list", "-s", "all"]);
     assert!(list_out.contains("Exported Issue") || contains_issue_ref(&list_out, 1));
 }
-
-// ==================== Tested Command Tests ====================
 
 #[test]
 fn test_tested_command() {
@@ -1044,8 +977,6 @@ fn test_tested_command() {
         "Expected 'Marked tests as run' in output, got: {stdout}"
     );
 }
-
-// ==================== Additional Create Edge Cases ====================
 
 #[test]
 fn test_create_with_template() {
@@ -1111,8 +1042,6 @@ fn test_subissue_with_description() {
     assert!(show_out.contains("Child description"));
 }
 
-// ==================== Additional Delete Edge Cases ====================
-
 #[test]
 fn test_delete_nonexistent_issue() {
     let dir = test_dir();
@@ -1120,7 +1049,6 @@ fn test_delete_nonexistent_issue() {
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "delete", "999", "-f"]);
 
-    // Should fail or warn about nonexistent issue
     assert!(!success || stderr.contains("not found") || stderr.contains("No issue"));
 }
 
@@ -1136,13 +1064,10 @@ fn test_delete_with_subissues() {
 
     assert!(success);
 
-    // Both parent and child should be gone
     let (_, list_out, _) = run_crosslink(dir.path(), &["list", "-s", "all"]);
     assert!(!list_out.contains("Parent"));
     assert!(!list_out.contains("Child"));
 }
-
-// ==================== Additional Session Edge Cases ====================
 
 #[test]
 fn test_session_work_nonexistent_issue() {
@@ -1152,7 +1077,6 @@ fn test_session_work_nonexistent_issue() {
     run_crosslink(dir.path(), &["session", "start"]);
     let (success, _, stderr) = run_crosslink(dir.path(), &["session", "work", "999"]);
 
-    // Should fail or warn
     assert!(!success || stderr.contains("not found") || stderr.contains("No issue"));
 }
 
@@ -1163,7 +1087,6 @@ fn test_session_end_without_start() {
 
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["session", "end"]);
 
-    // Should fail or report no active session
     assert!(
         !success || stdout.contains("No active") || stderr.contains("No active"),
         "Ending without starting should fail or report no active session, got stdout: {stdout}, stderr: {stderr}"
@@ -1192,12 +1115,9 @@ fn test_session_multiple_starts() {
     run_crosslink(dir.path(), &["session", "start"]);
     let (success, stdout, _) = run_crosslink(dir.path(), &["session", "start"]);
 
-    // Second start should either warn or start a new session
     assert!(success);
     assert!(stdout.contains("already") || stdout.contains("Session") || stdout.contains("started"));
 }
-
-// ==================== Additional Next Edge Cases ====================
 
 #[test]
 fn test_next_with_blocked_issues() {
@@ -1211,7 +1131,7 @@ fn test_next_with_blocked_issues() {
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "next"]);
 
     assert!(success);
-    // Should suggest the blocker, not the blocked issue
+
     assert!(
         stdout.contains("Blocker issue"),
         "Next should recommend the unblocked blocker, got: {stdout}"
@@ -1239,8 +1159,6 @@ fn test_next_all_closed() {
     );
 }
 
-// ==================== Additional Archive Edge Cases ====================
-
 #[test]
 fn test_archive_older_days() {
     let dir = test_dir();
@@ -1249,7 +1167,6 @@ fn test_archive_older_days() {
     run_crosslink(dir.path(), &["create", "Old issue"]);
     run_crosslink(dir.path(), &["close", "1"]);
 
-    // Try to archive issues older than 0 days (should include our just-closed issue)
     let (success, _, _) = run_crosslink(dir.path(), &["archive", "older", "0"]);
 
     assert!(success);
@@ -1264,17 +1181,13 @@ fn test_archive_already_archived() {
     run_crosslink(dir.path(), &["close", "1"]);
     run_crosslink(dir.path(), &["archive", "add", "1"]);
 
-    // Try to archive again
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["archive", "add", "1"]);
 
-    // Should report already archived or fail
     assert!(
         stdout.contains("already") || stderr.contains("already") || !success,
         "Archiving twice should indicate already archived, got stdout: {stdout}, stderr: {stderr}"
     );
 }
-
-// ==================== Additional Milestone Edge Cases ====================
 
 #[test]
 fn test_milestone_remove_issue() {
@@ -1319,8 +1232,6 @@ fn test_milestone_list_closed() {
     assert!(!stdout.contains("v2.0"));
 }
 
-// ==================== Additional List Edge Cases ====================
-
 #[test]
 fn test_list_filter_by_priority() {
     let dir = test_dir();
@@ -1352,8 +1263,6 @@ fn test_list_all_statuses() {
     assert!(stdout.contains("Closed issue"));
 }
 
-// ==================== Additional Update Edge Cases ====================
-
 #[test]
 fn test_update_description() {
     let dir = test_dir();
@@ -1381,8 +1290,6 @@ fn test_update_nonexistent() {
 
     assert!(!success || stderr.contains("not found") || stderr.contains("No issue"));
 }
-
-// ==================== Additional Show Edge Cases ====================
 
 #[test]
 fn test_show_with_labels() {
@@ -1433,8 +1340,6 @@ fn test_show_with_blockers() {
     );
 }
 
-// ==================== Additional Search Edge Cases ====================
-
 #[test]
 fn test_search_no_results() {
     let dir = test_dir();
@@ -1467,8 +1372,6 @@ fn test_search_in_description() {
     assert!(stdout.contains("Generic title") || contains_issue_ref(&stdout, 1));
 }
 
-// ==================== Init Edge Cases ====================
-
 #[test]
 fn test_init_force_update() {
     let dir = test_dir();
@@ -1485,29 +1388,21 @@ fn test_init_force_update() {
     );
 }
 
-// ==================== Complex Workflow Tests ====================
-
 #[test]
 fn test_full_issue_lifecycle() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create
     run_crosslink(dir.path(), &["create", "Lifecycle test", "-p", "high"]);
 
-    // Add labels
     run_crosslink(dir.path(), &["issue", "label", "1", "feature"]);
 
-    // Add comment
     run_crosslink(dir.path(), &["issue", "comment", "1", "Working on this"]);
 
-    // Update
     run_crosslink(dir.path(), &["issue", "update", "1", "-p", "critical"]);
 
-    // Close
     run_crosslink(dir.path(), &["close", "1"]);
 
-    // Verify final state
     let (success, stdout, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(success);
     assert!(stdout.contains("Lifecycle test"));
@@ -1522,7 +1417,6 @@ fn test_dependency_chain() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create a chain: 1 <- 2 <- 3 (3 blocks 2, 2 blocks 1)
     run_crosslink(dir.path(), &["create", "Final task"]);
     run_crosslink(dir.path(), &["create", "Middle task"]);
     run_crosslink(dir.path(), &["create", "First task"]);
@@ -1530,28 +1424,22 @@ fn test_dependency_chain() {
     run_crosslink(dir.path(), &["issue", "block", "1", "2"]);
     run_crosslink(dir.path(), &["issue", "block", "2", "3"]);
 
-    // Only issue 3 should be ready
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "ready"]);
     assert!(success);
     assert!(stdout.contains("First task") || contains_issue_ref(&stdout, 3));
     assert!(!stdout.contains("Final task"));
     assert!(!stdout.contains("Middle task"));
 
-    // Close 3, now 2 should be ready
     run_crosslink(dir.path(), &["close", "3"]);
     let (_, stdout, _) = run_crosslink(dir.path(), &["issue", "ready"]);
     assert!(stdout.contains("Middle task") || contains_issue_ref(&stdout, 2));
 }
 
-// ==================== Targeted Coverage Tests ====================
-
-// --- next.rs: Multiple ready issues with runners-up ---
 #[test]
 fn test_next_with_multiple_ready_issues() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create multiple issues with different priorities
     run_crosslink(dir.path(), &["create", "Low prio task", "-p", "low"]);
     run_crosslink(dir.path(), &["create", "Medium prio task", "-p", "medium"]);
     run_crosslink(dir.path(), &["create", "High prio task", "-p", "high"]);
@@ -1560,13 +1448,12 @@ fn test_next_with_multiple_ready_issues() {
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "next"]);
 
     assert!(success);
-    // Should recommend highest priority first
+
     assert!(stdout.contains("Critical") || contains_issue_ref(&stdout, 4));
-    // Should show "Also ready" section
+
     assert!(stdout.contains("Also ready") || stdout.contains("ready"));
 }
 
-// --- next.rs: Issue with description preview ---
 #[test]
 fn test_next_with_description() {
     let dir = test_dir();
@@ -1590,25 +1477,22 @@ fn test_next_with_description() {
     assert!(stdout.contains("description") || stdout.contains("Task with description"));
 }
 
-// --- next.rs: Progress with subissues ---
 #[test]
 fn test_next_with_subissue_progress() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create parent with subissues
     run_crosslink(dir.path(), &["create", "Parent task", "-p", "high"]);
     run_crosslink(dir.path(), &["subissue", "1", "Sub 1"]);
     run_crosslink(dir.path(), &["subissue", "1", "Sub 2"]);
     run_crosslink(dir.path(), &["subissue", "1", "Sub 3"]);
 
-    // Close one subissue to create progress
     run_crosslink(dir.path(), &["close", "2"]);
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "next"]);
 
     assert!(success);
-    // Should show progress
+
     assert!(
         stdout.contains("Progress")
             || stdout.contains("1/3")
@@ -1617,27 +1501,23 @@ fn test_next_with_subissue_progress() {
     );
 }
 
-// --- next.rs: Only subissues ready (no parents) ---
 #[test]
 fn test_next_only_subissues_ready() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create parent that is blocked
     run_crosslink(dir.path(), &["create", "Blocker"]);
     run_crosslink(dir.path(), &["create", "Parent"]);
     run_crosslink(dir.path(), &["issue", "block", "2", "1"]);
 
-    // Create unblocked subissue under the blocked parent
     run_crosslink(dir.path(), &["subissue", "2", "Subissue"]);
 
-    // Close the blocker - now parent has only subissue as ready issue
     run_crosslink(dir.path(), &["close", "1"]);
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "next"]);
 
     assert!(success);
-    // Should show something - either parent or subissue
+
     assert!(
         stdout.contains("Next")
             || contains_issue_ref(&stdout, 2)
@@ -1647,13 +1527,11 @@ fn test_next_only_subissues_ready() {
     );
 }
 
-// --- import.rs: Import with parent relationships ---
 #[test]
 fn test_import_with_parent_relationships() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create and export issues with parent-child relationship
     run_crosslink(dir.path(), &["create", "Parent issue"]);
     run_crosslink(dir.path(), &["subissue", "1", "Child issue"]);
 
@@ -1663,11 +1541,9 @@ fn test_import_with_parent_relationships() {
         &["export", "-o", export_path.to_str().unwrap(), "-f", "json"],
     );
 
-    // Initialize a fresh directory and import
     let dir2 = test_dir();
     init_crosslink(dir2.path());
 
-    // Copy export file to new location
     std::fs::copy(&export_path, dir2.path().join("import.json")).unwrap();
 
     let import_path = dir2.path().join("import.json");
@@ -1677,18 +1553,15 @@ fn test_import_with_parent_relationships() {
     assert!(success);
     assert!(stdout.contains("Imported") || stdout.contains("import"));
 
-    // Verify the parent-child relationship was preserved
     let (_, tree_out, _) = run_crosslink(dir2.path(), &["issue", "tree"]);
     assert!(tree_out.contains("Parent") && tree_out.contains("Child"));
 }
 
-// --- import.rs: Import issues with labels and comments ---
 #[test]
 fn test_import_with_labels_and_comments() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create issue with labels and comments
     run_crosslink(dir.path(), &["create", "Labeled issue"]);
     run_crosslink(dir.path(), &["issue", "label", "1", "bug"]);
     run_crosslink(dir.path(), &["issue", "label", "1", "urgent"]);
@@ -1701,7 +1574,6 @@ fn test_import_with_labels_and_comments() {
         &["export", "-o", export_path.to_str().unwrap(), "-f", "json"],
     );
 
-    // Import to fresh directory
     let dir2 = test_dir();
     init_crosslink(dir2.path());
 
@@ -1712,26 +1584,22 @@ fn test_import_with_labels_and_comments() {
 
     assert!(success);
 
-    // Verify labels and status were preserved
     let (_, show_out, _) = run_crosslink(dir2.path(), &["show", "1"]);
     assert!(show_out.contains("bug") || show_out.contains("Label"));
     assert!(show_out.contains("closed") || show_out.contains("Closed"));
 }
 
-// --- session.rs: Session with handoff notes from previous session ---
 #[test]
 fn test_session_start_shows_handoff_notes() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Start and end first session with handoff notes
     run_crosslink(dir.path(), &["session", "start"]);
     run_crosslink(
         dir.path(),
         &["session", "end", "--notes", "Remember to check auth module"],
     );
 
-    // Start new session - should show handoff notes
     let (success, stdout, _) = run_crosslink(dir.path(), &["session", "start"]);
 
     assert!(success);
@@ -1743,7 +1611,6 @@ fn test_session_start_shows_handoff_notes() {
     );
 }
 
-// --- session.rs: Session status with active issue ---
 #[test]
 fn test_session_status_with_active_issue() {
     let dir = test_dir();
@@ -1763,13 +1630,11 @@ fn test_session_status_with_active_issue() {
     );
 }
 
-// --- create.rs: Template with user priority override ---
 #[test]
 fn test_template_with_priority_override() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Bug template defaults to high, override to critical
     let (success, stdout, _) = run_crosslink(
         dir.path(),
         &["create", "Critical bug", "-t", "bug", "-p", "critical"],
@@ -1782,7 +1647,6 @@ fn test_template_with_priority_override() {
     assert!(show_out.contains("critical"));
 }
 
-// --- create.rs: Template with user description ---
 #[test]
 fn test_template_with_user_description() {
     let dir = test_dir();
@@ -1804,11 +1668,10 @@ fn test_template_with_user_description() {
     assert!(contains_issue_ref(&stdout, 1));
 
     let (_, show_out, _) = run_crosslink(dir.path(), &["show", "1"]);
-    // Should have both template prefix and user description
+
     assert!(show_out.contains("User provided details") || show_out.contains("Steps to reproduce"));
 }
 
-// --- create.rs: Subissue with invalid parent ---
 #[test]
 fn test_subissue_invalid_parent() {
     let dir = test_dir();
@@ -1820,7 +1683,6 @@ fn test_subissue_invalid_parent() {
     assert!(stderr.contains("not found") || stderr.contains("999") || stderr.contains("Parent"));
 }
 
-// --- relate.rs: Related issues display ---
 #[test]
 fn test_related_issues_display() {
     let dir = test_dir();
@@ -1840,7 +1702,6 @@ fn test_related_issues_display() {
     assert!(stdout.contains("Issue C") || contains_issue_ref(&stdout, 3));
 }
 
-// --- label.rs: Multiple labels on same issue ---
 #[test]
 fn test_multiple_labels() {
     let dir = test_dir();
@@ -1859,7 +1720,6 @@ fn test_multiple_labels() {
     assert!(stdout.contains("frontend"));
 }
 
-// --- Export markdown format test ---
 #[test]
 fn test_export_markdown_format() {
     let dir = test_dir();
@@ -1887,7 +1747,6 @@ fn test_export_markdown_format() {
         "Expected 'Exported' in stdout, got: {stdout}"
     );
 
-    // Verify file exists and has the issue content
     let content = std::fs::read_to_string(&export_path).unwrap();
     assert!(
         content.contains("Issue for markdown"),
@@ -1896,17 +1755,14 @@ fn test_export_markdown_format() {
     );
 }
 
-// --- Archive older days test ---
 #[test]
 fn test_archive_older_no_matches() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create and close an issue (just now, so not old)
     run_crosslink(dir.path(), &["create", "New issue"]);
     run_crosslink(dir.path(), &["close", "1"]);
 
-    // Archive issues older than 30 days - should find none
     let (success, stdout, _) = run_crosslink(dir.path(), &["archive", "older", "30"]);
 
     assert!(success);
@@ -1916,9 +1772,6 @@ fn test_archive_older_no_matches() {
     );
 }
 
-// ==================== Additional Edge Case Coverage ====================
-
-// --- relate.rs: Error cases ---
 #[test]
 fn test_relate_nonexistent_first_issue() {
     let dir = test_dir();
@@ -1954,7 +1807,6 @@ fn test_relate_already_related() {
     run_crosslink(dir.path(), &["create", "Issue B"]);
     run_crosslink(dir.path(), &["issue", "relate", "1", "2"]);
 
-    // Try to relate again
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "relate", "1", "2"]);
 
     assert!(success);
@@ -1969,7 +1821,6 @@ fn test_unrelate_no_relation() {
     run_crosslink(dir.path(), &["create", "Issue A"]);
     run_crosslink(dir.path(), &["create", "Issue B"]);
 
-    // Try to unrelate issues that aren't related
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "unrelate", "1", "2"]);
 
     assert!(success);
@@ -2006,7 +1857,6 @@ fn test_related_nonexistent_issue() {
     assert!(stderr.contains("not found") || stderr.contains("999"));
 }
 
-// --- label.rs: Error cases ---
 #[test]
 fn test_label_nonexistent_issue() {
     let dir = test_dir();
@@ -2026,7 +1876,6 @@ fn test_label_already_exists() {
     run_crosslink(dir.path(), &["create", "Issue"]);
     run_crosslink(dir.path(), &["issue", "label", "1", "bug"]);
 
-    // Try to add same label again
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "label", "1", "bug"]);
 
     assert!(success);
@@ -2060,7 +1909,6 @@ fn test_unlabel_nonexistent_label() {
     );
 }
 
-// --- create.rs: Invalid priority ---
 #[test]
 fn test_create_invalid_priority() {
     let dir = test_dir();
@@ -2074,7 +1922,6 @@ fn test_create_invalid_priority() {
     );
 }
 
-// --- create.rs: Unknown template ---
 #[test]
 fn test_create_unknown_template() {
     let dir = test_dir();
@@ -2088,7 +1935,6 @@ fn test_create_unknown_template() {
     );
 }
 
-// --- block.rs: Error cases ---
 #[test]
 fn test_block_self() {
     let dir = test_dir();
@@ -2118,7 +1964,6 @@ fn test_block_nonexistent_issue() {
     assert!(stderr.contains("not found") || stderr.contains("999"));
 }
 
-// --- session.rs: Session status deleted issue ---
 #[test]
 fn test_session_status_deleted_issue() {
     let dir = test_dir();
@@ -2132,7 +1977,7 @@ fn test_session_status_deleted_issue() {
     let (success, stdout, _) = run_crosslink(dir.path(), &["session", "status"]);
 
     assert!(success);
-    // Should show issue not found or empty working status
+
     assert!(
         stdout.contains("not found")
             || contains_issue_ref(&stdout, 1)
@@ -2140,7 +1985,6 @@ fn test_session_status_deleted_issue() {
     );
 }
 
-// --- show.rs: Show with related issues ---
 #[test]
 fn test_show_with_related_issues() {
     let dir = test_dir();
@@ -2160,7 +2004,6 @@ fn test_show_with_related_issues() {
     );
 }
 
-// --- milestone.rs: Edge cases ---
 #[test]
 fn test_milestone_add_nonexistent_issue() {
     let dir = test_dir();
@@ -2170,7 +2013,6 @@ fn test_milestone_add_nonexistent_issue() {
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["milestone", "add", "1", "999"]);
 
-    // Command succeeds but warns about nonexistent issue
     assert!(success);
     assert!(
         stdout.contains("not found")
@@ -2187,48 +2029,38 @@ fn test_milestone_delete_nonexistent() {
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["milestone", "delete", "999"]);
 
-    // Command succeeds but reports not found
     assert!(success);
     assert!(stdout.contains("not found") || stdout.contains("999"));
 }
 
-// ==================== Security & Stress Tests ====================
-
-/// Test with long title at the limit (512 chars)
 #[test]
 fn test_stress_very_long_title() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Title at the 512-char limit should succeed
     let long_title = "A".repeat(512);
     let (success, stdout, _) = run_crosslink(dir.path(), &["create", &long_title]);
 
     assert!(success);
     assert!(contains_issue_ref(&stdout, 1));
 
-    // Verify it can be listed and shown
     let (success, _, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
 
     let (success, _, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(success);
 
-    // Title exceeding the limit should be rejected
     let too_long_title = "A".repeat(513);
     let (success, _, stderr) = run_crosslink(dir.path(), &["create", &too_long_title]);
     assert!(!success, "Should reject title exceeding 512 chars");
     assert!(stderr.contains("512"));
 }
 
-/// Test with very long description
-/// Note: Windows has ~8191 char command line limit, so we use a smaller size
 #[test]
 fn test_stress_very_long_description() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Use 5000 chars - safe for Windows command line limits
     let long_desc = "B".repeat(5000);
     let (success, _, _) =
         run_crosslink(dir.path(), &["create", "Long desc issue", "-d", &long_desc]);
@@ -2237,44 +2069,37 @@ fn test_stress_very_long_description() {
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(success);
-    // Should contain at least part of the description
+
     assert!(stdout.contains("BBBB"));
 }
 
-/// Test creating many issues (stress test)
 #[test]
 fn test_stress_many_issues() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create 100 issues
     for i in 0..100 {
         let title = format!("Issue number {i}");
         let (success, _, _) = run_crosslink(dir.path(), &["create", &title]);
         assert!(success, "Failed to create issue {i}");
     }
 
-    // Verify list works
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
     assert!(stdout.contains("Issue number 99"));
 
-    // Verify search works on large DB
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "search", "number 50"]);
     assert!(success);
     assert!(stdout.contains("50"));
 }
 
-/// Test deeply nested subissues
 #[test]
 fn test_stress_deep_nesting() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create root issue
     run_crosslink(dir.path(), &["create", "Level 0"]);
 
-    // Create 20 levels of nesting
     for i in 1..=20 {
         let parent_id = i.to_string();
         let title = format!("Level {i}");
@@ -2282,13 +2107,11 @@ fn test_stress_deep_nesting() {
         assert!(success, "Failed to create subissue at level {i}");
     }
 
-    // Verify tree command handles deep nesting
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "tree"]);
     assert!(success);
     assert!(stdout.contains("Level 20"));
 }
 
-/// Test SQL injection in title (should be safely escaped)
 #[test]
 fn test_security_sql_injection_title() {
     let dir = test_dir();
@@ -2307,13 +2130,11 @@ fn test_security_sql_injection_title() {
         assert!(success, "Failed to create issue with title: {title}");
     }
 
-    // Verify all issues exist and DB is intact
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
-    assert!(stdout.contains("DROP TABLE")); // Title should be stored literally
+    assert!(stdout.contains("DROP TABLE"));
 }
 
-/// Test SQL injection in search
 #[test]
 fn test_security_sql_injection_search() {
     let dir = test_dir();
@@ -2330,17 +2151,15 @@ fn test_security_sql_injection_search() {
 
     for query in malicious_searches {
         let (success, _, _) = run_crosslink(dir.path(), &["issue", "search", query]);
-        // Should not crash, may or may not find results
+
         assert!(success, "Search crashed with query: {query}");
     }
 
-    // DB should still be intact
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
     assert!(stdout.contains("Normal issue"));
 }
 
-/// Test path traversal in export
 #[test]
 fn test_security_path_traversal_export() {
     let dir = test_dir();
@@ -2348,8 +2167,6 @@ fn test_security_path_traversal_export() {
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
 
-    // Try to export to a path traversal location
-    // This should either fail safely or write to the literal filename
     let traversal_paths = [
         "../../../tmp/evil.json",
         "..\\..\\..\\tmp\\evil.json",
@@ -2359,21 +2176,14 @@ fn test_security_path_traversal_export() {
 
     for path in traversal_paths {
         let (_, _, _) = run_crosslink(dir.path(), &["export", "-o", path, "-f", "json"]);
-        // We don't assert success/failure - just that it doesn't crash
-        // and doesn't actually write to system locations
     }
 }
 
-/// Test null bytes in input
-/// Note: OS rejects null bytes in command args - this is correct security behavior
 #[test]
 fn test_security_null_bytes() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Null bytes are rejected at the OS level (can't pass via command line)
-    // This is actually GOOD security behavior - we test that the app
-    // handles other special chars correctly instead
     let (success, _, _) = run_crosslink(dir.path(), &["create", "Test with special: \t\r"]);
     assert!(success);
 
@@ -2381,7 +2191,6 @@ fn test_security_null_bytes() {
     assert!(success);
 }
 
-/// Test newlines and control characters in input
 #[test]
 fn test_security_control_characters() {
     let dir = test_dir();
@@ -2404,31 +2213,25 @@ fn test_security_control_characters() {
     assert!(success);
 }
 
-/// Test empty strings
 #[test]
 fn test_edge_empty_strings() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Empty title - should either fail or succeed (both acceptable, just don't crash)
     let (success, stdout, _) = run_crosslink(dir.path(), &["create", ""]);
     if success {
-        // If it accepted empty title, verify the issue was created
         assert!(
             stdout.contains("Created issue"),
             "If success, should show created message, got: {stdout}"
         );
     }
 
-    // Empty comment
     run_crosslink(dir.path(), &["create", "Issue"]);
     let (_, _, _) = run_crosslink(dir.path(), &["issue", "comment", "1", ""]);
 
-    // Empty label
     let (_, _, _) = run_crosslink(dir.path(), &["issue", "label", "1", ""]);
 }
 
-/// Test integer overflow in IDs
 #[test]
 fn test_edge_large_ids() {
     let dir = test_dir();
@@ -2436,30 +2239,25 @@ fn test_edge_large_ids() {
 
     run_crosslink(dir.path(), &["create", "Test"]);
 
-    // Very large IDs - should fail with "not found" since issue doesn't exist
-    let (success, _, stderr) = run_crosslink(dir.path(), &["show", "9223372036854775807"]); // i64::MAX
+    let (success, _, stderr) = run_crosslink(dir.path(), &["show", "9223372036854775807"]);
     assert!(!success, "Show with non-existent large ID should fail");
     assert!(
         stderr.contains("not found"),
         "Error should say not found, got: {stderr}"
     );
 
-    // Overflow ID - should fail with parse error or not found
     let (success, _, _) = run_crosslink(dir.path(), &["show", "99999999999999999999999"]);
     assert!(!success, "Show with overflow ID should fail");
 
-    // Negative IDs - clap may reject or db returns not found
     let (success, _, _) = run_crosslink(dir.path(), &["show", "-1"]);
     assert!(!success, "Show with negative ID should fail");
 }
 
-/// Test concurrent-like rapid operations
 #[test]
 fn test_stress_rapid_operations() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Rapid create/close/reopen cycle
     for i in 0..20 {
         let title = format!("Rapid issue {i}");
         run_crosslink(dir.path(), &["create", &title]);
@@ -2470,19 +2268,16 @@ fn test_stress_rapid_operations() {
         run_crosslink(dir.path(), &["issue", "label", &id, "rapid"]);
     }
 
-    // Verify all operations completed
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
     assert!(stdout.contains("Rapid issue 19"));
 }
 
-/// Test export/import round-trip preserves data
 #[test]
 fn test_integrity_export_import_roundtrip() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create complex data
     run_crosslink(
         dir.path(),
         &["create", "Parent", "-p", "high", "-d", "Parent desc"],
@@ -2491,7 +2286,6 @@ fn test_integrity_export_import_roundtrip() {
     run_crosslink(dir.path(), &["issue", "label", "1", "important"]);
     run_crosslink(dir.path(), &["issue", "comment", "1", "Test comment"]);
 
-    // Export
     let export_path = dir.path().join("backup.json");
     let (success, _, _) = run_crosslink(
         dir.path(),
@@ -2499,7 +2293,6 @@ fn test_integrity_export_import_roundtrip() {
     );
     assert!(success);
 
-    // Import to new location
     let dir2 = test_dir();
     init_crosslink(dir2.path());
     std::fs::copy(&export_path, dir2.path().join("backup.json")).unwrap();
@@ -2510,64 +2303,53 @@ fn test_integrity_export_import_roundtrip() {
     );
     assert!(success);
 
-    // Verify data integrity - title and structure preserved
     let (success, stdout, _) = run_crosslink(dir2.path(), &["show", "1"]);
     assert!(success);
     assert!(stdout.contains("Parent"));
 
-    // Verify child was imported
     let (success, stdout, _) = run_crosslink(dir2.path(), &["list"]);
     assert!(success);
     assert!(stdout.contains("Child") || contains_issue_ref(&stdout, 2));
 }
 
-// ============================================================
-// Unicode E2E Tests - Comprehensive multi-byte character handling
-// ============================================================
-
-/// Test issue creation and listing with Unicode arrows
 #[test]
 fn test_unicode_arrows_in_title() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // The exact issue that caused the original panic
     let (success, _, _) = run_crosslink(
         dir.path(),
         &["create", "Add keyboard shortcuts for swiping (← →)"],
     );
     assert!(success);
 
-    // List should not panic
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
-    assert!(stdout.contains("←") || stdout.contains("...")); // Either shows or truncates
+    assert!(stdout.contains("←") || stdout.contains("..."));
 }
 
-/// Test various Unicode characters in issue titles
 #[test]
 fn test_unicode_variety_in_titles() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
     let unicode_titles = [
-        "日本語タイトル",                 // Japanese
-        "中文标题测试",                   // Chinese
-        "Тест на русском языке",          // Russian
-        "العربية اختبار",                 // Arabic (RTL)
-        "🎉 Emoji celebration 🎊🎈",      // Emoji
-        "Mixed: Hello 世界 مرحبا мир 🌍", // Mixed scripts
-        "Math: ∑∏∫∂ √∞ ≈≠≤≥",             // Math symbols
-        "Arrows: ← → ↑ ↓ ↔ ↕ ⇐ ⇒",        // Arrows
-        "Currency: $ € £ ¥ ₹ ₽ ₿",        // Currency
-        "Box: ─│┌┐└┘├┤┬┴┼",               // Box drawing
+        "日本語タイトル",
+        "中文标题测试",
+        "Тест на русском языке",
+        "العربية اختبار",
+        "🎉 Emoji celebration 🎊🎈",
+        "Mixed: Hello 世界 مرحبا мир 🌍",
+        "Math: ∑∏∫∂ √∞ ≈≠≤≥",
+        "Arrows: ← → ↑ ↓ ↔ ↕ ⇐ ⇒",
+        "Currency: $ € £ ¥ ₹ ₽ ₿",
+        "Box: ─│┌┐└┘├┤┬┴┼",
     ];
 
     for (i, title) in unicode_titles.iter().enumerate() {
         let (success, _, _) = run_crosslink(dir.path(), &["create", title]);
         assert!(success, "Failed to create issue with title: {title}");
 
-        // Verify it can be shown without panic
         let id = (i + 1).to_string();
         let (success, _, _) = run_crosslink(dir.path(), &["show", &id]);
         assert!(
@@ -2578,18 +2360,15 @@ fn test_unicode_variety_in_titles() {
         );
     }
 
-    // List all - tests truncation on long Unicode
     let (success, _, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
 }
 
-/// Test Unicode in descriptions and comments
 #[test]
 fn test_unicode_in_descriptions_and_comments() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create with Unicode description
     let (success, _, _) = run_crosslink(
         dir.path(),
         &[
@@ -2601,14 +2380,12 @@ fn test_unicode_in_descriptions_and_comments() {
     );
     assert!(success);
 
-    // Add Unicode comment
     let (success, _, _) = run_crosslink(
         dir.path(),
         &["issue", "comment", "1", "Comment: ← back, → forward, ↑ up"],
     );
     assert!(success);
 
-    // Show should display without panic
     let (success, stdout, _) = run_crosslink(dir.path(), &["show", "1"]);
     assert!(success);
     assert!(
@@ -2617,7 +2394,6 @@ fn test_unicode_in_descriptions_and_comments() {
     );
 }
 
-/// Test search with Unicode queries
 #[test]
 fn test_unicode_search() {
     let dir = test_dir();
@@ -2627,37 +2403,29 @@ fn test_unicode_search() {
     run_crosslink(dir.path(), &["create", "Test with arrows ← →"]);
     run_crosslink(dir.path(), &["create", "Emoji test 🎉"]);
 
-    // Search for Japanese
     let (success, _, _) = run_crosslink(dir.path(), &["issue", "search", "日本"]);
     assert!(success);
 
-    // Search for emoji
     let (success, _, _) = run_crosslink(dir.path(), &["issue", "search", "🎉"]);
     assert!(success);
 
-    // Search for arrow
     let (success, _, _) = run_crosslink(dir.path(), &["issue", "search", "←"]);
     assert!(success);
 }
 
-/// Test very long Unicode strings (stress test truncation)
 #[test]
 fn test_unicode_long_string_truncation() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Create title that's definitely longer than truncation limit
-    // Using 3-byte UTF-8 chars (←) to maximize byte/char mismatch
     let long_arrows = "←".repeat(60);
     let (success, _, _) = run_crosslink(dir.path(), &["create", &format!("Long: {long_arrows}")]);
     assert!(success);
 
-    // List must not panic on truncation
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
     assert!(stdout.contains("...") || stdout.contains("Long:"));
 
-    // Create title with mixed byte-length chars
     let mixed = "a←b→c↑d↓e🎉f".repeat(10);
     let (success, _, _) = run_crosslink(dir.path(), &["create", &mixed]);
     assert!(success);
@@ -2666,7 +2434,6 @@ fn test_unicode_long_string_truncation() {
     assert!(success);
 }
 
-/// Test blocked/ready lists with Unicode
 #[test]
 fn test_unicode_in_dependencies() {
     let dir = test_dir();
@@ -2676,16 +2443,13 @@ fn test_unicode_in_dependencies() {
     run_crosslink(dir.path(), &["create", "待機中 (waiting) →"]);
     run_crosslink(dir.path(), &["issue", "block", "2", "1"]);
 
-    // Blocked list with Unicode
     let (success, _, _) = run_crosslink(dir.path(), &["issue", "blocked"]);
     assert!(success);
 
-    // Ready list
     let (success, _, _) = run_crosslink(dir.path(), &["issue", "ready"]);
     assert!(success);
 }
 
-/// Test export/import preserves Unicode
 #[test]
 fn test_unicode_export_import_roundtrip() {
     let dir = test_dir();
@@ -2697,7 +2461,6 @@ fn test_unicode_export_import_roundtrip() {
     run_crosslink(dir.path(), &["create", unicode_title, "-d", unicode_desc]);
     run_crosslink(dir.path(), &["issue", "comment", "1", "コメント (comment)"]);
 
-    // Export
     let export_path = dir.path().join("unicode_backup.json");
     let (success, _, _) = run_crosslink(
         dir.path(),
@@ -2705,7 +2468,6 @@ fn test_unicode_export_import_roundtrip() {
     );
     assert!(success);
 
-    // Import to new location
     let dir2 = test_dir();
     init_crosslink(dir2.path());
     std::fs::copy(&export_path, dir2.path().join("unicode_backup.json")).unwrap();
@@ -2719,7 +2481,6 @@ fn test_unicode_export_import_roundtrip() {
     );
     assert!(success);
 
-    // Verify Unicode preserved
     let (success, stdout, _) = run_crosslink(dir2.path(), &["show", "1"]);
     assert!(success);
     assert!(
@@ -2728,36 +2489,29 @@ fn test_unicode_export_import_roundtrip() {
     );
 }
 
-/// Test zero-width and special Unicode characters
 #[test]
 fn test_unicode_special_characters() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Zero-width characters (shouldn't break anything)
     let (success, _, _) = run_crosslink(
         dir.path(),
         &["create", "Test\u{200B}with\u{200B}zero\u{200B}width"],
     );
     assert!(success);
 
-    // RTL override characters
     let (success, _, _) = run_crosslink(
         dir.path(),
         &["create", "Test \u{202E}desrever\u{202C} normal"],
     );
     assert!(success);
 
-    // Combining characters (accent marks)
     let (success, _, _) = run_crosslink(dir.path(), &["create", "Café résumé naïve"]);
     assert!(success);
 
-    // All should list without panic
     let (success, _, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
 }
-
-// ==================== Integrity Tests ====================
 
 #[test]
 fn test_integrity_all_checks() {
@@ -2805,11 +2559,7 @@ fn test_integrity_hydration_skipped_without_sync() {
     assert!(stdout.contains("SKIPPED"));
 }
 
-// ==================== Kickoff Dry-Run Tests ====================
-
-/// Helper to initialize a git repo + crosslink in a temp directory
 fn init_git_and_crosslink(dir: &std::path::Path) {
-    // Initialize a git repo so kickoff can find repo_root()
     let output = Command::new("git")
         .current_dir(dir)
         .args(["init", "-b", "main"])
@@ -2817,7 +2567,6 @@ fn init_git_and_crosslink(dir: &std::path::Path) {
         .expect("Failed to init git repo");
     assert!(output.status.success(), "git init failed");
 
-    // Configure git user for commits
     let _ = Command::new("git")
         .current_dir(dir)
         .args(["config", "user.email", "test@test.com"])
@@ -2827,7 +2576,6 @@ fn init_git_and_crosslink(dir: &std::path::Path) {
         .args(["config", "user.name", "Test"])
         .output();
 
-    // Create an initial commit so HEAD exists (worktree creation needs it)
     std::fs::write(dir.join("README.md"), "# test\n").unwrap();
     let _ = Command::new("git")
         .current_dir(dir)
@@ -2853,7 +2601,6 @@ fn test_kickoff_dry_run_prints_prompt_and_metadata() {
 
     assert!(success, "kickoff --dry-run failed: stderr={stderr}");
 
-    // Prompt content
     assert!(
         stdout.contains("KICKOFF: add batch retry logic"),
         "Missing KICKOFF header in output: {stdout}"
@@ -2863,16 +2610,11 @@ fn test_kickoff_dry_run_prints_prompt_and_metadata() {
     assert!(stdout.contains("Final Steps"));
     assert!(stdout.contains("crosslink session"));
 
-    // Metadata printed after the prompt separator
     assert!(stdout.contains("Worktree:"));
     assert!(stdout.contains("Branch:"));
     assert!(stdout.contains("Agent:"));
 }
 
-// gh#62 (REQ-5/REQ-6, AC-9): `kickoff run --template` interpolates the built
-// prompt into the template file and prints the assembled result — the same
-// content that would be written to KICKOFF.md — proving the flag flows through
-// the CLI into the run.rs step-5 seam.
 #[test]
 fn test_kickoff_run_template_interpolates_prompt() {
     let dir = test_dir();
@@ -2900,7 +2642,6 @@ fn test_kickoff_run_template_interpolates_prompt() {
     );
     assert!(success, "kickoff run --template failed: stderr={stderr}");
 
-    // The template wrapper is present with its scalar placeholders substituted.
     assert!(
         stdout.contains("TEMPLATE-START desc=add retry logic model=sonnet MARKER"),
         "template placeholders not interpolated: {stdout}"
@@ -2909,12 +2650,12 @@ fn test_kickoff_run_template_interpolates_prompt() {
         stdout.contains("TEMPLATE-END"),
         "template tail missing: {stdout}"
     );
-    // built_prompt was expanded to the real built prompt.
+
     assert!(
         stdout.contains("KICKOFF: add retry logic"),
         "built_prompt placeholder not expanded to the built prompt: {stdout}"
     );
-    // No raw placeholder token survived interpolation.
+
     assert!(
         !stdout.contains("description}}") && !stdout.contains("built_prompt}}"),
         "raw template tokens leaked into output: {stdout}"
@@ -2932,8 +2673,6 @@ fn test_kickoff_dry_run_is_side_effect_free_and_prints_prompt() {
     );
     assert!(success);
 
-    // GH#19: a dry run must not create the worktree (or anything in it) —
-    // the printed path is the would-be location only.
     let worktree_line = stdout
         .lines()
         .find(|l| l.starts_with("Worktree:"))
@@ -2944,8 +2683,6 @@ fn test_kickoff_dry_run_is_side_effect_free_and_prints_prompt() {
         "dry run must not create the worktree, but {worktree_path} exists"
     );
 
-    // The full prompt is printed to stdout instead of being written to a
-    // KICKOFF.md — the same contract markers apply to the printed prompt.
     assert!(stdout.contains("test file creation"));
     assert!(
         stdout.contains("Verify agent setup"),
@@ -2976,20 +2713,16 @@ fn test_kickoff_dry_run_does_not_launch_agent() {
     );
     assert!(success);
 
-    // Dry run should NOT print launch confirmation messages
     assert!(!stdout.contains("Feature agent launched"));
     assert!(!stdout.contains("tmux"));
     assert!(!stdout.contains("Approve trust"));
 }
-
-// ==================== Tier 2 Smoke Tests (GH issue #242) ====================
 
 #[test]
 fn test_knowledge_search_with_tag_filter() {
     let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
-    // Add two knowledge pages with different tags
     let (s1, _, _) = run_crosslink(
         dir.path(),
         &[
@@ -3022,7 +2755,6 @@ fn test_knowledge_search_with_tag_filter() {
     );
     assert!(s2, "Failed to add knowledge page beta");
 
-    // Search with tag filter
     let (success, stdout, _) = run_crosslink(
         dir.path(),
         &["knowledge", "search", "searchword", "--tag", "design-doc"],
@@ -3043,7 +2775,6 @@ fn test_knowledge_import_dry_run() {
     let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
-    // Create a fixtures directory with markdown files
     let fixtures = dir.path().join("import-fixtures");
     std::fs::create_dir_all(&fixtures).unwrap();
     std::fs::write(fixtures.join("doc-one.md"), "# Doc One\n\nContent one.\n").unwrap();
@@ -3059,7 +2790,7 @@ fn test_knowledge_import_dry_run() {
         ],
     );
     assert!(success);
-    // Dry run should list files that WOULD be imported
+
     assert!(
         stdout.contains("doc-one") || stdout.contains("import"),
         "Dry run should list files: {stdout}"
@@ -3069,7 +2800,6 @@ fn test_knowledge_import_dry_run() {
         "Dry run should list both files: {stdout}"
     );
 
-    // Verify nothing was actually imported
     let (_, list_out, _) = run_crosslink(dir.path(), &["knowledge", "list"]);
     assert!(
         !list_out.contains("doc-one"),
@@ -3082,7 +2812,6 @@ fn test_init_deploys_mcp_knowledge_server_integration() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // knowledge-server.py must exist after init
     assert!(
         dir.path()
             .join(".crosslink/integrations/mcp/knowledge-server.py")
@@ -3090,7 +2819,6 @@ fn test_init_deploys_mcp_knowledge_server_integration() {
         "provider-neutral knowledge-server.py not deployed"
     );
 
-    // .mcp.json must exist and reference both MCP servers
     let mcp_path = dir.path().join(".mcp.json");
     assert!(mcp_path.exists(), ".mcp.json not created");
 
@@ -3120,7 +2848,6 @@ fn test_init_deploys_skill_files_integration() {
         "design.md not deployed"
     );
 
-    // Force init should also work
     let (success, _, _) = run_crosslink(dir.path(), &["init", "--force"]);
     assert!(success, "Force init failed");
     assert!(commands_dir.join("maintain.md").exists());
@@ -3129,16 +2856,12 @@ fn test_init_deploys_skill_files_integration() {
 
 #[test]
 fn test_init_deploys_claude_skills() {
-    // Bundled Claude skills (resources/claude/skills/) should be deployed to
-    // .claude/skills/<name>/ on init so collaborators get the same skill
-    // surface without manual installation.
     let dir = test_dir();
     init_crosslink(dir.path());
 
     let skills_dir = dir.path().join(".claude/skills");
     assert!(skills_dir.is_dir(), ".claude/skills/ directory not created");
 
-    // Spot-check a few representative skills from the bundled set
     for skill in [
         "architect",
         "commit",
@@ -3157,30 +2880,21 @@ fn test_init_deploys_claude_skills() {
         );
     }
 
-    // rust-gpu-discipline ships multiple files — verify the per-skill
-    // subdirectory structure preserves all of them, not just SKILL.md.
     let gpu_skill = skills_dir.join("rust-gpu-discipline");
     assert!(gpu_skill.join("SKILL.md").exists());
     assert!(gpu_skill.join("anti-patterns.md").exists());
     assert!(gpu_skill.join("ferrotorch-stack.md").exists());
     assert!(gpu_skill.join("verification-script.md").exists());
 
-    // Force re-init should overwrite without error
     let (success, _, _) = run_crosslink(dir.path(), &["init", "--force"]);
     assert!(success, "Force init failed");
     assert!(skills_dir.join("architect/SKILL.md").exists());
 }
 
-// ==================== Tier 3 Smoke Tests (GH issue #242) ====================
-// These tests need git repo fixtures with remotes.
-
-/// Set up a temp dir with a bare "remote" and a clone that has crosslink initialized.
-/// Returns (work_dir, remote_dir) — work_dir is the clone with crosslink init done.
 fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
     let remote_dir = tempdir().unwrap();
     let work_dir = tempdir().unwrap();
 
-    // Create bare remote
     let out = Command::new("git")
         .current_dir(remote_dir.path())
         .args(["init", "--bare", "-b", "main"])
@@ -3188,7 +2902,6 @@ fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
         .unwrap();
     assert!(out.status.success(), "git init --bare failed");
 
-    // Init work repo
     let out = Command::new("git")
         .current_dir(work_dir.path())
         .args(["init", "-b", "main"])
@@ -3196,7 +2909,6 @@ fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
         .unwrap();
     assert!(out.status.success(), "git init failed");
 
-    // Configure git user
     for args in [
         vec!["config", "user.email", "test@test.com"],
         vec!["config", "user.name", "Test"],
@@ -3213,7 +2925,6 @@ fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
             .output();
     }
 
-    // Initial commit and push
     std::fs::write(work_dir.path().join("README.md"), "# test\n").unwrap();
     let _ = Command::new("git")
         .current_dir(work_dir.path())
@@ -3230,7 +2941,6 @@ fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
         .unwrap();
     assert!(out.status.success(), "initial push failed");
 
-    // Init crosslink
     init_crosslink(work_dir.path());
 
     (work_dir, remote_dir)
@@ -3240,11 +2950,9 @@ fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
 fn test_hub_sync_idempotent() {
     let (work_dir, _remote_dir) = setup_repo_with_remote();
 
-    // First sync
     let (s1, out1, err1) = run_crosslink(work_dir.path(), &["sync"]);
     assert!(s1, "First sync failed: stdout={out1} stderr={err1}");
 
-    // Second sync — must also succeed (idempotent)
     let (s2, out2, err2) = run_crosslink(work_dir.path(), &["sync"]);
     assert!(
         s2,
@@ -3256,18 +2964,14 @@ fn test_hub_sync_idempotent() {
 fn test_hub_sync_recovery_from_dirty_cache() {
     let (work_dir, _remote_dir) = setup_repo_with_remote();
 
-    // First sync to initialize cache
     let (s, _, err) = run_crosslink(work_dir.path(), &["sync"]);
     assert!(s, "Initial sync failed: {err}");
 
-    // Dirty the cache by appending to a file in the hub cache dir
     let hub_cache = work_dir.path().join(".crosslink/.hub-cache");
     if hub_cache.exists() {
-        // Create a dirty untracked file in the cache
         std::fs::write(hub_cache.join("dirty-test-file.txt"), "dirty\n").ok();
     }
 
-    // Sync again — should recover cleanly
     let (s2, _, err2) = run_crosslink(work_dir.path(), &["sync"]);
     assert!(s2, "Sync after dirty cache should recover: stderr={err2}");
 }
@@ -3276,11 +2980,9 @@ fn test_hub_sync_recovery_from_dirty_cache() {
 fn test_offline_sync_does_not_panic() {
     let (work_dir, _remote_dir) = setup_repo_with_remote();
 
-    // First sync to initialize the hub cache properly
     let (s, _, err) = run_crosslink(work_dir.path(), &["sync"]);
     assert!(s, "Initial sync failed: {err}");
 
-    // Now point origin at a nonexistent path so fetch/push will fail
     let _ = Command::new("git")
         .current_dir(work_dir.path())
         .args([
@@ -3291,21 +2993,14 @@ fn test_offline_sync_does_not_panic() {
         ])
         .output();
 
-    // Sync with unreachable remote — should not panic, and should either
-    // fail gracefully or succeed with local-only state
     let (_, stdout, stderr) = run_crosslink(work_dir.path(), &["sync"]);
     let combined = format!("{stdout}{stderr}");
 
-    // Must not contain panic output
     assert!(
         !combined.contains("panicked"),
         "Sync with offline remote should not panic: {combined}"
     );
 }
-
-// ==================== Canonical Subcommand Path Tests ====================
-// These test the new `issue <verb>` and `timer <verb>` canonical paths
-// introduced by the subcommand structure refactor.
 
 #[test]
 fn test_issue_create_canonical() {
@@ -3320,7 +3015,7 @@ fn test_issue_create_canonical() {
         stdout.contains("Created issue") && contains_issue_ref(&stdout, 1),
         "Expected 'Created issue #1', got: {stdout}"
     );
-    // Canonical path should NOT emit a hint
+
     assert!(
         !stderr.contains("hint:"),
         "Canonical path should not emit hint, got stderr: {stderr}"
@@ -3542,8 +3237,6 @@ fn test_issue_next_canonical() {
     assert!(stdout.contains("High prio") || contains_issue_ref(&stdout, 2));
 }
 
-// ==================== Timer Canonical Path Tests ====================
-
 #[test]
 fn test_timer_start_canonical() {
     let dir = test_dir();
@@ -3590,9 +3283,6 @@ fn test_timer_show_canonical() {
             || stdout.contains("running")
     );
 }
-
-// ==================== Alias Hint Tests ====================
-// These test that agent-mistake aliases work but emit hints on stderr.
 
 #[test]
 fn test_new_alias_emits_hint() {
@@ -3694,10 +3384,6 @@ fn test_stop_alias_emits_hint() {
     );
 }
 
-// ==================== Top-level Shortcut Tests ====================
-// These test that top-level shortcuts (create, list, show, close, quick)
-// work without emitting hints (they are intentional convenience paths).
-
 #[test]
 fn test_top_level_create_no_hint() {
     let dir = test_dir();
@@ -3771,32 +3457,24 @@ fn test_top_level_quick_no_hint() {
     );
 }
 
-// ==================== Dry-run Flag Normalization Tests ====================
-// Verify --dry-run (not --dry_run) works across commands that support it.
-
 #[test]
 fn test_dry_run_flag_accepted() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // --dry-run on style sync should be accepted without error
     let (_, _, stderr) = run_crosslink(dir.path(), &["style", "sync", "--dry-run"]);
 
-    // The command may fail (no style source configured), but clap should accept the flag
     assert!(
         !stderr.contains("unexpected argument"),
         "--dry-run flag should be accepted, got stderr: {stderr}"
     );
 }
 
-// ===== Sentinel tests =====
-
 #[test]
 fn test_sentinel_run_disabled() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Write sentinel config with enabled: false
     let config_path = dir.path().join(".crosslink").join("hook-config.json");
     let config = serde_json::json!({
         "sentinel": { "enabled": false }
@@ -3816,7 +3494,6 @@ fn test_sentinel_run_dry_run() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Enable sentinel (default template has it disabled)
     let config_path = dir.path().join(".crosslink").join("hook-config.json");
     let config = serde_json::json!({
         "sentinel": { "enabled": true }
@@ -3889,7 +3566,6 @@ fn test_sentinel_schema_migration() {
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    // Verify sentinel tables exist after init (triggers migration)
     let db_path = dir.path().join(".crosslink").join("issues.db");
     let db = rusqlite::Connection::open(&db_path).unwrap();
 
@@ -3911,10 +3587,6 @@ fn test_sentinel_schema_migration() {
         .unwrap_or(false);
     assert!(has_dispatches, "sentinel_dispatches table should exist");
 
-    // Verify schema is at least the version this test originally pinned
-    // (v16 sentinel tables). Bumping the overall schema version for later
-    // migrations is expected; the test only cares that the sentinel tables
-    // were installed.
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
@@ -3924,9 +3596,6 @@ fn test_sentinel_schema_migration() {
     );
 }
 
-// gh#66: `kickoff plan` exposes --skip-permissions / --permission-mode (so a
-// headless dispatcher can clear claude's workspace-trust dialog), and they are
-// mutually exclusive like on `kickoff run`. Verified at the clap layer (no tmux).
 #[test]
 fn test_kickoff_plan_permission_flags_are_exposed_and_conflict() {
     let dir = test_dir();
@@ -3953,10 +3622,6 @@ fn test_kickoff_plan_permission_flags_are_exposed_and_conflict() {
     );
 }
 
-// gh#61 (AC-3): `kickoff run --effort <bogus>` is rejected at the clap layer
-// with a value error naming the allowed set, so a typo'd dial fails closed
-// instead of silently dispatching an un-dialed agent. Mirrors the gh#66
-// conflict test — verified at the CLI layer, no tmux involved.
 #[test]
 fn test_kickoff_run_rejects_unknown_effort_level() {
     let dir = test_dir();
@@ -3979,8 +3644,6 @@ fn test_kickoff_run_rejects_unknown_effort_level() {
     }
 }
 
-// The same fail-closed validation on `kickoff plan`, which gained the dials
-// alongside `kickoff run`.
 #[test]
 fn test_kickoff_plan_rejects_unknown_effort_level() {
     let dir = test_dir();
@@ -3997,8 +3660,6 @@ fn test_kickoff_plan_rejects_unknown_effort_level() {
     );
 }
 
-// A valid level parses (the failure below comes from the missing design doc,
-// not from the dial) — guards against the value parser rejecting its own set.
 #[test]
 fn test_kickoff_plan_accepts_valid_effort_level() {
     let dir = test_dir();
@@ -4057,7 +3718,7 @@ fn test_design_custom_provider_receives_skill_prompt_and_propagates_exit_code() 
     assert_eq!(output.status.code(), Some(37));
     let prompt = std::fs::read_to_string(capture).unwrap();
     assert!(prompt.contains("ARGUMENTS: \"provider-neutral feature\""));
-    assert!(prompt.contains("Design — interactive design document authoring"));
+    assert!(prompt.contains("# Feature design"));
 }
 
 #[test]

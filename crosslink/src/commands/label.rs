@@ -87,8 +87,6 @@ mod tests {
         (db, dir)
     }
 
-    // ==================== Add Label Tests ====================
-
     #[test]
     fn test_add_label_to_existing_issue() {
         let (db, _dir) = setup_test_db();
@@ -116,8 +114,8 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         add(&db, None, issue_id, "bug").unwrap();
-        let result = add(&db, None, issue_id, "bug"); // Duplicate
-        assert!(result.is_ok()); // Should succeed but not add duplicate
+        let result = add(&db, None, issue_id, "bug");
+        assert!(result.is_ok());
 
         let labels = db.get_labels(issue_id).unwrap();
         assert_eq!(labels.len(), 1);
@@ -190,16 +188,12 @@ mod tests {
         let result = add(&db, None, issue_id, malicious);
         assert!(result.is_ok());
 
-        // Verify label was stored literally
         let labels = db.get_labels(issue_id).unwrap();
         assert!(labels.contains(&malicious.to_string()));
 
-        // Verify database integrity
         let issues = db.list_issues(None, None, None).unwrap();
         assert!(!issues.is_empty());
     }
-
-    // ==================== Remove Label Tests ====================
 
     #[test]
     fn test_remove_existing_label() {
@@ -220,7 +214,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let result = remove(&db, None, issue_id, "nonexistent");
-        assert!(result.is_ok()); // Should succeed but report not found
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -262,8 +256,6 @@ mod tests {
         let labels = db.get_labels(issue_id).unwrap();
         assert!(labels.contains(&"bug".to_string()));
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]
@@ -307,19 +299,19 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-            // Add all labels
+
             for label in &labels {
                 add(&db, None, issue_id, label).unwrap();
             }
 
-            // Remove first label
+
             if !labels.is_empty() {
                 remove(&db, None, issue_id, &labels[0]).unwrap();
 
                 let remaining = db.get_labels(issue_id).unwrap();
                 prop_assert!(!remaining.contains(&labels[0]));
 
-                // Others should still exist (unless they were the same as first)
+
                 for label in labels.iter().skip(1) {
                     if label != &labels[0] {
                         prop_assert!(remaining.contains(label));

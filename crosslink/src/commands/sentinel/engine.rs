@@ -12,7 +12,6 @@ use super::seen_set::{db_dedup_check, SeenSet};
 use super::sources::github::GitHubLabelSource;
 use super::sources::{Signal, SignalDecision, Source};
 
-/// Statistics from a single sentinel cycle.
 #[derive(Debug, Default)]
 pub struct CycleStats {
     pub signals_found: u32,
@@ -22,14 +21,12 @@ pub struct CycleStats {
     pub deferred: u32,
 }
 
-/// Per-cycle behavior shared by polled and webhook-driven dispatches.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct CycleOptions<'a> {
     pub quiet: bool,
     pub model_override: Option<&'a str>,
 }
 
-/// Run a single sentinel cycle: poll sources, triage, dispatch, collect.
 pub(super) fn run_oneshot(
     crosslink_dir: &Path,
     db: &Database,
@@ -50,7 +47,6 @@ pub(super) fn run_oneshot(
         return Ok(run_dry(config, options.quiet));
     }
 
-    // Poll all configured sources to gather signals
     let all_signals = poll_all_sources(crosslink_dir, config, label_filter);
 
     process_signal_batch(
@@ -64,8 +60,6 @@ pub(super) fn run_oneshot(
     )
 }
 
-/// Poll all configured sources and return their combined signals.
-/// Applies the optional label filter (exact suffix match).
 fn poll_all_sources(
     crosslink_dir: &Path,
     config: &SentinelConfig,
@@ -126,10 +120,6 @@ fn poll_all_sources(
     all_signals
 }
 
-/// Process a pre-built batch of signals through the dedup/triage/dispatch pipeline.
-///
-/// Used by both `run_oneshot` (after polling sources) and `webhook` (for real-time
-/// events that arrive between polling cycles).
 pub(super) fn process_signal_batch(
     crosslink_dir: &Path,
     db: &Database,
@@ -142,10 +132,8 @@ pub(super) fn process_signal_batch(
     let run_id = Uuid::new_v4().to_string();
     db.insert_sentinel_run(&run_id, mode)?;
 
-    // Load SeenSet
     let seen = SeenSet::load(db)?;
 
-    // Load self-tuning overrides from historical success rates
     let tuning = if config.escalation.enabled {
         super::tuning::TuningOverride::from_history(db, config).unwrap_or_else(|e| {
             tracing::warn!("self-tuning load failed: {e}");
@@ -163,9 +151,7 @@ pub(super) fn process_signal_batch(
         ..Default::default()
     };
 
-    // 4. Triage and dispatch each signal
     for signal in all_signals {
-        // Layer 2: in-memory dedup
         let decision = seen.evaluate(&signal.reference, config);
         if let SignalDecision::Skip(reason) = &decision {
             if !options.quiet {
@@ -175,7 +161,6 @@ pub(super) fn process_signal_batch(
             continue;
         }
 
-        // Layer 3: authoritative DB dedup
         let gh_number = super::seen_set::parse_gh_issue_number(&signal.reference);
         let label_suffix = super::seen_set::parse_signal_label_suffix(&signal.reference);
         if let (Some(num), Some(label)) = (gh_number, label_suffix) {
@@ -188,11 +173,8 @@ pub(super) fn process_signal_batch(
                 stats.skipped += 1;
                 continue;
             }
-            // If DB says Escalate but SeenSet said New, trust DB (it's authoritative)
-            // This can happen if SeenSet was loaded before a previous cycle's dispatch was recorded
         }
 
-        // 5. Triage
         let mut disposition = triage(
             signal,
             &decision,
@@ -201,8 +183,6 @@ pub(super) fn process_signal_batch(
             options.model_override,
         );
 
-        // 6. Capacity check: if triage decided to dispatch but we're at capacity,
-        //    override to Defer so the signal is retried on the next cycle.
         if matches!(disposition, super::dispatch::Disposition::Dispatch { .. }) {
             let in_flight = db.count_pending_dispatches()?;
             if in_flight >= config.max_concurrent_agents as i64 {
@@ -231,10 +211,9 @@ pub(super) fn process_signal_batch(
                         signal.detected_at.format("%H:%M:%S")
                     );
                 }
-                // Create crosslink issue for this signal
+
                 let issue_id = create_sentinel_issue(db, writer, signal)?;
 
-                // Spawn agent via kickoff
                 let source_str = format!("{:?}", signal.source);
                 let label_str = signal
                     .metadata
@@ -296,7 +275,6 @@ pub(super) fn process_signal_batch(
                 stats.deferred += 1;
             }
             super::dispatch::Disposition::Triage { priority, labels } => {
-                // Triage-only signals get a crosslink issue with priority + labels
                 let issue_id = create_sentinel_issue(db, writer, signal)?;
                 let _ = db.update_issue(issue_id, None, None, Some(&priority));
                 for l in &labels {
@@ -319,13 +297,11 @@ pub(super) fn process_signal_batch(
         }
     }
 
-    // 7. Collect results from previously completed agents
     match collect::collect_completed(db, crosslink_dir, Some(config), writer) {
         Ok(collect_stats) => stats.collected = collect_stats.collected,
         Err(e) => tracing::warn!("result collection failed: {e}"),
     }
 
-    // 8. Record run stats
     db.complete_sentinel_run(
         &run_id,
         &crate::db::sentinel::RunCounters {
@@ -367,7 +343,6 @@ fn run_dry(config: &SentinelConfig, quiet: bool) -> CycleStats {
     CycleStats::default()
 }
 
-/// Create a crosslink issue for a sentinel signal.
 fn create_sentinel_issue(
     db: &Database,
     writer: Option<&SharedWriter>,
@@ -389,13 +364,6 @@ fn create_sentinel_issue(
     )
 }
 
-/// Create a crosslink issue with an explicit reference, title, description,
-/// priority, and label set.
-///
-/// Shared by `create_sentinel_issue` (signal-driven issues) and the
-/// agent-exhaustion triage path in `collect.rs`. When a `SharedWriter` is
-/// available it is used so the issue is created on the hub branch; otherwise
-/// the local database is used directly.
 pub fn create_triage_issue(
     db: &Database,
     writer: Option<&SharedWriter>,
@@ -421,10 +389,6 @@ pub fn create_triage_issue(
     Ok(issue_id)
 }
 
-/// Spawn a kickoff agent for a sentinel dispatch.
-///
-/// For fix dispatches (`VerifyLevel::Ci`), propagates `GH_TOKEN` so the agent
-/// can push branches and create draft PRs.
 fn spawn_agent(
     crosslink_dir: &Path,
     db: &Database,
@@ -435,8 +399,6 @@ fn spawn_agent(
 ) -> Result<String> {
     use crate::commands::kickoff::{run, ContainerMode, KickoffOpts, VerifyLevel};
 
-    // For Ci verify level, ensure GH_TOKEN is available so the agent can push + create PRs.
-    // Read it from `gh auth token` and inject into the process environment.
     if scope.verify == VerifyLevel::Ci && std::env::var("GH_TOKEN").is_err() {
         match std::process::Command::new("gh")
             .args(["auth", "token"])
@@ -458,8 +420,6 @@ fn spawn_agent(
         }
     }
 
-    // Append a strict path-enforcement section so the agent honors AgentScope.allowed_paths
-    // even if the prompt template's natural language is ambiguous.
     let scoped_description = format!(
         "{description}\n\n## Path Enforcement (sentinel scope)\n\
          You may ONLY create or modify files under these path prefixes:\n{}\n\
@@ -487,9 +447,7 @@ fn spawn_agent(
         doc_path: None,
         skip_permissions: true,
         permission_mode: None,
-        // Sentinel dispatch carries no reasoning/spend dials (gh#61) — the
-        // scope's model is the only dial it configures. No template either
-        // (gh#62): sentinel agents use the built-in prompt.
+
         effort: None,
         budget_usd: None,
         template: None,
@@ -499,7 +457,6 @@ fn spawn_agent(
     run(crosslink_dir, db, writer, &opts)
 }
 
-/// Resolve the repo root from a crosslink directory.
 fn resolve_repo_root(crosslink_dir: &Path) -> Result<std::path::PathBuf> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])

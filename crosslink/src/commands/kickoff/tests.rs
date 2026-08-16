@@ -273,14 +273,8 @@ fn test_detect_conventions_node() {
     assert!(conv.allowed_tools.contains(&"Bash(npm *)".to_string()));
 }
 
-// --- GH#584: convention detection scans one level deep ---
-
 #[test]
 fn test_detect_conventions_rust_in_subdir() {
-    // Monorepo layout: Cargo.toml lives one directory level deep. Detection
-    // should still light up Rust tools. This is the santana-style case
-    // GH#584 calls out -- where the previous narrow detection missed
-    // anything outside the repo root.
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("santana-core")).unwrap();
     std::fs::write(dir.path().join("santana-core/Cargo.toml"), "[package]").unwrap();
@@ -295,8 +289,6 @@ fn test_detect_conventions_rust_in_subdir() {
 
 #[test]
 fn test_detect_conventions_rust_two_levels_deep_not_detected() {
-    // Contract: only ONE level deep matches. Two levels deep would risk
-    // false positives from vendored crates in unusual structures.
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("crates/foo")).unwrap();
     std::fs::write(dir.path().join("crates/foo/Cargo.toml"), "[package]").unwrap();
@@ -325,8 +317,6 @@ fn test_detect_conventions_python_in_subdir_with_pytest() {
 
 #[test]
 fn test_detect_conventions_skips_node_modules() {
-    // A stray Cargo.toml inside node_modules/ must NOT enable cargo tools
-    // for the parent project. SKIP_SCAN_DIRS guards against this.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("package.json"), "{}").unwrap();
     std::fs::create_dir_all(dir.path().join("node_modules/weird-pkg")).unwrap();
@@ -359,7 +349,7 @@ fn test_detect_conventions_skips_hidden_dirs() {
 #[test]
 fn test_read_kickoff_allowed_tools_returns_empty_when_missing() {
     let dir = tempfile::tempdir().unwrap();
-    // No hook-config.json present.
+
     assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
 }
 
@@ -403,7 +393,6 @@ fn test_read_kickoff_allowed_tools_tolerates_malformed_json() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "not valid json").unwrap();
 
-    // Best-effort: malformed config silently yields empty, doesn't panic.
     assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
 }
 
@@ -412,8 +401,6 @@ fn test_rand_suffix_range() {
     let s = rand_suffix();
     assert!(s < 10000);
 }
-
-// --- New tests for extracted pure functions ---
 
 #[test]
 fn test_slugify_all_special_chars() {
@@ -427,7 +414,6 @@ fn test_slugify_single_word() {
 
 #[test]
 fn test_slugify_unicode() {
-    // Rust's is_alphanumeric() includes Unicode letters like é
     assert_eq!(slugify("add café support"), "add-café-support");
 }
 
@@ -448,7 +434,6 @@ fn test_slugify_empty() {
 
 #[test]
 fn test_slugify_truncation_cuts_at_word_boundary() {
-    // 61+ chars, should cut at last hyphen before 60
     let desc = "implement-the-very-important-feature-that-does-something-really-great";
     let slug = slugify(desc);
     assert!(slug.len() <= 60);
@@ -476,7 +461,7 @@ fn test_build_test_lint_instructions_with_commands() {
     assert!(section.contains("`cargo test`"));
     assert!(section.contains("`cargo clippy -- -D warnings`"));
     assert!(section.contains("`cargo fmt --check`"));
-    assert!(section.contains("crosslink comment 42"));
+    assert!(section.contains("crosslink issue comment 42"));
 }
 
 #[test]
@@ -489,7 +474,7 @@ fn test_build_test_lint_instructions_without_commands() {
     let section = build_test_lint_instructions(&conv, 7);
     assert!(section.contains("Run the project's test suite"));
     assert!(section.contains("Run lint and format checks"));
-    assert!(section.contains("crosslink comment 7"));
+    assert!(section.contains("crosslink issue comment 7"));
 }
 
 #[test]
@@ -517,6 +502,9 @@ fn test_build_final_steps_section_content() {
     assert!(section.contains("crosslink session end"));
     assert!(section.contains(".kickoff-status"));
     assert!(section.contains("DONE"));
+    assert!(section.contains("final tool action"));
+    assert!(section.contains("crosslink issue intervene"));
+    assert!(!section.contains(&["`crosslink", "intervene"].join(" ")));
 }
 
 #[test]
@@ -527,6 +515,7 @@ fn test_missing_exclude_patterns_empty_file() {
         vec![
             "KICKOFF.md",
             ".kickoff-status",
+            ".kickoff-session",
             ".kickoff-slug",
             ".kickoff-metadata.json",
             ".kickoff-doc.json",
@@ -553,7 +542,7 @@ fn test_missing_exclude_patterns_one_present() {
 #[test]
 fn test_missing_exclude_patterns_all_present() {
     let patterns = missing_exclude_patterns(
-        "KICKOFF.md\n.kickoff-status\n.kickoff-slug\n.kickoff-metadata.json\n.kickoff-doc.json\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
+        "KICKOFF.md\n.kickoff-status\n.kickoff-session\n.kickoff-slug\n.kickoff-metadata.json\n.kickoff-doc.json\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
     );
     assert!(patterns.is_empty());
 }
@@ -561,16 +550,15 @@ fn test_missing_exclude_patterns_all_present() {
 #[test]
 fn test_missing_exclude_patterns_with_whitespace() {
     let patterns = missing_exclude_patterns(
-        "  KICKOFF.md  \n  .kickoff-status  \n  .kickoff-slug  \n  .kickoff-metadata.json  \n  .kickoff-doc.json  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
+        "  KICKOFF.md  \n  .kickoff-status  \n  .kickoff-session  \n  .kickoff-slug  \n  .kickoff-metadata.json  \n  .kickoff-doc.json  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
     );
     assert!(patterns.is_empty());
 }
 
-// ==================== Design-doc integrity (GH#580) =============
 #[test]
 fn test_verify_protected_doc_not_protected_without_breadcrumb() {
     let tmp = tempfile::tempdir().unwrap();
-    // No .kickoff-doc.json present → NotProtected.
+
     assert!(matches!(
         verify_protected_doc(tmp.path()),
         DocIntegrity::NotProtected
@@ -618,7 +606,7 @@ fn test_verify_protected_doc_mismatch_on_edited_doc() {
         serde_json::to_string(&breadcrumb).unwrap(),
     )
     .unwrap();
-    // On-disk file diverges from the recorded hash.
+
     std::fs::write(tmp.path().join(doc_rel), modified).unwrap();
 
     match verify_protected_doc(tmp.path()) {
@@ -639,7 +627,7 @@ fn test_verify_protected_doc_mismatch_on_edited_doc() {
 fn test_verify_protected_doc_missing_when_doc_deleted() {
     let tmp = tempfile::tempdir().unwrap();
     let doc_rel = ".design/foo.md";
-    // Write breadcrumb but never create the doc itself.
+
     let breadcrumb = KickoffDocBreadcrumb {
         rel_path: doc_rel.to_string(),
         doc_hash: super::pipeline::compute_doc_hash("placeholder"),
@@ -782,7 +770,7 @@ fn test_detect_conventions_elixir_minimal() {
     assert!(conv
         .lint_commands
         .contains(&"mix format --check-formatted".to_string()));
-    // No credo/sobelow in a minimal mix.exs
+
     assert!(!conv
         .lint_commands
         .contains(&"mix credo --strict".to_string()));
@@ -833,9 +821,9 @@ fn test_detect_conventions_multi_language() {
     std::fs::write(dir.path().join("package.json"), "{}").unwrap();
 
     let conv = detect_conventions(dir.path());
-    // Rust gets priority for test_command
+
     assert_eq!(conv.test_command.as_deref(), Some("cargo test"));
-    // Both toolchains present
+
     assert!(conv.allowed_tools.contains(&"Bash(cargo *)".to_string()));
     assert!(conv.allowed_tools.contains(&"Bash(npm *)".to_string()));
 }
@@ -976,10 +964,9 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
-    // Issue ID should appear in context header and in session/comment instructions
     assert!(prompt.contains("#999"));
     assert!(prompt.contains("crosslink session work 999"));
-    assert!(prompt.contains("crosslink comment 999"));
+    assert!(prompt.contains("crosslink issue comment 999"));
 }
 
 #[test]
@@ -1011,10 +998,9 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
-    // Without specific test/lint commands, prompt should use generic phrasing
     assert!(prompt.contains("Run the project's test suite"));
     assert!(prompt.contains("Run lint and format checks"));
-    // Should NOT contain backtick-quoted commands
+
     assert!(!prompt.contains("`cargo test`"));
 }
 
@@ -1064,7 +1050,7 @@ fn test_build_prompt_with_design_doc() {
     assert!(prompt.contains("AC-1: Tests pass"));
     assert!(prompt.contains("Middleware pattern"));
     assert!(prompt.contains("Not doing X"));
-    // No open questions, so no escalation block
+
     assert!(!prompt.contains("Escalation Required"));
 }
 
@@ -1113,7 +1099,7 @@ fn test_build_plan_prompt_with_open_questions() {
 
     assert!(prompt.contains("Escalation Required"));
     assert!(prompt.contains("Q1: OAuth or JWT?"));
-    // No issue line when None
+
     assert!(!prompt.contains("Issue"));
 }
 
@@ -1133,7 +1119,7 @@ fn test_build_plan_prompt_without_issue() {
     let prompt = build_plan_prompt(&doc, None, None);
 
     assert!(prompt.contains("KICKOFF PLAN"));
-    // No issue line when None
+
     assert!(!prompt.contains("**Issue**"));
 }
 
@@ -1153,7 +1139,7 @@ fn test_build_allowed_tools_plan_no_destructive_bash() {
     assert!(!tools.contains("Bash(mkdir"));
     assert!(!tools.contains("Bash(touch"));
     assert!(!tools.contains("Bash(echo"));
-    // But read-only bash is allowed
+
     assert!(tools.contains("Bash(git status"));
     assert!(tools.contains("Bash(ls"));
 }
@@ -1212,10 +1198,8 @@ fn test_build_prompt_with_design_doc_open_questions() {
     assert!(prompt.contains("Escalation Required"));
     assert!(prompt.contains("Q1: OAuth or JWT?"));
     assert!(prompt.contains("Q2: Session duration?"));
-    assert!(prompt.contains("crosslink comment"));
+    assert!(prompt.contains("crosslink issue comment"));
 }
-
-// --- Round 1: Criteria extraction tests ---
 
 #[test]
 fn test_parse_criterion_id_with_prefix() {
@@ -1308,17 +1292,15 @@ fn test_extract_criteria_mixed_ids_skip_collisions() {
     };
     let result = extract_criteria(&doc, "design.md");
     assert_eq!(result.criteria[0].id, "AC-1");
-    assert_eq!(result.criteria[1].id, "AC-2"); // skips AC-1, takes AC-2
+    assert_eq!(result.criteria[1].id, "AC-2");
     assert_eq!(result.criteria[2].id, "AC-3");
-    assert_eq!(result.criteria[3].id, "AC-4"); // skips AC-3, takes AC-4
+    assert_eq!(result.criteria[3].id, "AC-4");
 }
-
-// --- Round 2: Validation prompt tests ---
 
 #[test]
 fn test_build_reporting_section_has_full_schema() {
     let section = build_reporting_section();
-    // Phase 3 validation content
+
     assert!(section.contains("Spec Validation"));
     assert!(section.contains(".kickoff-criteria.json"));
     assert!(section.contains(".kickoff-report.json"));
@@ -1326,7 +1308,7 @@ fn test_build_reporting_section_has_full_schema() {
     assert!(section.contains("fail"));
     assert!(section.contains("partial"));
     assert!(section.contains("evidence"));
-    // Phase 4 schema elements
+
     assert!(section.contains("schema_version"));
     assert!(section.contains("agent_id"));
     assert!(section.contains("phases"));
@@ -1485,8 +1467,6 @@ fn test_build_prompt_validation_ordering() {
     );
 }
 
-// --- Round 3: Report command tests ---
-
 fn sample_report() -> KickoffReport {
     KickoffReport {
         validated_at: "2026-03-03T12:00:00Z".to_string(),
@@ -1568,11 +1548,8 @@ fn test_exclude_patterns_includes_report_files() {
     assert!(patterns.contains(&".kickoff-report.json"));
 }
 
-// --- Round 1 (Phase 4): KickoffReport schema tests ---
-
 #[test]
 fn test_kickoff_report_backward_compat() {
-    // Old Phase 3 JSON with only validated_at, criteria, summary
     let old_json = r#"{
         "validated_at": "2026-03-03T12:00:00Z",
         "criteria": [
@@ -1655,8 +1632,6 @@ fn test_validate_kickoff_report_warnings() {
     assert!(warnings.iter().any(|w| w.contains("schema_version")));
     assert!(warnings.iter().any(|w| w.contains("agent_id")));
 }
-
-// --- Round 3 (Phase 4): Report formatting + --all tests ---
 
 #[test]
 fn test_format_duration() {
@@ -1769,36 +1744,30 @@ fn test_format_report_all_table() {
 
 #[test]
 fn test_preflight_check_passes_when_commands_available() {
-    // In the test environment, timeout/tmux/claude may or may not exist.
-    // For container mode with a non-existent runtime, it should fail.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
     let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
-    // Docker may or may not be installed — just verify it doesn't panic.
+
     let _ = result;
 }
 
 #[test]
 fn test_preflight_check_missing_command_includes_hint() {
-    // Use a container mode referencing a command that almost certainly doesn't exist
-    // by checking the error message format when docker/podman is missing.
-    // We test the error format rather than specific availability.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
     let result = preflight_check(&ContainerMode::Podman, &VerifyLevel::Thorough, dir.path());
     if let Err(e) = result {
         let msg = e.to_string();
-        // If podman is missing, the error should mention it with a hint
+
         if msg.contains("podman") {
             assert!(msg.contains("Pre-flight check failed"));
             assert!(msg.contains("podman"));
         }
-        // If gh is also missing, it should appear in the same message
+
         if msg.contains("GitHub CLI") {
             assert!(msg.contains("gh"));
         }
     }
-    // If it passes, both podman and gh are installed — that's fine too.
 }
 
 #[test]
@@ -1871,8 +1840,6 @@ fn test_build_agent_command_with_skip_permissions() {
 
 #[test]
 fn test_build_agent_command_with_permission_mode_auto() {
-    // GH#603: --permission-mode <mode> emits claude's --permission-mode flag
-    // with the value shell-escaped.
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -1900,10 +1867,6 @@ fn test_build_agent_command_with_permission_mode_auto() {
 
 #[test]
 fn test_build_agent_command_permission_mode_wins_over_skip_permissions() {
-    // Defense in depth: even if both flags are set (CLI parsing should
-    // reject this via conflicts_with, but internal callers might not),
-    // permission_mode takes precedence and skip_permissions's
-    // --dangerously-skip-permissions is suppressed.
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -1931,8 +1894,6 @@ fn test_build_agent_command_permission_mode_wins_over_skip_permissions() {
 
 #[test]
 fn test_build_agent_command_empty_permission_mode_treated_as_none() {
-    // An empty string should be treated the same as None — falling back
-    // to skip_permissions resolution (or no flag).
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -1981,11 +1942,6 @@ fn test_build_agent_command_plan_kickoff() {
 
 #[test]
 fn test_build_agent_command_propagates_claude_config_dir() {
-    // When the caller has CLAUDE_CONFIG_DIR set, it must be baked into the
-    // shell command string so it bypasses tmux's frozen-at-startup env
-    // (#555). GH#587 required folding the assignment into env(1)'s argv
-    // rather than emitting it as a shell prefix — see build_agent_command
-    // docstring for why.
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -2009,8 +1965,6 @@ fn test_build_agent_command_propagates_claude_config_dir() {
 
 #[test]
 fn test_build_agent_command_omits_empty_claude_config_dir() {
-    // An empty string should be treated the same as None — propagating an
-    // empty value would just confuse claude's lookup logic.
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -2032,9 +1986,6 @@ fn test_build_agent_command_omits_empty_claude_config_dir() {
 
 #[test]
 fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
-    // Paths with single quotes in them must be shell-escaped so the command
-    // parses correctly. shell_escape_arg wraps in single quotes and replaces
-    // embedded single quotes with '\''.
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -2055,9 +2006,6 @@ fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
 
 #[test]
 fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
-    // The env assignment must live on the claude side of the sandbox
-    // boundary so the sandboxed claude process inherits the variable, not
-    // the sandbox wrapper itself. Folded into env(1)'s argv per GH#587.
     let cmd = build_agent_command(
         "claude",
         "timeout",
@@ -2078,16 +2026,6 @@ fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
     ));
 }
 
-// =====================================================================// GH#587: integration tests that actually parse the constructed command line
-// through a shell. The string-shape unit tests above check what we emit; these
-// tests check that what we emit is what a shell will execute correctly. The
-// 0.8.0 regression would have been caught here — the shell-prefix form
-// `timeout 3600s CCD=val env ... claude ...` parsed as a literal positional
-// arg to timeout and never reached claude.
-// =====================================================================
-/// Stub `claude` shim used by the integration tests. Prints
-/// `CCD=<CLAUDE_CONFIG_DIR>` to stdout and exits 0. Ignores all CLI args so
-/// the real flag plumbing doesn't interfere with the assertion.
 #[cfg(unix)]
 fn write_claude_stub(dir: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -2100,10 +2038,6 @@ fn write_claude_stub(dir: &std::path::Path) {
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// Find a timeout binary the test host actually has. macOS without
-/// `brew install coreutils` has neither `timeout` nor `gtimeout`; some
-/// minimal CI images strip them too. Returns `None` when no usable
-/// candidate exists so callers can skip cleanly instead of false-failing.
 #[cfg(unix)]
 fn resolve_test_timeout_cmd() -> Option<&'static str> {
     ["timeout", "gtimeout"].into_iter().find(|cmd| {
@@ -2137,12 +2071,6 @@ fn run_built_command_in_bash(
 #[test]
 #[cfg(unix)]
 fn test_build_agent_command_env_var_actually_reaches_claude() {
-    // GH#587 regression test: the command string must parse correctly when
-    // executed through a shell, with CLAUDE_CONFIG_DIR landing in the env
-    // that the (stub) `claude` process sees. The 0.8.0 build placed the
-    // assignment after `timeout` where shell grammar treats it as a
-    // literal positional arg — `timeout` then tried to exec
-    // `CLAUDE_CONFIG_DIR=...` as a binary and bailed with ENOENT.
     let Some(timeout_cmd) = resolve_test_timeout_cmd() else {
         eprintln!("skipping: neither `timeout` nor `gtimeout` available on test host");
         return;
@@ -2186,10 +2114,6 @@ fn test_build_agent_command_env_var_actually_reaches_claude() {
 #[test]
 #[cfg(unix)]
 fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
-    // Same parse-and-execute test but with a sandbox wrapper. The wrapper
-    // sits between `timeout` and the env+claude pair, so the env
-    // assignment must still ride along on env(1)'s argv (not as a
-    // shell prefix that would silently degenerate to a positional arg).
     let Some(timeout_cmd) = resolve_test_timeout_cmd() else {
         eprintln!("skipping: neither `timeout` nor `gtimeout` available on test host");
         return;
@@ -2199,9 +2123,6 @@ fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
     write_claude_stub(tmp.path());
     std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
 
-    // Trivial pass-through "sandbox" — a shell script that just execs its
-    // tail. Avoids depending on `env --` (which BSD env may reject) or on
-    // bwrap/firejail being installed on the test host.
     use std::os::unix::fs::PermissionsExt;
     let sandbox = tmp.path().join("noop-sandbox");
     std::fs::write(&sandbox, "#!/bin/sh\nexec \"$@\"\n").unwrap();
@@ -2241,9 +2162,6 @@ fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
 #[test]
 #[cfg(unix)]
 fn test_build_agent_command_omitted_env_var_does_not_break_launch() {
-    // When CLAUDE_CONFIG_DIR isn't set on the host, the constructed command
-    // must still execute cleanly — no stray empty assignment that confuses
-    // env(1), and the stub claude reports an empty CCD value.
     let Some(timeout_cmd) = resolve_test_timeout_cmd() else {
         eprintln!("skipping: neither `timeout` nor `gtimeout` available on test host");
         return;
@@ -2323,7 +2241,7 @@ fn test_read_agent_binary_empty_string_ignored() {
 #[test]
 fn test_read_agent_binary_missing_file_defaults_to_claude() {
     let dir = tempfile::tempdir().unwrap();
-    // No hook-config.json present at all.
+
     assert_eq!(crate::utils::read_agent_binary(dir.path()), "claude");
 }
 
@@ -2361,15 +2279,13 @@ fn test_preflight_check_validates_sandbox_binary() {
         r#"{"sandbox": {"command": "crosslink_nonexistent_sandbox_xyz --isolate --"}}"#,
     )
     .unwrap();
-    // Container mode avoids the intentionally unsupported local tmux path on
-    // Windows while still exercising validation of the configured wrapper.
+
     let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
     if let Err(e) = result {
         let msg = e.to_string();
         assert!(msg.contains("crosslink_nonexistent_sandbox_xyz"));
         assert!(msg.contains("sandbox.command"));
     }
-    // If timeout/tmux/claude are also missing, the sandbox error should still be present
 }
 
 #[test]
@@ -2379,14 +2295,13 @@ fn test_command_available_nonexistent() {
 
 #[test]
 fn test_command_available_real() {
-    // `which` should always be available on unix platforms
     assert!(command_available("which"));
 }
 
 #[test]
 fn test_detect_platform_returns_valid_variant() {
     let platform = detect_platform();
-    // On any platform, detect_platform should return a valid variant
+
     match platform {
         Platform::MacOS | Platform::Windows | Platform::Linux(_) => {}
     }
@@ -2508,12 +2423,8 @@ fn test_install_hint_unknown_command() {
     assert!(hint.contains("package manager"));
 }
 
-// --- Tier 1 smoke tests (GH issue #242) ---
-
 #[test]
 fn test_kickoff_report_phase3_backward_compat() {
-    // Phase 3 report has only validated_at, criteria, summary — no Phase 4 fields.
-    // It must deserialize into the current KickoffReport struct.
     let phase3_json = include_str!("../../../test-fixtures/phase3-report.json");
     let report: KickoffReport =
         serde_json::from_str(phase3_json).expect("Phase 3 JSON must deserialize");
@@ -2527,7 +2438,6 @@ fn test_kickoff_report_phase3_backward_compat() {
     assert_eq!(report.summary.pass, 1);
     assert_eq!(report.summary.fail, 1);
 
-    // Phase 4 fields should all be None (serde defaults)
     assert!(report.schema_version.is_none());
     assert!(report.agent_id.is_none());
     assert!(report.issue_id.is_none());
@@ -2539,7 +2449,6 @@ fn test_kickoff_report_phase3_backward_compat() {
     assert!(report.commits.is_none());
     assert!(report.files_changed.is_none());
 
-    // Round-trip: serialize and deserialize again
     let serialized = serde_json::to_string(&report).expect("serialize");
     let roundtrip: KickoffReport =
         serde_json::from_str(&serialized).expect("round-trip deserialize");
@@ -2548,8 +2457,6 @@ fn test_kickoff_report_phase3_backward_compat() {
 
 #[test]
 fn test_build_prompt_contains_report_json_schema() {
-    // When a design doc with acceptance criteria is provided, the prompt
-    // must include the KickoffReport JSON schema fields.
     let doc = super::super::design_doc::DesignDoc {
         title: "Test Feature".to_string(),
         summary: String::new(),
@@ -2588,7 +2495,6 @@ fn test_build_prompt_contains_report_json_schema() {
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
-    // Must contain the JSON schema field names from KickoffReport
     assert!(prompt.contains("schema_version"));
     assert!(prompt.contains("agent_id"));
     assert!(prompt.contains("issue_id"));
@@ -2600,8 +2506,6 @@ fn test_build_prompt_contains_report_json_schema() {
 
 #[test]
 fn test_build_prompt_contains_validation_section() {
-    // When acceptance criteria are present, the prompt must include
-    // the spec validation instructions.
     let doc = super::super::design_doc::DesignDoc {
         title: "Validated Feature".to_string(),
         summary: String::new(),
@@ -2653,7 +2557,7 @@ fn test_build_prompt_contains_validation_section() {
 #[test]
 fn test_plan_tools_are_read_only() {
     let tools = build_allowed_tools_plan();
-    // Plan mode must NOT include write/edit tools
+
     assert!(
         !tools.contains("Write"),
         "plan tools must not include Write"
@@ -2667,7 +2571,7 @@ fn test_plan_tools_are_read_only() {
         !tools.contains("Bash(git push"),
         "plan tools must not allow git push"
     );
-    // Plan mode MUST include read-only tools
+
     assert!(tools.contains("Read"));
     assert!(tools.contains("Glob"));
     assert!(tools.contains("Grep"));
@@ -2713,7 +2617,7 @@ fn test_read_watchdog_config_custom_values() {
     assert!(!cfg.enabled);
     assert_eq!(cfg.staleness_secs, 600);
     assert_eq!(cfg.max_nudges, 10);
-    assert_eq!(cfg.check_interval_secs, 120); // still default
+    assert_eq!(cfg.check_interval_secs, 120);
 }
 
 #[test]
@@ -2726,24 +2630,19 @@ fn test_build_watchdog_script_contains_key_elements() {
         grace_period_secs: 120,
     };
     let script = build_watchdog_script("feat-my-agent", Path::new("/tmp/wt"), &cfg);
-    assert!(script.contains("sleep 120")); // grace period
-    assert!(script.contains("sleep 60")); // check interval
+    assert!(script.contains("sleep 120"));
+    assert!(script.contains("sleep 60"));
     assert!(script.contains(".kickoff-status"));
     assert!(script.contains("feat-my-agent"));
     assert!(script.contains("last-heartbeat"));
     assert!(script.contains("continue working"));
     assert!(script.contains("NUDGES"));
-    assert!(script.contains("-gt 300")); // staleness threshold
-    assert!(script.contains("-ge 3")); // max nudges
+    assert!(script.contains("-gt 300"));
+    assert!(script.contains("-ge 3"));
 }
-
-// ---------------------------------------------------------------------------
-// GH#614: pipeline `runs` reconciliation
-// ---------------------------------------------------------------------------
 
 use super::pipeline::{self, PipelineState, RunProbe, RunRecord};
 
-/// Build a minimal `PipelineState` carrying the supplied run rows.
 fn pipeline_with_runs(stage: &str, runs: Vec<RunRecord>) -> PipelineState {
     PipelineState {
         schema_version: 1,
@@ -2768,8 +2667,6 @@ fn running_row(agent_id: &str, worktree: &str, started_at: &str) -> RunRecord {
 
 #[test]
 fn test_mark_running_writes_real_identity_no_pending() {
-    // The launch path's unit-testable portion: mark_running given a real
-    // agent_id and worktree records exactly those, never "pending".
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
     let doc = tmp.path().join(".design/foo.md");
@@ -2808,7 +2705,7 @@ fn test_reconcile_done_sentinel_marks_completed_with_timestamp() {
         row.completed_at.as_deref(),
         Some("2026-05-13T10:00:00+00:00")
     );
-    // No row still running, no plan → stage collapses to "complete".
+
     assert_eq!(state.stage, "complete");
 }
 
@@ -2823,7 +2720,7 @@ fn test_reconcile_failed_sentinel_marks_failed() {
     });
     assert!(changed);
     assert_eq!(state.runs[0].status, "failed");
-    // Fallback to injected `now` when sentinel mtime is unreadable.
+
     assert_eq!(
         state.runs[0].completed_at.as_deref(),
         Some("2026-06-12T00:00:00+00:00")
@@ -2845,7 +2742,7 @@ fn test_reconcile_missing_worktree_marks_aborted() {
         state.runs[0].completed_at.as_deref(),
         Some("2026-06-12T00:00:00+00:00")
     );
-    // No plan, last row aborted → stage falls back to "designed".
+
     assert_eq!(state.stage, "designed");
 }
 
@@ -2874,7 +2771,7 @@ fn test_reconcile_all_rows_not_just_last() {
             running_row("a3", "/wt/a3", "2026-05-14T20:22:43+00:00"),
         ],
     );
-    // Mark every row gone.
+
     let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
         (RunProbe::Gone, None)
     });
@@ -2884,7 +2781,6 @@ fn test_reconcile_all_rows_not_just_last() {
 
 #[test]
 fn test_probe_pending_worktree_is_gone_when_no_live_agent() {
-    // Legacy "pending"/"pending" rows resolve to Gone.
     let row = running_row("pending", "pending", "2026-05-12T20:22:43+00:00");
     let (verdict, _mtime) = pipeline::probe_run_worktree(&row, &[]);
     assert_eq!(verdict, RunProbe::Gone);
@@ -2920,16 +2816,14 @@ fn test_probe_live_worktree_running_status() {
     std::fs::create_dir_all(&wt).unwrap();
     std::fs::write(wt.join(".kickoff-status"), "RUNNING\n").unwrap();
     let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
-    // Live agent vouches for it.
+
     let (verdict, _) = pipeline::probe_run_worktree(&row, &["a1".to_string()]);
     assert_eq!(verdict, RunProbe::LiveRunning);
-    // No live agent and non-terminal sentinel → indeterminate (left untouched).
+
     let (verdict, _) = pipeline::probe_run_worktree(&row, &[]);
     assert_eq!(verdict, RunProbe::Indeterminate);
 }
 
-/// The exact rot shape from GH#614 — a `runs` array of pending/pending/running
-/// rows pasted verbatim from the issue evidence.
 const GH614_LEGACY_PIPELINE_JSON: &str = r#"{
   "schema_version": 1,
   "design_doc": ".design/crosslink-decode.md",
@@ -2963,26 +2857,22 @@ fn test_legacy_pending_file_reconciles_to_aborted_and_persists() {
     let pipeline_file = tmp.path().join(".design/crosslink-decode.pipeline.json");
     std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
 
-    // Old file parses despite its shape (serde defaults tolerate it).
     let mut state = pipeline::read_pipeline_state(&doc).expect("legacy file must parse");
     assert_eq!(state.runs.len(), 2);
     assert!(state.runs.iter().all(|r| r.status == "running"));
 
-    // No live agents → both pending rows are stale → aborted, and persisted.
     let changed = pipeline::reconcile_runs_for_display(&doc, &mut state, &[]);
     assert!(changed);
     assert!(state.runs.iter().all(|r| r.status == "aborted"));
     assert!(state.runs.iter().all(|r| r.completed_at.is_some()));
-    // "pending" agent_id is left as-is (we never invent identities).
+
     assert!(state.runs.iter().all(|r| r.agent_id == "pending"));
-    // Stage no longer claims "running".
+
     assert_ne!(state.stage, "running");
 
-    // runs.last()-based display no longer reports running.
     let display = pipeline::stage_display(&state, &doc);
     assert!(!display.contains("running"));
 
-    // Persisted to disk: a fresh read sees the reconciled state.
     let reread = pipeline::read_pipeline_state(&doc).unwrap();
     assert!(reread.runs.iter().all(|r| r.status == "aborted"));
 }
@@ -2999,7 +2889,6 @@ fn test_reconcile_is_idempotent() {
     let mut state = pipeline::read_pipeline_state(&doc).unwrap();
     assert!(pipeline::reconcile_runs_for_display(&doc, &mut state, &[]));
 
-    // Second pass changes nothing and does not rewrite the file.
     let before = std::fs::read_to_string(&pipeline_file).unwrap();
     let changed_again = pipeline::reconcile_runs_for_display(&doc, &mut state, &[]);
     assert!(!changed_again);
@@ -3028,7 +2917,7 @@ fn test_stage_transition_aborted_with_plan_falls_back_to_planned() {
     });
     assert!(changed);
     assert_eq!(state.runs[0].status, "aborted");
-    // A plan exists → fall back to "planned" rather than "designed".
+
     assert_eq!(state.stage, "planned");
 }
 
@@ -3055,10 +2944,10 @@ fn test_mark_run_finished_matches_by_worktree() {
 
     let updated = pipeline::mark_run_finished(&doc, &mut state, "/wt/a2", None, "completed");
     assert!(updated);
-    assert_eq!(state.runs[0].status, "running"); // a1 untouched
+    assert_eq!(state.runs[0].status, "running");
     assert_eq!(state.runs[1].status, "completed");
     assert!(state.runs[1].completed_at.is_some());
-    // Still a running row → stage stays "running".
+
     assert_eq!(state.stage, "running");
 }
 
@@ -3072,7 +2961,7 @@ fn test_mark_run_finished_legacy_fallback_by_started_at() {
             running_row("pending", "pending", "2026-05-14T09:10:00+00:00"),
         ],
     );
-    // worktree "pending" can't path-match; fall back to started_at proximity.
+
     let updated = pipeline::mark_run_finished(
         doc,
         &mut state,
@@ -3114,8 +3003,6 @@ fn test_reconcile_completion_by_worktree_scans_design_dir() {
     assert_eq!(reread.stage, "complete");
 }
 
-// GH#60: the TIMEOUT sentinel written by the launch command's exit-124
-// trailer classifies as "timed-out", same as the wall-clock derivation.
 #[test]
 fn test_normalize_status_timeout_sentinel() {
     assert_eq!(normalize_status("TIMEOUT"), "timed-out");
@@ -3124,32 +3011,26 @@ fn test_normalize_status_timeout_sentinel() {
     assert_eq!(normalize_status("DONE".to_lowercase().as_str()), "done");
 }
 
-// GH#59: the permission flag both the local and container launch paths emit.
 #[test]
 fn test_permission_flag_postures() {
-    // skip_permissions → the full-bypass flag.
     assert_eq!(
         permission_flag(None, true),
         " --dangerously-skip-permissions"
     );
-    // permission_mode wins over skip_permissions (mode is shell-escaped).
+
     assert_eq!(
         permission_flag(Some("acceptEdits"), true),
         " --permission-mode 'acceptEdits'"
     );
-    // Empty permission_mode falls through to skip_permissions.
+
     assert_eq!(
         permission_flag(Some(""), true),
         " --dangerously-skip-permissions"
     );
-    // Neither → no flag (claude prompts per tool — the GH#55 container stall).
+
     assert_eq!(permission_flag(None, false), "");
 }
 
-// =====================================================================// gh#61 (REQ-1/REQ-2): per-dispatch reasoning/spend dials.
-// =====================================================================
-// The dial fragment both launch paths share. Values are shell-escaped because
-// they land inside a `bash -c` string, exactly like `--model 'opus'`.
 #[test]
 fn test_dial_flags_postures() {
     assert_eq!(dial_flags(Some("high"), None), " --effort 'high'");
@@ -3158,14 +3039,12 @@ fn test_dial_flags_postures() {
         dial_flags(Some("max"), Some("12.5")),
         " --effort 'max' --max-budget-usd '12.5'"
     );
-    // Neither dial → no tokens, so an un-dialed launch is byte-identical to
-    // the pre-gh#61 invocation.
+
     assert_eq!(dial_flags(None, None), "");
-    // Empty strings are treated as unset rather than emitting `--effort ''`.
+
     assert_eq!(dial_flags(Some(""), Some("")), "");
 }
 
-// AC-1: effort = Some("high") emits ` --effort high` positioned after --model.
 #[test]
 fn test_build_agent_command_with_effort() {
     let cmd = build_agent_command(
@@ -3197,7 +3076,6 @@ fn test_build_agent_command_with_effort() {
     );
 }
 
-// AC-1 (negative): effort = None produces no --effort token at all.
 #[test]
 fn test_build_agent_command_without_effort_omits_flag() {
     let cmd = build_agent_command(
@@ -3219,14 +3097,13 @@ fn test_build_agent_command_without_effort_omits_flag() {
         !cmd.contains("--effort"),
         "effort=None must not emit --effort, got: {cmd}"
     );
-    // Byte-for-byte identical to the pre-gh#61 command (REQ-2's guarantee).
+
     assert_eq!(
         cmd,
         "timeout 3600s env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > '/tmp/worktree/.kickoff-status'; fi"
     );
 }
 
-// AC-2: budget_usd = Some("5.00") emits ` --max-budget-usd 5.00`.
 #[test]
 fn test_build_agent_command_with_budget_usd() {
     let cmd = build_agent_command(
@@ -3258,7 +3135,6 @@ fn test_build_agent_command_with_budget_usd() {
     );
 }
 
-// Both dials together, in a full command string — the ordering claude sees.
 #[test]
 fn test_build_agent_command_with_both_dials() {
     let cmd = build_agent_command(
@@ -3282,7 +3158,6 @@ fn test_build_agent_command_with_both_dials() {
     );
 }
 
-// A dial value carrying shell metacharacters must not escape its quoting.
 #[test]
 fn test_build_agent_command_escapes_dial_values() {
     let cmd = build_agent_command(
@@ -3306,8 +3181,6 @@ fn test_build_agent_command_escapes_dial_values() {
     );
 }
 
-// =====================================================================// gh#61 (REQ-3): the dispatch dials are recorded in .kickoff-metadata.json.
-// =====================================================================
 fn dialed_opts<'a>(
     model: &'a str,
     effort: Option<&'a str>,
@@ -3335,8 +3208,6 @@ fn dialed_opts<'a>(
     }
 }
 
-// AC-4: a `--effort high --budget-usd 5 --model opus` launch writes metadata
-// that round-trips through serde with all three dials intact.
 #[test]
 fn test_kickoff_metadata_records_dispatch_dials() {
     let opts = dialed_opts("opus", Some("high"), Some("5"));
@@ -3352,8 +3223,6 @@ fn test_kickoff_metadata_records_dispatch_dials() {
     assert_eq!(parsed.started_at, "2026-08-02T00:00:00+00:00");
 }
 
-// An un-dialed launch records no dial keys at all, so the file stays the shape
-// downstream readers already expect.
 #[test]
 fn test_kickoff_metadata_omits_unset_dials() {
     let opts = dialed_opts("sonnet", None, None);
@@ -3374,9 +3243,6 @@ fn test_kickoff_metadata_omits_unset_dials() {
     );
 }
 
-// Metadata written before gh#61 (no dial keys) must still deserialize — the
-// timeout checks in `is_timed_out` read every agent's file, including ones
-// launched by an older binary.
 #[test]
 fn test_kickoff_metadata_deserializes_legacy_file() {
     let legacy = r#"{"started_at":"2026-08-02T00:00:00+00:00","timeout_secs":1800}"#;
@@ -3387,11 +3253,6 @@ fn test_kickoff_metadata_deserializes_legacy_file() {
     assert_eq!(parsed.budget_usd, None);
 }
 
-// =====================================================================
-// gh#62 (REQ-5, Decision D2): kickoff prompt-injection seam interpolation.
-// =====================================================================
-
-// AC-6: every D2 placeholder is replaced with its value.
 #[test]
 fn test_interpolate_template_substitutes_all_placeholders() {
     let ctx = TemplateContext {
@@ -3411,8 +3272,6 @@ fn test_interpolate_template_substitutes_all_placeholders() {
     );
 }
 
-// AC-6: an unset optional (`{{effort}}`/`{{doc_path}}`) renders empty rather
-// than leaving the literal token behind.
 #[test]
 fn test_interpolate_template_unset_optionals_render_empty() {
     let ctx = TemplateContext {
@@ -3431,8 +3290,6 @@ fn test_interpolate_template_unset_optionals_render_empty() {
     );
 }
 
-// REQ-5 backward-compat: a placeholder-free template is returned verbatim —
-// byte-identical to the pre-gh#62 full-replacement behaviour.
 #[test]
 fn test_interpolate_template_without_placeholders_is_unchanged() {
     let ctx = TemplateContext {
@@ -3449,8 +3306,6 @@ fn test_interpolate_template_without_placeholders_is_unchanged() {
     assert_eq!(interpolate_template(body, &ctx), body);
 }
 
-// `{{built_prompt}}` is substituted last, so a built prompt that itself
-// contains a `{{token}}` sequence is inserted verbatim, not re-scanned.
 #[test]
 fn test_interpolate_template_built_prompt_substituted_last() {
     let ctx = TemplateContext {
@@ -3469,9 +3324,6 @@ fn test_interpolate_template_built_prompt_substituted_last() {
     );
 }
 
-// AC-8 property: the same template rendered for two agents yields each agent's
-// own `{{description}}` — the per-agent differentiation swarm per-phase relies
-// on (a full swarm launch needs docker/agent and is not CI-runnable).
 #[test]
 fn test_interpolate_template_preserves_per_agent_description() {
     let render = |desc: &str| {
@@ -3491,15 +3343,11 @@ fn test_interpolate_template_preserves_per_agent_description() {
     assert_eq!(render("wire the UI"), "AGENT: wire the UI");
 }
 
-// AC-7: an explicit `--template` path wins over the `agent.kickoff_template`
-// config; with only config set, the config path is used.
 #[test]
 fn test_resolve_kickoff_template_flag_wins_else_config() {
     let dir = tempfile::tempdir().unwrap();
     let crosslink_dir = dir.path();
 
-    // Config template referenced from hook-config.json (path relative to
-    // crosslink_dir, matching read_kickoff_template's resolution).
     std::fs::write(crosslink_dir.join("config-template.md"), "CONFIG-BODY").unwrap();
     std::fs::write(
         crosslink_dir.join("hook-config.json"),
@@ -3507,24 +3355,20 @@ fn test_resolve_kickoff_template_flag_wins_else_config() {
     )
     .unwrap();
 
-    // Explicit --template file.
     let flag_path = crosslink_dir.join("flag-template.md");
     std::fs::write(&flag_path, "FLAG-BODY").unwrap();
 
-    // Flag wins over config.
     assert_eq!(
         crate::utils::resolve_kickoff_template(crosslink_dir, Some(flag_path.as_path())).as_deref(),
         Some("FLAG-BODY")
     );
-    // No flag -> config fallback.
+
     assert_eq!(
         crate::utils::resolve_kickoff_template(crosslink_dir, None).as_deref(),
         Some("CONFIG-BODY")
     );
 }
 
-// AC-7: with neither a flag nor config template, resolution is None so the
-// caller falls back to the built-in prompt.
 #[test]
 fn test_resolve_kickoff_template_none_without_flag_or_config() {
     let dir = tempfile::tempdir().unwrap();

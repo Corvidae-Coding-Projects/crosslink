@@ -14,23 +14,20 @@ use crate::db::Database;
 
 use super::{StatusFilter, Tab, TabAction, HIGHLIGHT_BG};
 
-/// Which sub-view is active.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum MilestoneViewMode {
     List,
     Detail,
 }
 
-/// Convert `StatusFilter` to the database argument format used by milestones.
 const fn status_filter_db_arg(sf: StatusFilter) -> Option<&'static str> {
     match sf {
-        StatusFilter::Open => None, // default = open
+        StatusFilter::Open => None,
         StatusFilter::Closed => Some("closed"),
         StatusFilter::All => Some("all"),
     }
 }
 
-/// A row in the milestones list table.
 struct MilestoneRow {
     id: i64,
     name: String,
@@ -42,7 +39,6 @@ struct MilestoneRow {
     closed_at: Option<String>,
 }
 
-/// Detail view for a selected milestone.
 struct MilestoneDetail {
     id: i64,
     name: String,
@@ -56,7 +52,6 @@ struct MilestoneDetail {
     issues: Vec<MilestoneIssue>,
 }
 
-/// An issue within a milestone detail.
 struct MilestoneIssue {
     id: i64,
     title: String,
@@ -64,7 +59,6 @@ struct MilestoneIssue {
     priority: String,
 }
 
-/// The Milestones tab — progress tracking for grouped issues.
 pub struct MilestonesTab {
     db_path: PathBuf,
     view_mode: MilestoneViewMode,
@@ -73,11 +67,11 @@ pub struct MilestonesTab {
     status_filter: StatusFilter,
     detail: Option<MilestoneDetail>,
     detail_scroll: u16,
-    /// Maximum detail scroll offset computed during render.
+
     detail_max_scroll: std::cell::Cell<u16>,
     status_msg: String,
     error_msg: Option<String>,
-    /// `TableState` for list view scroll-to-follow.
+
     list_table_state: RefCell<TableState>,
 }
 
@@ -136,7 +130,7 @@ impl MilestonesTab {
                 self.error_msg = Some(format!("Failed to load milestones: {e}"));
             }
         }
-        // Clamp selection
+
         if self.selected >= self.milestones.len() && !self.milestones.is_empty() {
             self.selected = self.milestones.len() - 1;
         }
@@ -192,15 +186,12 @@ impl MilestonesTab {
         }
     }
 
-    // ── Rendering ────────────────────────────────────────────────────
-
     fn render_list(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(0)])
             .split(area);
 
-        // Header
         let header_spans = vec![
             Span::styled(
                 " Milestones",
@@ -240,7 +231,6 @@ impl MilestonesTab {
             return;
         }
 
-        // Table
         let header = Row::new(vec!["ID", "Name", "Status", "Issues", "Progress", ""])
             .style(
                 Style::default()
@@ -302,7 +292,6 @@ impl MilestonesTab {
 
         let mut lines: Vec<Line> = Vec::new();
 
-        // Title
         lines.push(Line::from(vec![
             Span::styled(
                 format!(" #{} — ", detail.id),
@@ -319,7 +308,6 @@ impl MilestonesTab {
             " ─────────────────────────────────────────────────",
         ));
 
-        // Metadata
         let status_color = if detail.status == crate::models::IssueStatus::Closed {
             Color::Green
         } else {
@@ -338,7 +326,6 @@ impl MilestonesTab {
             ]));
         }
 
-        // Progress
         let pct = (detail.closed_count * 100)
             .checked_div(detail.total_count)
             .unwrap_or(0);
@@ -364,7 +351,6 @@ impl MilestonesTab {
             ),
         ]));
 
-        // Description
         if let Some(ref desc) = detail.description {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -376,7 +362,6 @@ impl MilestonesTab {
             }
         }
 
-        // Issues list
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!(" Issues ({})", detail.issues.len()),
@@ -432,9 +417,8 @@ impl MilestonesTab {
             Style::default().fg(Color::DarkGray),
         )));
 
-        // Clamp scroll so the user can't scroll past content.
         let content_height = lines.len() as u16;
-        let viewport_height = area.height.saturating_sub(2); // borders
+        let viewport_height = area.height.saturating_sub(2);
         let max_scroll = content_height.saturating_sub(viewport_height);
         self.detail_max_scroll.set(max_scroll);
         let clamped_scroll = self.detail_scroll.min(max_scroll);
@@ -446,8 +430,6 @@ impl MilestonesTab {
 
         frame.render_widget(para, area);
     }
-
-    // ── Key handling ─────────────────────────────────────────────────
 
     fn handle_list_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
@@ -582,7 +564,6 @@ impl Tab for MilestonesTab {
     fn on_leave(&mut self) {}
 }
 
-/// Build a text progress bar: `████████░░░░` style.
 fn progress_bar(done: usize, total: usize, width: usize) -> String {
     if total == 0 {
         return "░".repeat(width);
@@ -607,14 +588,12 @@ mod tests {
         let db_path = dir.path().join("issues.db");
         let db = Database::open(&db_path).unwrap();
 
-        // Create milestones with issues
         db.create_milestone("v1.0 Release", Some("First stable release"))
             .unwrap();
         db.create_milestone("Knowledge MVP", None).unwrap();
         db.create_milestone("Multi-Agent GA", Some("General availability"))
             .unwrap();
 
-        // Create some issues and assign to milestones
         let i1 = db.create_issue("Setup CI", None, "high").unwrap();
         let i2 = db.create_issue("Add tests", None, "medium").unwrap();
         let i3 = db
@@ -627,7 +606,6 @@ mod tests {
         db.add_issue_to_milestone(1, i3).unwrap();
         db.add_issue_to_milestone(2, i4).unwrap();
 
-        // Close one issue
         db.close_issue(i1).unwrap();
 
         let tab = MilestonesTab::new(&db, &db_path);
@@ -652,8 +630,7 @@ mod tests {
     #[test]
     fn test_milestone_issue_counts() {
         let (tab, _dir) = setup_tab();
-        // Milestones ordered by ID DESC, so index 0 = Multi-Agent GA (#3),
-        // index 2 = v1.0 Release (#1)
+
         let m_v1 = tab
             .milestones
             .iter()
@@ -678,7 +655,7 @@ mod tests {
         assert_eq!(tab.selected, 1);
         tab.handle_key(make_key(KeyCode::Down));
         assert_eq!(tab.selected, 2);
-        // Should not go past last
+
         tab.handle_key(make_key(KeyCode::Down));
         assert_eq!(tab.selected, 2);
     }
@@ -691,7 +668,7 @@ mod tests {
         assert_eq!(tab.selected, 1);
         tab.handle_key(make_key(KeyCode::Up));
         assert_eq!(tab.selected, 0);
-        // Should not go below 0
+
         tab.handle_key(make_key(KeyCode::Up));
         assert_eq!(tab.selected, 0);
     }
@@ -720,7 +697,7 @@ mod tests {
     #[test]
     fn test_open_detail() {
         let (mut tab, _dir) = setup_tab();
-        // First entry is the last-created milestone (ID DESC order)
+
         let first_name = tab.milestones[0].name.clone();
         tab.handle_key(make_key(KeyCode::Enter));
         assert_eq!(tab.view_mode, MilestoneViewMode::Detail);
@@ -734,8 +711,7 @@ mod tests {
         let (mut tab, _dir) = setup_tab();
         tab.handle_key(make_key(KeyCode::Enter));
         assert_eq!(tab.detail_scroll, 0);
-        // Scroll is now bounded by content height — in a test without rendering,
-        // max_scroll may be 0, so scroll stays at 0. Just verify it doesn't panic.
+
         tab.handle_key(make_key(KeyCode::Char('j')));
         tab.handle_key(make_key(KeyCode::PageDown));
         tab.handle_key(make_key(KeyCode::PageUp));
@@ -767,7 +743,7 @@ mod tests {
         let db = Database::open(&db_path).unwrap();
         let mut tab = MilestonesTab::new(&db, &db_path);
         assert!(tab.milestones.is_empty());
-        // Navigation on empty list should not panic
+
         tab.handle_key(make_key(KeyCode::Down));
         tab.handle_key(make_key(KeyCode::Up));
         tab.handle_key(make_key(KeyCode::Enter));
@@ -821,7 +797,7 @@ mod tests {
     fn test_refresh_key() {
         let (mut tab, _dir) = setup_tab();
         let result = tab.handle_key(make_key(KeyCode::Char('r')));
-        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+
         assert!(matches!(result, TabAction::NotHandled));
     }
 
@@ -835,17 +811,15 @@ mod tests {
         db.close_milestone(2).unwrap();
 
         let mut tab = MilestonesTab::new(&db, &db_path);
-        // Default: open only
+
         assert_eq!(tab.milestones.len(), 1);
         assert_eq!(tab.milestones[0].name, "Open one");
 
-        // Switch to closed
         tab.status_filter = StatusFilter::Closed;
         tab.refresh();
         assert_eq!(tab.milestones.len(), 1);
         assert_eq!(tab.milestones[0].name, "Closed one");
 
-        // Switch to all
         tab.status_filter = StatusFilter::All;
         tab.refresh();
         assert_eq!(tab.milestones.len(), 2);

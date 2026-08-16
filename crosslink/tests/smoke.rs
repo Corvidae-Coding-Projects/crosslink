@@ -1,26 +1,19 @@
 mod smoke {
     pub mod harness;
 
-    // CLI tests
-    mod cli_data; // import/export, archive, knowledge
-    mod cli_infra; // config, sync, migrate, integrity, compact, prune
-    mod cli_tooling; // cpitd, workflow, context, style, design_doc, mc
+    mod cli_data;
+    mod cli_infra;
+    mod cli_tooling;
 
-    // Server tests
-    mod server_api; // REST endpoints + WebSocket
+    mod server_api;
 
-    // Coordination tests
-    mod coordination; // events, compaction, locks, push retry, v1->v2
+    mod coordination;
 
-    // Adversarial tests
-    mod adversarial; // boundary, corruption, injection, concurrency
+    mod adversarial;
 
-    // Lifecycle tests
-    mod lifecycle; // timer roundtrip, session lifecycle, intervene, issue tree, daemon/swarm/kickoff
+    mod lifecycle;
 
-    // Concurrency + network partition tests
-    mod concurrency; // concurrent API, parallel locks, offline ops, SQLITE_BUSY, split-brain
+    mod concurrency;
 
-    // TUI + proptest
-    mod tui_proptest; // TUI renders, proptest extensions
+    mod tui_proptest;
 }

@@ -34,24 +34,19 @@ use crate::server::{
     ws::ws_handler,
 };
 
-/// Build the full axum router with all API routes and static file serving.
 pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) -> Router {
     use axum::routing::{delete, post};
 
     let api = Router::new()
         .route("/health", get(health))
-        // Agent monitoring
         .route("/agents", get(list_agents))
         .route("/agents/{id}", get(get_agent))
         .route("/agents/{id}/status", get(get_agent_status))
-        // Locks
         .route("/locks", get(list_locks))
         .route("/locks/stale", get(list_stale_locks))
         .route("/locks/notify", post(notify_lock_changed))
-        // Issues — static paths first to avoid conflict with /{id}
         .route("/issues/blocked", get(list_blocked))
         .route("/issues/ready", get(list_ready))
-        // Issues — CRUD
         .route("/issues", get(list_issues).post(create_issue))
         .route(
             "/issues/{id}",
@@ -60,46 +55,35 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .route("/issues/{id}/close", post(close_issue))
         .route("/issues/{id}/reopen", post(reopen_issue))
         .route("/issues/{id}/subissue", post(create_subissue))
-        // Comments
         .route(
             "/issues/{id}/comments",
             get(list_comments).post(add_comment),
         )
-        // Labels
         .route("/issues/{id}/labels", post(add_label))
         .route("/issues/{id}/labels/{label}", delete(remove_label))
-        // Blockers / dependencies
         .route("/issues/{id}/block", post(add_blocker))
         .route("/issues/{id}/block/{blocker_id}", delete(remove_blocker))
-        // Sessions
         .route("/sessions/current", get(get_current_session))
         .route("/sessions/start", post(start_session))
         .route("/sessions/end", post(end_session))
         .route("/sessions/work/{id}", post(work_on_issue))
-        // Milestones
         .route("/milestones", get(list_milestones).post(create_milestone))
         .route("/milestones/{id}", get(get_milestone))
         .route("/milestones/{id}/assign", post(assign_milestone))
         .route("/milestones/{id}/close", post(close_milestone))
-        // Knowledge — static path first to avoid conflict with {slug}
         .route("/knowledge/search", get(search_knowledge))
         .route(
             "/knowledge",
             get(list_knowledge_pages).post(create_knowledge_page),
         )
         .route("/knowledge/{slug}", get(get_knowledge_page))
-        // Unified search
         .route("/search", get(global_search))
-        // Sync
         .route("/sync/status", get(sync_status))
         .route("/sync/fetch", post(sync_fetch))
         .route("/sync/push", post(sync_push))
-        // Config
         .route("/config", get(get_config).patch(update_config))
-        // Token usage — static path first to avoid conflict with future /{id}
         .route("/usage/summary", get(usage_summary))
         .route("/usage", get(list_usage).post(create_usage))
-        // Orchestrator — static paths first
         .route("/orchestrator/plans", get(list_plans_handler))
         .route("/orchestrator/plans/{id}", get(get_plan_by_id))
         .route("/orchestrator/plan", get(get_plan))
@@ -136,14 +120,6 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .route("/ws", get(ws_handler))
         .with_state(state);
 
-    // Dashboard asset serving.
-    //
-    // Precedence:
-    //   1. If `--dashboard-dir <path>` was provided, serve from disk
-    //      (development workflow — live-edit the frontend without a
-    //      `cargo build` between changes).
-    //   2. Otherwise, fall back to the embedded bundle built into the
-    //      binary via `rust-embed` (the `cargo install` path — GH #429).
     if let Some(dir) = dashboard_dir {
         use tower_http::services::ServeDir;
         app = app.fallback_service(ServeDir::new(dir));
@@ -166,7 +142,7 @@ mod tests {
         let state = AppState::new(db, dir.path().join(".crosslink"));
         let dashboard = dir.path().join("dashboard");
         std::fs::create_dir_all(&dashboard).unwrap();
-        // Should not panic
+
         let _router = build_router(state, Some(dashboard));
     }
 }

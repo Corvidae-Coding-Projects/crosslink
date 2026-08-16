@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use super::{claude, codex, custom, ResolvedAgent};
 
-/// Provider features that Crosslink may request before any launch side effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct AgentCapabilities {
     pub structured_output: bool,
@@ -166,7 +165,6 @@ pub fn build_invocation(
     }
 }
 
-/// Execute an invocation without introducing a shell, preserving terminal IO.
 pub fn execute_foreground(invocation: &AgentInvocation) -> Result<std::process::ExitStatus> {
     use anyhow::Context as _;
     use std::process::{Command, Stdio};
@@ -200,8 +198,6 @@ pub fn execute_foreground(invocation: &AgentInvocation) -> Result<std::process::
         .with_context(|| format!("Failed to launch {}", invocation.provider))
 }
 
-/// Verify that a known provider has a usable normal-account session without
-/// reading or printing account details. Custom providers own their auth flow.
 pub fn verify_account_login(agent: &ResolvedAgent) -> Result<()> {
     use std::process::{Command, Stdio};
 
@@ -244,7 +240,6 @@ fn os_to_string(value: &std::ffi::OsStr) -> String {
     value.to_string_lossy().into_owned()
 }
 
-/// Render a structured invocation only at a tmux/container shell boundary.
 #[must_use]
 pub fn render_shell_command(invocation: &AgentInvocation, timeout_command: &str) -> String {
     use crate::utils::shell_escape_arg;

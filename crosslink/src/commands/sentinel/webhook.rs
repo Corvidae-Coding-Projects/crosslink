@@ -12,19 +12,16 @@ use tokio::sync::mpsc;
 
 use super::sources::{Signal, SignalKind, SourceKind};
 
-/// Webhook event pushed into the signal channel for the sentinel engine.
 #[derive(Debug, Clone)]
 pub struct WebhookEvent {
     pub signal: Signal,
 }
 
-/// Shared state for the webhook server.
 struct WebhookState {
     sender: mpsc::Sender<WebhookEvent>,
     webhook_secret: Option<String>,
 }
 
-/// GitHub webhook payload for issue events.
 #[derive(Debug, Deserialize)]
 struct GitHubIssueEvent {
     action: String,
@@ -51,7 +48,6 @@ struct WebhookResponse {
     signal_ref: Option<String>,
 }
 
-/// Configuration for the webhook server.
 #[derive(Debug, Clone)]
 pub struct WebhookConfig {
     pub port: u16,
@@ -67,10 +63,6 @@ impl Default for WebhookConfig {
     }
 }
 
-/// Start the webhook server. Returns a channel receiver for incoming signals.
-///
-/// The server runs in the background on a tokio runtime. The caller reads
-/// signals from the returned receiver and feeds them into the sentinel engine.
 pub async fn start_webhook_server(config: &WebhookConfig) -> Result<mpsc::Receiver<WebhookEvent>> {
     let (sender, receiver) = mpsc::channel(100);
 
@@ -100,18 +92,15 @@ pub async fn start_webhook_server(config: &WebhookConfig) -> Result<mpsc::Receiv
     Ok(receiver)
 }
 
-/// Health check endpoint.
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "service": "sentinel-webhook" }))
 }
 
-/// Handle incoming GitHub webhook events.
 async fn handle_github_webhook(
     State(state): State<Arc<WebhookState>>,
     headers: HeaderMap,
     body: String,
 ) -> Result<Json<WebhookResponse>, StatusCode> {
-    // Verify webhook signature if secret is configured
     if let Some(ref secret) = state.webhook_secret {
         let signature = headers
             .get("x-hub-signature-256")
@@ -123,7 +112,6 @@ async fn handle_github_webhook(
         }
     }
 
-    // Determine event type
     let event_type = headers
         .get("x-github-event")
         .and_then(|v| v.to_str().ok())
@@ -140,7 +128,6 @@ async fn handle_github_webhook(
     }
 }
 
-/// Process a GitHub issue event (labeled, unlabeled, opened, etc.)
 async fn handle_issue_event(
     state: &WebhookState,
     body: &str,
@@ -150,7 +137,6 @@ async fn handle_issue_event(
         StatusCode::BAD_REQUEST
     })?;
 
-    // We only care about "labeled" events with agent-todo: prefixes
     if event.action != "labeled" {
         return Ok(Json(WebhookResponse {
             status: "ignored".into(),
@@ -205,7 +191,6 @@ async fn handle_issue_event(
     }))
 }
 
-/// Verify GitHub webhook HMAC-SHA256 signature.
 fn verify_signature(secret: &str, body: &str, signature: &str) -> bool {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;

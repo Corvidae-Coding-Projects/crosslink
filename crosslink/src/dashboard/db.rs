@@ -1,32 +1,14 @@
-//! Per-user dashboard `SQLite` index at `~/.crosslink/dashboard.db`.
-//!
-//! Schema mirrors `DESIGN-CROSSLINK-DASHBOARD.md` §6. Each user's local
-//! dashboard has its own index — projects, materialised aggregate state,
-//! alerts, running PTY sessions, audit log, and activity feed.
-//!
-//! This is distinct from the main crosslink `db` module ([`crate::db`])
-//! which lives inside each project and tracks that project's issues.
-
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-/// Current schema version. Increment and add a migration block to
-/// [`DashboardDb::open`] when the schema changes.
 pub const SCHEMA_VERSION: i32 = 1;
 
-/// Handle on the dashboard's `SQLite` index.
 pub struct DashboardDb {
     pub conn: Connection,
 }
 
 impl DashboardDb {
-    /// Open (and create if missing) the dashboard DB at the given path.
-    /// Applies the schema and any pending migrations.
-    ///
-    /// # Errors
-    /// Returns an error if the parent directory cannot be created, the
-    /// connection cannot be opened, or a migration fails.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| {
@@ -41,26 +23,18 @@ impl DashboardDb {
         this.create_tables()?;
         let current_version = this.get_schema_version()?;
         if current_version < SCHEMA_VERSION {
-            // Version-gated migration blocks go here as the schema
-            // evolves. v1 is the initial schema — no migrations needed
-            // to reach it beyond the idempotent `create_tables` above.
             this.conn
                 .pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(this)
     }
 
-    /// Default dashboard DB location: `~/.crosslink/dashboard.db`.
-    ///
-    /// # Errors
-    /// Returns an error if the user's home directory cannot be determined.
     pub fn default_path() -> Result<PathBuf> {
         let home =
             resolve_home_dir().context("Could not determine home directory for dashboard state")?;
         Ok(home.join(".crosslink").join("dashboard.db"))
     }
 
-    /// Current schema version from `PRAGMA user_version`.
     fn get_schema_version(&self) -> Result<i32> {
         let v: i32 = self
             .conn
@@ -69,8 +43,6 @@ impl DashboardDb {
     }
 
     fn create_tables(&self) -> Result<()> {
-        // See DESIGN-CROSSLINK-DASHBOARD.md §6 for the authoritative
-        // schema description and column semantics.
         self.conn.execute_batch(
             r"
                 -- Tracked repositories
@@ -168,9 +140,6 @@ impl DashboardDb {
     }
 }
 
-/// Resolve the user's home directory from environment variables,
-/// preferring `$HOME` on Unix and `$USERPROFILE` on Windows. Matches the
-/// resolution approach in `crosslink/src/sync/trust.rs::home_dir`.
 fn resolve_home_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -203,7 +172,7 @@ mod tests {
         {
             let _db = DashboardDb::open(&path).unwrap();
         }
-        // Re-opening must not error or clobber.
+
         let db = DashboardDb::open(&path).unwrap();
         assert_eq!(db.get_schema_version().unwrap(), SCHEMA_VERSION);
     }
@@ -214,7 +183,6 @@ mod tests {
         let path = dir.path().join("dashboard.db");
         let db = DashboardDb::open(&path).unwrap();
 
-        // Verify each table exists via sqlite_master.
         for expected in &[
             "projects",
             "project_state",

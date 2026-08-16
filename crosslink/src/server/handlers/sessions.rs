@@ -1,11 +1,3 @@
-//! Handlers for session management endpoints.
-//!
-//! Implements:
-//! - `GET /api/v1/sessions/current` — get the active session for the calling agent
-//! - `POST /api/v1/sessions/start` — start a new session
-//! - `POST /api/v1/sessions/end` — end the current session
-//! - `POST /api/v1/sessions/work/:id` — set the active issue for the current session
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -21,17 +13,6 @@ use crate::server::{
     },
 };
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/sessions/current` — return the active (not yet ended) session.
-///
-/// Accepts an optional `?agent_id=` query param to scope to a specific agent.
-///
-/// # Errors
-///
-/// Returns an error if no active session is found or the database query fails.
 pub async fn get_current_session(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<
@@ -50,15 +31,6 @@ pub async fn get_current_session(
     Ok(Json(SessionResponse { session }))
 }
 
-/// `POST /api/v1/sessions/start` — start a new session.
-///
-/// Body: `{"agent_id": "<optional>"}`.
-///
-/// Returns the newly created session.
-///
-/// # Errors
-///
-/// Returns an error if creating or fetching the new session fails.
 pub async fn start_session(
     State(state): State<AppState>,
     Json(body): Json<StartSessionRequest>,
@@ -70,7 +42,6 @@ pub async fn start_session(
         .start_session_with_agent(agent_id_ref)
         .map_err(|e| internal_error("Failed to start session", e))?;
 
-    // Fetch the newly-created session to return it.
     let session = db
         .get_current_session_for_agent(agent_id_ref)
         .map_err(|e| internal_error("Failed to fetch new session", e))?
@@ -82,15 +53,6 @@ pub async fn start_session(
     Ok(Json(SessionResponse { session }))
 }
 
-/// `POST /api/v1/sessions/end` — end the current active session.
-///
-/// Body: `{"notes": "<optional handoff notes>"}`.
-///
-/// To end a session scoped to a specific agent, pass `?agent_id=` as a query param.
-///
-/// # Errors
-///
-/// Returns an error if no active session is found or ending it fails.
 pub async fn end_session(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<
@@ -101,7 +63,6 @@ pub async fn end_session(
     let agent_id = params.get("agent_id").map(std::string::String::as_str);
     let db = state.db().await;
 
-    // Find the current active session so we know its ID.
     let session = db
         .get_current_session_for_agent(agent_id)
         .map_err(|e| internal_error("Failed to query current session", e))?
@@ -122,14 +83,6 @@ pub async fn end_session(
     Ok(Json(OkResponse { ok: true }))
 }
 
-/// `POST /api/v1/sessions/work/:id` — set the active issue for the current session.
-///
-/// `:id` is the crosslink issue ID to mark as the current work item.
-/// Accepts an optional `?agent_id=` query param to scope to a specific agent's session.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found, no active session exists, or the update fails.
 pub async fn work_on_issue(
     State(state): State<AppState>,
     Path(issue_id): Path<i64>,
@@ -138,7 +91,6 @@ pub async fn work_on_issue(
     let agent_id = params.agent_id.as_deref();
     let db = state.db().await;
 
-    // Verify the issue exists before updating the session.
     let issue_exists = db
         .get_issue(issue_id)
         .map_err(|e| internal_error("Failed to look up issue", e))?
@@ -148,7 +100,6 @@ pub async fn work_on_issue(
         return Err(not_found(format!("Issue {issue_id} not found")));
     }
 
-    // Find the current session.
     let session = db
         .get_current_session_for_agent(agent_id)
         .map_err(|e| internal_error("Failed to query current session", e))?
@@ -165,10 +116,6 @@ pub async fn work_on_issue(
 
     Ok(Json(OkResponse { ok: true }))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -284,14 +231,14 @@ mod tests {
             )
             .await
             .unwrap();
-        // No active session → 404
+
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn test_get_current_session_after_start() {
         let (app, _dir) = test_app();
-        // Start a session
+
         let start_resp = app
             .clone()
             .oneshot(
@@ -306,7 +253,6 @@ mod tests {
             .unwrap();
         assert_eq!(start_resp.status(), StatusCode::OK);
 
-        // Now fetch the current session
         let get_resp = app
             .oneshot(
                 Request::builder()
@@ -326,7 +272,7 @@ mod tests {
     #[tokio::test]
     async fn test_end_session_success() {
         let (app, _dir) = test_app();
-        // Start a session first
+
         app.clone()
             .oneshot(
                 Request::builder()
@@ -341,7 +287,6 @@ mod tests {
             .await
             .unwrap();
 
-        // End it
         let end_resp = app
             .oneshot(
                 Request::builder()
@@ -358,14 +303,13 @@ mod tests {
         assert_eq!(body["ok"], true);
     }
 
-    /// Helper that returns (Router, `TempDir`) with an active session and a created issue.
     fn test_app_with_session_and_issue() -> (Router, tempfile::TempDir, i64) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).expect("test db");
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
-        // Start a session and create an issue directly via db
+
         db.start_session().unwrap();
         let issue_id = db.create_issue("work item", None, "medium").unwrap();
         let state = AppState::new(db, crosslink_dir);
@@ -425,11 +369,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_current_session_with_agent_id_scoping() {
-        // Start two sessions for different agents, verify current session
-        // returns the right one when scoped by agent_id.
         let (app, _dir) = test_app();
 
-        // Start session for agent-alpha
         app.clone()
             .oneshot(
                 Request::builder()
@@ -444,7 +385,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Start session for agent-beta
         app.clone()
             .oneshot(
                 Request::builder()
@@ -459,7 +399,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Fetch current session for agent-beta
         let resp = app
             .oneshot(
                 Request::builder()
@@ -472,13 +411,12 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // SessionResponse wraps the session object
+
         assert_eq!(body["agent_id"], "agent-beta");
     }
 
     #[tokio::test]
     async fn test_end_session_with_notes() {
-        // Start a session and end it with notes.
         let (app, _dir) = test_app();
 
         app.clone()

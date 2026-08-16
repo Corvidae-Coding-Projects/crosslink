@@ -1,29 +1,13 @@
-//! Git capability detection + compatibility shims for older Git versions.
-//!
-//! `git worktree add --orphan` was introduced in Git 2.42.0
-//! (Corvidae-Coding-Projects/crosslink#655). Distros like Ubuntu 22.04 LTS ship Git 2.34.1,
-//! where it fails with `error: unknown option 'orphan'`. This module detects
-//! support once and provides an equivalent fallback (a regular detached
-//! worktree, then `git checkout --orphan` and clearing the tree) that produces
-//! the same post-condition: a worktree checked out on a brand-new, unborn
-//! orphan branch with an empty index and working tree.
-
 use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 
-/// First Git version with `git worktree add --orphan`.
 const MIN_ORPHAN_WORKTREE: (u32, u32) = (2, 42);
 
-/// Environment variable that forces the pre-2.42 fallback path regardless of
-/// the installed Git version — used to exercise the shim on modern Git.
 const FORCE_FALLBACK_ENV: &str = "CROSSLINK_FORCE_WORKTREE_ORPHAN_FALLBACK";
 
-/// Parse the `major.minor` from `git --version` output, e.g.
-/// `"git version 2.34.1"` → `(2, 34)` and
-/// `"git version 2.39.3 (Apple Git-145)"` → `(2, 39)`.
 fn parse_git_version(output: &str) -> Option<(u32, u32)> {
     let rest = output.trim().strip_prefix("git version ")?;
     let mut nums = rest
@@ -34,13 +18,6 @@ fn parse_git_version(output: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-/// Whether the local `git` supports `worktree add --orphan` (Git >= 2.42.0).
-///
-/// Detected once via `git --version` and cached for the process. Setting
-/// [`FORCE_FALLBACK_ENV`] forces `false` (the fallback) so the shim can be
-/// exercised on a modern Git. If the version cannot be determined, assume
-/// support (the fast path): a truly broken/absent git surfaces a clearer error
-/// from the very next git call.
 #[must_use]
 pub fn supports_worktree_orphan() -> bool {
     static CACHE: OnceLock<bool> = OnceLock::new();
@@ -56,22 +33,10 @@ pub fn supports_worktree_orphan() -> bool {
     })
 }
 
-/// Create a worktree at `worktree_path` checked out on a new, unborn orphan
-/// branch `branch` (empty index + working tree).
-///
-/// Uses `git worktree add --orphan` on Git >= 2.42.0 and an equivalent fallback
-/// on older Git (Corvidae-Coding-Projects/crosslink#655). `repo_root` is the main
-/// repository whose ref namespace the worktree shares.
-///
-/// # Errors
-///
-/// Returns an error if any underlying git invocation fails.
 pub fn add_orphan_worktree(repo_root: &Path, branch: &str, worktree_path: &str) -> Result<()> {
     add_orphan_worktree_impl(repo_root, branch, worktree_path, supports_worktree_orphan())
 }
 
-/// Mechanism for [`add_orphan_worktree`], split out so both paths are testable
-/// on any installed Git via the `use_orphan_flag` argument.
 fn add_orphan_worktree_impl(
     repo_root: &Path,
     branch: &str,
@@ -86,19 +51,10 @@ fn add_orphan_worktree_impl(
         return Ok(());
     }
 
-    // Fallback for Git < 2.42.0. `git worktree add --orphan` does not exist, so:
-    //   1. add a regular DETACHED worktree (checks out the current HEAD tree),
-    //   2. convert HEAD to a new unborn orphan branch in that worktree,
-    //   3. remove every file the checkout populated, clearing index + working
-    //      tree, so the orphan branch starts empty.
-    // The end state matches `worktree add --orphan`: an unborn branch with an
-    // empty tree, ready for the caller's first commit.
     run_git(repo_root, &["worktree", "add", "--detach", worktree_path])?;
     let wt = Path::new(worktree_path);
     run_git(wt, &["checkout", "--orphan", branch])?;
 
-    // `git rm -rf .` clears tracked files from index AND working tree. Tolerate
-    // the empty-repo case where the HEAD tree had no files to remove.
     let out = Command::new("git")
         .current_dir(wt)
         .args(["rm", "-rf", "."])
@@ -113,7 +69,6 @@ fn add_orphan_worktree_impl(
     Ok(())
 }
 
-/// Run a git command in `dir`, bailing with captured stderr on failure.
 fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
     let output = Command::new("git")
         .current_dir(dir)
@@ -152,9 +107,6 @@ mod tests {
         assert!((2, 34) < MIN_ORPHAN_WORKTREE);
     }
 
-    /// The fallback path (forced, so it runs on any Git) produces the same end
-    /// state as `worktree add --orphan`: a worktree on an unborn orphan branch
-    /// with an empty tree, where the caller's first commit becomes a root commit.
     #[test]
     fn fallback_creates_empty_unborn_orphan_worktree() {
         let repo = tempfile::tempdir().unwrap();
@@ -174,10 +126,8 @@ mod tests {
         let wt_path = rp.join(".crosslink").join(".hub-cache");
         let wt_str = wt_path.to_string_lossy().to_string();
 
-        // Force the fallback regardless of the test machine's Git version.
         add_orphan_worktree_impl(rp, "crosslink/hub-v3-host", &wt_str, false).unwrap();
 
-        // The worktree is on the orphan branch with an UNBORN HEAD (no commit).
         let head = Command::new("git")
             .current_dir(&wt_path)
             .args(["symbolic-ref", "HEAD"])
@@ -198,7 +148,6 @@ mod tests {
             "HEAD must be unborn (no commit yet), like worktree add --orphan"
         );
 
-        // The index is empty — main's README.md did NOT leak onto the branch.
         let staged = Command::new("git")
             .current_dir(&wt_path)
             .args(["ls-files"])
@@ -213,7 +162,6 @@ mod tests {
             "main's files must not be present in the orphan worktree"
         );
 
-        // The first commit becomes a ROOT commit (no parents) — a true orphan.
         run_git(&wt_path, &["commit", "--allow-empty", "-m", "genesis"]).unwrap();
         let parents = Command::new("git")
             .current_dir(&wt_path)

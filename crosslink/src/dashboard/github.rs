@@ -1,20 +1,3 @@
-//! GitHub integration — PAT storage + org enumeration (design doc §14
-//! Phase 4).
-//!
-//! Tokens are stored encrypted (AES-256-GCM) in the dashboard DB's
-//! `config` table under the key `github.token`. The encryption key is
-//! derived from a stable per-machine secret:
-//!
-//! - On Unix: `/etc/machine-id` (or `/var/lib/dbus/machine-id`)
-//! - On macOS / other: the user's username + `hostname` hash
-//! - Fallback: a random key persisted to `~/.crosslink/.dashboard-key`
-//!
-//! This is **obfuscation against a casual read**, not protection
-//! against an attacker with full disk access — the key material is
-//! derivable from the same machine. The real protection is the file
-//! permissions on `~/.crosslink/` and on the DB itself. We document
-//! this posture in the design doc rather than pretending otherwise.
-
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -26,60 +9,41 @@ use sha2::{Digest, Sha256};
 
 use super::db::DashboardDb;
 
-/// Config key under which the encrypted token lives.
 const KEY_TOKEN: &str = "github.token";
-/// Config key for the user's default org (no encryption — plaintext
-/// identifier).
+
 pub const KEY_DEFAULT_ORG: &str = "github.default_org";
 
-/// On-disk wrapper around an encrypted blob. Encoded as JSON (under a
-/// base64 config value) so we can bump the version or tweak the nonce
-/// layout without a schema migration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Sealed {
-    /// Format version — lets us evolve without breaking old rows.
     v: u32,
-    /// Base64-encoded 12-byte AES-GCM nonce.
+
     nonce: String,
-    /// Base64-encoded ciphertext (includes GCM tag).
+
     ct: String,
 }
 
-/// Derive the 32-byte AES key for this machine. SHA-256 of
-/// (`machine_id` || `username` || `"crosslink-dashboard-pat-v1"`). If
-/// `/etc/machine-id` isn't readable, falls back to hostname and
-/// finally a random key persisted alongside the DB.
 fn derive_machine_key(db_path: &std::path::Path) -> [u8; 32] {
     let mut h = Sha256::new();
     if let Ok(mid) = std::fs::read_to_string("/etc/machine-id") {
         h.update(mid.trim().as_bytes());
     } else if let Ok(mid) = std::fs::read_to_string("/var/lib/dbus/machine-id") {
         h.update(mid.trim().as_bytes());
-    } else {
-        // Hostname as a weaker fallback.
-        if let Ok(hn) = std::env::var("HOSTNAME") {
-            h.update(hn.as_bytes());
-        } else if let Ok(out) = std::process::Command::new("hostname").output() {
-            h.update(&out.stdout);
-        }
+    } else if let Ok(hn) = std::env::var("HOSTNAME") {
+        h.update(hn.as_bytes());
+    } else if let Ok(out) = std::process::Command::new("hostname").output() {
+        h.update(&out.stdout);
     }
     if let Ok(user) = std::env::var("USER") {
         h.update(user.as_bytes());
     }
     h.update(b"crosslink-dashboard-pat-v1");
 
-    // Random fallback file — if neither machine-id nor user landed
-    // meaningful bytes, mix in a persisted random key so subsequent
-    // encrypts/decrypts are self-consistent.
     let fallback_path = db_path.with_file_name(".dashboard-key");
     let fallback = match std::fs::read(&fallback_path) {
         Ok(b) if b.len() >= 32 => b,
         _ => {
             let mut buf = [0u8; 32];
-            // `OsRng` delegates to the operating system's cryptographic RNG
-            // on Unix, macOS, and Windows. A failure leaves the fallback
-            // mixed with the machine/user material above rather than making
-            // token persistence unavailable.
+
             let _ = OsRng.try_fill_bytes(&mut buf);
             let _ = std::fs::write(&fallback_path, buf);
             #[cfg(unix)]
@@ -101,22 +65,11 @@ fn derive_machine_key(db_path: &std::path::Path) -> [u8; 32] {
     key
 }
 
-/// Encrypt `plaintext` with the machine-derived key and return the
-/// base64-encoded sealed blob.
-///
-/// # Errors
-/// Returns an error if the AES-GCM cipher can't be constructed or the
-/// encryption itself fails (both are practically infallible for valid
-/// keys, but we surface the error for completeness).
 pub fn seal(plaintext: &str, db_path: &std::path::Path) -> Result<String> {
     let key_bytes = derive_machine_key(db_path);
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     let cipher = Aes256Gcm::new(key);
 
-    // AES-GCM nonces must be unique and unpredictable. `OsRng` uses the
-    // platform CSPRNG on Unix, macOS, and Windows; refusing to encrypt on a
-    // platform RNG failure beats producing ciphertext with a predictable
-    // nonce.
     let mut nonce_bytes = [0u8; 12];
     OsRng
         .try_fill_bytes(&mut nonce_bytes)
@@ -136,10 +89,6 @@ pub fn seal(plaintext: &str, db_path: &std::path::Path) -> Result<String> {
     Ok(B64.encode(json))
 }
 
-/// Decrypt a blob produced by [`seal`]. Returns `None` if the value
-/// can't be parsed or authenticated (wrong key, tampered DB, etc.) —
-/// callers treat that as "no token configured" rather than erroring
-/// loudly.
 pub fn unseal(value: &str, db_path: &std::path::Path) -> Option<String> {
     let json = B64.decode(value).ok()?;
     let sealed: Sealed = serde_json::from_slice(&json).ok()?;
@@ -157,10 +106,6 @@ pub fn unseal(value: &str, db_path: &std::path::Path) -> Option<String> {
     String::from_utf8(pt).ok()
 }
 
-/// Persist a GitHub PAT. Pass an empty string to delete.
-///
-/// # Errors
-/// Returns an error for DB failures or encryption failures.
 pub fn set_token(db: &DashboardDb, token: &str, db_path: &std::path::Path) -> Result<()> {
     if token.is_empty() {
         db.conn
@@ -176,21 +121,13 @@ pub fn set_token(db: &DashboardDb, token: &str, db_path: &std::path::Path) -> Re
     Ok(())
 }
 
-/// Where the effective GitHub token came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenSource {
-    /// Encrypted PAT stored in the dashboard DB (primary path).
     Stored,
-    /// `gh auth token` — the user's GitHub CLI login, shelled out to
-    /// as a fallback when no PAT is stored.
+
     GhCli,
 }
 
-/// Retrieve the stored GitHub PAT, if any. Malformed / undecryptable
-/// rows are returned as `None`.
-///
-/// # Errors
-/// Returns an error only on DB access failure.
 pub fn get_token(db: &DashboardDb, db_path: &std::path::Path) -> Result<Option<String>> {
     let value: rusqlite::Result<String> = db.conn.query_row(
         "SELECT value FROM config WHERE key = ?1",
@@ -205,10 +142,6 @@ pub fn get_token(db: &DashboardDb, db_path: &std::path::Path) -> Result<Option<S
     Ok(unseal(&raw, db_path))
 }
 
-/// Best-effort fallback: ask the `gh` CLI for its currently-active
-/// token. Returns `None` if `gh` isn't installed, if the user isn't
-/// logged in, or if the subprocess fails for any other reason. The
-/// output is deliberately never logged or echoed.
 #[must_use]
 pub fn gh_cli_token() -> Option<String> {
     let out = std::process::Command::new("gh")
@@ -226,21 +159,6 @@ pub fn gh_cli_token() -> Option<String> {
     }
 }
 
-/// Resolve the effective token used by the GitHub integration:
-///
-/// 1. If a PAT is stored in the dashboard DB, return that with
-///    [`TokenSource::Stored`].
-/// 2. Otherwise, try `gh auth token` and return that with
-///    [`TokenSource::GhCli`].
-/// 3. Otherwise, return `None`.
-///
-/// Callers should use this instead of [`get_token`] when they're
-/// about to actually hit the GitHub API — the fallback makes the
-/// common "already logged in via `gh`" case work without a separate
-/// paste-a-PAT step.
-///
-/// # Errors
-/// Returns an error only on DB access failure.
 pub fn get_effective_token(
     db: &DashboardDb,
     db_path: &std::path::Path,
@@ -254,11 +172,6 @@ pub fn get_effective_token(
     Ok(None)
 }
 
-/// Set or delete a plain-text config value (used for non-secret
-/// fields like `github.default_org`).
-///
-/// # Errors
-/// Returns an error only on DB access failure.
 pub fn set_plain(db: &DashboardDb, key: &str, value: Option<&str>) -> Result<()> {
     if let Some(v) = value {
         db.conn.execute(
@@ -273,10 +186,6 @@ pub fn set_plain(db: &DashboardDb, key: &str, value: Option<&str>) -> Result<()>
     Ok(())
 }
 
-/// Read a plain-text config value.
-///
-/// # Errors
-/// Returns an error only on DB access failure.
 pub fn get_plain(db: &DashboardDb, key: &str) -> Result<Option<String>> {
     match db.conn.query_row(
         "SELECT value FROM config WHERE key = ?1",

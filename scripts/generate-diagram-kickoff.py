@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""
-Generate a Crosslink-styled diagram for the crosslink kickoff flow.
 
-Shows: Human → /kickoff → [branch, worktree, agent] → Agent works → Results
 
-Usage:
-    python3 scripts/generate-diagram-kickoff.py -o docs_src/assets/img/kickoff-flow.svg
-"""
+
+
+
+
+
+
 
 import argparse
 import random
@@ -27,12 +27,12 @@ def generate():
     rng = random.Random(SEED)
     svg = svg_header(WIDTH, HEIGHT)
 
-    # ── Title ─────────────────────────────────────────────────────────────
+
     svg += text(WIDTH / 2, 38, "Kickoff agent lifecycle", cls="heading", size=22, fill=P["black"])
     svg += text(WIDTH / 2, 58, "from instruction to autonomous implementation",
                 cls="subheading", size=14, fill=P["muted"])
 
-    # ── Phase 1: Human (left) ─────────────────────────────────────────────
+
     hx, hy = 100, 170
     svg += ellipse(hx, hy, 80, 60, P["pink"], opacity=0.4)
     svg += ellipse(hx, hy, 68, 48, P["pink"], opacity=0.25)
@@ -40,18 +40,18 @@ def generate():
     svg += text(hx, hy + 8, '"fix the auth bug"', cls="body", size=12, fill=P["muted"])
     svg += text(hx, hy + 26, "high-level instruction", cls="body", size=12, fill=P["muted"])
 
-    # ── Arrow: Human → Kickoff ────────────────────────────────────────────
+
     svg += arrow_curved(185, 170, 250, 170, P["red"], stroke_width=2.5)
     svg += text(218, 158, "/kickoff", cls="mono", size=13, fill=P["red"], weight="bold")
 
-    # ── Phase 2: Crosslink orchestration (center) ─────────────────────────
+
     ox, oy, ow, oh = 260, 100, 220, 145
     svg += rrect(ox, oy, ow, oh, P["green"], rx=28, opacity=0.12)
     svg += rrect(ox + 4, oy + 4, ow - 8, oh - 8, P["white"], rx=26, opacity=0.85)
     svg += text(ox + ow / 2, oy + 30, "Crosslink orchestrates", cls="subheading",
                 size=16, fill=P["black"])
 
-    # Sub-step pills — 2x2 grid, properly centered
+
     pill_w, pill_h = 95, 26
     col1 = ox + 14
     col2 = ox + ow / 2 + 3
@@ -62,11 +62,11 @@ def generate():
     svg += pill(col2, row1, pill_w, pill_h, P["red"],    "agent init", rx=13)
     svg += pill(col2, row2, pill_w, pill_h, P["green"],  "issue + session", rx=13, label_cls="body")
 
-    # ── Arrow: Orchestration → Agent ──────────────────────────────────────
+
     svg += arrow_curved(485, 170, 545, 170, P["green"], stroke_width=2.5)
     svg += text(515, 158, "launch", cls="body", size=13, fill=P["green"])
 
-    # ── Phase 3: Autonomous agent (right) ─────────────────────────────────
+
     ax, ay = 690, 170
     svg += ellipse(ax, ay, 140, 85, P["blue"], opacity=0.1)
     svg += ellipse(ax, ay, 128, 73, P["white"], opacity=0.8)
@@ -81,12 +81,12 @@ def generate():
         cls = "mono" if is_code else "body"
         svg += text(ax - 58, yy, act, cls=cls, size=12, fill=P["text"], anchor="start")
 
-    # Loop arrow (solid)
+
     svg += (f'  <path d="M {ax + 90} {ay - 35} A 45 65 0 1 1 {ax + 90} {ay + 48}" '
             f'fill="none" stroke="{P["blue"]}" stroke-width="1.5" opacity="0.5"/>\n')
     svg += text(ax + 126, ay + 10, "iterate", cls="body", size=11, fill=P["blue"])
 
-    # ── Phase 4: Results (bottom) ─────────────────────────────────────────
+
     ry = 330
     svg += rrect(50, ry, 800, 220, P["gray"], rx=28, opacity=0.12)
     svg += rrect(53, ry + 3, 794, 214, P["white"], rx=26, opacity=0.85)
@@ -115,11 +115,11 @@ def generate():
                         size=11 if is_cmd else 13,
                         fill=P["text"], anchor="start")
 
-    # Arrows from agent/orchestration → results
+
     svg += arrow_straight(690, 255, 690, ry + 40, P["blue"], stroke_width=2)
     svg += arrow_straight(370, 248, 370, ry + 40, P["green"], stroke_width=2)
 
-    # ── Confetti ──────────────────────────────────────────────────────────
+
     svg += confetti(rng, 15, 80, 60, 80, 6)
     svg += confetti(rng, 820, 80, 60, 80, 6)
 

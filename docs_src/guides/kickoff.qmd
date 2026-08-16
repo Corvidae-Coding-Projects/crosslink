@@ -221,7 +221,7 @@ Everything from `--verify ci`, plus an adversarial self-review:
 
 ### Safety constraints
 
-The background agent operates under the same crosslink hook enforcement as interactive sessions:
+The background agent uses the same Crosslink repository hooks as interactive sessions:
 
 - **Always blocked:** `git merge`, `git rebase`, `git cherry-pick`, `git reset`, force-push, and the other destructive git commands
 - **Push:** plain `git push` is permitted only for the CI-verification draft-PR steps the prompt specifies; force-push is always blocked

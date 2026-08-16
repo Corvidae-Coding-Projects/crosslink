@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the distributable Codex plugin from Crosslink's canonical assets."""
+
 
 from __future__ import annotations
 

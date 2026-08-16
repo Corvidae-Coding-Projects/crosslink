@@ -1,21 +1,21 @@
 name: Container Image
 
-# Builds and publishes the crosslink-agent container image to GHCR.
-#
-# Triggers:
-#   - push to develop  -> :nightly (floating) and :nightly-<short-sha> (immutable)
-#   - push tag v*      -> :<version> and :latest
-#   - PR touching the container build context or this workflow -> build only,
-#     no push (validates the change before merge).
-#
-# Architecture: linux/amd64 + linux/arm64. The static musl crosslink binary is
-# built per-arch in the build-binary matrix job, uploaded as an artifact, then
-# placed in the docker build context as crosslink-<arch>. The Dockerfile picks
-# the correct one via the buildx-provided TARGETARCH ARG.
-#
-# After publish, smoke-verify pulls the published tag for both platforms and
-# runs `crosslink --version`. This is the discipline that turns "green CI" into
-# "the documented happy path actually works at the user's hand."
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 on:
   push:
@@ -27,9 +27,9 @@ on:
       - '.github/workflows/container-image.yml'
       - 'crosslink/Cargo.toml'
       - 'crosslink/Cargo.lock'
-  # On-demand publish from any branch (e.g. a fork validating the image before
-  # develop lands), tagged :nightly + :manual-<sha>. Lets a fork produce a
-  # working agent image without a develop push.
+
+
+
   workflow_dispatch:
 
 permissions:
@@ -42,14 +42,14 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  # The tag step prefixes this with a lowercased repository owner so forks use
-  # their own valid GHCR namespace rather than attempting an upstream push.
+
+
   IMAGE_NAME: crosslink-agent
 
 jobs:
-  # ===========================================
-  # Build static musl binaries (amd64 + arm64)
-  # ===========================================
+
+
+
   build-binary:
     name: Build binary (${{ matrix.arch }})
     runs-on: ubuntu-latest
@@ -57,19 +57,19 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # amd64 builds natively on the runner via musl-tools — no cross
-          # toolchain needed and avoids the docker-in-docker overhead.
+
+
           - arch: amd64
             target: x86_64-unknown-linux-musl
             use_cross: false
-          # arm64 must use cross-rs/cross. Stock `gcc-aarch64-linux-gnu` is a
-          # GLIBC cross-compiler — when the libsqlite3-sys build script
-          # compiles sqlite3.c with it, the object emits glibc-only symbols
-          # (open64/stat64/fcntl64/pread64/... + _FORTIFY_SOURCE __memcpy_chk
-          # variants) that musl libc doesn't define, so ld fails with
-          # `undefined reference`. cross-rs runs cargo inside a docker image
-          # carrying a real aarch64-musl toolchain, which produces
-          # musl-correct object files.
+
+
+
+
+
+
+
+
           - arch: arm64
             target: aarch64-unknown-linux-musl
             use_cross: true
@@ -123,9 +123,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # ===========================================
-  # Build and (conditionally) push multi-arch image
-  # ===========================================
+
+
+
   publish-image:
     name: Build & publish image
     needs: build-binary
@@ -172,7 +172,7 @@ jobs:
           VERSION=""
 
           if [ "$EVENT" = "pull_request" ]; then
-            # PR: build only, no push. Tag exists only locally to satisfy buildx.
+
             TAGS=("${BASE}:pr-${{ github.event.pull_request.number }}")
             PRIMARY="${BASE}:pr-${{ github.event.pull_request.number }}"
             VERSION="pr-${{ github.event.pull_request.number }}"
@@ -232,12 +232,12 @@ jobs:
           push: ${{ steps.tags.outputs.push == 'true' }}
           tags: ${{ steps.tags.outputs.tags }}
           provenance: false
-          # Push registry cache only when we have write access (push events).
+
           cache-from: type=registry,ref=${{ steps.tags.outputs.cache_ref }}
           cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0},mode=max', steps.tags.outputs.cache_ref) || '' }}
 
-  # PR-only native smoke: build a loadable amd64 image and verify that both
-  # provider CLIs dispatch through the non-root entrypoint before merge.
+
+
   container-pr-smoke:
     name: Provider smoke (PR)
     needs: build-binary
@@ -273,10 +273,10 @@ jobs:
             exit 1
           fi
 
-  # ===========================================
-  # Smoke-verify the published image is pullable + runnable on both arches.
-  # This is the discipline that catches "CI green but `docker pull` broken."
-  # ===========================================
+
+
+
+
   smoke-verify:
     name: Smoke verify (${{ matrix.platform }})
     needs: publish-image
@@ -292,12 +292,12 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
 
-      # GHCR creates new packages as PRIVATE by default on first publish,
-      # regardless of repo visibility. Until the package is manually flipped
-      # to public via Settings -> Packages, even pulling a tag we just
-      # pushed in the same workflow requires auth — hence the login here.
-      # When the package is public this step is harmless (login still works,
-      # subsequent pulls just don't need it).
+
+
+
+
+
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -318,26 +318,26 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          # Override the entrypoint — entrypoint.sh expects bind mounts and root
-          # privilege handling; for smoke we just want the binary to run.
+
+
           OUT=$(docker run --rm --platform ${{ matrix.platform }} \
             --entrypoint /usr/local/bin/crosslink \
             ${{ needs.publish-image.outputs.primary_tag }} --version)
           echo "version output: $OUT"
           echo "out=$OUT" >> "$GITHUB_OUTPUT"
-          # Sanity: must contain "crosslink" and a semver-like substring.
+
           echo "$OUT" | grep -E '^crosslink [0-9]+\.[0-9]+\.[0-9]+'
 
       - name: Verify version matches tag (release tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           EXPECTED="${{ needs.publish-image.outputs.version }}"
-          # Extract the version field and strip git build metadata (+<sha>[-dirty]).
-          # Keep any semver prerelease suffix (e.g. -beta.1) — the old
-          # `grep -oE '[0-9]+\.[0-9]+\.[0-9]+'` matched only the X.Y.Z core and
-          # dropped `-beta.1`, failing every prerelease tag (the first one was
-          # v0.9.0-beta.1). Cargo.toml's version carries the prerelease but not
-          # the +build metadata, so EXPECTED has no `+` to strip.
+
+
+
+
+
+
           ACTUAL=$(echo "${{ steps.version.outputs.out }}" | awk '{print $2}' | sed 's/+.*//')
           if [ "$EXPECTED" != "$ACTUAL" ]; then
             echo "::error::Tag version ($EXPECTED) does not match binary version ($ACTUAL)"

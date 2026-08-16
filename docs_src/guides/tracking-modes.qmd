@@ -58,7 +58,7 @@ Edit `.crosslink/hook-config.json`:
 }
 ```
 
-Changes take effect on the next prompt.
+Changes take effect on the next matching hook event.
 
 ### What's always enforced
 
@@ -75,8 +75,6 @@ Read-only git commands (`git status`, `git diff`, `git log`, `git show`, `git br
 
 ### Strict mode
 
-**File:** `.crosslink/rules/tracking-strict.md`
-
 The hook checks if the agent has an active work item (`crosslink session work <id>`). If not, all Write, Edit, and Bash operations are **blocked**. The agent must create an issue first:
 
 ```bash
@@ -87,13 +85,9 @@ This is the recommended mode for teams and production codebases.
 
 ### Normal mode
 
-**File:** `.crosslink/rules/tracking-normal.md`
-
 Same check, but the hook **reminds** the agent instead of blocking. Operations proceed with a gentle nudge to create an issue. Good for solo developers who want tracking most of the time.
 
 ### Relaxed mode
-
-**File:** `.crosslink/rules/tracking-relaxed.md`
 
 No issue-tracking enforcement. Only git mutations are blocked (same as all modes). Best for projects where crosslink is used occasionally.
 
@@ -101,11 +95,11 @@ No issue-tracking enforcement. Only git mutations are blocked (same as all modes
 
 ---
 
-## Customizing mode rules
+## Refreshing hook assets
 
-Each mode loads its instructions from `.crosslink/rules/tracking-{mode}.md`. Edit these files to customize wording or add project-specific rules.
-
-To reset to defaults:
+Tracking enforcement comes from `tracking_mode` and the hook implementation.
+The prompt hook still resolves the matching tracking Markdown; the bundled files
+are currently zero bytes. To refresh the managed assets:
 
 ```bash
 crosslink init --force

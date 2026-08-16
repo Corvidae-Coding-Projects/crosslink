@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::db::Database;
 
-/// A detected pattern from dispatch history.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Pattern {
     pub kind: String,
@@ -12,7 +11,6 @@ pub struct Pattern {
     pub severity: String,
 }
 
-/// Analyze dispatch history for recurring patterns and hotspots.
 pub fn detect_patterns(db: &Database, json: bool) -> Result<()> {
     let mut patterns: Vec<Pattern> = Vec::new();
 
@@ -59,7 +57,6 @@ pub fn detect_patterns(db: &Database, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Signals that have failed 2+ times (both Sonnet and Opus exhausted multiple times).
 fn find_repeat_failures(db: &Database) -> Result<Vec<Pattern>> {
     let mut stmt = db.conn.prepare(
         "SELECT signal_ref, COUNT(*) as fail_count
@@ -92,7 +89,6 @@ fn find_repeat_failures(db: &Database) -> Result<Vec<Pattern>> {
     }])
 }
 
-/// Labels where the success rate is significantly below average.
 fn find_label_success_imbalance(db: &Database) -> Result<Vec<Pattern>> {
     let metrics = db.get_dispatch_metrics()?;
 
@@ -100,7 +96,7 @@ fn find_label_success_imbalance(db: &Database) -> Result<Vec<Pattern>> {
     for m in &metrics {
         let completed = m.total - m.pending;
         if completed < 3 {
-            continue; // not enough data
+            continue;
         }
         if m.success_rate < 30.0 {
             patterns.push(Pattern {
@@ -123,7 +119,6 @@ fn find_label_success_imbalance(db: &Database) -> Result<Vec<Pattern>> {
     Ok(patterns)
 }
 
-/// Signals that always escalate from Sonnet to Opus (Sonnet never succeeds).
 fn find_escalation_heavy_signals(db: &Database) -> Result<Vec<Pattern>> {
     let mut stmt = db.conn.prepare(
         "SELECT label,

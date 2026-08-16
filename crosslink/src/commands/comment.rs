@@ -38,8 +38,6 @@ mod tests {
         (db, dir)
     }
 
-    // ==================== Unit Tests ====================
-
     #[test]
     fn test_add_comment_to_existing_issue() {
         let (db, _dir) = setup_test_db();
@@ -151,12 +149,10 @@ mod tests {
         let malicious = "'); DELETE FROM comments; --";
         run(&db, None, issue_id, malicious, "note").unwrap();
 
-        // Verify comment was stored literally, not executed
         let comments = db.get_comments(issue_id).unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].content, malicious);
 
-        // Verify database integrity
         let issues = db.list_issues(None, None, None).unwrap();
         assert!(!issues.is_empty());
     }
@@ -167,7 +163,6 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
         db.close_issue(issue_id).unwrap();
 
-        // Should still be able to comment on closed issues
         let result = run(&db, None, issue_id, "Comment on closed issue", "note");
         assert!(result.is_ok());
 
@@ -188,8 +183,6 @@ mod tests {
         assert_eq!(comments[0].content, with_null);
     }
 
-    // ==================== Property-Based Tests ====================
-
     proptest! {
         #[test]
         fn prop_comment_roundtrip(content in ".*") {
@@ -207,7 +200,7 @@ mod tests {
         #[test]
         fn prop_nonexistent_issue_fails(issue_id in 1000i64..10000) {
             let (db, _dir) = setup_test_db();
-            // Don't create any issues
+
             let result = run(&db, None, issue_id, "Comment", "note");
             prop_assert!(result.is_err());
         }

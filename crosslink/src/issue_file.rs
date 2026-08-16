@@ -1,19 +1,11 @@
-//! JSON schema for issue files on the coordination branch.
-//!
-//! Each issue is stored as `issues/{uuid}.json` on the `crosslink/hub` branch.
-//! This module defines the serde types for reading and writing those files,
-//! plus the shared `counters.json` and `milestones.json` schemas.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A single issue as stored in `issues/{uuid}.json` on the coordination branch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IssueFile {
     pub uuid: Uuid,
-    /// Stable display ID assigned from the shared counter on first push.
-    /// `None` for locally-created issues that haven't been pushed yet.
+
     pub display_id: Option<i64>,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -27,21 +19,20 @@ pub struct IssueFile {
     pub updated_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
-    /// When the issue becomes actionable (GH #361). `None` means always actionable.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_at: Option<DateTime<Utc>>,
-    /// Hard deadline (GH #361). `None` means no deadline.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<CommentEntry>,
-    /// UUIDs of issues that block this one (single-direction storage).
-    /// The reverse direction ("blocking") is derived during `SQLite` hydration.
+
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blockers: Vec<Uuid>,
-    /// UUIDs of related issues (single-direction; hydration inserts both directions).
+
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,7 +41,6 @@ pub struct IssueFile {
     pub time_entries: Vec<TimeEntry>,
 }
 
-/// An inline comment within an issue file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommentEntry {
     pub id: i64,
@@ -65,10 +55,10 @@ pub struct CommentEntry {
     pub intervention_context: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_key_fingerprint: Option<String>,
-    /// SSH fingerprint of the signer (e.g. "SHA256:..."), if signed.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_by: Option<String>,
-    /// Base64-encoded SSH signature over the canonical comment content.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
@@ -110,7 +100,6 @@ pub fn validate_trigger_type(trigger: &str) -> bool {
     KNOWN_TRIGGER_TYPES.contains(&trigger)
 }
 
-/// An inline time-tracking entry within an issue file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TimeEntry {
     pub id: i64,
@@ -121,7 +110,6 @@ pub struct TimeEntry {
     pub duration_seconds: Option<i64>,
 }
 
-/// Shared counter file at `meta/counters.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Counters {
     pub next_display_id: i64,
@@ -144,13 +132,11 @@ impl Default for Counters {
     }
 }
 
-/// Milestone registry at `meta/milestones.json`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MilestonesFile {
     pub milestones: std::collections::HashMap<Uuid, MilestoneEntry>,
 }
 
-/// A single milestone entry in the milestones file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MilestoneEntry {
     pub uuid: Uuid,
@@ -190,11 +176,6 @@ impl From<&crate::checkpoint::CompactIssue> for IssueFile {
     }
 }
 
-/// Read an issue file from disk.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or contains invalid JSON.
 pub fn read_issue_file(path: &std::path::Path) -> anyhow::Result<IssueFile> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read issue file: {}", path.display()))?;
@@ -202,26 +183,11 @@ pub fn read_issue_file(path: &std::path::Path) -> anyhow::Result<IssueFile> {
         .with_context(|| format!("Failed to parse issue file: {}", path.display()))
 }
 
-/// Write an issue file to disk (pretty-printed JSON).
-/// Uses atomic write (temp file + rename) to prevent corruption from interrupted writes.
-///
-/// # Errors
-///
-/// Returns an error if serialization or the atomic write fails.
 pub fn write_issue_file(path: &std::path::Path, issue: &IssueFile) -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(issue)?;
     crate::utils::atomic_write(path, content.as_bytes())
 }
 
-/// Read all issue files from a directory.
-///
-/// Handles both v1 layout (`issues/{uuid}.json`) and v2 layout
-/// (`issues/{uuid}/issue.json`). When both exist for the same UUID,
-/// the V2 version takes precedence (#428).
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be read.
 pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<IssueFile>> {
     use std::collections::HashMap;
 
@@ -229,13 +195,11 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
         return Ok(Vec::new());
     }
 
-    // Two-pass collection: V1 first, then V2 overwrites any duplicates
     let mut by_uuid: HashMap<uuid::Uuid, IssueFile> = HashMap::new();
     for entry in std::fs::read_dir(issues_dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
-            // V1 layout: issues/{uuid}.json
             match read_issue_file(&path) {
                 Ok(issue) => {
                     by_uuid.entry(issue.uuid).or_insert(issue);
@@ -245,12 +209,10 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
                 }
             }
         } else if path.is_dir() {
-            // V2 layout: issues/{uuid}/issue.json
             let issue_path = path.join("issue.json");
             if issue_path.exists() {
                 match read_issue_file(&issue_path) {
                     Ok(issue) => {
-                        // V2 always wins over V1 for the same UUID
                         by_uuid.insert(issue.uuid, issue);
                     }
                     Err(e) => {
@@ -267,11 +229,6 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
     Ok(by_uuid.into_values().collect())
 }
 
-/// Read counters from `meta/counters.json`, returning defaults if missing.
-///
-/// # Errors
-///
-/// Returns an error if the file exists but cannot be read or parsed.
 pub fn read_counters(path: &std::path::Path) -> anyhow::Result<Counters> {
     if !path.exists() {
         return Ok(Counters::default());
@@ -280,11 +237,6 @@ pub fn read_counters(path: &std::path::Path) -> anyhow::Result<Counters> {
     Ok(serde_json::from_str(&content)?)
 }
 
-/// Write counters to `meta/counters.json`.
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be created or the file cannot be written.
 pub fn write_counters(path: &std::path::Path, counters: &Counters) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -294,11 +246,6 @@ pub fn write_counters(path: &std::path::Path, counters: &Counters) -> anyhow::Re
     Ok(())
 }
 
-/// Read milestones from `meta/milestones.json`, returning defaults if missing.
-///
-/// # Errors
-///
-/// Returns an error if the file exists but cannot be read or parsed.
 pub fn read_milestones_file(path: &std::path::Path) -> anyhow::Result<MilestonesFile> {
     if !path.exists() {
         return Ok(MilestonesFile::default());
@@ -307,11 +254,6 @@ pub fn read_milestones_file(path: &std::path::Path) -> anyhow::Result<Milestones
     Ok(serde_json::from_str(&content)?)
 }
 
-/// Read a single milestone file from disk.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or contains invalid JSON.
 pub fn read_milestone_file(path: &std::path::Path) -> anyhow::Result<MilestoneEntry> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read milestone file: {}", path.display()))?;
@@ -319,11 +261,6 @@ pub fn read_milestone_file(path: &std::path::Path) -> anyhow::Result<MilestoneEn
         .with_context(|| format!("Failed to parse milestone file: {}", path.display()))
 }
 
-/// Write a single milestone file to disk (pretty-printed JSON).
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be created or the file cannot be written.
 pub fn write_milestone_file(path: &std::path::Path, entry: &MilestoneEntry) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -333,11 +270,6 @@ pub fn write_milestone_file(path: &std::path::Path, entry: &MilestoneEntry) -> a
         .with_context(|| format!("Failed to write milestone file: {}", path.display()))
 }
 
-/// Read all milestone files from a directory.
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be read.
 pub fn read_all_milestone_files(
     milestones_dir: &std::path::Path,
 ) -> anyhow::Result<Vec<MilestoneEntry>> {
@@ -360,9 +292,6 @@ pub fn read_all_milestone_files(
     Ok(entries)
 }
 
-/// A standalone comment file for the v2 hub layout.
-///
-/// Stored at `issues/{issue-uuid}/comments/{comment-uuid}.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommentFile {
     pub uuid: Uuid,
@@ -383,9 +312,6 @@ pub struct CommentFile {
     pub signature: Option<String>,
 }
 
-/// A per-issue lock file for the v2 hub layout.
-///
-/// Stored at `locks/{display-id}.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockFileV2 {
     pub issue_id: i64,
@@ -397,20 +323,13 @@ pub struct LockFileV2 {
     pub signed_by: Option<String>,
 }
 
-/// Layout version marker stored at `meta/version.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutVersion {
     pub layout_version: u32,
 }
 
-/// The current hub directory layout version.
 pub const CURRENT_LAYOUT_VERSION: u32 = 2;
 
-/// Read a single comment file from disk.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or contains invalid JSON.
 pub fn read_comment_file(path: &std::path::Path) -> anyhow::Result<CommentFile> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read comment file: {}", path.display()))?;
@@ -418,12 +337,6 @@ pub fn read_comment_file(path: &std::path::Path) -> anyhow::Result<CommentFile> 
         .with_context(|| format!("Failed to parse comment file: {}", path.display()))
 }
 
-/// Write a comment file to disk (pretty-printed JSON).
-/// Uses atomic write (temp file + rename) to prevent corruption from interrupted writes.
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be created or the atomic write fails.
 pub fn write_comment_file(path: &std::path::Path, comment: &CommentFile) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -432,11 +345,6 @@ pub fn write_comment_file(path: &std::path::Path, comment: &CommentFile) -> anyh
     crate::utils::atomic_write(path, content.as_bytes())
 }
 
-/// Read all comment files from a directory, sorted by `(created_at, author, uuid)`.
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be read.
 pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<CommentFile>> {
     let mut comments = Vec::new();
     if !comments_dir.exists() {
@@ -463,16 +371,6 @@ pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<
     Ok(comments)
 }
 
-/// Read the layout version from `meta/version.json`.
-///
-/// If the version file is missing, inspects the `issues/` directory for V2-style
-/// subdirectories (containing `issue.json`). If any exist, returns `2` to avoid
-/// silently reverting to V1 flat-file writes on a hub that lost its version marker
-/// during a rebase or merge conflict (#428).
-///
-/// # Errors
-///
-/// Returns an error if the version file exists but cannot be read or parsed.
 pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
     let path = meta_dir.join("version.json");
     if path.exists() {
@@ -483,9 +381,6 @@ pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
         return Ok(version.layout_version);
     }
 
-    // Version file missing — detect layout from directory structure.
-    // If any issues/{uuid}/issue.json directories exist, this is a V2 hub
-    // that lost its version marker.
     let issues_dir = meta_dir
         .parent()
         .map(|p| p.join("issues"))
@@ -507,11 +402,6 @@ pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
     Ok(1)
 }
 
-/// Write the layout version to `meta/version.json`.
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be created or the file cannot be written.
 pub fn write_layout_version(meta_dir: &std::path::Path, version: u32) -> anyhow::Result<()> {
     std::fs::create_dir_all(meta_dir)?;
     let path = meta_dir.join("version.json");
@@ -576,7 +466,6 @@ mod tests {
 
     #[test]
     fn test_issue_file_minimal() {
-        // Minimal JSON with only required fields — optional arrays default to empty
         let json = r#"{
             "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
             "display_id": 1,
@@ -598,7 +487,6 @@ mod tests {
 
     #[test]
     fn test_issue_file_null_display_id() {
-        // Offline-created issue: display_id is null
         let json = r#"{
             "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
             "display_id": null,
@@ -729,7 +617,6 @@ mod tests {
         let issues_dir = dir.path().join("issues");
         std::fs::create_dir_all(&issues_dir).unwrap();
 
-        // Write a valid file
         let issue = IssueFile {
             uuid: Uuid::new_v4(),
             display_id: Some(1),
@@ -753,7 +640,6 @@ mod tests {
         };
         write_issue_file(&issues_dir.join("valid.json"), &issue).unwrap();
 
-        // Write a malformed file
         std::fs::write(issues_dir.join("bad.json"), "not valid json").unwrap();
 
         let loaded = read_all_issue_files(&issues_dir).unwrap();
@@ -784,7 +670,6 @@ mod tests {
 
     #[test]
     fn test_counters_backward_compat_missing_milestone_id() {
-        // Old counters.json without next_milestone_id should default to 1
         let json = r#"{"next_display_id": 5, "next_comment_id": 3}"#;
         let parsed: Counters = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.next_milestone_id, 1);
@@ -839,7 +724,7 @@ mod tests {
     fn test_read_all_milestone_files_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
         let ms_dir = dir.path().join("milestones");
-        // Dir doesn't exist
+
         let loaded = read_all_milestone_files(&ms_dir).unwrap();
         assert!(loaded.is_empty());
     }
@@ -894,7 +779,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&comment).unwrap();
-        // None fields should be omitted from the JSON
+
         assert!(!json.contains("trigger_type"));
         assert!(!json.contains("intervention_context"));
         assert!(!json.contains("driver_key_fingerprint"));
@@ -983,15 +868,12 @@ mod tests {
 
         let now = Utc::now();
 
-        // Create comments with different timestamps, authors, and UUIDs
-        // to verify the sort order: (created_at, author, uuid)
         let uuid_a = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
         let uuid_b = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
         let uuid_c = Uuid::parse_str("00000000-0000-0000-0000-000000000003").unwrap();
 
         let issue_uuid = Uuid::new_v4();
 
-        // Comment 3: newest timestamp
         let c3 = CommentFile {
             uuid: uuid_c,
             issue_uuid,
@@ -1006,7 +888,6 @@ mod tests {
             signature: None,
         };
 
-        // Comment 1: oldest timestamp
         let c1 = CommentFile {
             uuid: uuid_a,
             issue_uuid,
@@ -1021,7 +902,6 @@ mod tests {
             signature: None,
         };
 
-        // Comment 2: same timestamp as c1, different author (bob > alice)
         let c2 = CommentFile {
             uuid: uuid_b,
             issue_uuid,
@@ -1036,14 +916,13 @@ mod tests {
             signature: None,
         };
 
-        // Write in non-sorted order
         write_comment_file(&comments_dir.join(format!("{}.json", c3.uuid)), &c3).unwrap();
         write_comment_file(&comments_dir.join(format!("{}.json", c1.uuid)), &c1).unwrap();
         write_comment_file(&comments_dir.join(format!("{}.json", c2.uuid)), &c2).unwrap();
 
         let loaded = read_comment_files(&comments_dir).unwrap();
         assert_eq!(loaded.len(), 3);
-        // Sorted by (created_at, author, uuid): c1 (oldest, alice), c2 (oldest, bob), c3 (newest)
+
         assert_eq!(loaded[0].content, "First");
         assert_eq!(loaded[1].content, "Second");
         assert_eq!(loaded[2].content, "Third");
@@ -1053,7 +932,7 @@ mod tests {
     fn test_read_comment_files_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
         let comments_dir = dir.path().join("comments");
-        // Dir doesn't exist
+
         let loaded = read_comment_files(&comments_dir).unwrap();
         assert!(loaded.is_empty());
     }
@@ -1064,7 +943,6 @@ mod tests {
         let comments_dir = dir.path().join("comments");
         std::fs::create_dir_all(&comments_dir).unwrap();
 
-        // Write a valid comment file
         let comment = CommentFile {
             uuid: Uuid::new_v4(),
             issue_uuid: Uuid::new_v4(),
@@ -1080,7 +958,6 @@ mod tests {
         };
         write_comment_file(&comments_dir.join("valid.json"), &comment).unwrap();
 
-        // Write a malformed file
         std::fs::write(comments_dir.join("bad.json"), "not valid json").unwrap();
 
         let loaded = read_comment_files(&comments_dir).unwrap();
@@ -1092,7 +969,7 @@ mod tests {
     fn test_read_layout_version_missing() {
         let dir = tempfile::tempdir().unwrap();
         let meta_dir = dir.path().join("meta");
-        // meta dir doesn't exist, should return 1
+
         let version = read_layout_version(&meta_dir).unwrap();
         assert_eq!(version, 1);
     }
@@ -1112,11 +989,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let meta_dir = dir.path().join("meta");
 
-        // Write version 2
         write_layout_version(&meta_dir, 2).unwrap();
         assert_eq!(read_layout_version(&meta_dir).unwrap(), 2);
 
-        // Overwrite with version 3
         write_layout_version(&meta_dir, 3).unwrap();
         assert_eq!(read_layout_version(&meta_dir).unwrap(), 3);
     }
@@ -1140,7 +1015,7 @@ mod tests {
     fn test_validate_comment_kind_invalid() {
         assert!(!validate_comment_kind("bogus"));
         assert!(!validate_comment_kind(""));
-        assert!(!validate_comment_kind("NOTE")); // case-sensitive
+        assert!(!validate_comment_kind("NOTE"));
     }
 
     #[test]
@@ -1157,7 +1032,7 @@ mod tests {
     fn test_validate_trigger_type_invalid() {
         assert!(!validate_trigger_type("bogus"));
         assert!(!validate_trigger_type(""));
-        assert!(!validate_trigger_type("REDIRECT")); // case-sensitive
+        assert!(!validate_trigger_type("REDIRECT"));
     }
 
     #[test]
@@ -1165,7 +1040,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let issues_dir = dir.path().join("issues");
 
-        // Create two issues using the V2 directory layout: issues/{uuid}/issue.json
         for i in 0..2 {
             let issue = IssueFile {
                 uuid: Uuid::new_v4(),
@@ -1195,7 +1069,7 @@ mod tests {
 
         let loaded = read_all_issue_files(&issues_dir).unwrap();
         assert_eq!(loaded.len(), 2);
-        // Both titles should start with "V2 Issue"
+
         for issue in &loaded {
             assert!(issue.title.starts_with("V2 Issue"));
         }
@@ -1206,7 +1080,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let issues_dir = dir.path().join("issues");
 
-        // Create one valid V2 issue
         let valid_uuid = Uuid::new_v4();
         let valid_issue = IssueFile {
             uuid: valid_uuid,
@@ -1233,7 +1106,6 @@ mod tests {
         std::fs::create_dir_all(&valid_subdir).unwrap();
         write_issue_file(&valid_subdir.join("issue.json"), &valid_issue).unwrap();
 
-        // Create a V2 directory with malformed issue.json
         let bad_subdir = issues_dir.join(Uuid::new_v4().to_string());
         std::fs::create_dir_all(&bad_subdir).unwrap();
         std::fs::write(bad_subdir.join("issue.json"), "not valid json").unwrap();
@@ -1249,7 +1121,6 @@ mod tests {
         let ms_dir = dir.path().join("milestones");
         std::fs::create_dir_all(&ms_dir).unwrap();
 
-        // Write a valid milestone file
         let entry = MilestoneEntry {
             uuid: Uuid::new_v4(),
             display_id: 1,
@@ -1261,7 +1132,6 @@ mod tests {
         };
         write_milestone_file(&ms_dir.join(format!("{}.json", entry.uuid)), &entry).unwrap();
 
-        // Write a malformed milestone file
         std::fs::write(ms_dir.join("bad.json"), "not valid json").unwrap();
 
         let loaded = read_all_milestone_files(&ms_dir).unwrap();
@@ -1269,13 +1139,8 @@ mod tests {
         assert_eq!(loaded[0].name, "v1.0");
     }
 
-    // ── Scheduling backward-compat (GH #361 AC-11) ──
-
     #[test]
     fn test_issuefile_deserializes_without_scheduling_fields() {
-        // An existing issue file written before scheduling existed must load
-        // cleanly with both new fields defaulting to None. This is the same
-        // shape produced by any crosslink version prior to #361.
         let legacy = serde_json::json!({
             "uuid": "00000000-0000-0000-0000-000000000001",
             "display_id": 42,
@@ -1324,8 +1189,6 @@ mod tests {
 
     #[test]
     fn test_issuefile_scheduling_none_omitted_from_json() {
-        // skip_serializing_if = Option::is_none keeps JSON clean for the
-        // common case where no scheduling is set.
         let now = chrono::Utc::now();
         let file = IssueFile {
             uuid: uuid::Uuid::new_v4(),

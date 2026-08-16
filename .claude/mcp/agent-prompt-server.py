@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
-"""
-Crosslink Agent Prompt MCP Server
 
-An MCP server that provides reliable prompt delivery to tmux-based agent sessions.
-Wraps `crosslink agent prompt` to avoid the pitfalls of raw `tmux send-keys`.
 
-Usage:
-    Registered in .claude/settings.json as an MCP server.
-    Claude calls mcp__crosslink-agent-prompt__agent_prompt(session, prompt) to send prompts.
-"""
+
+
+
+
+
+
+
+
+
+
+
+
 
 import json
 import sys
@@ -20,14 +20,14 @@ import io
 import subprocess
 from typing import Any
 
-# Fix Windows encoding issues
+
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 
 def log(message: str) -> None:
-    """Log to stderr (visible in MCP server logs)."""
+
     print(f"[agent-prompt] {message}", file=sys.stderr)
 
 
@@ -62,7 +62,7 @@ TOOL_DEFINITION = {
 
 
 def handle_agent_prompt(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle the agent_prompt tool call by delegating to crosslink CLI."""
+
     session = arguments.get('session', '').strip()
     prompt = arguments.get('prompt', '')
     submit = arguments.get('submit', True)
@@ -116,7 +116,7 @@ def handle_agent_prompt(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
-    """Handle an MCP JSON-RPC request."""
+
     method = request.get('method', '')
     request_id = request.get('id')
     params = request.get('params', {})
@@ -182,7 +182,7 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def main():
-    """Main MCP server loop - reads JSON-RPC from stdin, writes to stdout."""
+
     log("Starting agent-prompt MCP server")
 
     while True:

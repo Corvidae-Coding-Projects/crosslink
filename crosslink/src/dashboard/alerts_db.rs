@@ -1,19 +1,3 @@
-//! DB reconciliation for derived alerts.
-//!
-//! The poll loop produces a set of [`super::alerts::DerivedAlert`] per
-//! tick per project. This module diffs that set against the rows
-//! already in the `alerts` table and performs the minimum updates:
-//!
-//! - Alerts in the derived set but not in the open-alerts set →
-//!   `INSERT` as a new row (`opened_at = now`).
-//! - Alerts in the open-alerts set but not in the derived set → `UPDATE`
-//!   `resolved_at = now`.
-//! - Alerts in both → leave alone (preserves `opened_at`, ACK state).
-//!
-//! Alert identity is the pair `(kind, subject_ref)`. The DB sync must
-//! run in a single transaction so concurrent polls of the same repo
-//! can't race their reconciliations.
-
 use anyhow::Result;
 use chrono::Utc;
 use rusqlite::params;
@@ -22,12 +6,6 @@ use std::collections::HashMap;
 use super::alerts::DerivedAlert;
 use super::db::DashboardDb;
 
-/// Outcome of one reconcile pass.
-///
-/// Counts are the headline numbers (used by logging and WebSocket
-/// fanout); `opened_alerts` carries the full records for alerts that
-/// just fired so the caller can side-effect on them (e.g. dispatching
-/// outbound webhooks — see [`super::webhook`]).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SyncStats {
     pub opened: usize,
@@ -36,16 +14,6 @@ pub struct SyncStats {
     pub opened_alerts: Vec<DerivedAlert>,
 }
 
-/// Reconcile the derived-alerts set for one project against the DB.
-///
-/// Atomically:
-/// 1. Load currently-open alert rows for `project_id`.
-/// 2. Insert rows for each derived alert not already open.
-/// 3. Update `resolved_at = now` for each open row no longer in the
-///    derived set.
-///
-/// # Errors
-/// Propagates any `SQLite` error from the surrounding transaction.
 pub fn sync_alerts_for_project(
     db: &DashboardDb,
     project_id: i64,
@@ -53,12 +21,8 @@ pub fn sync_alerts_for_project(
 ) -> Result<SyncStats> {
     let now = Utc::now().to_rfc3339();
 
-    // Use a transaction so the full reconciliation is atomic. Locks the
-    // dashboard DB briefly — fine given the 5-second tick cadence and
-    // single-writer (poll loop) design.
     let tx = db.conn.unchecked_transaction()?;
 
-    // Load currently-open rows for this project. Key by (kind, subject_ref).
     let mut open_rows: HashMap<(String, String), i64> = HashMap::new();
     {
         let mut stmt = tx.prepare(
@@ -78,7 +42,6 @@ pub fn sync_alerts_for_project(
         }
     }
 
-    // Derive the target set, indexed by the same key.
     let derived_keys: HashMap<(String, String), &DerivedAlert> = derived
         .iter()
         .map(|a| ((a.kind.to_string(), a.subject_ref.clone()), a))
@@ -86,9 +49,6 @@ pub fn sync_alerts_for_project(
 
     let mut stats = SyncStats::default();
 
-    // Open new alerts. Collect the full records alongside the counter
-    // so the caller can dispatch webhooks on the fire event without a
-    // second DB round-trip.
     for (key, alert) in &derived_keys {
         if open_rows.contains_key(key) {
             stats.unchanged += 1;
@@ -111,7 +71,6 @@ pub fn sync_alerts_for_project(
         stats.opened_alerts.push((*alert).clone());
     }
 
-    // Resolve alerts that are no longer derived.
     for (key, row_id) in &open_rows {
         if derived_keys.contains_key(key) {
             continue;
@@ -190,7 +149,7 @@ mod tests {
         assert_eq!(stats.opened, 2);
         assert_eq!(stats.resolved, 0);
         assert_eq!(count_open(&db, pid), 2);
-        // opened_alerts carries the full records for webhook dispatch.
+
         assert_eq!(stats.opened_alerts.len(), 2);
         let kinds: Vec<_> = stats.opened_alerts.iter().map(|a| a.kind).collect();
         assert!(kinds.contains(&"stale_lock"));
@@ -200,11 +159,10 @@ mod tests {
     #[test]
     fn test_sync_opened_alerts_only_contains_fires() {
         let (_dir, db, pid) = open_temp_db();
-        // Tick 1 opens one alert.
+
         sync_alerts_for_project(&db, pid, &[mk("stale_lock", "lock:1", Severity::Warning)])
             .unwrap();
-        // Tick 2 keeps it + opens a new one. opened_alerts must only
-        // include the new one.
+
         let stats = sync_alerts_for_project(
             &db,
             pid,
@@ -248,7 +206,6 @@ mod tests {
         .unwrap();
         assert_eq!(count_open(&db, pid), 2);
 
-        // Second tick only sees lock:2 as stale.
         let stats =
             sync_alerts_for_project(&db, pid, &[mk("stale_lock", "lock:2", Severity::Warning)])
                 .unwrap();
@@ -260,7 +217,7 @@ mod tests {
     #[test]
     fn test_sync_resolves_and_opens_in_same_tick() {
         let (_dir, db, pid) = open_temp_db();
-        // Tick 1 — two alerts open.
+
         sync_alerts_for_project(
             &db,
             pid,
@@ -271,7 +228,6 @@ mod tests {
         )
         .unwrap();
 
-        // Tick 2 — lock:1 cleared, a new overdue_issue appeared.
         let stats = sync_alerts_for_project(
             &db,
             pid,
@@ -302,8 +258,6 @@ mod tests {
             .unwrap();
         sync_alerts_for_project(&db, pid_b, &[]).unwrap();
 
-        // Syncing pid_b with no derived alerts must not resolve
-        // pid_a's open alert.
         assert_eq!(count_open(&db, pid_a), 1);
         assert_eq!(count_open(&db, pid_b), 0);
     }

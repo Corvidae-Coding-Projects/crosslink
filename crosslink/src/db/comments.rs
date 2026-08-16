@@ -6,7 +6,6 @@ use super::core::{Database, MAX_COMMENT_LEN};
 use super::helpers::parse_datetime;
 use crate::models::Comment;
 
-/// Row from `get_comments_with_author`: (id, author, content, `created_at`, kind, `trigger_type`, `intervention_context`, `driver_key_fingerprint`).
 pub type CommentAuthorRow = (
     i64,
     Option<String>,
@@ -19,10 +18,6 @@ pub type CommentAuthorRow = (
 );
 
 impl Database {
-    /// Add a comment to an issue.
-    ///
-    /// # Errors
-    /// Returns an error if the comment exceeds the maximum length or the database write fails.
     pub fn add_comment(&self, issue_id: i64, content: &str, kind: &str) -> Result<i64> {
         let issue_id = self.resolve_id(issue_id);
         if content.len() > MAX_COMMENT_LEN {
@@ -36,10 +31,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Add an intervention comment to an issue.
-    ///
-    /// # Errors
-    /// Returns an error if the database write fails.
     pub fn add_intervention_comment(
         &self,
         issue_id: i64,
@@ -58,13 +49,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Look up a comment's display id by its UUID.
-    ///
-    /// Used by the v3 comment path to read back the reduction-assigned id after
-    /// hydration when the in-memory reduced state has not yet frozen it.
-    ///
-    /// # Errors
-    /// Returns an error if no comment with the given UUID exists.
     pub fn get_comment_id_by_uuid(&self, uuid: &str) -> Result<i64> {
         self.conn
             .query_row(
@@ -75,10 +59,6 @@ impl Database {
             .context("Comment with given UUID not found")
     }
 
-    /// Get all comments for an issue.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_comments(&self, issue_id: i64) -> Result<Vec<Comment>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
@@ -101,13 +81,6 @@ impl Database {
         Ok(comments)
     }
 
-    /// Update the content of a comment.
-    ///
-    /// Retained as a tested DB primitive; its production caller (the offline
-    /// reference-rewrite path) was removed with the v2 write machinery (#754).
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn update_comment_content(&self, comment_id: i64, content: &str) -> Result<bool> {
         let rows = self.conn.execute(
@@ -117,11 +90,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Get comments with author field for an issue (author added in migration v10).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn get_comments_with_author(&self, issue_id: i64) -> Result<Vec<CommentAuthorRow>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
@@ -144,11 +112,6 @@ impl Database {
         Ok(comments)
     }
 
-    /// Search all comments for a query string (case-insensitive LIKE).
-    /// Returns matching comments with their parent issue title.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn search_comments(&self, query: &str) -> Result<Vec<(Comment, i64, String)>> {
         let pattern = format!("%{query}%");
         let mut stmt = self.conn.prepare(
@@ -179,10 +142,6 @@ impl Database {
         Ok(rows)
     }
 
-    /// Get the maximum comment ID in the database, or 0 if empty.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_max_comment_id(&self) -> Result<i64> {
         let max: i64 =
             self.conn

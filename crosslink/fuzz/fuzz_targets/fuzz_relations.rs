@@ -1,10 +1,10 @@
 #![no_main]
 
-//! Fuzz target for issue relation operations.
-//!
-//! Tests add_relation, remove_relation, get_related_issues with arbitrary
-//! relation graphs including self-relations, duplicates, and relations
-//! on deleted/closed issues.
+
+
+
+
+
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
@@ -52,7 +52,7 @@ fuzz_target!(|input: RelationInput| {
                 if issue_ids.len() >= 2 {
                     let a = issue_ids[*idx_a % issue_ids.len()];
                     let b = issue_ids[*idx_b % issue_ids.len()];
-                    // Should handle self-relations and duplicates gracefully
+
                     let _ = db.add_relation(a, b);
                 }
             }
@@ -88,7 +88,7 @@ fuzz_target!(|input: RelationInput| {
         }
     }
 
-    // Final consistency checks
+
     let _ = db.list_issues(None, None, None);
     for id in &issue_ids {
         let _ = db.get_related_issues(*id);

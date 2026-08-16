@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff launch: agent launch infrastructure
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,11 +12,6 @@ use crate::identity::AgentConfig;
 use super::helpers::*;
 use super::types::*;
 
-/// Resolve the correct `timeout` command for the current platform.
-///
-/// On macOS, `timeout` is not available by default. The GNU coreutils
-/// package (via Homebrew) installs it as `gtimeout`.
-/// Returns the command name to use, or an error with install instructions.
 fn resolve_timeout_command(platform: &Platform) -> Result<&'static str> {
     if command_available("timeout") {
         return Ok("timeout");
@@ -31,7 +25,6 @@ fn resolve_timeout_command(platform: &Platform) -> Result<&'static str> {
     );
 }
 
-/// Read the `sandbox.command` setting from hook-config.json, if configured.
 pub(super) fn read_sandbox_command(crosslink_dir: &Path) -> Option<String> {
     let config_path = crosslink_dir.join("hook-config.json");
     let content = std::fs::read_to_string(&config_path).ok()?;
@@ -82,14 +75,11 @@ pub(super) fn read_watchdog_config(crosslink_dir: &Path) -> WatchdogConfig {
     cfg
 }
 
-/// Build the watchdog shell script that monitors heartbeat staleness and
-/// nudges idle agents by sending "continue" via tmux send-keys.
 pub(super) fn build_watchdog_script(
     session_name: &str,
     worktree_dir: &Path,
     cfg: &WatchdogConfig,
 ) -> String {
-    // Use portable stat command — try GNU stat first, fall back to BSD
     format!(
         r#"NUDGES=0
 sleep {grace}
@@ -119,8 +109,6 @@ done
     )
 }
 
-/// Spawn a background watchdog process that monitors the agent's heartbeat
-/// and sends "continue" to the tmux session if the agent goes idle.
 pub(super) fn spawn_watchdog(
     session_name: &str,
     worktree_dir: &Path,
@@ -139,12 +127,6 @@ pub(super) fn spawn_watchdog(
     Ok(())
 }
 
-/// Resolve claude's permission posture into a command-line flag fragment
-/// (with a leading space, or empty). Shared by the local (tmux) and container
-/// launch paths so they cannot drift (GH#59): `permission_mode` wins with
-/// `--permission-mode <mode>`, else `skip_permissions` emits
-/// `--dangerously-skip-permissions`, else no flag (claude prompts per tool —
-/// which hangs a headless container agent, the GH#55 stall).
 #[cfg(test)]
 pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: bool) -> String {
     match (permission_mode, skip_permissions) {
@@ -159,15 +141,6 @@ pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: b
     }
 }
 
-/// Resolve the per-dispatch reasoning/spend dials into a command-line fragment
-/// (each flag with a leading space, or empty). Shared by the local (tmux) and
-/// container launch paths so they cannot drift the way the permission flag once
-/// did (gh#61, mirroring the GH#59 fix for [`permission_flag`]).
-///
-/// Emits `--effort <level>` then `--max-budget-usd <amount>`, both values
-/// shell-escaped because both end up inside a `bash -c` string. Either dial
-/// being `None` (or empty) omits its flag entirely, so a launch that sets
-/// neither reproduces the previous invocation byte-for-byte.
 #[cfg(test)]
 pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> String {
     use crate::utils::shell_escape_arg;
@@ -175,8 +148,6 @@ pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> Stri
 
     let mut flags = String::new();
     if let Some(level) = effort.filter(|v| !v.is_empty()) {
-        // INTENTIONAL: writing to a String is infallible — the Result is only
-        // there to satisfy the fmt::Write trait.
         let _ = write!(flags, " --effort {}", shell_escape_arg(level));
     }
     if let Some(amount) = budget_usd.filter(|v| !v.is_empty()) {
@@ -348,11 +319,7 @@ pub(super) fn build_resolved_agent_command(
             claude_config_dir: claude_config_dir.as_deref(),
         },
     )?;
-    // A linked worktree's index lives in the main repository's
-    // `.git/worktrees/<name>` directory, outside Codex's workspace root. Make
-    // that Git-owned common directory available without widening to
-    // danger-full-access; Codex's automatic review still gates protected Git
-    // metadata writes such as staging and committing.
+
     if grant_git_common_dir {
         if let Some(common_dir) = git_common_dir_outside_worktree(worktree_dir) {
             invocation
@@ -407,34 +374,6 @@ fn git_common_dir_outside_worktree(worktree_dir: &Path) -> Option<PathBuf> {
     (!common_dir.starts_with(canonical_worktree)).then_some(common_dir)
 }
 
-/// Build the shell command string for launching a claude agent.
-///
-/// `claude_config_dir` is a caller-side environment variable that must be
-/// propagated into the tmux session. When a tmux server is already running
-/// on the host, `tmux new-session` inherits env from the tmux server's
-/// frozen-at-startup environment rather than the caller's current shell —
-/// so any `CLAUDE_CONFIG_DIR` set by the caller is silently lost (#555).
-/// Baking it into the command string bypasses tmux env handling entirely.
-///
-/// The `CLAUDE_CONFIG_DIR=val` assignment is folded into the existing `env`
-/// argv (between `-u CLAUDECODE` and `claude`) rather than placed as a shell
-/// prefix. Shell prefix assignments (`VAR=val cmd`) are positional — they
-/// only take effect when `VAR=val` precedes the *leading* command name. With
-/// `timeout` (or any other wrapper) at column zero, a shell-prefix assignment
-/// degenerates into a literal positional arg and `timeout` tries to exec it
-/// as a binary path (`ENOENT`). Folding the assignment into `env`'s argv is
-/// robust to additional wrappers prepended later (nice, chrt, bwrap, etc.).
-/// See GH#587.
-///
-/// When `sandbox_command` is set, the claude invocation is wrapped:
-/// ```text
-/// timeout 3600s my-sandbox --project-dir /path -- env -u CLAUDECODE CLAUDE_CONFIG_DIR='/p' claude ...
-/// ```
-/// Without sandbox:
-/// ```text
-/// timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/p' claude ...
-/// ```
-/// When `claude_config_dir` is `None`, the assignment is omitted.
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 pub(super) fn build_agent_command(
@@ -454,27 +393,9 @@ pub(super) fn build_agent_command(
 ) -> String {
     use crate::utils::shell_escape_arg;
 
-    // Resolve permission posture for the spawned claude session:
-    //   1. `permission_mode`, if given, emits `--permission-mode <value>`.
-    //      Claude supports `acceptEdits`, `auto`, `bypassPermissions`,
-    //      `default`, `dontAsk`, `plan` (see GH#603).
-    //   2. Otherwise, `skip_permissions = true` emits the legacy
-    //      `--dangerously-skip-permissions` (full bypass).
-    //   3. Otherwise no flag — claude prompts for every tool.
-    // CLI parsing in main.rs marks `--permission-mode` as
-    // `conflicts_with("skip_permissions")` so reaching case 1 with
-    // `skip_permissions = true` is impossible from the public surface;
-    // internal callers (the wizard's WizardStage::Run path) pass both
-    // as defaults (None / false) and let this resolution stand.
     let permission_flag_owned = permission_flag(permission_mode, skip_permissions);
     let skip_flag = permission_flag_owned.as_str();
-    // Fold `CLAUDE_CONFIG_DIR=val` into env(1)'s argv so the assignment takes
-    // effect regardless of what wraps the resulting command (timeout, sandbox
-    // wrappers, etc.). `env` accepts `KEY=val` between options and the
-    // command, mutating only the environment passed to the exec'd process.
-    // This is claude-specific (it is claude's config dir), so only emit it
-    // when the configured agent binary is `claude` — other agents have no use
-    // for it and would receive a meaningless env var.
+
     let env_assignment = if agent_binary == "claude" {
         claude_config_dir
             .filter(|v| !v.is_empty())
@@ -486,16 +407,13 @@ pub(super) fn build_agent_command(
     let escaped_model = shell_escape_arg(model);
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
-    // gh#61: the dispatch dials sit immediately after `--model` so the
-    // reasoning/spend posture reads alongside the model it applies to. They are
-    // claude flags, so only the claude branch emits them.
+
     let dials = dial_flags(effort, budget_usd);
     let agent_cmd = if agent_binary == "claude" {
         format!(
             "env -u CLAUDECODE {env_assignment}{agent_binary}{skip_flag} --model {escaped_model}{dials} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
         )
     } else {
-        // Non-Claude agents: pipe the prompt via stdin, no --model/--allowedTools flags
         format!("env -u CLAUDECODE {agent_binary} < {escaped_kickoff}")
     };
     let launch = sandbox_command.map_or_else(
@@ -506,17 +424,11 @@ pub(super) fn build_agent_command(
             format!("{timeout_cmd} {timeout_secs}s {expanded} {agent_cmd}")
         },
     );
-    // gh#60: persist the TIMEOUT sentinel at kill time. GNU timeout exits
-    // 124 when it killed the wrapped command; without this trailer the
-    // sentinel stays RUNNING after a timeout kill and only the wall-clock
-    // check ever notices.
+
     let status_path = crate::utils::shell_escape_path(&worktree_dir.join(".kickoff-status"));
     format!("{launch}; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > {status_path}; fi")
 }
 
-/// Pre-flight check: verify all required external commands are present before
-/// creating worktrees, branches, or sessions. Emits clear errors with install
-/// instructions for any missing command.
 pub(super) fn preflight_check(
     container: &ContainerMode,
     verify: &VerifyLevel,
@@ -527,17 +439,14 @@ pub(super) fn preflight_check(
     let agent_binary = agent.binary.to_string_lossy().into_owned();
     let mut missing: Vec<String> = Vec::new();
 
-    // timeout (or gtimeout on macOS) — always required for agent timeout
     let timeout_cmd = match resolve_timeout_command(&platform) {
         Ok(cmd) => cmd,
         Err(e) => {
             missing.push(format!("{e}"));
-            "timeout" // placeholder, won't be used since we'll bail
+            "timeout"
         }
     };
 
-    // tmux — required for local (non-container) mode
-    // On Windows, tmux is not available at all — bail early with a clear message.
     if *container == ContainerMode::None {
         if cfg!(target_os = "windows") {
             bail!(
@@ -550,19 +459,15 @@ pub(super) fn preflight_check(
         }
     }
 
-    // The selected provider CLI is required for local mode. `agent.binary`
-    // may override its executable path without changing provider semantics.
     if *container == ContainerMode::None && !command_available(&agent_binary) {
         missing.push(install_hint(&agent_binary, &platform));
     }
 
-    // gh — required for CI/thorough verification
     if (*verify == VerifyLevel::Ci || *verify == VerifyLevel::Thorough) && !command_available("gh")
     {
         missing.push(install_hint("gh", &platform));
     }
 
-    // docker/podman — required when using container mode
     match container {
         ContainerMode::Docker if !command_available("docker") => {
             missing.push(install_hint("docker", &platform));
@@ -573,10 +478,8 @@ pub(super) fn preflight_check(
         _ => {}
     }
 
-    // sandbox command — validate the binary exists when configured
     let sandbox_command = read_sandbox_command(crosslink_dir);
     if let Some(ref cmd) = sandbox_command {
-        // Extract the binary name (first word before any flags/templates)
         let binary = cmd.split_whitespace().next().unwrap_or(cmd);
         if !command_available(binary) {
             missing.push(format!(
@@ -611,12 +514,6 @@ pub(super) fn preflight_check(
     })
 }
 
-/// Get the main git repository root, resolving through worktrees.
-///
-/// Uses `git rev-parse --show-toplevel` to find the current repo, then
-/// `resolve_main_repo_root()` to follow worktree links back to the main
-/// repository. This ensures worktrees are always created relative to the
-/// main repo, not inside internal directories like `.crosslink/` (#425).
 pub(super) fn repo_root() -> Result<std::path::PathBuf> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -628,15 +525,9 @@ pub(super) fn repo_root() -> Result<std::path::PathBuf> {
     let toplevel = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let toplevel_path = std::path::PathBuf::from(&toplevel);
 
-    // Resolve through worktrees to the main repo root (#425)
     Ok(crate::utils::resolve_main_repo_root(&toplevel_path).unwrap_or(toplevel_path))
 }
 
-/// Create a feature branch and worktree for the agent.
-///
-/// The worktree is created at `<repo_root>/.worktrees/<slug>`. A safety
-/// guard prevents worktrees from landing inside internal directories
-/// like `.crosslink/` or `.git/` (#425).
 pub(super) fn create_worktree(
     repo_root: &Path,
     slug: &str,
@@ -645,7 +536,6 @@ pub(super) fn create_worktree(
     let branch_name = format!("feature/{slug}");
     let worktree_dir = repo_root.join(".worktrees").join(slug);
 
-    // Safety guard: reject worktree paths that land inside internal directories (#425)
     let canonical_root = repo_root
         .canonicalize()
         .unwrap_or_else(|_| repo_root.to_path_buf());
@@ -671,12 +561,8 @@ pub(super) fn create_worktree(
         );
     }
 
-    // Determine base ref
     let base = base_branch.unwrap_or("HEAD");
 
-    // Handle existing branch refs from prior phases (#481).
-    // A branch may exist from a previous kickoff/swarm phase that was
-    // already merged. Rather than failing, clean it up automatically.
     let branch_exists = Command::new("git")
         .current_dir(repo_root)
         .args(["rev-parse", "--verify", &branch_name])
@@ -684,7 +570,6 @@ pub(super) fn create_worktree(
         .is_ok_and(|o| o.status.success());
 
     if branch_exists {
-        // Check if the branch has an active worktree
         let wt_output = Command::new("git")
             .current_dir(repo_root)
             .args(["worktree", "list", "--porcelain"])
@@ -702,7 +587,6 @@ pub(super) fn create_worktree(
             );
         }
 
-        // Check if the branch is fully merged into the base
         let is_merged = Command::new("git")
             .current_dir(repo_root)
             .args(["merge-base", "--is-ancestor", &branch_name, base])
@@ -710,7 +594,6 @@ pub(super) fn create_worktree(
             .is_ok_and(|o| o.status.success());
 
         if is_merged {
-            // Branch is fully merged — safe to delete and recreate
             tracing::info!(
                 "branch '{}' exists from a prior phase and is fully merged, recreating",
                 branch_name
@@ -737,7 +620,6 @@ pub(super) fn create_worktree(
         }
     }
 
-    // Create the worktree with a new branch
     let output = Command::new("git")
         .current_dir(repo_root)
         .args(["worktree", "add", "-b", &branch_name])
@@ -754,21 +636,12 @@ pub(super) fn create_worktree(
     Ok((worktree_dir, branch_name))
 }
 
-/// Initialize crosslink and agent identity in the worktree.
 pub(super) fn init_worktree_agent(
     worktree_dir: &Path,
     crosslink_dir: &Path,
     compact_name: &str,
     issue_id: Option<i64>,
 ) -> Result<String> {
-    // Run `crosslink init` in the worktree. Plain init (no --force) is
-    // idempotent: it short-circuits when `.crosslink/` and `.claude/` already
-    // exist, which is the common case for a worktree freshly checked out
-    // from a branch that has both committed. We keep `--skip-signing` and
-    // `--defaults` to suppress the TUI walkthrough on the rare path where
-    // init actually has work to do. Dropping `--force` here prevents the
-    // worktree's `hook-config.json` from being re-templated and leaking a
-    // spurious diff into every agent-produced PR. See GH#583.
     let output = Command::new("crosslink")
         .current_dir(worktree_dir)
         .args(["init", "--skip-signing", "--defaults"])
@@ -780,45 +653,29 @@ pub(super) fn init_worktree_agent(
         tracing::warn!("crosslink init in worktree: {}", stderr.trim());
     }
 
-    // Use the compact name as the agent ID directly
     let agent_id = compact_name.to_string();
 
-    // Initialize agent identity with its own signing key (#505).
-    // Previous approach inherited the parent's key with no_key=true, but
-    // that failed when no parent agent config existed (e.g. driver-invoked
-    // kickoff). Now each subagent gets a dedicated keypair, and is
-    // auto-approved since the driver explicitly launched it.
     let wt_crosslink = worktree_dir.join(".crosslink");
-    if wt_crosslink.exists() {
-        // Only init if not already configured
-        if AgentConfig::load(&wt_crosslink)?.is_none() {
-            // Kickoff subagent worktree → `AgentRole::Agent` so hub
-            // commits from this worktree sign with the agent's own
-            // key and attribute distinctly. See #718.
-            if let Err(e) = super::super::agent::init(
-                &wt_crosslink,
-                &agent_id,
-                Some(&format!("Kickoff agent for: {compact_name}")),
-                false, // generate dedicated signing key
-                false,
-                crate::identity::AgentRole::Agent,
-            ) {
-                tracing::warn!("could not initialize agent identity in worktree: {e} — agent will work without its own identity");
-            }
+    if wt_crosslink.exists() && AgentConfig::load(&wt_crosslink)?.is_none() {
+        if let Err(e) = super::super::agent::init(
+            &wt_crosslink,
+            &agent_id,
+            Some(&format!("Kickoff agent for: {compact_name}")),
+            false,
+            false,
+            crate::identity::AgentRole::Agent,
+        ) {
+            tracing::warn!("could not initialize agent identity in worktree: {e} — agent will work without its own identity");
+        }
 
-            // Auto-approve: the driver explicitly invoked kickoff, so trust
-            // is implicit. This eliminates the manual sync → pending → approve
-            // workflow that blocked autonomous agent operation.
-            if let Err(e) = super::super::trust::approve(crosslink_dir, &agent_id) {
-                tracing::warn!(
-                    "could not auto-approve agent '{}': {e} — run `crosslink trust approve {}` manually",
-                    agent_id, agent_id
-                );
-            }
+        if let Err(e) = super::super::trust::approve(crosslink_dir, &agent_id) {
+            tracing::warn!(
+                "could not auto-approve agent '{}': {e} — run `crosslink trust approve {}` manually",
+                agent_id, agent_id
+            );
         }
     }
 
-    // Sync coordination state
     let output = Command::new("crosslink")
         .current_dir(worktree_dir)
         .args(["sync"])
@@ -830,9 +687,6 @@ pub(super) fn init_worktree_agent(
         }
     }
 
-    // Kickoff already selected the work item on the driver's behalf. Seed the
-    // child session before the provider starts so strict hooks do not block the
-    // agent's first grounding/read command and ask it to rediscover that issue.
     if let Some(issue_id) = issue_id {
         let start = Command::new("crosslink")
             .current_dir(worktree_dir)
@@ -863,7 +717,6 @@ pub(super) fn init_worktree_agent(
     Ok(agent_id)
 }
 
-/// Exclude kickoff files from git tracking.
 pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
     let output = Command::new("git")
         .current_dir(worktree_dir)
@@ -874,7 +727,6 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
     let common_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let exclude_path = std::path::PathBuf::from(&common_dir).join("info/exclude");
 
-    // Ensure parent directory exists
     if let Some(parent) = exclude_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -897,7 +749,6 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Launch the agent as a local tmux process.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_local(
     agent: &ResolvedAgent,
@@ -916,7 +767,7 @@ pub(super) fn launch_local(
 ) -> Result<()> {
     std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
         .context("Failed to create provider runtime log directory")?;
-    // Create the tmux session
+
     let output = Command::new("tmux")
         .args([
             "new-session",
@@ -951,28 +802,22 @@ pub(super) fn launch_local(
         false,
     )?;
 
-    // Write initial status sentinel BEFORE sending the command.
-    // This ensures we never have a worktree in limbo with no status.
     std::fs::write(worktree_dir.join(".kickoff-status"), "LAUNCHING\n")
         .context("Failed to write initial .kickoff-status")?;
 
-    // Send the command to the tmux session
     let output = Command::new("tmux")
         .args(["send-keys", "-t", session_name, &cmd, "Enter"])
         .output()
         .context("Failed to send command to tmux session")?;
 
     if !output.status.success() {
-        // INTENTIONAL: status file write is best-effort — used for monitoring, not control flow
         let _ = std::fs::write(worktree_dir.join(".kickoff-status"), "FAILED\n");
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("Failed to send keys to tmux: {}", stderr.trim());
     }
 
-    // INTENTIONAL: status file write is best-effort — used for monitoring, not control flow
     let _ = std::fs::write(worktree_dir.join(".kickoff-status"), "RUNNING\n");
 
-    // Spawn watchdog sidecar to nudge idle agents
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {
         if let Err(e) = spawn_watchdog(session_name, worktree_dir, &watchdog_cfg) {
@@ -983,18 +828,6 @@ pub(super) fn launch_local(
     Ok(())
 }
 
-/// Launch the agent in a Docker or Podman container.
-///
-/// `protected_doc_rel`, when `Some`, is the worktree-relative path of the design
-/// document passed via `--doc`. It is overlay-bind-mounted read-only on top of
-/// the writable workspace mount so the agent physically cannot edit the
-/// canonical design input. See GH#580.
-///
-/// `host_repo_root` is the host path to the main repo (the worktree's parent
-/// repo). The main repo's `.git/` directory is bind-mounted at its host
-/// absolute path inside the container so the worktree's `.git` file -- which
-/// contains an absolute `gitdir: <host>/.git/worktrees/<branch>/` reference
-/// -- resolves and git operations inside the container work. See GH#584.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
@@ -1020,7 +853,6 @@ pub(super) fn launch_container(
         ContainerMode::None => unreachable!(),
     };
 
-    // Check runtime is available
     if !command_available(runtime_cmd) {
         bail!("{runtime_cmd} is not installed. Install it or use --container none for local mode.");
     }
@@ -1028,7 +860,6 @@ pub(super) fn launch_container(
     let timeout_secs = timeout.as_secs();
     let container_name = format!("crosslink-agent-{agent_id}");
 
-    // Get host UID/GID for remapping (skip on Windows — Docker Desktop handles user mapping)
     let uid_gid = if cfg!(target_os = "windows") {
         None
     } else {
@@ -1048,19 +879,14 @@ pub(super) fn launch_container(
         "-d".to_string(),
         "--name".to_string(),
         container_name,
-        // Hard-kill the container after the timeout (grace period = 10s on top)
         "--stop-timeout".to_string(),
         format!("{}", timeout_secs),
-        // Mount the worktree as workspace
         "-v".to_string(),
         format!("{}:/workspaces/repo", worktree_dir.to_string_lossy()),
-        // Environment
         "-e".to_string(),
         format!("AGENT_ID={}", agent_id),
     ];
 
-    // Account credentials live in provider-scoped persistent volumes. API
-    // keys and host token environment variables are intentionally unsupported.
     let credential_volume = crate::commands::container::credential_volume(agent.provider)?;
     args.extend([
         "-v".to_string(),
@@ -1069,15 +895,6 @@ pub(super) fn launch_container(
         format!("CROSSLINK_AGENT_PROVIDER={}", agent.provider),
     ]);
 
-    // Bind-mount the main repo's `.git/` at its host absolute path. The
-    // worktree's `.git` is a single file containing an absolute
-    // `gitdir: <host>/.git/worktrees/<branch>/` pointer; without this mount
-    // that pointer dangles inside the container and every git operation
-    // (status, diff, commit, sync) fails. We mount rw because the per-
-    // worktree subdir under `.git/worktrees/<branch>/` legitimately needs
-    // writes (HEAD, index, refs) for the agent to commit. Hook policy still
-    // blocks the genuinely destructive ops (`push --force`, `reset --hard`,
-    // etc.) regardless of mount mode. See GH#584.
     let host_git_dir = host_repo_root.join(".git");
     if host_git_dir.exists() {
         let git_path = host_git_dir.to_string_lossy();
@@ -1085,7 +902,6 @@ pub(super) fn launch_container(
         args.push(format!("{git_path}:{git_path}:rw"));
     }
 
-    // Pass UID/GID to container for user remapping (non-Windows only)
     if let Some((uid, gid)) = &uid_gid {
         args.extend([
             "-e".to_string(),
@@ -1095,9 +911,6 @@ pub(super) fn launch_container(
         ]);
     }
 
-    // Overlay-bind the design doc read-only so the agent cannot rewrite the
-    // canonical `--doc` input. Mounting a single file on top of a writable
-    // parent mount is supported by both docker and podman. See GH#580.
     if let Some(rel) = protected_doc_rel {
         let host_doc = worktree_dir.join(rel);
         if host_doc.is_file() {
@@ -1155,18 +968,9 @@ pub(super) fn launch_container(
     Ok(container_id)
 }
 
-/// URL of the published GHCR package — surfaced in the launch-failure hint so
-/// users can confirm whether the image they're requesting actually exists.
 const AGENT_IMAGE_PACKAGE_URL: &str =
     "https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent";
 
-/// Format the error message emitted when `docker run` / `podman run` fails.
-///
-/// Detects pull-failure substrings in the runtime's stderr and appends a
-/// hint pointing at `just build-image` (for local builds) and the GHCR
-/// package page (to confirm what's actually published). For other failure
-/// modes (e.g. invalid mount, OOM), the original stderr is returned without
-/// the hint to avoid misdirection.
 fn format_container_launch_error(runtime_cmd: &str, image: &str, stderr: &str) -> String {
     let trimmed = stderr.trim();
     let lowered = trimmed.to_ascii_lowercase();

@@ -9,7 +9,6 @@ use super::config::SentinelConfig;
 use super::engine;
 use super::seen_set::gh_comment_already_posted;
 
-/// Statistics from a result collection pass.
 #[derive(Debug, Default)]
 pub struct CollectStats {
     pub collected: u32,
@@ -17,7 +16,6 @@ pub struct CollectStats {
     pub still_running: u32,
 }
 
-/// Worktree artifacts extracted for template rendering.
 struct WorktreeArtifacts {
     test_file: Option<String>,
     test_output: Option<String>,
@@ -25,7 +23,6 @@ struct WorktreeArtifacts {
     files_changed: Option<String>,
 }
 
-/// Inputs for rendering a result template.
 struct TemplateContext<'a> {
     status: &'a str,
     agent_id: &'a str,
@@ -37,12 +34,6 @@ struct TemplateContext<'a> {
     dispatch_id: i64,
 }
 
-/// Poll completed agents, read findings, post results to GitHub, update records.
-///
-/// Runs every sentinel cycle (after dispatch phase in oneshot, every cycle in watch).
-///
-/// `writer` is used to file triage issues (e.g. when an agent exhausts all
-/// retry attempts) on the hub branch when available.
 pub fn collect_completed(
     db: &Database,
     crosslink_dir: &Path,
@@ -59,7 +50,6 @@ pub fn collect_completed(
             continue;
         };
 
-        // Check if worktree still exists
         let wt_path = root.join(".worktrees").join(agent_id);
         if !wt_path.exists() {
             db.update_dispatch_outcome(dispatch.id, "orphaned", "worktree removed")?;
@@ -67,7 +57,6 @@ pub fn collect_completed(
             continue;
         }
 
-        // Check sentinel file for completion
         let status_path = wt_path.join(".kickoff-status");
         let Ok(status_content) = std::fs::read_to_string(&status_path) else {
             stats.still_running += 1;
@@ -79,17 +68,14 @@ pub fn collect_completed(
             continue;
         };
 
-        // Read agent findings from crosslink comments on the linked issue
         let findings = dispatch
             .crosslink_issue_id
             .map_or_else(String::new, |issue_id| read_agent_findings(db, issue_id));
 
         let duration = format_elapsed(&dispatch.created_at);
 
-        // Extract worktree artifacts for template rendering
         let artifacts = extract_worktree_artifacts(&wt_path, dispatch.label.contains("fix"));
 
-        // Build structured comment (template varies by dispatch type)
         let ctx = TemplateContext {
             status: outcome,
             agent_id,
@@ -106,7 +92,6 @@ pub fn collect_completed(
             build_replicate_template(&ctx)
         };
 
-        // Post to GH issue (with Layer 4 dedup check)
         if let Some(gh_num) = dispatch.gh_issue_number {
             if gh_comment_already_posted(gh_num, dispatch.id) {
                 tracing::debug!("sentinel #{} already posted to GH#{}", dispatch.id, gh_num);
@@ -115,10 +100,6 @@ pub fn collect_completed(
             }
         }
 
-        // If the agent exhausted all retry attempts, file a high-priority
-        // triage issue BEFORE recording the exhausted outcome so a human is
-        // alerted. Done prior to `update_dispatch_outcome` so the issue
-        // reference is captured in the same cycle as the terminal state.
         if outcome == "exhausted" {
             let reference = &dispatch.signal_ref;
             let title = format!(
@@ -148,7 +129,6 @@ pub fn collect_completed(
 
         db.update_dispatch_outcome(dispatch.id, outcome, &findings)?;
 
-        // Send outbound notification if configured
         if let Some(cfg) = config {
             super::notify::notify_dispatch_completed(
                 &cfg.notifications,
@@ -164,7 +144,6 @@ pub fn collect_completed(
     Ok(stats)
 }
 
-/// Extract test file, test output, PR number, and diff stats from a worktree.
 fn extract_worktree_artifacts(wt_path: &Path, is_fix: bool) -> WorktreeArtifacts {
     let test_file = find_test_file(wt_path);
     let test_output = read_test_output(wt_path);
@@ -183,11 +162,7 @@ fn extract_worktree_artifacts(wt_path: &Path, is_fix: bool) -> WorktreeArtifacts
     }
 }
 
-/// Find new/modified test files in the worktree via `git diff`.
-/// Uses `--diff-filter=AM` (added or modified) against the merge base
-/// to handle repos with any number of commits.
 fn find_test_file(wt_path: &Path) -> Option<String> {
-    // Find the merge base with the default branch
     let base_output = Command::new("git")
         .args(["merge-base", "HEAD", "HEAD~1"])
         .current_dir(wt_path)
@@ -214,7 +189,6 @@ fn find_test_file(wt_path: &Path) -> Option<String> {
                     "tests/".to_string(),
                 ]
             } else {
-                // Fallback: list all tracked test files
                 vec![
                     "ls-files".to_string(),
                     "--".to_string(),
@@ -238,13 +212,11 @@ fn find_test_file(wt_path: &Path) -> Option<String> {
     Some(first_test.to_string())
 }
 
-/// Read test output from `.kickoff-report.json` if it exists.
 fn read_test_output(wt_path: &Path) -> Option<String> {
     let report_path = wt_path.join(".kickoff-report.json");
     let content = std::fs::read_to_string(&report_path).ok()?;
     let report: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    // Try to extract test output from the report's criteria or phases
     if let Some(phases) = report.get("phases") {
         if let Some(testing) = phases.get("testing") {
             let tests_run = testing.get("tests_run").and_then(serde_json::Value::as_u64);
@@ -265,9 +237,7 @@ fn read_test_output(wt_path: &Path) -> Option<String> {
     None
 }
 
-/// Find the PR number for a fix dispatch by looking up the branch.
 fn find_pr_number(wt_path: &Path) -> Option<String> {
-    // Get the branch name
     let branch_output = Command::new("git")
         .args(["branch", "--show-current"])
         .current_dir(wt_path)
@@ -283,7 +253,6 @@ fn find_pr_number(wt_path: &Path) -> Option<String> {
         return None;
     }
 
-    // Look up PR by head branch
     let pr_output = Command::new("gh")
         .args([
             "pr",
@@ -311,10 +280,7 @@ fn find_pr_number(wt_path: &Path) -> Option<String> {
     }
 }
 
-/// Get `git diff --stat` summary for fix dispatches.
-/// Uses `--stat` against the worktree's uncommitted + committed changes.
 fn git_diff_stat(wt_path: &Path) -> Option<String> {
-    // Try diffing against merge-base first; fall back to just `git diff --stat`
     let output = Command::new("git")
         .args(["diff", "--stat", "HEAD"])
         .current_dir(wt_path)
@@ -327,11 +293,10 @@ fn git_diff_stat(wt_path: &Path) -> Option<String> {
     if stdout.is_empty() {
         return None;
     }
-    // Return only the summary line (last line)
+
     stdout.lines().last().map(String::from)
 }
 
-/// Resolve the main repo root from a crosslink directory.
 fn repo_root(crosslink_dir: &Path) -> Result<std::path::PathBuf> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -345,24 +310,6 @@ fn repo_root(crosslink_dir: &Path) -> Result<std::path::PathBuf> {
     Ok(std::path::PathBuf::from(root))
 }
 
-/// Classify a `.kickoff-status` file body into a dispatch outcome.
-///
-/// Returns `Some(outcome_code)` for a terminal state, or `None` if the
-/// agent is still working (in which case the collect loop should leave
-/// the dispatch pending and try again on the next cycle).
-///
-/// Agent states (per `crosslink/src/commands/kickoff/launch.rs`):
-/// - `LAUNCHING` — tmux session being created
-/// - `RUNNING`   — agent executing in tmux
-/// - `FAILED`    — launch couldn't hand off to tmux
-/// - `DONE`      — agent finished cleanly (written by the agent itself)
-/// - `TIMEOUT`   — accepted as a future-compatible terminal state
-///
-/// Previously the collect loop treated every non-`DONE` value as a
-/// terminal `failure`, which caused it to harvest dispatches within
-/// seconds of their creation — producing `Duration | 0s` and
-/// `No findings recorded` in the posted GitHub comment because the
-/// agent hadn't yet written any observations (GH#561 defects 2 & 3).
 fn classify_status(status_content: &str, attempt_number: i32) -> Option<&'static str> {
     let trimmed = status_content.trim();
     if trimmed.starts_with("DONE") {
@@ -374,12 +321,10 @@ fn classify_status(status_content: &str, attempt_number: i32) -> Option<&'static
             Some("failure")
         }
     } else {
-        // RUNNING / LAUNCHING / empty / any other value — not terminal.
         None
     }
 }
 
-/// Read observation and resolution comments from a crosslink issue.
 fn read_agent_findings(db: &Database, issue_id: i64) -> String {
     let Ok(comments) = db.get_comments(issue_id) else {
         return String::new();
@@ -393,7 +338,6 @@ fn read_agent_findings(db: &Database, issue_id: i64) -> String {
         .join("\n\n---\n\n")
 }
 
-/// Compute human-readable duration from an RFC3339 start time to now.
 pub fn format_elapsed(started_at: &str) -> String {
     let Ok(start) = chrono::DateTime::parse_from_rfc3339(started_at) else {
         return "unknown".to_string();
@@ -409,7 +353,6 @@ pub fn format_elapsed(started_at: &str) -> String {
     }
 }
 
-/// Build the structured reproduction result template for GitHub.
 fn build_replicate_template(ctx: &TemplateContext<'_>) -> String {
     let status_display = match ctx.status {
         "success" => "Reproduced",
@@ -473,7 +416,6 @@ fn build_replicate_template(ctx: &TemplateContext<'_>) -> String {
     )
 }
 
-/// Build the structured fix result template for GitHub.
 fn build_fix_template(ctx: &TemplateContext<'_>) -> String {
     let status_display = match ctx.status {
         "success" => "Fixed",
@@ -544,7 +486,6 @@ fn build_fix_template(ctx: &TemplateContext<'_>) -> String {
     )
 }
 
-/// Post a comment to a GitHub issue via `gh`.
 fn post_gh_comment(gh_issue_number: i64, body: &str) -> Result<()> {
     let output = Command::new("gh")
         .args([
@@ -595,9 +536,6 @@ mod tests {
 
     #[test]
     fn classify_status_running_leaves_pending() {
-        // This is the GH#561 regression: RUNNING must not be treated as
-        // a terminal outcome, otherwise the harvest runs while the agent
-        // is still working and posts a premature "0s / no findings" comment.
         assert_eq!(classify_status("RUNNING\n", 1), None);
         assert_eq!(classify_status("LAUNCHING\n", 1), None);
         assert_eq!(classify_status("RUNNING", 2), None);
@@ -605,8 +543,6 @@ mod tests {
 
     #[test]
     fn classify_status_unknown_leaves_pending() {
-        // Defensive: anything we don't recognise should also be treated
-        // as "agent is still working" rather than silently terminal.
         assert_eq!(classify_status("", 1), None);
         assert_eq!(classify_status("partial-write", 1), None);
         assert_eq!(classify_status("  ", 1), None);

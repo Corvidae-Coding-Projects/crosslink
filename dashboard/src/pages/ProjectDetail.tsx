@@ -1,8 +1,8 @@
-// Drill-down view for a single tracked project. Pulls the full
-// `ProjectDetail` payload from `/api/v1/dashboard/projects/{*slug}` and
-// renders sections for issues, agents, and locks. Includes the full
-// P1.8–P1.9 write surface: close / reopen / comment / block / unblock /
-// relate / label / unlabel on issues, plus create-milestone.
+
+
+
+
+
 
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -31,7 +31,7 @@ import type {
 } from "@/api/types";
 
 export function ProjectDetail() {
-  // React Router wildcards ({*slug}) are surfaced via the `"*"` param key.
+
   const { "*": slug } = useParams();
   const { data, isLoading, error } = useProject(slug ?? null);
 
@@ -156,11 +156,11 @@ export function ProjectDetail() {
   );
 }
 
-/// Top-of-page banner shown when the tracked workspace isn't
-/// fully initialized — writes will fail otherwise. Surfaces an
-/// inline "Initialize" form with an agent-id input that shells the
-/// backend retrofit endpoint (`POST /w/{slug}/init`) and invalidates
-/// the project detail query on success so the banner disappears.
+
+
+
+
+
 function InitBanner({
   slug,
   capability,
@@ -607,10 +607,10 @@ type AgentRowData = {
   requests: AgentRequestsForAgent["requests"];
 };
 
-/// Merge heartbeats + request streams into a single ordered list.
-/// Every agent with either a heartbeat or a request shows up exactly
-/// once; heartbeat-less agents (request-only targets) render with a
-/// placeholder last-heartbeat.
+
+
+
+
 function agentRows(
   agents: { agent_id: string; last_heartbeat: string }[],
   requestGroups: AgentRequestsForAgent[],

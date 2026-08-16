@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
-"""
-Crosslink Knowledge MCP Server
 
-An MCP (Model Context Protocol) server that exposes knowledge pages as resources
-and provides a search tool. Shells out to the crosslink CLI for all data access.
 
-Usage:
-    Registered in .mcp.json as an MCP server.
-    Agents read crosslink://knowledge/<slug> resources and call search_knowledge.
-"""
+
+
+
+
+
+
+
+
+
+
+
+
 
 import json
 import subprocess
@@ -20,7 +20,7 @@ import sys
 import io
 from typing import Any
 
-# Fix Windows encoding issues
+
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
@@ -29,12 +29,12 @@ SUBPROCESS_TIMEOUT = 10
 
 
 def log(message: str) -> None:
-    """Log to stderr (visible in MCP server logs)."""
+
     print(f"[knowledge-server] {message}", file=sys.stderr)
 
 
 def run_crosslink(args: list[str]) -> str | None:
-    """Run a crosslink command and return stdout, or None on failure."""
+
     try:
         result = subprocess.run(
             ["crosslink"] + args,
@@ -58,7 +58,7 @@ def run_crosslink(args: list[str]) -> str | None:
 
 
 def list_knowledge_pages() -> list[dict]:
-    """Get knowledge pages as JSON list via crosslink CLI."""
+
     output = run_crosslink(["knowledge", "list", "--json"])
     if not output:
         return []
@@ -70,12 +70,12 @@ def list_knowledge_pages() -> list[dict]:
 
 
 def get_page_content(slug: str) -> str | None:
-    """Get the full content of a knowledge page."""
+
     return run_crosslink(["knowledge", "show", slug])
 
 
 def search_knowledge(query: str, tag: str | None = None, since: str | None = None) -> str | None:
-    """Search knowledge pages and return JSON results."""
+
     args = ["knowledge", "search", query, "--json"]
     if tag:
         args.extend(["--tag", tag])
@@ -84,7 +84,7 @@ def search_knowledge(query: str, tag: str | None = None, since: str | None = Non
     return run_crosslink(args)
 
 
-# MCP Protocol Implementation
+
 
 TOOL_DEFINITION = {
     'name': 'search_knowledge',
@@ -115,7 +115,7 @@ TOOL_DEFINITION = {
 
 
 def handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
-    """Handle an MCP JSON-RPC request."""
+
     method = request.get('method', '')
     request_id = request.get('id')
     params = request.get('params', {})
@@ -261,7 +261,7 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def main():
-    """Main MCP server loop - reads JSON-RPC from stdin, writes to stdout."""
+
     log("Starting knowledge MCP server")
 
     while True:

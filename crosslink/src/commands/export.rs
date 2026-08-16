@@ -11,9 +11,6 @@ use crate::models::Issue;
 use crate::utils::format_issue_id;
 use std::fmt::Write as _;
 
-// Legacy export types — kept for backward compatibility with `import` command.
-// NOTE: The import command still reads the old ExportData envelope format.
-// If you need round-trip import/export, the import command needs updating too.
 #[derive(Serialize, Deserialize)]
 pub struct ExportedIssue {
     pub id: i64,
@@ -42,8 +39,6 @@ pub struct ExportData {
     pub issues: Vec<ExportedIssue>,
 }
 
-/// Build a pre-computed map of issue `display_id` -> UUID for consistent cross-references.
-/// Issues without a stored UUID get a freshly generated one.
 fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>> {
     let mut map = HashMap::new();
     for issue in issues {
@@ -56,12 +51,11 @@ fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>>
     Ok(map)
 }
 
-/// Look up a UUID from the map, falling back to a DB query or a fresh UUID.
 fn resolve_uuid(db: &Database, uuid_map: &HashMap<i64, Uuid>, id: i64) -> Uuid {
     if let Some(&uuid) = uuid_map.get(&id) {
         return uuid;
     }
-    // Issue not in the exported set — try the DB
+
     db.get_issue_uuid_by_id(id)
         .ok()
         .and_then(|s| Uuid::parse_str(&s).ok())
@@ -195,7 +189,6 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
     )?;
 
-    // Group by status
     let open: Vec<_> = issues
         .iter()
         .filter(|i| i.status == crate::models::IssueStatus::Open)
@@ -435,7 +428,7 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].labels, vec!["bug".to_string()]);
         assert_eq!(issues[0].comments.len(), 1);
-        // Verify it can be re-serialized
+
         let re_json = serde_json::to_string_pretty(&issues).unwrap();
         let re_parsed: Vec<IssueFile> = serde_json::from_str(&re_json).unwrap();
         assert_eq!(re_parsed[0].uuid, issues[0].uuid);

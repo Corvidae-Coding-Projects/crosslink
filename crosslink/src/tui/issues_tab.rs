@@ -15,7 +15,6 @@ use crate::models::{Comment, Issue};
 
 use super::{StatusFilter, TabAction, HIGHLIGHT_BG};
 
-/// Sort options for the issue list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortOrder {
     IdDesc,
@@ -44,7 +43,6 @@ impl SortOrder {
     }
 }
 
-/// View mode for the issues tab.
 #[derive(Clone, Copy, PartialEq)]
 enum IssueViewMode {
     List,
@@ -52,7 +50,6 @@ enum IssueViewMode {
     Tree,
 }
 
-/// Data for the detail view.
 struct IssueDetail {
     issue: Issue,
     labels: Vec<String>,
@@ -64,19 +61,16 @@ struct IssueDetail {
     milestone: Option<crate::models::Milestone>,
 }
 
-/// A node in the tree view.
 struct TreeNode {
     issue: Issue,
     labels: Vec<String>,
     depth: usize,
 }
 
-/// The Issues tab implementation.
 pub struct IssuesTab {
-    /// Path to the database file, used to reopen for operations.
     db_path: PathBuf,
     issues: Vec<Issue>,
-    /// Labels cached per issue id for display in list view.
+
     issue_labels: std::collections::HashMap<i64, Vec<String>>,
     selected: usize,
     status_filter: StatusFilter,
@@ -84,20 +78,20 @@ pub struct IssuesTab {
     search_query: String,
     searching: bool,
     view_mode: IssueViewMode,
-    /// View mode to return to when leaving detail view.
+
     prev_view_mode: IssueViewMode,
     detail: Option<IssueDetail>,
     detail_scroll: u16,
-    /// Maximum detail scroll offset computed during render.
+
     detail_max_scroll: Cell<u16>,
     open_count: usize,
     closed_count: usize,
-    /// Flattened tree nodes for tree view.
+
     tree_nodes: Vec<TreeNode>,
     tree_selected: usize,
-    /// `TableState` for list view scroll-to-follow (interior mutability for render).
+
     list_table_state: RefCell<TableState>,
-    /// `TableState` for tree view scroll-to-follow.
+
     tree_table_state: RefCell<TableState>,
 }
 
@@ -128,14 +122,11 @@ impl IssuesTab {
         Ok(tab)
     }
 
-    /// Open a fresh database connection from the stored path.
     fn open_db(&self) -> anyhow::Result<Database> {
         Database::open(&self.db_path)
     }
 
-    /// Reload issues from the database with current filters applied.
     pub fn refresh(&mut self, db: &Database) -> anyhow::Result<()> {
-        // Get counts before filtering
         let all_issues = db.list_issues(Some("all"), None, None)?;
         self.open_count = all_issues
             .iter()
@@ -146,7 +137,6 @@ impl IssuesTab {
             .filter(|i| i.status == crate::models::IssueStatus::Closed)
             .count();
 
-        // Fetch with status filter
         let status_arg = match self.status_filter {
             StatusFilter::Open => Some("open"),
             StatusFilter::Closed => Some("closed"),
@@ -154,7 +144,6 @@ impl IssuesTab {
         };
         let mut issues = db.list_issues(status_arg, None, None)?;
 
-        // Cache labels for list display
         self.issue_labels.clear();
         for issue in &issues {
             if let Ok(labels) = db.get_labels(issue.id) {
@@ -164,7 +153,6 @@ impl IssuesTab {
             }
         }
 
-        // Apply search filter
         if !self.search_query.is_empty() {
             let query = self.search_query.to_lowercase();
             issues.retain(|i| {
@@ -176,7 +164,6 @@ impl IssuesTab {
             });
         }
 
-        // Apply sort
         match self.sort_order {
             SortOrder::IdDesc => issues.sort_by_key(|b| std::cmp::Reverse(b.id)),
             SortOrder::IdAsc => issues.sort_by_key(|a| a.id),
@@ -188,7 +175,6 @@ impl IssuesTab {
 
         self.issues = issues;
 
-        // Clamp selection
         if self.issues.is_empty() {
             self.selected = 0;
         } else if self.selected >= self.issues.len() {
@@ -198,7 +184,6 @@ impl IssuesTab {
         Ok(())
     }
 
-    /// Load detail for the currently selected issue.
     fn load_detail(&mut self, db: &Database) -> anyhow::Result<()> {
         if let Some(issue) = self.issues.get(self.selected) {
             let id = issue.id;
@@ -220,11 +205,6 @@ impl IssuesTab {
         Ok(())
     }
 
-    /// Handle key events in list view mode. Returns true if consumed.
-    ///
-    /// INTENTIONAL: `let _ =` on refresh/`build_tree` calls throughout this handler --
-    /// TUI event handlers cannot propagate errors, so DB failures are silently ignored
-    /// and the UI shows stale data until the next successful refresh.
     fn handle_list_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
         if self.searching {
             match key.code {
@@ -317,7 +297,6 @@ impl IssuesTab {
         }
     }
 
-    /// Handle key events in detail view mode.
     fn handle_detail_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Esc => {
@@ -393,7 +372,6 @@ impl IssuesTab {
         TabAction::Consumed
     }
 
-    /// Build flattened tree from issue hierarchy.
     fn build_tree(&mut self, db: &Database) -> anyhow::Result<()> {
         let status_arg = match self.status_filter {
             StatusFilter::Open => Some("open"),
@@ -424,7 +402,6 @@ impl IssuesTab {
         issue: Issue,
         depth: usize,
     ) -> anyhow::Result<()> {
-        // Guard against cycles or extremely deep hierarchies
         const MAX_DEPTH: usize = 32;
         if depth > MAX_DEPTH {
             return Ok(());
@@ -438,7 +415,6 @@ impl IssuesTab {
         });
         let children = db.get_subissues(id)?;
         for child in children {
-            // Respect status filter
             let excluded_by_filter = match self.status_filter {
                 StatusFilter::All => false,
                 StatusFilter::Open => child.status != crate::models::IssueStatus::Open,
@@ -451,8 +427,6 @@ impl IssuesTab {
         Ok(())
     }
 
-    /// Handle key events in tree view mode.
-    /// INTENTIONAL: `let _ =` on `build_tree` calls -- TUI event handlers cannot propagate errors.
     fn handle_tree_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
         match key.code {
             KeyCode::Esc => {
@@ -480,7 +454,6 @@ impl IssuesTab {
                 TabAction::Consumed
             }
             KeyCode::Enter => {
-                // Open detail for the selected tree node
                 if let Some(node) = self.tree_nodes.get(self.tree_selected) {
                     if let Some(db) = db {
                         let id = node.issue.id;
@@ -520,13 +493,12 @@ impl IssuesTab {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2), // Header
-                Constraint::Min(0),    // Tree
-                Constraint::Length(1), // Context keys
+                Constraint::Length(2),
+                Constraint::Min(0),
+                Constraint::Length(1),
             ])
             .split(area);
 
-        // Header
         let header = Line::from(vec![
             Span::styled(" Issue Tree", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(format!("    Filter: [{}]", self.status_filter.label())),
@@ -588,7 +560,6 @@ impl IssuesTab {
             frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
-        // Context keys
         let keys = Line::from(vec![
             Span::styled("Esc", Style::default().fg(Color::Cyan)),
             Span::raw(":Back  "),
@@ -611,13 +582,12 @@ impl IssuesTab {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2), // Header with counts and filters
-                Constraint::Min(0),    // Table
-                Constraint::Length(1), // Context keys
+                Constraint::Length(2),
+                Constraint::Min(0),
+                Constraint::Length(1),
             ])
             .split(area);
 
-        // Header
         let search_display = if self.searching {
             format!("  Search: {}_", self.search_query)
         } else if !self.search_query.is_empty() {
@@ -643,7 +613,6 @@ impl IssuesTab {
         ]);
         frame.render_widget(Paragraph::new(header), chunks[0]);
 
-        // Issue table
         if self.issues.is_empty() {
             let empty_msg = if self.search_query.is_empty() {
                 "No issues found."
@@ -722,7 +691,6 @@ impl IssuesTab {
             frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
-        // Context keys
         let keys = if self.searching {
             Line::from(vec![
                 Span::styled("Esc", Style::default().fg(Color::Cyan)),
@@ -763,7 +731,6 @@ impl IssuesTab {
         let issue = &detail.issue;
         let mut lines: Vec<Line> = Vec::new();
 
-        // Title
         lines.push(Line::from(Span::styled(
             format!(" {} \u{2014} {}", format_issue_id(issue.id), issue.title),
             Style::default()
@@ -774,7 +741,6 @@ impl IssuesTab {
             "\u{2500}".repeat(area.width.saturating_sub(2) as usize),
         ));
 
-        // Metadata
         let labels_str = if detail.labels.is_empty() {
             "(none)".to_string()
         } else {
@@ -808,7 +774,7 @@ impl IssuesTab {
             Span::styled("Milestone: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(milestone_str),
         ]));
-        // Show timestamps with local time when terminal is wide enough (#402)
+
         let created_utc = issue.created_at.format("%Y-%m-%d %H:%M UTC").to_string();
         let updated_utc = issue.updated_at.format("%Y-%m-%d %H:%M UTC").to_string();
         let wide_enough = area.width >= 90;
@@ -847,7 +813,6 @@ impl IssuesTab {
         }
         lines.push(Line::from(ts_spans));
 
-        // Dependencies
         let blocked_by_str = if detail.blocked_by.is_empty() {
             "(none)".to_string()
         } else {
@@ -880,7 +845,6 @@ impl IssuesTab {
             Span::raw(&blocking_str),
         ]));
 
-        // Description
         lines.push(Line::from(""));
         if let Some(desc) = &issue.description {
             if !desc.is_empty() {
@@ -894,7 +858,6 @@ impl IssuesTab {
             }
         }
 
-        // Subissues
         if !detail.subissues.is_empty() {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -924,7 +887,6 @@ impl IssuesTab {
             }
         }
 
-        // Related issues
         if !detail.related.is_empty() {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -953,7 +915,6 @@ impl IssuesTab {
             }
         }
 
-        // Comments
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!(" Comments ({}):", detail.comments.len()),
@@ -990,7 +951,6 @@ impl IssuesTab {
             }
         }
 
-        // Footer with context keys
         lines.push(Line::from(
             " \u{2500}".to_string() + &"\u{2500}".repeat(area.width.saturating_sub(4) as usize),
         ));
@@ -1000,7 +960,6 @@ impl IssuesTab {
             .constraints([Constraint::Min(0), Constraint::Length(1)])
             .split(area);
 
-        // Clamp scroll so the user can't scroll past content.
         let content_height = lines.len() as u16;
         let viewport_height = chunks[0].height;
         let max_scroll = content_height.saturating_sub(viewport_height);
@@ -1056,11 +1015,9 @@ impl super::Tab for IssuesTab {
         }
     }
 
-    // IssuesTab loads data eagerly in new() and on refresh, so no work needed on focus change.
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
 
-    /// INTENTIONAL: `let _ =` on `refresh`/`build_tree` -- `force_refresh` is best-effort, TUI shows stale data on failure.
     fn force_refresh(&mut self) {
         if let Ok(db) = self.open_db() {
             match self.view_mode {
@@ -1074,8 +1031,6 @@ impl super::Tab for IssuesTab {
         }
     }
 }
-
-// === Helper functions ===
 
 fn format_issue_id(id: i64) -> String {
     if id < 0 {
@@ -1240,7 +1195,7 @@ mod tests {
         db.close_issue(id).unwrap();
 
         let mut tab = IssuesTab::new(&db, &db_path).unwrap();
-        assert_eq!(tab.issues.len(), 3); // Only open
+        assert_eq!(tab.issues.len(), 3);
 
         tab.status_filter = StatusFilter::All;
         tab.refresh(&db).unwrap();
@@ -1273,7 +1228,7 @@ mod tests {
 
         tab.search_query = "bug".to_string();
         tab.refresh(&db).unwrap();
-        // Should match "High priority bug" (title) and any issue with "bug" label
+
         assert!(tab.issues.iter().any(|i| i.title.contains("bug")));
     }
 
@@ -1283,26 +1238,21 @@ mod tests {
         let mut tab = IssuesTab::new(&db, &db_path).unwrap();
         assert_eq!(tab.selected, 0);
 
-        // Down
         tab.handle_list_key(make_key(KeyCode::Down), None);
         assert_eq!(tab.selected, 1);
 
         tab.handle_list_key(make_key(KeyCode::Down), None);
         assert_eq!(tab.selected, 2);
 
-        // Should not go past end
         tab.handle_list_key(make_key(KeyCode::Down), None);
         assert_eq!(tab.selected, 2);
 
-        // Up
         tab.handle_list_key(make_key(KeyCode::Up), None);
         assert_eq!(tab.selected, 1);
 
-        // Home
         tab.handle_list_key(make_key(KeyCode::Home), None);
         assert_eq!(tab.selected, 0);
 
-        // End
         tab.handle_list_key(make_key(KeyCode::End), None);
         assert_eq!(tab.selected, 2);
     }
@@ -1325,19 +1275,15 @@ mod tests {
         let (db, db_path, _dir) = setup_populated_db();
         let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
-        // Enter detail
         tab.handle_list_key(make_key(KeyCode::Enter), Some(&db));
         assert!(matches!(tab.view_mode, IssueViewMode::Detail));
         assert!(tab.detail.is_some());
 
-        // Simulate a render having computed max scroll.
         tab.detail_max_scroll.set(100);
 
-        // Scroll
         tab.handle_detail_key(make_key(KeyCode::Down));
         assert_eq!(tab.detail_scroll, 1);
 
-        // Back
         tab.handle_detail_key(make_key(KeyCode::Esc));
         assert!(matches!(tab.view_mode, IssueViewMode::List));
         assert!(tab.detail.is_none());
@@ -1348,9 +1294,6 @@ mod tests {
         let (db, db_path, _dir) = setup_populated_db();
         let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
-        // Select the first issue (highest ID, which has comments)
-        // Issues are sorted IdDesc by default, so first issue has id=3 (Low docs fix).
-        // We need to find the one with comments (id=1, "High priority bug")
         let idx = tab
             .issues
             .iter()
@@ -1369,22 +1312,18 @@ mod tests {
         let (db, db_path, _dir) = setup_populated_db();
         let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
-        // Enter search
         tab.handle_list_key(make_key(KeyCode::Char('/')), None);
         assert!(tab.searching);
 
-        // Type query
         tab.handle_list_key(make_key(KeyCode::Char('b')), Some(&db));
         tab.handle_list_key(make_key(KeyCode::Char('u')), Some(&db));
         tab.handle_list_key(make_key(KeyCode::Char('g')), Some(&db));
         assert_eq!(tab.search_query, "bug");
 
-        // Accept search
         tab.handle_list_key(make_key(KeyCode::Enter), None);
         assert!(!tab.searching);
         assert_eq!(tab.search_query, "bug");
 
-        // Cancel clears search
         tab.handle_list_key(make_key(KeyCode::Char('/')), None);
         tab.handle_list_key(make_key(KeyCode::Esc), Some(&db));
         assert!(tab.search_query.is_empty());
@@ -1428,17 +1367,15 @@ mod tests {
     fn test_selection_clamp_on_filter_change() {
         let (db, db_path, _dir) = setup_populated_db();
         let mut tab = IssuesTab::new(&db, &db_path).unwrap();
-        tab.selected = 2; // Last issue
+        tab.selected = 2;
 
-        // Close all issues, then filter to closed
         for issue in &tab.issues {
             db.close_issue(issue.id).unwrap();
         }
 
-        // Filter to open (empty)
         tab.status_filter = StatusFilter::Open;
         tab.refresh(&db).unwrap();
-        assert_eq!(tab.selected, 0); // Clamped
+        assert_eq!(tab.selected, 0);
     }
 
     fn make_key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {

@@ -6,7 +6,6 @@ use std::process::Command;
 use super::{Signal, SignalKind, Source, SourceKind};
 use crate::commands::sentinel::config::SentinelConfig;
 
-/// A GitHub issue as returned by `gh issue list --json`.
 #[derive(Debug, Deserialize)]
 struct GhIssue {
     number: i64,
@@ -23,7 +22,6 @@ struct GhLabel {
     name: String,
 }
 
-/// Polls GitHub for issues with `agent-todo:*` labels via the `gh` CLI.
 pub struct GitHubLabelSource {
     labels: Vec<String>,
     repo: Option<String>,
@@ -37,7 +35,6 @@ impl GitHubLabelSource {
         }
     }
 
-    /// Detect the current repo's owner/name via `gh repo view`.
     fn detect_repo(&mut self) -> Result<String> {
         if let Some(ref repo) = self.repo {
             return Ok(repo.clone());
@@ -68,7 +65,6 @@ impl GitHubLabelSource {
         Ok(repo)
     }
 
-    /// Poll GitHub for issues matching a single label.
     fn poll_label(repo: &str, label: &str) -> Result<Vec<Signal>> {
         let output = Command::new("gh")
             .args([
@@ -110,8 +106,6 @@ impl GitHubLabelSource {
         let signals = issues
             .into_iter()
             .filter_map(|issue| {
-                // Defensive: verify the label we asked for is actually present in the
-                // response. Protects against future `gh` API changes or filter bugs.
                 let all_label_names: Vec<String> =
                     issue.labels.iter().map(|l| l.name.clone()).collect();
                 if !all_label_names.iter().any(|name| name == label) {
@@ -134,7 +128,7 @@ impl GitHubLabelSource {
                         "label": label,
                         "number": issue.number,
                         "created_at": issue.created_at,
-                        // Include all labels so triage engine can route on label combinations
+
                         "all_labels": all_label_names,
                     }),
                     detected_at: now,

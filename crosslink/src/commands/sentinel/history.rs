@@ -4,7 +4,6 @@ use serde::Serialize;
 use crate::db::sentinel::{SentinelDispatch, SentinelRun};
 use crate::db::Database;
 
-/// JSON-serializable view of a run with its dispatches (for --detail --json).
 #[derive(Serialize)]
 struct RunWithDispatches {
     #[serde(flatten)]
@@ -12,7 +11,6 @@ struct RunWithDispatches {
     dispatches: Vec<SentinelDispatch>,
 }
 
-/// Display past sentinel runs and their dispatch outcomes.
 pub fn show_history(db: &Database, limit: usize, detail: bool, json: bool) -> Result<()> {
     let runs = db.list_sentinel_runs(limit)?;
 
@@ -41,7 +39,6 @@ pub fn show_history(db: &Database, limit: usize, detail: bool, json: bool) -> Re
         return Ok(());
     }
 
-    // Table header
     println!(
         "{:<36}  {:<20}  {:>7}  {:>10}  {:>9}  {:>7}  {:>7}",
         "Run", "Started", "Signals", "Dispatched", "Collected", "Skipped", "Deferred"

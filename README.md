@@ -122,18 +122,14 @@ crosslink init --defaults
 
 The presets configure tracking strictness, comment discipline, lock stealing policy, kickoff verification level, and signing enforcement. Run `crosslink config show` to see current settings, or `crosslink config --reconfigure` to re-run the walkthrough.
 
-### Behavioral Hooks & Rules
-
-Your agents follow the rules without being told.
+### Repository Hooks
 
 - **Issue tracking enforcement** — Hooks block code changes without an active crosslink issue
 - **Comment discipline** — Hooks enforce typed comments before commits and issue close
 - **No-stubs policy** — Post-edit hooks detect `TODO`, `FIXME`, `unimplemented!()` stubs
-- **Drift detection** — Adaptive reminders when agent behavior drifts from project norms
 - **Tracking modes** — Strict, normal, and relaxed enforcement (`crosslink workflow`)
-- **Language-aware rules** — 20+ language-specific rule files auto-injected based on project languages
 - **House style** — `crosslink style` syncs project conventions from a central git repo
-- **Local overrides** — `rules.local/` directory for gitignored per-machine rule customizations
+- **No language injection** — Legacy rule Markdown is installed as empty upgrade placeholders
 
 ### Claude Code and Codex
 
@@ -143,7 +139,7 @@ selects which signed-in CLI runs kickoff, plan, swarm, sentinel, design, and
 orchestrator work. `agent.binary` remains an executable-path override, and
 legacy Claude-only configuration keeps working.
 
-- Shared hooks, MCP servers, rules, and skills are rendered from canonical assets
+- Shared hooks, MCP servers, skills, and zero-byte rule assets are rendered from canonical sources
 - Codex gets `.codex/hooks.json`, merged `.codex/config.toml`, `.agents/skills/`, and `AGENTS.md`
 - Claude keeps `.claude/settings.json`, `.mcp.json`, commands, and `.claude/skills/`
 - Native provider web search stays enabled; external text is treated as evidence, never instructions
@@ -225,10 +221,10 @@ serve` for new work.
 ### Other
 
 - **SSH signing** — Agent key generation, per-commit signing, allowed_signers management
-- **Driver intervention tracking** — `crosslink intervene` logs human corrections for agent improvement
+- **Driver intervention tracking** — `crosslink issue intervene` logs human corrections for agent improvement
 - **Typed comments** — Comments carry `kind` (plan, decision, observation, blocker, resolution, result)
 - **Clock skew detection** — Uses git commit timestamps as witness to detect time drift
-- **Context measurement** — `crosslink context` measures and optimizes context injection overhead
+- **Agent asset measurement** — `crosslink context` reports installed hooks, skills, references, and compatibility files
 - **Lazy auto-hydration** — Local database auto-refreshes when the hub branch moves, no manual sync needed
 - **Config presets** — `--team` and `--solo` presets for quick setup; layered config with local overrides
 - **Configurable git remote** — Use any remote for hub/knowledge branches, not just `origin`

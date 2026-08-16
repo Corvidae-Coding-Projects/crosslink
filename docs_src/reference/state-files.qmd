@@ -220,5 +220,5 @@ These exist for completeness; they're internal state with no user-tunable fields
 | `promotion-log.json` | Audit log of `L<n>` → `#<n>` issue promotions across sync. |
 | `.gitignore` | Lists state files that should not be committed (managed by `crosslink init`). |
 | `.hub-cache/`, `hub-cache/`, `.external-cache/`, `.style-cache/` | Read-through caches for hub branches, external repos, and the style sync source. Safe to delete; they rebuild on next sync. |
-| `rules/`, `rules.local/` | Project rules injected into agent context. Edit via `crosslink workflow` or directly as Markdown -- see [Rules reference](rules.qmd). |
+| `rules/`, `rules.local/` | Rule-loader inputs. Bundled files are zero bytes; nonempty local overrides remain wired. See [Rules reference](rules.qmd). |
 | `meta/`, `orchestrator/`, `locks/` | Internal subsystem state managed by `crosslink sync`, `crosslink swarm`, and the lock subsystem respectively. |

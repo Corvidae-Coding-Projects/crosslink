@@ -1,8 +1,3 @@
-//! Migration commands for converting between local `SQLite` and shared JSON.
-//!
-//! - `migrate-to-shared`: Export all `SQLite` issues to JSON on the coordination branch.
-//! - `migrate-from-shared`: Import JSON issues from the coordination branch into `SQLite`.
-
 use anyhow::{bail, Result};
 use chrono::Utc;
 use std::collections::HashMap;
@@ -18,10 +13,6 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
-/// `crosslink migrate-to-shared` — export local `SQLite` issues to shared JSON.
-///
-/// Reads all issues, comments, labels, dependencies, relations, milestones
-/// from the local database and writes them as JSON files on the coordination branch.
 pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
@@ -31,10 +22,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     sync.init_cache()?;
     sync.fetch()?;
 
-    // GH#4 (second half): on a v3 hub the v2 body below writes worktree JSON
-    // and counters the reduction never reads, then pushes the nonexistent
-    // legacy `crosslink/hub` ref ("src refspec does not match any"). Route
-    // the migration through the event log instead.
     if sync.hub_mode().is_v3() {
         return to_shared_v3(crosslink_dir, db, &sync);
     }
@@ -45,7 +32,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     std::fs::create_dir_all(&issues_dir)?;
     std::fs::create_dir_all(&meta_dir)?;
 
-    // Check if there are already issue files on the coordination branch
     let existing_count = std::fs::read_dir(&issues_dir)?
         .filter_map(std::result::Result::ok)
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
@@ -58,20 +44,17 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
         );
     }
 
-    // Load all issues from SQLite
     let issues = db.list_issues(Some("all"), None, None)?;
     if issues.is_empty() {
         println!("No issues to migrate.");
         return Ok(());
     }
 
-    // Assign UUIDs: display_id → UUID mapping
     let mut id_to_uuid: HashMap<i64, Uuid> = HashMap::new();
     for issue in &issues {
         id_to_uuid.insert(issue.id, Uuid::new_v4());
     }
 
-    // Load milestones and assign UUIDs
     let milestones = db.list_milestones(Some("all"))?;
     let mut milestone_id_to_uuid: HashMap<i64, Uuid> = HashMap::new();
     for ms in &milestones {
@@ -81,23 +64,19 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let mut max_comment_id: i64 = 0;
     let mut files_written = 0;
 
-    // Convert each issue to an IssueFile and write JSON
     for issue in &issues {
         let uuid = id_to_uuid[&issue.id];
 
-        // Resolve parent UUID
         let parent_uuid = issue
             .parent_id
             .and_then(|pid| id_to_uuid.get(&pid).copied());
 
-        // Load associated data
         let labels = db.get_labels(issue.id)?;
         let comments = db.get_comments(issue.id)?;
         let blockers = db.get_blockers(issue.id)?;
         let related_issues = db.get_related_issues(issue.id)?;
         let milestone = db.get_issue_milestone(issue.id)?;
 
-        // Convert comments
         let comment_entries: Vec<CommentEntry> = comments
             .iter()
             .map(|c| {
@@ -119,21 +98,17 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
             })
             .collect();
 
-        // Convert blockers to UUIDs (skip if blocker not in our set)
         let blocker_uuids: Vec<Uuid> = blockers
             .iter()
             .filter_map(|bid| id_to_uuid.get(bid).copied())
             .collect();
 
-        // Convert relations to UUIDs (single direction — only store if related_id > issue_id
-        // to avoid duplicates; hydration handles bidirectional insertion)
         let related_uuids: Vec<Uuid> = related_issues
             .iter()
-            .filter(|r| r.id > issue.id) // only store one direction
+            .filter(|r| r.id > issue.id)
             .filter_map(|r| id_to_uuid.get(&r.id).copied())
             .collect();
 
-        // Resolve milestone UUID
         let milestone_uuid = milestone
             .as_ref()
             .and_then(|m| milestone_id_to_uuid.get(&m.id).copied());
@@ -165,7 +140,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
         files_written += 1;
     }
 
-    // Write counters.json
     let max_display_id = issues.iter().map(|i| i.id).max().unwrap_or(0);
     let max_milestone_id = milestones.iter().map(|m| m.id).max().unwrap_or(0);
     let counters = Counters {
@@ -175,7 +149,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     };
     write_counters(&meta_dir.join("counters.json"), &counters)?;
 
-    // Write per-file milestones to meta/milestones/{uuid}.json
     if !milestones.is_empty() {
         let milestones_dir = meta_dir.join("milestones");
         std::fs::create_dir_all(&milestones_dir)?;
@@ -194,7 +167,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
         }
     }
 
-    // Commit and push
     git_in_dir(&cache_dir, &["add", "issues/", "meta/"])?;
     let commit_msg = format!(
         "{}: migrate {} issues to shared at {}",
@@ -204,7 +176,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     );
     git_in_dir(&cache_dir, &["commit", "-m", &commit_msg])?;
 
-    // Best-effort push
     let remote = crate::sync::read_tracker_remote(crosslink_dir);
     match git_in_dir(&cache_dir, &["push", &remote, crate::sync::HUB_BRANCH]) {
         Ok(_) => println!("Pushed to remote."),
@@ -232,9 +203,6 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink migrate-from-shared` — import shared JSON issues into local `SQLite`.
-///
-/// Fetches the coordination branch and hydrates all issues into the local database.
 pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
@@ -243,7 +211,6 @@ pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let cache_dir = sync.cache_path().to_path_buf();
     let issues_dir = cache_dir.join("issues");
 
-    // Count issue files
     let issue_count = if issues_dir.exists() {
         std::fs::read_dir(&issues_dir)?
             .filter_map(std::result::Result::ok)
@@ -258,7 +225,6 @@ pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
         return Ok(());
     }
 
-    // Hydrate into SQLite
     let stats = hydrate_to_sqlite(&cache_dir, db)?;
 
     println!(
@@ -269,16 +235,12 @@ pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink migrate-rename-branch` — rename crosslink/locks to crosslink/hub.
-///
-/// Runs the auto-migration and updates the `.crosslink/.gitignore` if needed.
 pub fn rename_branch(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     let migrated = sync.migrate_from_locks_branch()?;
     if migrated {
         println!("Migrated crosslink/locks -> crosslink/hub");
 
-        // Update .gitignore
         let gitignore_path = crosslink_dir.join(".gitignore");
         if gitignore_path.exists() {
             let content = std::fs::read_to_string(&gitignore_path)?;
@@ -289,7 +251,6 @@ pub fn rename_branch(crosslink_dir: &Path) -> Result<()> {
             }
         }
 
-        // Initialize the new cache worktree
         sync.init_cache()?;
         println!("Cache initialized at .crosslink/.hub-cache/");
     } else {
@@ -298,7 +259,6 @@ pub fn rename_branch(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Run a git command in the specified directory.
 fn git_in_dir(dir: &Path, args: &[&str]) -> Result<std::process::Output> {
     let output = std::process::Command::new("git")
         .current_dir(dir)
@@ -314,12 +274,21 @@ fn git_in_dir(dir: &Path, args: &[&str]) -> Result<std::process::Output> {
 
 use anyhow::Context;
 
-/// V3 analogue of `to_shared` (GH#4): promote SQLite-only issues — rows whose
-/// uuid the reduced state does not know — through the event log in a single
-/// commit, via the same batch path `crosslink import` uses. Idempotent:
-/// already-promoted issues are skipped, so it can be re-run to sweep up rows
-/// created before the hub was established.
 fn to_shared_v3(crosslink_dir: &Path, db: &Database, sync: &SyncManager) -> Result<()> {
+    let migrated = promote_sqlite_to_v3(crosslink_dir, db, sync)?;
+    if migrated == 0 {
+        println!("No SQLite-only issues to migrate - the hub already covers the local database.");
+    } else {
+        println!("Migrated {migrated} issue(s) to the v3 hub event log.");
+    }
+    Ok(())
+}
+
+pub(crate) fn promote_sqlite_to_v3(
+    crosslink_dir: &Path,
+    db: &Database,
+    sync: &SyncManager,
+) -> Result<usize> {
     let source = crate::hub_source::RefHubSource::new(sync.cache_path())
         .map_err(|e| anyhow::anyhow!("v3: construct RefHubSource for to-shared: {e}"))?;
     let outcome = crate::compaction::reduce(&source)
@@ -333,8 +302,7 @@ fn to_shared_v3(crosslink_dir: &Path, db: &Database, sync: &SyncManager) -> Resu
 
     let specs = specs_from_db(db, &hub_uuids, &used_ids)?;
     if specs.is_empty() {
-        println!("No SQLite-only issues to migrate - the hub already covers the local database.");
-        return Ok(());
+        return Ok(0);
     }
 
     let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?.ok_or_else(|| {
@@ -343,18 +311,9 @@ fn to_shared_v3(crosslink_dir: &Path, db: &Database, sync: &SyncManager) -> Resu
         )
     })?;
     let assigned = writer.import_issues(db, &specs)?;
-    println!(
-        "Migrated {} issue(s) to the v3 hub event log.",
-        assigned.len()
-    );
-    Ok(())
+    Ok(assigned.len())
 }
 
-/// Build [`crate::shared_writer::ImportedIssueSpec`]s for every `SQLite` issue
-/// the hub does not know. Existing uuids are preserved (so hydration replaces
-/// the local row in place instead of duplicating it); rows without a uuid get
-/// a fresh one. Positive local ids are carried into the reduction when free,
-/// preserving local numbering.
 fn specs_from_db(
     db: &Database,
     hub_uuids: &std::collections::HashSet<String>,
@@ -389,7 +348,6 @@ fn specs_from_db(
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    // id -> uuid over ALL rows (hub-backed parents/blockers resolve too).
     let mut id_to_uuid: HashMap<i64, Uuid> = HashMap::new();
     for row in &rows {
         let uuid = row
@@ -404,7 +362,7 @@ fn specs_from_db(
     for row in &rows {
         let uuid = id_to_uuid[&row.id];
         if hub_uuids.contains(&uuid.to_string()) {
-            continue; // already promoted
+            continue;
         }
 
         let comments = db
@@ -492,14 +450,12 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Without sync manager setup, from_shared should fail gracefully
         let result = from_shared(&crosslink_dir, &db);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_issue_to_issuefile_conversion() {
-        // Test the core conversion logic without git
         let (db, _dir) = setup_test_db();
 
         let id1 = db
@@ -508,18 +464,16 @@ mod tests {
         let id2 = db.create_issue("Feature", None, "medium").unwrap();
         db.add_comment(id1, "First comment", "note").unwrap();
         db.add_label(id1, "bug").unwrap();
-        db.add_dependency(id1, id2).unwrap(); // id1 blocked by id2
+        db.add_dependency(id1, id2).unwrap();
 
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         assert_eq!(issues.len(), 2);
 
-        // Simulate UUID assignment
         let mut id_to_uuid: HashMap<i64, Uuid> = HashMap::new();
         for issue in &issues {
             id_to_uuid.insert(issue.id, Uuid::new_v4());
         }
 
-        // Convert issue 1
         let issue = issues.iter().find(|i| i.id == id1).unwrap();
         let labels = db.get_labels(issue.id).unwrap();
         let comments = db.get_comments(issue.id).unwrap();
@@ -572,7 +526,6 @@ mod tests {
             time_entries: vec![],
         };
 
-        // Verify the conversion
         assert_eq!(issue_file.title, "Bug fix");
         assert_eq!(issue_file.description, Some("Fix the bug".to_string()));
         assert_eq!(issue_file.priority, "high");
@@ -580,7 +533,6 @@ mod tests {
         assert_eq!(issue_file.comments.len(), 1);
         assert_eq!(issue_file.blockers.len(), 1);
 
-        // JSON roundtrip
         let json = serde_json::to_string_pretty(&issue_file).unwrap();
         let parsed: IssueFile = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.uuid, issue_file.uuid);
@@ -621,7 +573,6 @@ mod tests {
         let path = issues_dir.join(format!("{uuid}.json"));
         write_issue_file(&path, &issue).unwrap();
 
-        // Verify file exists and is valid
         let loaded = crate::issue_file::read_issue_file(&path).unwrap();
         assert_eq!(loaded.uuid, uuid);
         assert_eq!(loaded.title, "Test issue");
@@ -679,7 +630,6 @@ mod tests {
         assert_eq!(ms_issues.len(), 1);
         assert_eq!(ms_issues[0].id, issue_id);
 
-        // Convert to MilestoneEntry
         let uuid = Uuid::new_v4();
         let ms = &milestones[0];
         let entry = MilestoneEntry {
@@ -711,11 +661,9 @@ mod tests {
         id_to_uuid.insert(id2, Uuid::new_v4());
         id_to_uuid.insert(id3, Uuid::new_v4());
 
-        // For issue 1, related issues are 2 and 3
         let related = db.get_related_issues(id1).unwrap();
         assert_eq!(related.len(), 2);
 
-        // Only store relations where related_id > issue_id
         let related_uuid_count = related
             .iter()
             .filter(|r| r.id > id1)
@@ -723,15 +671,13 @@ mod tests {
             .count();
         assert_eq!(related_uuid_count, 2);
 
-        // For issue 2, related issue is 1 (but 1 < 2 so we skip it)
         let related2 = db.get_related_issues(id2).unwrap();
         let related2_uuid_count = related2
             .iter()
             .filter(|r| r.id > id2)
             .filter_map(|r| id_to_uuid.get(&r.id).copied())
             .count();
-        // id1 < id2, so no stored relations from id2's perspective
-        // id3 > id2, but id2 isn't directly related to id3
+
         assert_eq!(related2_uuid_count, 0);
     }
 

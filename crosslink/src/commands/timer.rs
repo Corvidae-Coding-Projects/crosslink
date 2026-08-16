@@ -5,12 +5,10 @@ use crate::db::Database;
 use crate::utils::format_issue_id;
 
 pub fn start(db: &Database, issue_id: i64) -> Result<()> {
-    // Verify issue exists
     let Some(issue) = db.get_issue(issue_id)? else {
         bail!("Issue {} not found", format_issue_id(issue_id));
     };
 
-    // Check if there's already an active timer
     if let Some((active_id, _)) = db.get_active_timer()? {
         if active_id == issue_id {
             bail!(
@@ -53,7 +51,6 @@ pub fn stop(db: &Database) -> Result<()> {
     println!("Stopped timer for {}: {}", format_issue_id(issue_id), title);
     println!("Time spent: {hours}h {minutes}m {seconds}s");
 
-    // Show total time for this issue
     let total = db.get_total_time(issue_id)?;
     let total_hours = total / 3600;
     let total_minutes = (total % 3600) / 60;

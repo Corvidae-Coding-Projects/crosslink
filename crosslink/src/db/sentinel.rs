@@ -4,7 +4,6 @@ use rusqlite::params;
 
 use super::core::Database;
 
-/// A row from the `sentinel_runs` table.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SentinelRun {
     pub id: i64,
@@ -20,7 +19,6 @@ pub struct SentinelRun {
     pub deferred: i64,
 }
 
-/// A row from the `sentinel_dispatches` table.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SentinelDispatch {
     pub id: i64,
@@ -41,7 +39,6 @@ pub struct SentinelDispatch {
     pub completed_at: Option<String>,
 }
 
-/// Aggregated dispatch metrics grouped by model and label.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DispatchMetric {
     pub model: String,
@@ -55,7 +52,6 @@ pub struct DispatchMetric {
     pub success_rate: f64,
 }
 
-/// Counter columns for completing a sentinel run.
 #[derive(Debug, Clone, Default)]
 pub struct RunCounters {
     pub signals_found: i64,
@@ -66,7 +62,6 @@ pub struct RunCounters {
     pub deferred: i64,
 }
 
-/// Parameters for inserting a new sentinel dispatch record.
 pub struct NewDispatch<'a> {
     pub run_id: &'a str,
     pub signal_ref: &'a str,
@@ -82,9 +77,6 @@ pub struct NewDispatch<'a> {
 }
 
 impl Database {
-    // === Sentinel runs ===
-
-    /// Insert a new sentinel run record. Returns the auto-generated row ID.
     pub fn insert_sentinel_run(&self, run_id: &str, mode: &str) -> Result<i64> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -94,7 +86,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Update a sentinel run with final statistics.
     pub fn complete_sentinel_run(&self, run_id: &str, counters: &RunCounters) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -116,7 +107,6 @@ impl Database {
         Ok(())
     }
 
-    /// List recent sentinel runs, most recent first.
     pub fn list_sentinel_runs(&self, limit: usize) -> Result<Vec<SentinelRun>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, started_at, completed_at, mode,
@@ -143,9 +133,6 @@ impl Database {
         Ok(rows)
     }
 
-    // === Sentinel dispatches ===
-
-    /// Insert a new sentinel dispatch record. Returns the auto-generated row ID.
     pub fn insert_sentinel_dispatch(&self, d: &NewDispatch<'_>) -> Result<i64> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -171,7 +158,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Update a dispatch record with its outcome.
     pub fn update_dispatch_outcome(
         &self,
         dispatch_id: i64,
@@ -188,7 +174,6 @@ impl Database {
         Ok(())
     }
 
-    /// Get all dispatches with outcome = 'pending'.
     pub fn get_pending_dispatches(&self) -> Result<Vec<SentinelDispatch>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, signal_ref, signal_title, source, disposition,
@@ -203,7 +188,6 @@ impl Database {
         Ok(rows)
     }
 
-    /// Count dispatches with outcome = 'pending'.
     pub fn count_pending_dispatches(&self) -> Result<i64> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM sentinel_dispatches WHERE outcome = 'pending'",
@@ -213,8 +197,6 @@ impl Database {
         Ok(count)
     }
 
-    /// Get the most recent dispatch for a given `(gh_issue_number, label)` pair.
-    /// Used for the authoritative dedup check (Layer 3).
     pub fn get_latest_dispatch_for_signal(
         &self,
         gh_issue_number: i64,
@@ -235,7 +217,6 @@ impl Database {
         Ok(rows.pop())
     }
 
-    /// Load all dispatches for `SeenSet` construction (most recent per `signal_ref`).
     pub fn load_dispatch_seen_set(&self) -> Result<Vec<SentinelDispatch>> {
         let mut stmt = self.conn.prepare(
             "SELECT d.id, d.run_id, d.signal_ref, d.signal_title, d.source, d.disposition,
@@ -255,7 +236,6 @@ impl Database {
         Ok(rows)
     }
 
-    /// List all dispatches for a given sentinel run, ordered by creation time.
     pub fn list_dispatches_for_run(&self, run_id: &str) -> Result<Vec<SentinelDispatch>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, signal_ref, signal_title, source, disposition,
@@ -271,7 +251,6 @@ impl Database {
         Ok(rows)
     }
 
-    /// Get success rate metrics grouped by model and label.
     pub fn get_dispatch_metrics(&self) -> Result<Vec<DispatchMetric>> {
         let mut stmt = self.conn.prepare(
             "SELECT
@@ -292,7 +271,7 @@ impl Database {
             .query_map([], |row| {
                 let total: i64 = row.get(2)?;
                 let successes: i64 = row.get(3)?;
-                let completed = total - row.get::<_, i64>(6)?; // total - pending
+                let completed = total - row.get::<_, i64>(6)?;
                 let success_rate = if completed > 0 {
                     (successes as f64 / completed as f64) * 100.0
                 } else {
@@ -314,7 +293,6 @@ impl Database {
         Ok(rows)
     }
 
-    /// Shared row mapper for `sentinel_dispatches` queries.
     fn map_dispatch_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SentinelDispatch> {
         Ok(SentinelDispatch {
             id: row.get(0)?,

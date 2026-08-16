@@ -1,26 +1,13 @@
-// End-to-end swarm review --fix pipeline orchestrator.
-//
-// Wires together all swarm review stages into a coherent flow:
-// partition → review → consolidate → human-checkpoint → file-issues → fix → merge → PR.
-//
-// State is persisted to `.crosslink/pipeline.json` so the pipeline survives
-// session boundaries and can be resumed after human checkpoints.
-
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use uuid::Uuid;
 
-// ---------------------------------------------------------------------------
-// Data model
-// ---------------------------------------------------------------------------
-
-/// Represents the full review→fix pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
-    /// When the pipeline was created (#490: `DateTime` instead of String).
+
     pub created_at: DateTime<Utc>,
     pub current_stage: PipelineStage,
     pub config: PipelineConfig,
@@ -30,34 +17,32 @@ pub struct Pipeline {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PipelineStage {
-    /// Partitioning the codebase
     Partition,
-    /// Review agents running
+
     Review,
-    /// Waiting for review agents to complete
+
     AwaitReview,
-    /// Consolidating findings
+
     Consolidate,
-    /// Human checkpoint — waiting for triage confirmation
+
     HumanCheckpoint,
-    /// Filing issues from findings
+
     FileIssues,
-    /// Fix agents running
+
     Fix,
-    /// Waiting for fix agents to complete
+
     AwaitFix,
-    /// Merging agent changes
+
     Merge,
-    /// Opening pull request
+
     PullRequest,
-    /// Pipeline complete
+
     Done,
-    /// Pipeline failed
+
     Failed,
 }
 
 impl std::fmt::Display for PipelineStage {
-    /// Display uses `snake_case` to match the serde serialization format (#489).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Partition => write!(f, "partition"),
@@ -89,17 +74,12 @@ pub struct PipelineConfig {
 pub struct StageTransition {
     pub from: PipelineStage,
     pub to: PipelineStage,
-    /// When this transition occurred (#490: `DateTime` instead of String).
+
     pub timestamp: DateTime<Utc>,
     pub notes: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline implementation
-// ---------------------------------------------------------------------------
-
 impl Pipeline {
-    /// Create a new pipeline starting at the Partition stage.
     #[must_use]
     pub fn new(config: PipelineConfig) -> Self {
         let now = Utc::now();
@@ -117,7 +97,6 @@ impl Pipeline {
         }
     }
 
-    /// Return valid next stages for a given stage.
     #[must_use]
     pub fn valid_transitions(stage: PipelineStage) -> Vec<PipelineStage> {
         match stage {
@@ -141,15 +120,6 @@ impl Pipeline {
         }
     }
 
-    /// Move to the next stage in the normal (non-failure) sequence.
-    ///
-    /// Returns the new stage on success, or an error if the transition is
-    /// invalid (e.g. pipeline is already Done/Failed, or at a checkpoint
-    /// that requires explicit confirmation).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the pipeline is at a human checkpoint or a terminal stage.
     pub fn advance(&mut self) -> Result<PipelineStage> {
         if self.current_stage == PipelineStage::HumanCheckpoint {
             bail!(
@@ -159,8 +129,7 @@ impl Pipeline {
         }
 
         let valid = Self::valid_transitions(self.current_stage);
-        // The first entry (if any) is always the "happy path" successor;
-        // Failed is last.
+
         let next = valid
             .into_iter()
             .find(|s| *s != PipelineStage::Failed)
@@ -170,17 +139,11 @@ impl Pipeline {
         Ok(next)
     }
 
-    /// Returns true if the given stage is a human checkpoint.
     #[must_use]
     pub fn is_checkpoint(stage: PipelineStage) -> bool {
         stage == PipelineStage::HumanCheckpoint
     }
 
-    /// Advance past a human checkpoint.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the pipeline is not currently at a human checkpoint.
     pub fn confirm_checkpoint(&mut self) -> Result<()> {
         if self.current_stage != PipelineStage::HumanCheckpoint {
             bail!(
@@ -195,12 +158,10 @@ impl Pipeline {
         Ok(())
     }
 
-    /// Mark the pipeline as failed with explanatory notes.
     pub fn fail(&mut self, notes: &str) {
         self.record_transition(PipelineStage::Failed, Some(notes));
     }
 
-    /// Human-readable pipeline status summary.
     #[must_use]
     pub fn summary(&self) -> String {
         let mut lines = Vec::new();
@@ -238,10 +199,6 @@ impl Pipeline {
         lines.join("\n")
     }
 
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
-
     fn record_transition(&mut self, to: PipelineStage, notes: Option<&str>) {
         let from = self.current_stage;
         self.history.push(StageTransition {
@@ -254,17 +211,8 @@ impl Pipeline {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Persistence
-// ---------------------------------------------------------------------------
-
 const PIPELINE_FILE: &str = "pipeline.json";
 
-/// Persist pipeline state to `.crosslink/pipeline.json`.
-///
-/// # Errors
-///
-/// Returns an error if serialization or file I/O fails.
 pub fn save_pipeline(crosslink_dir: &Path, pipeline: &Pipeline) -> Result<()> {
     let path = crosslink_dir.join(PIPELINE_FILE);
     let json =
@@ -273,13 +221,6 @@ pub fn save_pipeline(crosslink_dir: &Path, pipeline: &Pipeline) -> Result<()> {
     Ok(())
 }
 
-/// Load pipeline state from `.crosslink/pipeline.json`.
-///
-/// Returns `None` if the file does not exist.
-///
-/// # Errors
-///
-/// Returns an error if the file exists but cannot be read or parsed.
 pub fn load_pipeline(crosslink_dir: &Path) -> Result<Option<Pipeline>> {
     let path = crosslink_dir.join(PIPELINE_FILE);
     if !path.exists() {
@@ -292,21 +233,8 @@ pub fn load_pipeline(crosslink_dir: &Path) -> Result<Option<Pipeline>> {
     Ok(Some(pipeline))
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline runner
-// ---------------------------------------------------------------------------
-
-/// Main entry point: create or resume a pipeline and drive it forward.
-///
-/// For now, each stage just prints what WOULD happen. Real implementations
-/// will be wired in from other modules in subsequent PRs.
-///
-/// # Errors
-///
-/// Returns an error if pipeline persistence or stage advancement fails.
 pub fn run_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> {
     let mut pipeline = if let Some(p) = load_pipeline(crosslink_dir)? {
-        // Warn if the caller-supplied config differs from the persisted one (#487).
         if p.config.agent_count != config.agent_count
             || p.config.mandate != config.mandate
             || p.config.auto_fix != config.auto_fix
@@ -332,7 +260,6 @@ pub fn run_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> 
         let stage = pipeline.current_stage;
         print_stage_action(stage, &pipeline.config);
 
-        // Human checkpoint: save and exit so the user can inspect findings.
         if Pipeline::is_checkpoint(stage) {
             save_pipeline(crosslink_dir, &pipeline)?;
             println!();
@@ -341,12 +268,10 @@ pub fn run_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> 
             return Ok(());
         }
 
-        // Terminal stages: we're done.
         if stage == PipelineStage::Done || stage == PipelineStage::Failed {
             break;
         }
 
-        // Advance to the next stage and persist.
         pipeline.advance()?;
         save_pipeline(crosslink_dir, &pipeline)?;
     }
@@ -360,7 +285,6 @@ pub fn run_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> 
     Ok(())
 }
 
-/// Print a human-readable description of what a stage does (placeholder).
 fn print_stage_action(stage: PipelineStage, config: &PipelineConfig) {
     println!();
     match stage {
@@ -425,10 +349,6 @@ fn print_stage_action(stage: PipelineStage, config: &PipelineConfig) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,11 +390,11 @@ mod tests {
     #[test]
     fn test_advance_rejects_at_checkpoint() {
         let mut p = Pipeline::new(test_config());
-        // Advance to HumanCheckpoint
-        p.advance().unwrap(); // Review
-        p.advance().unwrap(); // AwaitReview
-        p.advance().unwrap(); // Consolidate
-        p.advance().unwrap(); // HumanCheckpoint
+
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.advance().unwrap();
 
         let err = p.advance().unwrap_err();
         assert!(
@@ -486,9 +406,9 @@ mod tests {
     #[test]
     fn test_advance_rejects_terminal_done() {
         let mut p = Pipeline::new(test_config());
-        // Fast-forward to Done
+
         p.current_stage = PipelineStage::PullRequest;
-        p.advance().unwrap(); // -> Done
+        p.advance().unwrap();
         assert_eq!(p.current_stage, PipelineStage::Done);
 
         let err = p.advance().unwrap_err();
@@ -522,11 +442,11 @@ mod tests {
     #[test]
     fn test_confirm_checkpoint_advances() {
         let mut p = Pipeline::new(test_config());
-        // Advance to HumanCheckpoint
-        p.advance().unwrap(); // Review
-        p.advance().unwrap(); // AwaitReview
-        p.advance().unwrap(); // Consolidate
-        p.advance().unwrap(); // HumanCheckpoint
+
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.advance().unwrap();
 
         p.confirm_checkpoint().unwrap();
         assert_eq!(p.current_stage, PipelineStage::FileIssues);
@@ -545,10 +465,10 @@ mod tests {
     #[test]
     fn test_fail_sets_failed_state() {
         let mut p = Pipeline::new(test_config());
-        p.advance().unwrap(); // Review
+        p.advance().unwrap();
         p.fail("test failure");
         assert_eq!(p.current_stage, PipelineStage::Failed);
-        assert_eq!(p.history.len(), 2); // advance + fail
+        assert_eq!(p.history.len(), 2);
         let last = p.history.last().unwrap();
         assert_eq!(last.to, PipelineStage::Failed);
         assert_eq!(last.notes.as_deref(), Some("test failure"));
@@ -557,7 +477,7 @@ mod tests {
     #[test]
     fn test_summary_produces_readable_output() {
         let mut p = Pipeline::new(test_config());
-        p.advance().unwrap(); // Review
+        p.advance().unwrap();
         let summary = p.summary();
         assert!(summary.contains("Pipeline:"));
         assert!(summary.contains("Stage:    review"), "Summary: {summary}");
@@ -569,7 +489,6 @@ mod tests {
 
     #[test]
     fn test_pipeline_stage_display_matches_serde() {
-        // Display must match serde rename_all = "snake_case" (#489)
         assert_eq!(PipelineStage::Partition.to_string(), "partition");
         assert_eq!(PipelineStage::Review.to_string(), "review");
         assert_eq!(PipelineStage::AwaitReview.to_string(), "await_review");
@@ -586,7 +505,6 @@ mod tests {
         assert_eq!(PipelineStage::Done.to_string(), "done");
         assert_eq!(PipelineStage::Failed.to_string(), "failed");
 
-        // Verify Display matches serde roundtrip
         for stage in [
             PipelineStage::Partition,
             PipelineStage::AwaitReview,
@@ -608,8 +526,8 @@ mod tests {
     #[test]
     fn test_serde_roundtrip_pipeline() {
         let mut p = Pipeline::new(test_config());
-        p.advance().unwrap(); // Review
-        p.advance().unwrap(); // AwaitReview
+        p.advance().unwrap();
+        p.advance().unwrap();
 
         let json = serde_json::to_string(&p).unwrap();
         let parsed: Pipeline = serde_json::from_str(&json).unwrap();
@@ -652,50 +570,39 @@ mod tests {
 
     #[test]
     fn test_valid_transitions_for_each_stage() {
-        // Partition -> Review or Failed
         let v = Pipeline::valid_transitions(PipelineStage::Partition);
         assert!(v.contains(&PipelineStage::Review));
         assert!(v.contains(&PipelineStage::Failed));
         assert_eq!(v.len(), 2);
 
-        // Review -> AwaitReview or Failed
         let v = Pipeline::valid_transitions(PipelineStage::Review);
         assert!(v.contains(&PipelineStage::AwaitReview));
         assert!(v.contains(&PipelineStage::Failed));
 
-        // AwaitReview -> Consolidate or Failed
         let v = Pipeline::valid_transitions(PipelineStage::AwaitReview);
         assert!(v.contains(&PipelineStage::Consolidate));
 
-        // Consolidate -> HumanCheckpoint or Failed
         let v = Pipeline::valid_transitions(PipelineStage::Consolidate);
         assert!(v.contains(&PipelineStage::HumanCheckpoint));
 
-        // HumanCheckpoint -> FileIssues or Failed
         let v = Pipeline::valid_transitions(PipelineStage::HumanCheckpoint);
         assert!(v.contains(&PipelineStage::FileIssues));
 
-        // FileIssues -> Fix or Failed
         let v = Pipeline::valid_transitions(PipelineStage::FileIssues);
         assert!(v.contains(&PipelineStage::Fix));
 
-        // Fix -> AwaitFix or Failed
         let v = Pipeline::valid_transitions(PipelineStage::Fix);
         assert!(v.contains(&PipelineStage::AwaitFix));
 
-        // AwaitFix -> Merge or Failed
         let v = Pipeline::valid_transitions(PipelineStage::AwaitFix);
         assert!(v.contains(&PipelineStage::Merge));
 
-        // Merge -> PullRequest or Failed
         let v = Pipeline::valid_transitions(PipelineStage::Merge);
         assert!(v.contains(&PipelineStage::PullRequest));
 
-        // PullRequest -> Done or Failed
         let v = Pipeline::valid_transitions(PipelineStage::PullRequest);
         assert!(v.contains(&PipelineStage::Done));
 
-        // Terminal stages have no transitions
         assert!(Pipeline::valid_transitions(PipelineStage::Done).is_empty());
         assert!(Pipeline::valid_transitions(PipelineStage::Failed).is_empty());
     }
@@ -705,19 +612,19 @@ mod tests {
         let mut p = Pipeline::new(test_config());
         assert!(p.history.is_empty());
 
-        p.advance().unwrap(); // Partition -> Review
+        p.advance().unwrap();
         assert_eq!(p.history.len(), 1);
         assert_eq!(p.history[0].from, PipelineStage::Partition);
         assert_eq!(p.history[0].to, PipelineStage::Review);
 
-        p.advance().unwrap(); // Review -> AwaitReview
+        p.advance().unwrap();
         assert_eq!(p.history.len(), 2);
         assert_eq!(p.history[1].from, PipelineStage::Review);
         assert_eq!(p.history[1].to, PipelineStage::AwaitReview);
 
-        p.advance().unwrap(); // AwaitReview -> Consolidate
-        p.advance().unwrap(); // Consolidate -> HumanCheckpoint
-        p.confirm_checkpoint().unwrap(); // HumanCheckpoint -> FileIssues
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.confirm_checkpoint().unwrap();
         assert_eq!(p.history.len(), 5);
         assert_eq!(p.history[4].from, PipelineStage::HumanCheckpoint);
         assert_eq!(p.history[4].to, PipelineStage::FileIssues);
@@ -892,12 +799,11 @@ mod tests {
     #[test]
     fn test_run_pipeline_resume_at_done() {
         let dir = tempfile::tempdir().unwrap();
-        // Manually create a pipeline at Done stage
+
         let mut p = Pipeline::new(test_config());
         p.current_stage = PipelineStage::Done;
         save_pipeline(dir.path(), &p).unwrap();
 
-        // Running should resume and detect terminal stage
         run_pipeline(dir.path(), test_config()).unwrap();
 
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
@@ -932,7 +838,7 @@ mod tests {
     #[test]
     fn test_pipeline_created_at_is_datetime() {
         let p = Pipeline::new(test_config());
-        // created_at is now DateTime<Utc>; verify it serializes to valid RFC3339
+
         let json = serde_json::to_string(&p.created_at).unwrap();
         let parsed = chrono::DateTime::parse_from_rfc3339(json.trim_matches('"'));
         assert!(
@@ -957,15 +863,9 @@ mod tests {
         assert!(!Pipeline::is_checkpoint(PipelineStage::Failed));
     }
 
-    // -----------------------------------------------------------------------
-    // Additional coverage tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_print_stage_action_all_stages() {
-        // Exercise every branch in print_stage_action to ensure no panics
-        // and to cover all match arms.
-        let config_auto = test_config(); // auto_fix: true, auto_file_issues: true
+        let config_auto = test_config();
         let config_manual = PipelineConfig {
             agent_count: 2,
             mandate: "manual review".to_string(),
@@ -1002,7 +902,6 @@ mod tests {
         p.fail("earlier failure");
         save_pipeline(dir.path(), &p).unwrap();
 
-        // Running should resume and detect the Failed terminal stage
         run_pipeline(dir.path(), test_config()).unwrap();
 
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
@@ -1011,7 +910,6 @@ mod tests {
 
     #[test]
     fn test_serde_stage_snake_case_values() {
-        // Verify the rename_all = "snake_case" produces expected JSON strings
         assert_eq!(
             serde_json::to_string(&PipelineStage::Partition).unwrap(),
             "\"partition\""
@@ -1048,7 +946,6 @@ mod tests {
 
     #[test]
     fn test_serde_stage_deserialize_from_snake_case_string() {
-        // Confirm we can deserialize from the snake_case JSON strings
         let stage: PipelineStage = serde_json::from_str("\"await_review\"").unwrap();
         assert_eq!(stage, PipelineStage::AwaitReview);
 
@@ -1092,7 +989,7 @@ mod tests {
     fn test_load_pipeline_partial_json() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pipeline.json");
-        // Valid JSON but missing required fields
+
         std::fs::write(&path, r#"{"id": "test"}"#).unwrap();
         let result = load_pipeline(dir.path());
         assert!(result.is_err());
@@ -1100,7 +997,6 @@ mod tests {
 
     #[test]
     fn test_confirm_checkpoint_rejects_at_various_stages() {
-        // Test confirm_checkpoint fails at stages other than Partition (already tested)
         let stages = [
             PipelineStage::Review,
             PipelineStage::AwaitReview,
@@ -1177,20 +1073,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut p = Pipeline::new(test_config());
 
-        // Save at Partition
         save_pipeline(dir.path(), &p).unwrap();
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
         assert_eq!(loaded.current_stage, PipelineStage::Partition);
         assert_eq!(loaded.history.len(), 0);
 
-        // Advance, save, load
         p.advance().unwrap();
         save_pipeline(dir.path(), &p).unwrap();
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
         assert_eq!(loaded.current_stage, PipelineStage::Review);
         assert_eq!(loaded.history.len(), 1);
 
-        // Fail, save, load
         p.fail("oops");
         save_pipeline(dir.path(), &p).unwrap();
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
@@ -1207,7 +1100,6 @@ mod tests {
         p.fail("done");
 
         for (i, t) in p.history.iter().enumerate() {
-            // timestamp is now DateTime<Utc>; verify it serializes to valid RFC3339
             let json = serde_json::to_string(&t.timestamp).unwrap();
             let parsed = chrono::DateTime::parse_from_rfc3339(json.trim_matches('"'));
             assert!(
@@ -1262,8 +1154,6 @@ mod tests {
 
     #[test]
     fn test_valid_transitions_always_have_failed_or_empty() {
-        // Every non-terminal stage should include Failed as a valid transition;
-        // terminal stages should have empty transitions.
         let non_terminal = [
             PipelineStage::Partition,
             PipelineStage::Review,
@@ -1301,7 +1191,7 @@ mod tests {
             summary.contains("Created:"),
             "Summary should include Created: field"
         );
-        // DateTime<Utc> Display produces RFC3339 format
+
         let created_str = p.created_at.to_rfc3339();
         assert!(
             summary.contains(&created_str),
@@ -1311,7 +1201,6 @@ mod tests {
 
     #[test]
     fn test_advance_from_each_non_terminal_non_checkpoint_stage() {
-        // Ensure advance() works for every non-terminal, non-checkpoint stage
         let test_cases = [
             (PipelineStage::Partition, PipelineStage::Review),
             (PipelineStage::Review, PipelineStage::AwaitReview),
@@ -1350,18 +1239,14 @@ mod tests {
     fn test_run_pipeline_full_happy_path_after_checkpoint_resume() {
         let dir = tempfile::tempdir().unwrap();
 
-        // First run: creates pipeline, stops at HumanCheckpoint
         run_pipeline(dir.path(), test_config()).unwrap();
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
         assert_eq!(loaded.current_stage, PipelineStage::HumanCheckpoint);
 
-        // Manually confirm checkpoint and save
         let mut p = loaded;
         p.confirm_checkpoint().unwrap();
         save_pipeline(dir.path(), &p).unwrap();
 
-        // Second run: resumes from FileIssues, runs through to Done
-        // (the pipeline won't hit HumanCheckpoint again since we're past it)
         run_pipeline(dir.path(), test_config()).unwrap();
         let loaded = load_pipeline(dir.path()).unwrap().unwrap();
         assert_eq!(loaded.current_stage, PipelineStage::Done);

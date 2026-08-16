@@ -120,30 +120,20 @@ AI behavior is controlled by `.crosslink/hook-config.json` in your project:
 
 | Mode | Behavior | Best For |
 |------|----------|----------|
-| `strict` | **Blocks** code changes without an active issue. Forceful prompt language. | Every change must be tracked |
-| `normal` | **Reminds** but doesn't block. Gentle prompt language. | Balanced — tracks most work |
+| `strict` | **Blocks** code changes without an active issue. | Every change must be tracked |
+| `normal` | **Reminds** but doesn't block. | Balanced — tracks most work |
 | `relaxed` | **No enforcement**. Only git mutation blocks apply. | Opt-in tracking only |
 
-Each mode loads its wording from `.crosslink/rules/tracking-{mode}.md` — edit these files to customize the prompt language.
+The hook reads `tracking_mode` directly from `.crosslink/hook-config.json`.
 
 #### Git Command Blocking
 
 Git mutation commands (push, commit, merge, rebase, etc.) are **permanently blocked in all modes**. Read-only commands (status, diff, log) are always allowed. Both lists are customizable in `hook-config.json`.
 
-### Customizable Rules
+### Zeroed Rule Paths
 
-Rules in `.crosslink/rules/` control what gets injected into AI prompts:
-
-| File | Purpose |
-|------|---------|
-| `global.md` | Security, correctness, and style rules |
-| `tracking-strict.md` | Strict mode issue tracking instructions |
-| `tracking-normal.md` | Normal mode issue tracking instructions |
-| `tracking-relaxed.md` | Relaxed mode tracking reference |
-| `project.md` | Your project-specific rules |
-| `rust.md`, `python.md`, etc. | Language-specific best practices |
-
-Edit any file and changes take effect on the next prompt. Reset with `crosslink init --force`.
+`.crosslink/rules/*.md` files remain connected to Crosslink's rule loader. The
+bundled files are zero bytes, so they contribute no Markdown text by default.
 
 ## Development
 

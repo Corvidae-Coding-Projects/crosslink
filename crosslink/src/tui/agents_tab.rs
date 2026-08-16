@@ -17,20 +17,17 @@ use crate::locks::{Heartbeat, Lock, LocksFile};
 use crate::signing::AllowedSignerEntry;
 use crate::sync::SyncManager;
 
-/// Which sub-view is active within the Agents tab.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum AgentViewMode {
-    /// Main view: merged agent activity table.
     Agents,
-    /// Lock-focused view: all locks + stale detection.
+
     Locks,
-    /// Trust store view: allowed signers list.
+
     Trust,
-    /// Detail view for a specific agent.
+
     Detail,
 }
 
-/// A row in the merged agents table.
 struct AgentRow {
     agent_id: String,
     active_issue: Option<i64>,
@@ -41,7 +38,6 @@ struct AgentRow {
     machine_id: Option<String>,
 }
 
-/// A row in the locks table.
 struct LockRow {
     issue_id: i64,
     agent_id: String,
@@ -50,7 +46,6 @@ struct LockRow {
     is_stale: bool,
 }
 
-/// Detail for a selected agent.
 struct AgentDetail {
     agent_id: String,
     machine_id: Option<String>,
@@ -60,7 +55,6 @@ struct AgentDetail {
     is_stale: bool,
 }
 
-/// Data payload sent from background refresh thread.
 struct AgentsLoadResult {
     agents: Vec<AgentRow>,
     lock_rows: Vec<LockRow>,
@@ -69,37 +63,36 @@ struct AgentsLoadResult {
     error_msg: Option<String>,
 }
 
-/// The Agents tab — live coordination dashboard.
 pub struct AgentsTab {
     crosslink_dir: PathBuf,
     view_mode: AgentViewMode,
-    /// Merged agent rows (agents view).
+
     agents: Vec<AgentRow>,
     selected: usize,
-    /// Lock rows (locks view).
+
     lock_rows: Vec<LockRow>,
     lock_selected: usize,
-    /// Trust entries (trust view).
+
     trust_entries: Vec<AllowedSignerEntry>,
     trust_selected: usize,
-    /// Detail for a specific agent.
+
     detail: Option<AgentDetail>,
     detail_scroll: usize,
-    /// Maximum detail scroll offset computed during render.
+
     detail_max_scroll: std::cell::Cell<usize>,
-    /// Status message (e.g. "Last sync: 12s ago").
+
     status_msg: String,
-    /// Error message if data load failed.
+
     error_msg: Option<String>,
-    /// Whether a background load is in progress.
+
     loading: bool,
-    /// Receiver for background load results.
+
     load_rx: Option<mpsc::Receiver<AgentsLoadResult>>,
-    /// `TableState` for agents view scroll-to-follow.
+
     agents_table_state: RefCell<TableState>,
-    /// `TableState` for locks view scroll-to-follow.
+
     locks_table_state: RefCell<TableState>,
-    /// `TableState` for trust view scroll-to-follow.
+
     trust_table_state: RefCell<TableState>,
 }
 
@@ -129,7 +122,6 @@ impl AgentsTab {
         tab
     }
 
-    /// Spawn a background thread to load agents/locks/trust data without blocking the UI.
     fn start_background_refresh(&mut self) {
         self.loading = true;
         let (tx, rx) = mpsc::channel();
@@ -138,12 +130,11 @@ impl AgentsTab {
 
         std::thread::spawn(move || {
             let result = load_agents_data(&crosslink_dir);
-            // INTENTIONAL: send failure means the receiver was dropped — TUI is shutting down
+
             let _ = tx.send(result);
         });
     }
 
-    /// Apply a completed background load result to the tab state.
     fn apply_load_result(&mut self, result: AgentsLoadResult) {
         self.loading = false;
         self.agents = result.agents;
@@ -152,7 +143,6 @@ impl AgentsTab {
         self.status_msg = result.status_msg;
         self.error_msg = result.error_msg;
 
-        // Clamp selections
         if self.selected >= self.agents.len() && !self.agents.is_empty() {
             self.selected = self.agents.len() - 1;
         }
@@ -173,11 +163,9 @@ impl AgentsTab {
             }
         };
 
-        // Find heartbeat for this agent (mode-aware: V1 dir, V2 agent dirs, V3 refs)
         let heartbeats = sync.read_heartbeats_auto().unwrap_or_default();
         let heartbeat = heartbeats.into_iter().find(|h| h.agent_id == agent_id);
 
-        // Find locks held by this agent
         let locks = sync
             .read_locks_auto()
             .unwrap_or_else(|_| LocksFile::empty());
@@ -187,18 +175,16 @@ impl AgentsTab {
             .filter(|(_, lock)| lock.agent_id == agent_id)
             .collect();
 
-        // Read recent events for this agent
         let events_path = sync
             .cache_path()
             .join("agents")
             .join(agent_id)
             .join("events.log");
         let all_events = events::read_events(&events_path).unwrap_or_default();
-        // Take last 20 events
+
         let recent_events: Vec<events::EventEnvelope> =
             all_events.into_iter().rev().take(20).collect();
 
-        // Check stale status
         let stale = sync.find_stale_locks().unwrap_or_default();
         let is_stale = stale.iter().any(|(_, a)| a == agent_id);
 
@@ -214,8 +200,6 @@ impl AgentsTab {
         });
         self.detail_scroll = 0;
     }
-
-    // ── Key handlers ──────────────────────────────────────────────────
 
     fn handle_agents_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
@@ -319,19 +303,16 @@ impl AgentsTab {
         }
     }
 
-    // ── Renderers ─────────────────────────────────────────────────────
-
     fn render_agents(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // Header
-                Constraint::Min(0),    // Table
-                Constraint::Length(1), // Context keys
+                Constraint::Length(1),
+                Constraint::Min(0),
+                Constraint::Length(1),
             ])
             .split(area);
 
-        // Header
         let header = Line::from(vec![
             Span::styled(
                 " Agents & Locks",
@@ -346,7 +327,6 @@ impl AgentsTab {
         ]);
         frame.render_widget(Paragraph::new(header), chunks[0]);
 
-        // Error or empty state
         if let Some(ref err) = self.error_msg {
             let msg = Paragraph::new(Line::from(vec![
                 Span::raw("  "),
@@ -369,7 +349,6 @@ impl AgentsTab {
             )));
             frame.render_widget(msg, chunks[1]);
         } else {
-            // Table
             let header_row = Row::new(vec!["Agent", "Active", "Lock", "Branch", "Heartbeat"])
                 .style(
                     Style::default()
@@ -413,11 +392,11 @@ impl AgentsTab {
             let table = Table::new(
                 rows,
                 [
-                    Constraint::Min(20),    // Agent
-                    Constraint::Length(8),  // Active
-                    Constraint::Length(10), // Lock
-                    Constraint::Length(24), // Branch
-                    Constraint::Length(12), // Heartbeat
+                    Constraint::Min(20),
+                    Constraint::Length(8),
+                    Constraint::Length(10),
+                    Constraint::Length(24),
+                    Constraint::Length(12),
                 ],
             )
             .header(header_row)
@@ -429,7 +408,6 @@ impl AgentsTab {
             frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
-        // Context keys
         let keys = Line::from(vec![
             Span::styled("↑↓", Style::default().fg(Color::Cyan)),
             Span::raw(":Navigate  "),
@@ -450,13 +428,12 @@ impl AgentsTab {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // Header
-                Constraint::Min(0),    // Table
-                Constraint::Length(1), // Context keys
+                Constraint::Length(1),
+                Constraint::Min(0),
+                Constraint::Length(1),
             ])
             .split(area);
 
-        // Header
         let stale_count = self.lock_rows.iter().filter(|r| r.is_stale).count();
         let header = Line::from(vec![
             Span::styled(
@@ -519,11 +496,11 @@ impl AgentsTab {
             let table = Table::new(
                 rows,
                 [
-                    Constraint::Length(8),  // Issue
-                    Constraint::Min(20),    // Agent
-                    Constraint::Length(24), // Branch
-                    Constraint::Length(12), // Claimed
-                    Constraint::Length(10), // Status
+                    Constraint::Length(8),
+                    Constraint::Min(20),
+                    Constraint::Length(24),
+                    Constraint::Length(12),
+                    Constraint::Length(10),
                 ],
             )
             .header(header_row)
@@ -535,7 +512,6 @@ impl AgentsTab {
             frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
-        // Context keys
         let keys = Line::from(vec![
             Span::styled("↑↓", Style::default().fg(Color::Cyan)),
             Span::raw(":Navigate  "),
@@ -556,13 +532,12 @@ impl AgentsTab {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // Header
-                Constraint::Min(0),    // List
-                Constraint::Length(1), // Context keys
+                Constraint::Length(1),
+                Constraint::Min(0),
+                Constraint::Length(1),
             ])
             .split(area);
 
-        // Header
         let header = Line::from(vec![
             Span::styled(
                 " Trust Store",
@@ -594,7 +569,6 @@ impl AgentsTab {
                 .trust_entries
                 .iter()
                 .map(|entry| {
-                    // Extract key type from public key (e.g. "ssh-ed25519 AAAA...")
                     let key_type = entry
                         .public_key
                         .split_whitespace()
@@ -614,9 +588,9 @@ impl AgentsTab {
             let table = Table::new(
                 rows,
                 [
-                    Constraint::Min(20),    // Principal
-                    Constraint::Length(16), // Key Type
-                    Constraint::Length(32), // Approved
+                    Constraint::Min(20),
+                    Constraint::Length(16),
+                    Constraint::Length(32),
                 ],
             )
             .header(header_row)
@@ -628,7 +602,6 @@ impl AgentsTab {
             frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
-        // Context keys
         let keys = Line::from(vec![
             Span::styled("↑↓", Style::default().fg(Color::Cyan)),
             Span::raw(":Navigate  "),
@@ -650,7 +623,6 @@ impl AgentsTab {
 
         let mut lines: Vec<Line> = Vec::new();
 
-        // Title
         lines.push(Line::from(Span::styled(
             format!(" {}", detail.agent_id),
             Style::default()
@@ -659,7 +631,6 @@ impl AgentsTab {
         )));
         lines.push(Line::from(""));
 
-        // Metadata
         let status_style = if detail.is_stale {
             Style::default().fg(Color::Red)
         } else {
@@ -698,7 +669,6 @@ impl AgentsTab {
             }
         }
 
-        // Locks section
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("  Locks ({})", detail.locks.len()),
@@ -731,7 +701,6 @@ impl AgentsTab {
             }
         }
 
-        // Recent events section
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("  Recent Events ({})", detail.recent_events.len()),
@@ -759,9 +728,8 @@ impl AgentsTab {
             }
         }
 
-        // Clamp scroll so the user can't scroll past content.
         let content_height = lines.len();
-        let viewport_height = area.height.saturating_sub(1) as usize; // -1 for context keys row
+        let viewport_height = area.height.saturating_sub(1) as usize;
         let max_scroll = content_height.saturating_sub(viewport_height);
         self.detail_max_scroll.set(max_scroll);
         let clamped_scroll = self.detail_scroll.min(max_scroll);
@@ -773,7 +741,6 @@ impl AgentsTab {
 
         frame.render_widget(paragraph, area);
 
-        // Render context keys at bottom — overlay a 1-line area
         if area.height > 1 {
             let keys_area = Rect {
                 x: area.x,
@@ -833,9 +800,6 @@ impl Tab for AgentsTab {
     }
 }
 
-// ── Background loader ─────────────────────────────────────────────────
-
-/// Load all agents/locks/trust data synchronously (runs on a background thread).
 fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
     let sync = match SyncManager::new(crosslink_dir) {
         Ok(s) => s,
@@ -860,10 +824,8 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
         };
     }
 
-    // INTENTIONAL: fetch is best-effort — agent data is shown from cache if offline
     let _ = sync.fetch();
 
-    // Read locks
     let (locks, lock_error) = match sync.read_locks_auto() {
         Ok(l) => (l, None),
         Err(e) => (
@@ -872,22 +834,17 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
         ),
     };
 
-    // Read heartbeats (auto-dispatches V1/V2)
     let heartbeats = sync.read_heartbeats_auto().unwrap_or_default();
 
-    // Find stale locks
     let stale = sync.find_stale_locks().unwrap_or_default();
     let stale_agents: std::collections::HashSet<String> =
         stale.iter().map(|(_, a)| a.clone()).collect();
     let stale_issues: std::collections::HashSet<i64> = stale.iter().map(|(id, _)| *id).collect();
 
-    // Read trust store
     let trust = sync.read_allowed_signers().unwrap_or_default();
 
-    // Build merged agent rows
     let agents = build_agent_rows_static(&locks, &heartbeats, &stale_agents);
 
-    // Build lock rows
     let lock_rows = build_lock_rows_static(&locks, &stale_issues);
 
     let status_msg = format!(
@@ -906,7 +863,6 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
     }
 }
 
-/// Build merged agent rows from locks and heartbeats (free function for thread use).
 fn build_agent_rows_static(
     locks: &LocksFile,
     heartbeats: &[Heartbeat],
@@ -965,7 +921,6 @@ fn build_agent_rows_static(
     rows
 }
 
-/// Build lock rows from locks file (free function for thread use).
 fn build_lock_rows_static(
     locks: &LocksFile,
     stale_issues: &std::collections::HashSet<i64>,
@@ -990,8 +945,6 @@ fn build_lock_rows_static(
     rows
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
 fn format_event_summary(event: &events::Event) -> String {
     super::format_event_description(event)
 }
@@ -1006,7 +959,6 @@ mod tests {
     }
 
     fn make_tab() -> AgentsTab {
-        // Use a temp dir — no real hub cache, so it will show error/empty state
         let dir = tempfile::tempdir().unwrap();
         AgentsTab::new(dir.path())
     }
@@ -1041,7 +993,7 @@ mod tests {
     #[test]
     fn test_esc_returns_to_agents() {
         let mut tab = make_tab();
-        tab.handle_key(make_key(KeyCode::Char('v'))); // → Locks
+        tab.handle_key(make_key(KeyCode::Char('v')));
         assert_eq!(tab.view_mode, AgentViewMode::Locks);
 
         tab.handle_key(make_key(KeyCode::Esc));
@@ -1052,7 +1004,7 @@ mod tests {
     fn test_refresh_key() {
         let mut tab = make_tab();
         let result = tab.handle_key(make_key(KeyCode::Char('r')));
-        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+
         assert!(matches!(result, TabAction::NotHandled));
     }
 
@@ -1089,14 +1041,6 @@ mod tests {
         assert!(out.status.success(), "git {args:?} failed");
     }
 
-    /// State-level (not rendering) v3 reroute test: `load_agents_data` must
-    /// surface a lock from the v3 checkpoint state and a heartbeat from a v3
-    /// agent ref, proving the agents-tab loader routes through the mode-aware
-    /// `read_locks_auto` / `read_heartbeats_auto` helpers on a v3 hub.
-    ///
-    /// Builds an authentic v3 hub via the real `migrate hub-v3` command (so the
-    /// agent refs carry real events and survive `fetch`'s re-reduce), then
-    /// claims a lock and beats once before loading.
     #[test]
     fn test_load_agents_data_v3_reads_from_refs() {
         use crate::db::Database;
@@ -1147,8 +1091,7 @@ mod tests {
 
         let sync = SyncManager::new(&crosslink_dir).unwrap();
         let cache_dir = sync.cache_path().to_path_buf();
-        // Since 754b a fresh `init_cache` bootstraps v3, but this test migrates
-        // FROM a v2 hub, so build the legacy `crosslink/hub` worktree explicitly.
+
         git(
             &wp,
             &[
@@ -1189,9 +1132,7 @@ mod tests {
         );
 
         let db = Database::open(&crosslink_dir.join("issues.db")).unwrap();
-        // Populate the pre-migration v2 hub by writing the agent event log
-        // directly (the v2 SharedWriter write path is deleted, #754), then
-        // materialize with `compaction::compact` (kept for migration).
+
         {
             use crate::events::{append_event, Event, EventEnvelope};
             let env = EventEnvelope {
@@ -1225,10 +1166,8 @@ mod tests {
         crate::commands::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false)
             .unwrap();
 
-        // Reconstruct the writer AFTER migration so it operates in V3 mode
-        // (SharedWriter caches its hub mode at construction).
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        // Claim a lock (event-only) and beat once on the agent ref.
+
         let id = writer
             .create_issue(&db, "Lockable", None, "high", None, None)
             .unwrap();
@@ -1302,22 +1241,20 @@ mod tests {
     #[test]
     fn test_navigation_empty_list() {
         let mut tab = make_tab();
-        // Should not panic on empty list
+
         tab.handle_key(make_key(KeyCode::Char('j')));
         tab.handle_key(make_key(KeyCode::Char('k')));
         tab.handle_key(make_key(KeyCode::Enter));
     }
 
-    // ── Async loading tests ─────────────────────────────────────────
-
     #[test]
     fn test_new_starts_with_loading_state() {
         let dir = tempfile::tempdir().unwrap();
         let tab = AgentsTab::new(dir.path());
-        // Should be loading (background thread spawned) and have a receiver
+
         assert!(tab.loading);
         assert!(tab.load_rx.is_some());
-        // Data should be empty initially (not loaded yet synchronously)
+
         assert!(tab.agents.is_empty());
         assert!(tab.lock_rows.is_empty());
     }
@@ -1328,7 +1265,7 @@ mod tests {
         let start = std::time::Instant::now();
         let _tab = AgentsTab::new(dir.path());
         let elapsed = start.elapsed();
-        // Constructor should return in under 100ms (no blocking I/O)
+
         assert!(
             elapsed.as_millis() < 100,
             "AgentsTab::new() took {}ms, expected <100ms",
@@ -1342,11 +1279,10 @@ mod tests {
         let mut tab = AgentsTab::new(dir.path());
         assert!(tab.loading);
 
-        // Wait for background thread to complete (should be fast with no hub)
         std::thread::sleep(std::time::Duration::from_millis(500));
 
         tab.poll_updates();
-        // After polling, loading should be false and receiver consumed
+
         assert!(!tab.loading);
         assert!(tab.load_rx.is_none());
     }
@@ -1355,10 +1291,10 @@ mod tests {
     fn test_render_shows_loading_indicator() {
         let dir = tempfile::tempdir().unwrap();
         let tab = AgentsTab::new(dir.path());
-        // Render immediately before background thread completes
+
         let backend = ratatui::backend::TestBackend::new(100, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
-        // Should not panic — renders "Loading agents..." or error state
+
         terminal
             .draw(|frame| tab.render(frame, frame.area()))
             .unwrap();
@@ -1368,12 +1304,11 @@ mod tests {
     fn test_on_enter_spawns_new_background_load() {
         let dir = tempfile::tempdir().unwrap();
         let mut tab = AgentsTab::new(dir.path());
-        // Wait for first load to complete
+
         std::thread::sleep(std::time::Duration::from_millis(500));
         tab.poll_updates();
         assert!(!tab.loading);
 
-        // on_enter should spawn a new background load
         tab.on_enter();
         assert!(tab.loading);
         assert!(tab.load_rx.is_some());

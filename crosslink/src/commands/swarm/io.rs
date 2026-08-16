@@ -1,5 +1,3 @@
-// Hub branch I/O helpers for swarm coordination.
-
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use std::path::Path;
@@ -7,7 +5,6 @@ use std::path::Path;
 use super::types::*;
 use crate::sync::SyncManager;
 
-/// Read a JSON file from the hub cache directory.
 pub(super) fn read_hub_json<T: serde::de::DeserializeOwned>(
     sync: &SyncManager,
     path: &str,
@@ -18,7 +15,6 @@ pub(super) fn read_hub_json<T: serde::de::DeserializeOwned>(
     serde_json::from_str(&content).with_context(|| format!("Failed to parse {path}"))
 }
 
-/// Write a JSON file to the hub cache directory (does NOT commit).
 pub(super) fn write_hub_json<T: Serialize>(
     sync: &SyncManager,
     path: &str,
@@ -32,7 +28,6 @@ pub(super) fn write_hub_json<T: Serialize>(
     std::fs::write(&full, content).with_context(|| format!("Failed to write {path}"))
 }
 
-/// Stage multiple files and commit.
 pub(super) fn commit_hub_files(sync: &SyncManager, paths: &[&str], message: &str) -> Result<()> {
     let cache = sync.cache_path();
     for path in paths {
@@ -65,10 +60,8 @@ pub(super) fn commit_hub_files(sync: &SyncManager, paths: &[&str], message: &str
     Ok(())
 }
 
-/// A loaded swarm plan with its sync manager, plan metadata, and phase definitions with paths.
 pub(super) type LoadedPlan = (SyncManager, SwarmPlan, Vec<(String, PhaseDefinition)>);
 
-/// Helper: load the swarm plan, all phase definitions, and the sync manager.
 pub(super) fn load_plan_and_phases(crosslink_dir: &Path) -> Result<LoadedPlan> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -91,7 +84,6 @@ pub(super) fn load_plan_and_phases(crosslink_dir: &Path) -> Result<LoadedPlan> {
     Ok((sync, plan, phases))
 }
 
-/// Helper: save modified phases and plan back to hub.
 pub(super) fn save_plan_and_phases(
     sync: &SyncManager,
     plan: &SwarmPlan,
@@ -111,7 +103,6 @@ pub(super) fn save_plan_and_phases(
     Ok(())
 }
 
-/// Load a phase definition by slug, returning the phase and its hub path.
 pub(super) fn load_phase(
     sync: &SyncManager,
     phase_slug: &str,
@@ -120,13 +111,11 @@ pub(super) fn load_phase(
     let plan: SwarmPlan = read_hub_json(sync, &ctx.plan_path())
         .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
 
-    // Try exact slug match first
     let phase_file = ctx.phase_path(phase_slug);
     if let Ok(phase) = read_hub_json::<PhaseDefinition>(sync, &phase_file) {
         return Ok((phase, phase_file));
     }
 
-    // Try slugifying each plan phase name to find a match
     for name in &plan.phases {
         let slug = slugify_phase(name);
         if slug == phase_slug {
@@ -148,7 +137,6 @@ pub(super) fn load_phase(
     )
 }
 
-/// Check that all dependency phases are completed.
 pub(super) fn check_dependencies(sync: &SyncManager, phase: &PhaseDefinition) -> Result<()> {
     let ctx = resolve_swarm(sync)?;
     for dep_name in &phase.depends_on {

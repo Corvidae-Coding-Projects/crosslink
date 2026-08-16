@@ -1,5 +1,3 @@
-//! Milestone operations: create, close, delete, assign, unassign.
-
 use anyhow::Result;
 use chrono::Utc;
 use uuid::Uuid;
@@ -9,12 +7,6 @@ use crate::db::Database;
 use super::core::{SharedWriter, WriteSet};
 
 impl SharedWriter {
-    /// Create a milestone on the coordination branch.
-    ///
-    /// Returns the assigned milestone display ID.
-    ///
-    /// # Errors
-    /// Returns an error if writing or pushing to the coordination branch fails.
     pub fn create_milestone(
         &self,
         db: &Database,
@@ -43,18 +35,13 @@ impl SharedWriter {
         )?;
 
         self.hydrate_with_retry(db);
-        // The milestone id is reduction-assigned (REQ-4); read it from the
-        // cached reduced state, falling back to a SQLite lookup when provisional.
+
         if let Some(id) = self.v3_assigned_milestone_id(&uuid) {
             return Ok(id);
         }
         db.get_milestone_id_by_uuid(&uuid.to_string())
     }
 
-    /// Close a milestone on the coordination branch.
-    ///
-    /// # Errors
-    /// Returns an error if the milestone cannot be loaded or the write fails.
     pub fn close_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
@@ -75,10 +62,6 @@ impl SharedWriter {
         Ok(())
     }
 
-    /// Delete a milestone file from the coordination branch.
-    ///
-    /// # Errors
-    /// Returns an error if the milestone cannot be loaded or the write fails.
     pub fn delete_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let entry = self.load_milestone_by_id(milestone_id)?;
 
@@ -96,13 +79,6 @@ impl SharedWriter {
         Ok(())
     }
 
-    /// Set `milestone_uuid` on issue JSON files for the given issue IDs.
-    ///
-    /// Loads the milestone to get its UUID, then patches each issue file.
-    /// Also adds the issues to the `SQLite` `milestone_issues` table via hydration.
-    ///
-    /// # Errors
-    /// Returns an error if the milestone or any issue cannot be loaded, or the write fails.
     pub fn set_milestone_on_issues(
         &self,
         db: &Database,
@@ -132,10 +108,6 @@ impl SharedWriter {
         Ok(())
     }
 
-    /// Clear `milestone_uuid` on an issue JSON file.
-    ///
-    /// # Errors
-    /// Returns an error if the issue cannot be loaded or the write fails.
     pub fn clear_milestone_on_issue(&self, db: &Database, issue_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {

@@ -1,8 +1,8 @@
 name: Release Builds
 
-# Builds release binaries for all platforms on tag push and release PRs.
-# Separated from ci.yml so that develop/feature CI skips expensive
-# cross-platform release builds — these only matter for actual releases.
+
+
+
 on:
   push:
     tags:

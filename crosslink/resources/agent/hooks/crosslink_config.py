@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""
-Shared configuration and utility functions for Crosslink agent hooks.
 
-This module is deployed to .crosslink/integrations/hooks/crosslink_config.py by
-`crosslink init` and imported by the other hook scripts.
-"""
+
+
+
+
+
 
 import json
 import os
@@ -13,7 +13,7 @@ from contextlib import suppress
 
 
 def project_root_from_script():
-    """Derive the initialized project root from the deployed hook location."""
+
     try:
         current = os.path.dirname(os.path.abspath(__file__))
         for _ in range(10):
@@ -30,11 +30,11 @@ def project_root_from_script():
 
 
 def get_project_root():
-    """Get the project root directory.
 
-    Prefers deriving from the hook script's own path (works even when cwd is a
-    subdirectory), falling back to cwd.
-    """
+
+
+
+
     root = project_root_from_script()
     if root and os.path.isdir(root):
         return root
@@ -42,12 +42,12 @@ def get_project_root():
 
 
 def _resolve_main_repo_root(start_dir):
-    """Resolve the main repository root when running inside a git worktree.
 
-    Compares `git rev-parse --git-common-dir` with `--git-dir`. If they
-    differ, we're in a worktree and the main repo root is the parent of
-    git-common-dir. Returns None if not in a git repo.
-    """
+
+
+
+
+
     try:
         common = subprocess.run(
             ["git", "-C", start_dir, "rev-parse", "--git-common-dir"],
@@ -70,7 +70,7 @@ def _resolve_main_repo_root(start_dir):
         )
 
         if common_path != git_dir_path:
-            # In a worktree — parent of git-common-dir is the main repo root
+
             return os.path.dirname(common_path)
         return start_dir
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -78,34 +78,34 @@ def _resolve_main_repo_root(start_dir):
 
 
 def _is_initialized_crosslink_dir(candidate):
-    """Whether a .crosslink candidate is an initialized crosslink project dir.
 
-    `crosslink init` always writes hook-config.json. Stray `.crosslink/`
-    directories seeded in subdirectories by cwd drift (GH#625) lack it —
-    they contain only hydration caches. Binding to a stray sends hook
-    caches/heartbeats to the wrong place, so candidates without the marker
-    are skipped.
-    """
+
+
+
+
+
+
+
     return os.path.isfile(os.path.join(candidate, 'hook-config.json'))
 
 
 def find_crosslink_dir():
-    """Find the INITIALIZED .crosslink directory (GH#625-safe).
 
-    Prefers the project root derived from the hook script's own path
-    (reliable even when cwd is a subdirectory), falling back to walking
-    up from cwd, then checking if we're in a git worktree and looking
-    in the main repo root. Candidates without hook-config.json are
-    strays and are never bound.
-    """
-    # Primary: resolve from script location
+
+
+
+
+
+
+
+
     root = project_root_from_script()
     if root:
         candidate = os.path.join(root, '.crosslink')
         if os.path.isdir(candidate) and _is_initialized_crosslink_dir(candidate):
             return candidate
 
-    # Fallback: walk up from cwd
+
     current = os.getcwd()
     start = current
     for _ in range(10):
@@ -117,7 +117,7 @@ def find_crosslink_dir():
             break
         current = parent
 
-    # Last resort: check if we're in a git worktree and look in the main repo
+
     main_root = _resolve_main_repo_root(start)
     if main_root:
         candidate = os.path.join(main_root, '.crosslink')
@@ -128,20 +128,20 @@ def find_crosslink_dir():
 
 
 def _merge_with_extend(base, override):
-    """Merge *override* into *base* with array-extend support.
 
-    Keys in *override* that start with ``+`` are treated as array-extend
-    directives: their values are appended to the corresponding base array
-    (with the ``+`` stripped from the key name).  For example::
 
-        base:     {"allowed_bash_prefixes": ["ls", "pwd"]}
-        override: {"+allowed_bash_prefixes": ["my-tool"]}
-        result:   {"allowed_bash_prefixes": ["ls", "pwd", "my-tool"]}
 
-    If the base has no matching key, the override value is used as-is.
-    If the ``+``-prefixed value is not a list, it replaces like a normal key.
-    Keys without a ``+`` prefix replace the base value (backward compatible).
-    """
+
+
+
+
+
+
+
+
+
+
+
     for key, value in override.items():
         if key.startswith("+"):
             real_key = key[1:]
@@ -155,21 +155,21 @@ def _merge_with_extend(base, override):
 
 
 def load_config_merged(crosslink_dir):
-    """Load hook-config.json, then merge hook-config.local.json on top.
 
-    Supports the ``+key`` convention for extending arrays rather than
-    replacing them.  See ``_merge_with_extend`` for details.
 
-    Returns the merged dict, or {} if neither file exists.
-    """
+
+
+
+
+
     if not crosslink_dir:
         return {}
 
     config = {}
     config_path = os.path.join(crosslink_dir, "hook-config.json")
     if os.path.isfile(config_path):
-        # Missing/malformed config falls back to {} — hooks stay permissive
-        # rather than hard-failing on a broken JSON file.
+
+
         with suppress(json.JSONDecodeError, OSError):
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
@@ -185,7 +185,7 @@ def load_config_merged(crosslink_dir):
 
 
 def load_tracking_mode(crosslink_dir):
-    """Read tracking_mode from merged config. Defaults to 'strict'."""
+
     config = load_config_merged(crosslink_dir)
     mode = config.get("tracking_mode", "strict")
     if mode in ("strict", "normal", "relaxed"):
@@ -194,27 +194,27 @@ def load_tracking_mode(crosslink_dir):
 
 
 def find_crosslink_binary(crosslink_dir):
-    """Find the crosslink binary, checking config, PATH, and common locations."""
+
     import shutil
 
-    # 1. Check hook-config.json (+ local override) for explicit path
+
     config = load_config_merged(crosslink_dir)
     bin_path = config.get("crosslink_binary")
     if bin_path and os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
         return bin_path
 
-    # 2. Check PATH
+
     found = shutil.which("crosslink")
     if found:
         return found
 
-    # 3. Check common cargo install location
+
     home = os.path.expanduser("~")
     candidate = os.path.join(home, ".cargo", "bin", "crosslink")
     if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
         return candidate
 
-    # 4. Check relative to project root (dev builds)
+
     root = project_root_from_script()
     if root:
         for profile in ("release", "debug"):
@@ -222,18 +222,18 @@ def find_crosslink_binary(crosslink_dir):
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
 
-    return "crosslink"  # fallback to PATH lookup
+    return "crosslink"
 
 
 def load_guard_state(crosslink_dir):
-    """Read drift tracking state from .crosslink/.cache/guard-state.json.
 
-    Returns a dict with keys:
-      prompts_since_crosslink (int)
-      total_prompts (int)
-      last_crosslink_at (str ISO timestamp or None)
-      last_reminder_at (str ISO timestamp or None)
-    """
+
+
+
+
+
+
+
     if not crosslink_dir:
         return {"prompts_since_crosslink": 0, "total_prompts": 0,
                 "last_crosslink_at": None, "last_reminder_at": None}
@@ -241,7 +241,7 @@ def load_guard_state(crosslink_dir):
     try:
         with open(state_path, "r", encoding="utf-8") as f:
             state = json.load(f)
-        # Ensure required keys exist
+
         state.setdefault("prompts_since_crosslink", 0)
         state.setdefault("total_prompts", 0)
         state.setdefault("last_crosslink_at", None)
@@ -253,11 +253,11 @@ def load_guard_state(crosslink_dir):
 
 
 def save_guard_state(crosslink_dir, state):
-    """Write drift tracking state to .crosslink/.cache/guard-state.json."""
+
     if not crosslink_dir:
         return
     cache_dir = os.path.join(crosslink_dir, ".cache")
-    # Drift state is best-effort — a write failure must not break the hook.
+
     with suppress(OSError):
         os.makedirs(cache_dir, exist_ok=True)
         state_path = os.path.join(cache_dir, "guard-state.json")
@@ -266,7 +266,7 @@ def save_guard_state(crosslink_dir, state):
 
 
 def reset_drift_counter(crosslink_dir):
-    """Reset the drift counter (agent just used crosslink)."""
+
     if not crosslink_dir:
         return
     from datetime import datetime
@@ -277,37 +277,37 @@ def reset_drift_counter(crosslink_dir):
 
 
 def is_agent_context(crosslink_dir):
-    """Check if we're running inside an agent worktree.
 
-    Returns True if either:
-    1. .crosslink/agent.json exists AND its `role` field is "agent"
-       (crosslink agent init / kickoff / bootstrap), OR
-    2. CWD is inside a provider-managed .claude/worktrees/ or
-       .codex/worktrees/ path.
 
-    Agents get relaxed tracking mode so they can operate autonomously
-    without active crosslink issues or gated git commits.
 
-    Important: `agent.json` presence alone is NOT sufficient. As of
-    `crosslink init` auto-provisioning a hub-cache signing identity
-    (2026-03-30), every main repo has `agent.json` — but it's tagged
-    `role: driver` there, and human-driving sessions must stay on the
-    strict top-level hook rules. Identities written before the `role`
-    field existed deserialize to `driver` (safe default). See GH #566.
-    """
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     if not crosslink_dir:
         return False
     agent_json_path = os.path.join(crosslink_dir, "agent.json")
     if os.path.isfile(agent_json_path):
-        # Malformed or unreadable agent.json falls through to the cwd check;
-        # treating it as agent would silently weaken hook rules.
+
+
         data = None
         with suppress(json.JSONDecodeError, OSError):
             with open(agent_json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         if isinstance(data, dict) and data.get("role") == "agent":
             return True
-    # Detect provider-managed sub-agent worktrees.
+
     cwd = None
     with suppress(OSError):
         cwd = os.getcwd()
@@ -320,12 +320,12 @@ def is_agent_context(crosslink_dir):
 
 
 def normalize_git_command(command):
-    """Strip git global flags to extract the actual subcommand for matching.
 
-    Git accepts flags like -C, --git-dir, --work-tree, -c before the
-    subcommand. This normalizes 'git -C /path push' to 'git push' so
-    that blocked/gated command matching can't be bypassed.
-    """
+
+
+
+
+
     import shlex
 
     try:
@@ -338,10 +338,10 @@ def normalize_git_command(command):
 
     i = 1
     while i < len(parts):
-        # Flags that take a separate next argument
+
         if parts[i] in ("-C", "--git-dir", "--work-tree", "-c") and i + 1 < len(parts):
             i += 2
-        # Flags with =value syntax
+
         elif (
             parts[i].startswith("--git-dir=")
             or parts[i].startswith("--work-tree=")
@@ -359,7 +359,7 @@ _crosslink_bin = None
 
 
 def run_crosslink(args, crosslink_dir=None):
-    """Run a crosslink command and return output."""
+
     global _crosslink_bin
     if _crosslink_bin is None:
         _crosslink_bin = find_crosslink_binary(crosslink_dir)

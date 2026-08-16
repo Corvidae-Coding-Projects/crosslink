@@ -10,10 +10,6 @@ use std::path::Path;
 use tempfile::tempdir;
 use uuid::Uuid;
 
-/// Acquire a `HubWriteLock` for use in tests that call `compact` directly.
-///
-/// Uses the standard `.hub-write-lock` path so the lock path matches what
-/// production code uses when the cache dir is treated as a hub worktree.
 fn hub_lock_for_test(cache_dir: &Path) -> crate::sync::HubWriteLock {
     let lock_path = cache_dir.join(".hub-write-lock");
     crate::sync::acquire_hub_lock(&lock_path).expect("failed to acquire hub write lock for test")
@@ -55,18 +51,15 @@ fn test_new_returns_none_without_agent_config() {
 
 #[test]
 fn test_claim_display_id() {
-    // Test the counter logic directly using file I/O
     let dir = tempdir().unwrap();
     let meta_dir = dir.path().join("meta");
     std::fs::create_dir_all(&meta_dir).unwrap();
 
     let counters_path = meta_dir.join("counters.json");
 
-    // Start from defaults
     let counters = read_counters(&counters_path).unwrap();
     assert_eq!(counters.next_display_id, 1);
 
-    // Claim 1 ID
     let first = counters.next_display_id;
     let mut updated = counters;
     updated.next_display_id += 1;
@@ -74,7 +67,6 @@ fn test_claim_display_id() {
 
     assert_eq!(first, 1);
 
-    // Claim another
     let counters = read_counters(&counters_path).unwrap();
     assert_eq!(counters.next_display_id, 2);
 }
@@ -90,7 +82,6 @@ fn test_load_issue_by_display_id() {
     write_issue_file(&issues_dir.join(format!("{}.json", issue1.uuid)), &issue1).unwrap();
     write_issue_file(&issues_dir.join(format!("{}.json", issue2.uuid)), &issue2).unwrap();
 
-    // Simulate the scan logic
     let found = scan_for_display_id(&issues_dir, 2).unwrap();
     assert_eq!(found.title, "Second");
     assert_eq!(found.uuid, issue2.uuid);
@@ -126,7 +117,6 @@ fn test_counters_sequential_claim() {
     std::fs::create_dir_all(&meta_dir).unwrap();
     let path = meta_dir.join("counters.json");
 
-    // Claim 3 sequential IDs
     let mut counters = read_counters(&path).unwrap();
     let ids: Vec<i64> = (0..3)
         .map(|_| {
@@ -143,7 +133,6 @@ fn test_counters_sequential_claim() {
     assert_eq!(reloaded.next_display_id, 4);
 }
 
-/// Helper for tests: scan issues dir for a `display_id` (mirrors `SharedWriter` logic).
 fn scan_for_display_id(issues_dir: &Path, display_id: i64) -> Result<IssueFile> {
     for entry in std::fs::read_dir(issues_dir)? {
         let entry = entry?;
@@ -193,13 +182,11 @@ fn test_v2_scan_finds_issue_in_subdirectory() {
     let dir = tempdir().unwrap();
     let issues_dir = dir.path().join("issues");
 
-    // Create a v2-style issue directory
     let issue = make_issue(7, "V2 Issue");
     let issue_subdir = issues_dir.join(issue.uuid.to_string());
     std::fs::create_dir_all(issue_subdir.join("comments")).unwrap();
     write_issue_file(&issue_subdir.join("issue.json"), &issue).unwrap();
 
-    // The v2 scan should find it
     let mut found = false;
     for entry in std::fs::read_dir(&issues_dir).unwrap() {
         let entry = entry.unwrap();
@@ -308,7 +295,7 @@ mod lock_v2_tests {
                 winner_agent_id: "agent-2".to_string(),
             }
         );
-        // Verify Debug
+
         let _ = format!("{claimed:?}");
         let _ = format!("{contended:?}");
     }
@@ -329,7 +316,6 @@ mod lock_v2_tests {
         let json = serde_json::to_string_pretty(&lock).unwrap();
         std::fs::write(locks_dir.join("42.json"), &json).unwrap();
 
-        // Read it back
         let content = std::fs::read_to_string(locks_dir.join("42.json")).unwrap();
         let parsed: LockFileV2 = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed.issue_id, 42);
@@ -371,7 +357,6 @@ mod lock_v2_tests {
 
     #[test]
     fn test_lock_contention_deterministic_winner() {
-        // Verify that compaction's first-claim-wins rule works
         use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
         use crate::events::{append_event, Event, EventEnvelope};
         use chrono::Utc;
@@ -379,7 +364,6 @@ mod lock_v2_tests {
         let dir = tempdir().unwrap();
         let cache = dir.path();
 
-        // Set up checkpoint
         std::fs::create_dir_all(cache.join("checkpoint")).unwrap();
         std::fs::create_dir_all(cache.join("agents/agent-a")).unwrap();
         std::fs::create_dir_all(cache.join("agents/agent-b")).unwrap();
@@ -391,7 +375,6 @@ mod lock_v2_tests {
 
         let now = Utc::now();
 
-        // Agent A claims first (earlier timestamp)
         let e1 = EventEnvelope {
             agent_id: "agent-a".to_string(),
             agent_seq: 1,
@@ -405,7 +388,6 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-a/events.log"), &e1).unwrap();
 
-        // Agent B claims second (later timestamp)
         let e2 = EventEnvelope {
             agent_id: "agent-b".to_string(),
             agent_seq: 1,
@@ -419,14 +401,12 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
 
-        // Run compaction
         let lock = hub_lock_for_test(cache);
         let result = crate::compaction::compact(cache, "agent-a", true, &lock)
             .unwrap()
             .unwrap();
         assert_eq!(result.locks_materialized, 1);
 
-        // Read checkpoint -- agent-a should win (earlier timestamp)
         let state = read_checkpoint(cache).unwrap();
         let lock_entry = state.locks.get(&1).unwrap();
         assert_eq!(lock_entry.agent_id, "agent-a");
@@ -448,7 +428,6 @@ mod lock_v2_tests {
 
         let now = Utc::now();
 
-        // Write an event for the stale agent
         let e = EventEnvelope {
             agent_id: "stale-agent".to_string(),
             agent_seq: 1,
@@ -462,14 +441,12 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/stale-agent/events.log"), &e).unwrap();
 
-        // Write a watermark that covers the event so prune_events will prune it
         let watermark = OrderingKey {
             timestamp: now + chrono::Duration::seconds(1),
             agent_id: "stale-agent".to_string(),
             agent_seq: 1,
         };
 
-        // Compact to materialize (watermark is embedded in checkpoint state)
         let mut state = CheckpointState {
             watermark: Some(watermark),
             ..CheckpointState::default()
@@ -484,7 +461,6 @@ mod lock_v2_tests {
         );
         write_checkpoint(cache, &state).unwrap();
 
-        // Write materialized lock file
         let lock = crate::issue_file::LockFileV2 {
             issue_id: 5,
             agent_id: "stale-agent".to_string(),
@@ -498,22 +474,18 @@ mod lock_v2_tests {
         )
         .unwrap();
 
-        // Prune stale agent events
         let pruned = crate::compaction::prune_events(cache, "stale-agent").unwrap();
         assert!(pruned > 0);
 
-        // Clear checkpoint lock
         let mut state = crate::checkpoint::read_checkpoint(cache).unwrap();
         state.locks.remove(&5);
         write_checkpoint(cache, &state).unwrap();
 
-        // Remove lock file
         let lock_path = cache.join("locks/5.json");
         if lock_path.exists() {
             std::fs::remove_file(&lock_path).unwrap();
         }
 
-        // Verify clean state
         let state = crate::checkpoint::read_checkpoint(cache).unwrap();
         assert!(state.locks.is_empty());
         assert!(!cache.join("locks/5.json").exists());
@@ -548,7 +520,6 @@ mod lock_v2_tests {
 
     #[test]
     fn test_lock_claim_result_display_and_equality() {
-        // Verify Contended results with different winners are not equal
         let c1 = LockClaimResult::Contended {
             winner_agent_id: "agent-1".to_string(),
         };
@@ -557,20 +528,17 @@ mod lock_v2_tests {
         };
         assert_ne!(c1, c2);
 
-        // Verify same winner is equal
         let c3 = LockClaimResult::Contended {
             winner_agent_id: "agent-1".to_string(),
         };
         assert_eq!(c1, c3);
 
-        // Verify Clone works correctly
         let cloned = c1.clone();
         assert_eq!(c1, cloned);
     }
 
     #[test]
     fn test_lock_contention_with_three_agents() {
-        // Three agents claiming same lock, verify deterministic winner
         use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
         use crate::events::{append_event, Event, EventEnvelope};
         use chrono::Utc;
@@ -590,7 +558,6 @@ mod lock_v2_tests {
 
         let now = Utc::now();
 
-        // Agent C claims first (earliest)
         let e1 = EventEnvelope {
             agent_id: "agent-c".to_string(),
             agent_seq: 1,
@@ -604,7 +571,6 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-c/events.log"), &e1).unwrap();
 
-        // Agent A claims second
         let e2 = EventEnvelope {
             agent_id: "agent-a".to_string(),
             agent_seq: 1,
@@ -618,7 +584,6 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-a/events.log"), &e2).unwrap();
 
-        // Agent B claims third
         let e3 = EventEnvelope {
             agent_id: "agent-b".to_string(),
             agent_seq: 1,
@@ -646,7 +611,6 @@ mod lock_v2_tests {
 
     #[test]
     fn test_lock_contention_then_winner_releases() {
-        // Two agents contend. Winner releases. Lock should be empty.
         use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
         use crate::events::{append_event, Event, EventEnvelope};
         use chrono::Utc;
@@ -665,7 +629,6 @@ mod lock_v2_tests {
 
         let now = Utc::now();
 
-        // Agent A claims first (wins)
         let e1 = EventEnvelope {
             agent_id: "agent-a".to_string(),
             agent_seq: 1,
@@ -679,7 +642,6 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-a/events.log"), &e1).unwrap();
 
-        // Agent B claims second (loses)
         let e2 = EventEnvelope {
             agent_id: "agent-b".to_string(),
             agent_seq: 1,
@@ -693,7 +655,6 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
 
-        // Agent A releases
         let e3 = EventEnvelope {
             agent_id: "agent-a".to_string(),
             agent_seq: 2,
@@ -716,7 +677,6 @@ mod lock_v2_tests {
 
     #[test]
     fn test_lock_file_v2_missing_optional_fields() {
-        // Verify LockFileV2 deserialization works when optional fields are null
         let json = r#"{
             "issue_id": 7,
             "agent_id": "agent-minimal",
@@ -733,14 +693,12 @@ mod lock_v2_tests {
 
     #[test]
     fn test_lock_contention_deterministic_across_compaction_agents() {
-        // The same winner should emerge regardless of which agent runs compaction
         use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
         use crate::events::{append_event, Event, EventEnvelope};
         use chrono::Utc;
 
         let now = Utc::now();
 
-        // Set up two identical caches with the same events
         for compactor in &["agent-a", "agent-b"] {
             let dir = tempdir().unwrap();
             let cache = dir.path();
@@ -792,8 +750,6 @@ mod lock_v2_tests {
     }
 }
 
-// ---- Integration tests with real git repos ----
-
 mod integration {
     use super::*;
     use crate::db::Database;
@@ -801,29 +757,22 @@ mod integration {
     use std::process::Command;
     use tempfile::TempDir;
 
-    /// Set up a minimal git environment for `SharedWriter` tests.
-    ///
-    /// Returns (`work_dir`, `remote_dir`). The hub cache (`crosslink/hub` branch)
-    /// is initialized directly inside the `work_dir` so `SharedWriter::new()` works.
     fn setup_shared_writer_env() -> (TempDir, TempDir, std::path::PathBuf) {
         let remote_dir = tempfile::tempdir().unwrap();
         let work_dir = tempfile::tempdir().unwrap();
 
-        // Init bare remote
         Command::new("git")
             .current_dir(remote_dir.path())
             .args(["init", "--bare", "-b", "main"])
             .output()
             .unwrap();
 
-        // Init work repo
         Command::new("git")
             .current_dir(work_dir.path())
             .args(["init", "-b", "main"])
             .output()
             .unwrap();
 
-        // Config git identity
         for args in [
             vec!["config", "user.email", "test@test.local"],
             vec!["config", "user.name", "Test"],
@@ -841,7 +790,6 @@ mod integration {
                 .unwrap();
         }
 
-        // Initial commit + push
         std::fs::write(work_dir.path().join("README.md"), "# test\n").unwrap();
         Command::new("git")
             .current_dir(work_dir.path())
@@ -859,7 +807,6 @@ mod integration {
             .output()
             .unwrap();
 
-        // Create .crosslink dir with hook-config.json
         let crosslink_dir = work_dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         std::fs::write(
@@ -868,7 +815,6 @@ mod integration {
         )
         .unwrap();
 
-        // Create agent.json (needed for SharedWriter::new() to get an agent identity)
         let agent_config = AgentConfig {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
@@ -881,29 +827,21 @@ mod integration {
         let agent_json = serde_json::to_string_pretty(&agent_config).unwrap();
         std::fs::write(crosslink_dir.join("agent.json"), agent_json).unwrap();
 
-        // Initialize the hub cache (crosslink/hub branch) using SyncManager
         let sync = crate::sync::SyncManager::new(&crosslink_dir).unwrap();
         sync.init_cache().unwrap();
 
         (work_dir, remote_dir, crosslink_dir)
     }
 
-    /// Like [`setup_shared_writer_env`] but builds a legacy **v2** hub so the v2
-    /// refusal / v2 file-read paths can be exercised. Since 754b a fresh
-    /// `init_cache` bootstraps v3, so a v2 hub must be created explicitly: lay
-    /// down a `crosslink/hub` worktree with the v2 layout markers before any
-    /// `SharedWriter` resolves its mode.
     fn setup_shared_writer_env_v2() -> (TempDir, TempDir, std::path::PathBuf) {
         let (work_dir, remote_dir, crosslink_dir) = setup_shared_writer_env();
 
-        // The fresh env bootstrapped a v3 host worktree; remove it and replace
-        // with a v2 `crosslink/hub` worktree carrying the v2 layout.
         let cache_dir = crosslink_dir.join(".hub-cache");
         let _ = Command::new("git")
             .current_dir(work_dir.path())
             .args(["worktree", "remove", "--force", cache_dir.to_str().unwrap()])
             .output();
-        // Drop the v3 marker refs so detection sees a pure v2 hub.
+
         for r in [
             "refs/heads/crosslink/meta",
             "refs/heads/crosslink/checkpoint",
@@ -914,13 +852,12 @@ mod integration {
                 .args(["update-ref", "-d", r])
                 .output();
         }
-        // Also drop the v3 host branch so the name is free for the v2 worktree.
+
         let _ = Command::new("git")
             .current_dir(work_dir.path())
             .args(["branch", "-D", "crosslink/hub-v3-host"])
             .output();
 
-        // Create the v2 hub worktree on an orphan `crosslink/hub` branch.
         Command::new("git")
             .current_dir(work_dir.path())
             .args([
@@ -933,7 +870,7 @@ mod integration {
             ])
             .output()
             .unwrap();
-        // v2 layout marker + skeleton dirs.
+
         let meta_dir = cache_dir.join("meta");
         std::fs::create_dir_all(meta_dir.join("milestones")).unwrap();
         std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
@@ -972,12 +909,9 @@ mod integration {
         (work_dir, remote_dir, crosslink_dir)
     }
 
-    /// Create an in-memory test database at a temp path.
     fn make_db(dir: &std::path::Path) -> Database {
         Database::open(&dir.join("issues.db")).unwrap()
     }
-
-    // --- SharedWriter::new() ---
 
     #[test]
     fn test_new_returns_some_with_agent_and_hub() {
@@ -1014,8 +948,6 @@ mod integration {
         drop(work_dir);
     }
 
-    // --- read_lock_v2() ---
-
     #[test]
     fn test_read_lock_v2_returns_none_when_no_lock() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
@@ -1034,7 +966,6 @@ mod integration {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
-        // Manually write a lock file
         let locks_dir = crosslink_dir.join(".hub-cache").join("locks");
         std::fs::create_dir_all(&locks_dir).unwrap();
         let lock = crate::issue_file::LockFileV2 {
@@ -1065,8 +996,7 @@ mod integration {
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
         let dir = writer.crosslink_dir();
-        // crosslink_dir() should return the parent of the cache dir
-        // The cache dir is crosslink_dir/.hub-cache, so parent = crosslink_dir
+
         assert!(
             dir.exists(),
             "crosslink_dir() should point to an existing dir"
@@ -1079,7 +1009,6 @@ mod integration {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
-        // The test agent has no SSH key configured
         let key_path = writer.resolve_ssh_key_path();
         assert!(
             key_path.is_none(),
@@ -1103,7 +1032,6 @@ mod integration {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
-        // No SSH key configured -- sign_comment should return (None, None)
         let (signed_by, signature) = writer.sign_comment("content", "author", 1);
         assert!(signed_by.is_none());
         assert!(signature.is_none());
@@ -1166,7 +1094,6 @@ mod integration {
         let meta_dir = dir.path().join("meta");
         std::fs::create_dir_all(&meta_dir).unwrap();
 
-        // Don't write a version file -> defaults to v1
         let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
         assert_eq!(version, 1);
     }
@@ -1181,22 +1108,16 @@ mod integration {
     #[test]
     fn test_push_outcome_copy() {
         let o = PushOutcome::Pushed;
-        let o2 = o; // copy
+        let o2 = o;
         assert_eq!(o, o2);
     }
 
-    // ---- SharedWriter::new() anonymous path ----
-
     #[test]
     fn test_new_without_agent_config_but_hub_already_initialized() {
-        // Exercises line 144-145: no agent.json, hub branch already initialized.
-        // SharedWriter::new() should return Some with an anonymous config.
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
 
-        // Remove agent.json so we exercise the anonymous code path
         std::fs::remove_file(crosslink_dir.join("agent.json")).unwrap();
 
-        // Hub cache already exists from setup -- is_initialized() returns true immediately
         let writer = SharedWriter::new(&crosslink_dir).unwrap();
         assert!(
             writer.is_some(),
@@ -1204,7 +1125,7 @@ mod integration {
         );
 
         let writer = writer.unwrap();
-        // Anonymous agent_id starts with "anon-"
+
         assert!(
             writer.agent_id().starts_with("anon-"),
             "Anonymous writer should have agent_id starting with 'anon-', got: {}",
@@ -1216,11 +1137,8 @@ mod integration {
 
     #[test]
     fn test_new_without_agent_config_hub_init_fails_returns_none() {
-        // Exercises lines 138-139: no agent.json, and init_cache() fails because the
-        // remote is unreachable (invalid URL), so SharedWriter::new() returns Ok(None).
         let work_dir = tempfile::tempdir().unwrap();
 
-        // Init a git repo with a bogus remote that can't be reached
         Command::new("git")
             .current_dir(work_dir.path())
             .args(["init", "-b", "main"])
@@ -1230,7 +1148,6 @@ mod integration {
         for args in [
             vec!["config", "user.email", "test@test.local"],
             vec!["config", "user.name", "Test"],
-            // Use an invalid remote path so ls-remote / worktree add will fail
             vec!["remote", "add", "origin", "/nonexistent/path/to/remote"],
         ] {
             Command::new("git")
@@ -1240,7 +1157,6 @@ mod integration {
                 .unwrap();
         }
 
-        // Create .crosslink dir with hook-config.json but NO agent.json
         let crosslink_dir = work_dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         std::fs::write(
@@ -1249,12 +1165,8 @@ mod integration {
         )
         .unwrap();
 
-        // No agent.json. The hub cache dir doesn't exist so is_initialized() = false.
-        // init_cache() will try to create an orphan worktree. If it does succeed (creating
-        // a local orphan) we get Some; if it fails we get None.
-        // Either way, the test validates that the code path is reachable and doesn't panic.
         let result = SharedWriter::new(&crosslink_dir);
-        // The result should be Ok (no panic), regardless of Some/None depending on git
+
         assert!(
             result.is_ok(),
             "SharedWriter::new() should not error even when hub unavailable"
@@ -1263,15 +1175,10 @@ mod integration {
         drop(work_dir);
     }
 
-    // ---- resolve_ssh_key_path coverage ----
-
     #[test]
     fn test_resolve_ssh_key_path_nonexistent_file() {
-        // Exercises line 254: ssh_key_path is configured but the file doesn't exist.
-        // resolve_ssh_key_path() should return None.
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
 
-        // Reconfigure agent.json with a key path that doesn't exist on disk
         let agent_config = AgentConfig {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
@@ -1286,7 +1193,6 @@ mod integration {
 
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
-        // The key file doesn't exist -> resolve_ssh_key_path returns None (line 254)
         let resolved = writer.resolve_ssh_key_path();
         assert!(
             resolved.is_none(),
@@ -1298,16 +1204,12 @@ mod integration {
 
     #[test]
     fn test_resolve_ssh_key_path_existing_file() {
-        // Exercises line 251-252: ssh_key_path is configured and file exists.
-        // resolve_ssh_key_path() should return Some(path).
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
 
-        // Create a fake key file inside .crosslink/
         let fake_key_name = "test_agent_key.pem";
         let fake_key_path = crosslink_dir.join(fake_key_name);
         std::fs::write(&fake_key_path, "fake key content").unwrap();
 
-        // Reconfigure agent.json to point at the fake key
         let agent_config = AgentConfig {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
@@ -1322,7 +1224,6 @@ mod integration {
 
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
-        // The key file exists -> resolve_ssh_key_path returns Some
         let resolved = writer.resolve_ssh_key_path();
         assert!(
             resolved.is_some(),
@@ -1336,8 +1237,6 @@ mod integration {
         drop(work_dir);
     }
 
-    // --- SharedWriter::new() anonymous path ---
-
     #[test]
     fn test_new_without_agent_json_and_no_hub() {
         let dir = tempfile::tempdir().unwrap();
@@ -1349,17 +1248,9 @@ mod integration {
         )
         .unwrap();
 
-        // No agent.json, no hub branch -> should return None
         let result = SharedWriter::new(&crosslink_dir).unwrap();
         assert!(result.is_none());
     }
-
-    // ── v2-hub write refusal (#754 PASS B1) ──────────────────────────────────
-    //
-    // The v2 write path was deleted; every mutation now bails on a v2 hub with a
-    // message instructing the operator to migrate. `setup_shared_writer_env()`
-    // builds a v2 hub, so these mutations must refuse. The surviving v3 write
-    // behavior is covered in `src/commands/hub_v3_operation_tests.rs`.
 
     #[test]
     fn test_v2_create_issue_refuses_with_migrate_message() {
@@ -1380,10 +1271,6 @@ mod integration {
 
     #[test]
     fn test_v2_add_label_refuses() {
-        // `add_label` on a non-existent id on a v2 hub must return Err. We do not
-        // assert the exact substring here: `add_label` loads the issue first, and
-        // on a v2 hub that read path can fail before reaching the write refusal.
-        // The robust contract for this call is simply that it does not succeed.
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
         let db = make_db(work_dir.path());

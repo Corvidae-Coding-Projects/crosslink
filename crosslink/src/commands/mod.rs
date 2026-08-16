@@ -26,8 +26,7 @@ pub mod intervene;
 pub mod kickoff;
 pub mod knowledge;
 pub mod label;
-/// Issue lifecycle management (close, reopen, close-all).
-/// Renamed from status.rs to better reflect contents (#448).
+
 pub mod lifecycle;
 pub mod list;
 pub mod locks_cmd;

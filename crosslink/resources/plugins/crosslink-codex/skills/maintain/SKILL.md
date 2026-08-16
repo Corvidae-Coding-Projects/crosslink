@@ -1,192 +1,34 @@
 ---
 name: maintain
-description: Use to run a periodic codebase-health pass — dependency audit, lint, test suite, dead code / TODO scan, doc freshness, crosslink issue hygiene, and build artifacts. Conservative by default (small fixes inline, larger work files a `maintenance`-labelled issue). Trigger when the user says "maintenance", "health check", "audit dependencies", "/maintain", or asks for a periodic project tidy-up.
+description: "Assess dependency, build, test, lint, documentation, issue, and generated-asset health without silently expanding scope."
 ---
 
-# Maintain — codebase maintenance pass
+# Maintenance pass
 
-Run a structured codebase maintenance pass. This is a periodic health check — not a pre-commit review. Check each section, report findings, and fix what you can.
+Inspect first; modify only when the user requests remediation.
 
-## 1. Dependency health
+## Dependencies
 
-Detect the project's toolchain and audit dependencies:
+Read manifests and lockfiles, then use ecosystem-native tools to identify outdated, vulnerable, duplicated, or unused packages. Distinguish confirmed findings from network-unavailable checks.
 
-**Rust** (if `Cargo.toml` exists):
+## Formatting and lint
 
-```bash
-cargo update --dry-run 2>&1 | head -30
-```
+Run check-only formatters and configured linters for each maintained component. Capture exact failures and avoid blanket suppression.
 
-Check for outdated or yanked crates. If `cargo-audit` is available:
+## Tests and builds
 
-```bash
-cargo audit 2>/dev/null || echo "cargo-audit not installed — skip"
-```
+Run the normal test suite, then relevant feature, integration, platform, packaging, or documentation builds. Investigate hangs and timeouts as failures with causes, not as missing results.
 
-**Node** (if `package.json` exists):
+## Source health
 
-```bash
-npm outdated 2>/dev/null || echo "npm outdated not available"
-npm audit --audit-level=moderate 2>/dev/null || echo "npm audit not available"
-```
+Search for dead paths, obsolete compatibility code, stubs, debug residue, duplicate logic, stale feature flags, and generated files that differ from their source. Confirm candidates through references and build behavior before recommending removal.
 
-**Python** (if `pyproject.toml` or `requirements.txt` exists):
+## Documentation and tracking
 
-```bash
-uv pip list --outdated 2>/dev/null || pip list --outdated 2>/dev/null || echo "skip"
-```
+Compare public behavior with README, architecture, command reference, changelog, provider assets, and examples. Review open, blocked, orphaned, and completed Crosslink issues for inconsistent state.
 
-**Elixir** (if `mix.exs` exists):
+## Artifacts
 
-```bash
-mix hex.outdated 2>/dev/null || echo "mix hex.outdated not available"
-mix deps.audit 2>/dev/null || echo "mix deps.audit not available"
-```
+Measure build caches and generated outputs. Never delete them unless the user authorizes cleanup and the target is exact.
 
-Report: list any dependencies with known vulnerabilities or major version bumps available.
-
-## 2. Lint and format check
-
-Run the full lint suite without fixing — report-only mode:
-
-**Rust**:
-
-```bash
-cargo clippy -- -D warnings 2>&1
-cargo fmt --check 2>&1
-```
-
-**Node/TypeScript**:
-
-```bash
-npx eslint . 2>/dev/null || npm run lint 2>/dev/null
-```
-
-**Python**:
-
-```bash
-ruff check . 2>/dev/null || uv run ruff check . 2>/dev/null
-```
-
-**Go**:
-
-```bash
-go vet ./... 2>/dev/null
-gofmt -l . 2>/dev/null
-```
-
-**Elixir**:
-
-```bash
-mix format --check-formatted 2>&1
-mix credo --strict 2>&1
-```
-
-Count warnings and errors. If any are found, fix them.
-
-## 3. Test suite health
-
-Run the full test suite and assess health:
-
-**Rust**: `cargo test 2>&1`
-**Node**: `npm test 2>&1`
-**Python**: `uv run pytest 2>/dev/null || pytest 2>/dev/null`
-**Go**: `go test ./... 2>/dev/null`
-**Elixir**: `mix test 2>&1`
-
-Report:
-
-- Total tests, passed, failed, skipped
-- Any flaky tests (if visible from output)
-- Tests that are unusually slow
-
-## 4. Dead code and stale patterns
-
-Search the codebase for patterns that indicate maintenance debt:
-
-```
-TODO, FIXME, HACK, XXX, DEPRECATED
-```
-
-Also search for:
-
-- `#[allow(dead_code)]` or `#[allow(unused)]` in Rust
-- `// eslint-disable` or `// @ts-ignore` in TypeScript/JavaScript
-- Unused imports (from lint output in step 2)
-- Empty `catch` blocks or swallowed errors
-
-For each finding, decide:
-
-- **Fix now** if it's a quick cleanup (remove unused import, delete dead code)
-- **File issue** if it requires more work: `crosslink issue create "<description>" -p low --label maintenance`
-
-## 5. Documentation freshness
-
-Check that key documentation files exist and aren't stale:
-
-- `README.md` — exists?
-- `CHANGELOG.md` — has entries for recent work?
-- `AGENTS.md` and `CLAUDE.md` — when present, do they reflect the current project structure without conflicting provider guidance?
-
-Read the first 20 lines of each to assess whether they're current. Flag any that reference features or structures that no longer exist.
-
-## 6. Crosslink issue hygiene
-
-Audit the issue tracker:
-
-```bash
-crosslink issue list -s open
-```
-
-Check for:
-
-- **Stale issues**: open issues that haven't been updated recently and may be obsolete
-- **Duplicate issues**: multiple issues describing the same work
-- **Missing labels**: open issues without category labels
-- **Orphaned subissues**: subissues whose parent is already closed
-
-For each finding, suggest an action (close, merge, label, etc.) but do not close issues without user confirmation.
-
-## 7. Build artifact cleanup
-
-Check for build artifacts or temp files that shouldn't be tracked:
-
-```bash
-git status --ignored --short 2>/dev/null | head -20
-```
-
-Verify `.gitignore` covers common patterns for the detected languages.
-
-## 8. Print maintenance report
-
-Print a summary using this format:
-
-```
-Maintenance Report
-==================
-
-Dependencies:     [OK | N outdated | N vulnerable]
-Lint:             [OK | N warnings | N errors]
-Format:           [OK | N files need formatting]
-Tests:            [N passed, N failed, N skipped]
-Dead code/TODOs:  [OK | N items found]
-Documentation:    [OK | N files stale]
-Issue hygiene:    [OK | N issues need attention]
-Build artifacts:  [OK | N items to clean]
-
-Actions taken:
-  - Fixed N lint warnings
-  - Removed N dead code items
-  - Created N maintenance issues
-
-Recommended follow-ups:
-  - <list of items that need human attention>
-```
-
-## Constraints
-
-- Do not make breaking changes. Maintenance is conservative — fix warnings, remove dead code, update docs.
-- Do not update dependency versions without checking for breaking changes first. Report outdated deps; only update patch versions automatically.
-- Do not close crosslink issues without user confirmation — only suggest closures.
-- Do not modify test behavior — only fix test infrastructure issues (imports, configs).
-- If a fix would touch more than 10 lines, create a crosslink issue for it instead of fixing inline.
+Report checks run, findings by severity, evidence, safe fixes, unavailable checks, and suggested order. Do not update dependencies, delete artifacts, close issues, or rewrite documentation during a read-only maintenance request.

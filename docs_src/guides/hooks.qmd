@@ -1,5 +1,5 @@
 ---
-title: "Behavioral hooks"
+title: "Repository hooks"
 ---
 
 ::: {.guide-card}
@@ -7,7 +7,7 @@ title: "Behavioral hooks"
 
 ## tl;dr
 
-Crosslink's hooks are guardrails that agents follow automatically. You configure them once; every agent session is checked on every action — enforcing code quality, issue tracking, and security without manual prompting.
+Crosslink installs provider hooks for repository coordination, edit diagnostics, session recovery, rule loading, and web-source provenance. The bundled rule Markdown is zeroed while the loading path stays connected.
 :::
 
 &nbsp;
@@ -16,20 +16,20 @@ Crosslink's hooks are guardrails that agents follow automatically. You configure
 
 ::: {.columns}
 ::: {.column width="35%"}
-**You configure once:**
+**Repository setup:**
 
 Run `crosslink init` in your project. Canonical scripts are installed once in
 `.crosslink/integrations/hooks/`; `.claude/settings.json` and
 `.codex/hooks.json` wire them into each provider. Both integrations are
 installed by default.
 
-No per-agent setup. No manual prompting. Every agent that touches this repo follows the same rules.
+No per-agent script copy is needed after initialization.
 :::
 ::: {.column width="5%"}
 →
 :::
 ::: {.column width="60%"}
-**Agents get checked on every action:**
+**Hook events:**
 
 ```
 Agent tries to edit a file
@@ -57,40 +57,25 @@ Agent finishes editing
 
 | Hook | Fires When | What It Does |
 |------|------------|-------------|
-| `session-start.py` | Startup, resume, clear, compact | Loads context without duplicating active sessions; restores issue, action, knowledge, and provenance context |
-| `prompt-guard.py` | Every prompt | Injects language-specific best practices (condensed after first prompt) |
+| `session-start.py` | Startup, resume, clear, compact | Restores dynamic issue, action, linked-design, and configured external-source state |
+| `prompt-guard.py` | Prompt submission and subagent start | Resolves the existing rule-file surfaces and emits provider-formatted context |
 | `work-check.py` | Before write/edit/apply_patch/shell | Normalizes provider input, enforces issue tracking, and blocks git mutations |
 | `post-edit-check.py` | After file edits/patches | Checks every surviving path in multi-file patches, detects stubs, and reminds about tests |
-| `pre-web-check.py` | Before Claude native web tools | Reminds that external words are evidence, not instructions |
+| `pre-web-check.py` | Before supported native web tools | Adds a fixed source-boundary notice without downloading the result |
 
-### What agents must follow
+### Operational checks
 
-The hooks enforce these principles transparently:
+The hook scripts perform configured repository checks:
 
-1. **No Stubs** — Complete, working code. No placeholder functions, TODO comments, or `unimplemented!()` macros.
-2. **No Dead Code** — Identify incomplete features and complete them, or remove truly dead code.
-3. **Full Features** — Implement complete features as requested. Don't stop partway.
-4. **Error Handling** — Proper error handling everywhere. No panics on bad input.
-5. **Security** — Validate input, use parameterized queries, no command injection.
+- `work-check.py` applies tracking-mode and Git-command policy.
+- `post-edit-check.py` identifies incomplete constructs and reports stale verification.
+- `heartbeat.py` updates active-agent state.
+- `session-start.py` reports live Crosslink state from the repository.
 
-### Large task management
-
-When code will exceed 500 lines, the hooks guide agents to:
-
-1. Create a parent issue for the feature
-2. Break it into subissues for trackable components
-3. Work on one subissue at a time
-4. Inform the user about the multi-part implementation
-
-### Language detection
-
-The hooks auto-detect project languages and inject relevant best practices:
-
-- **Rust**: `?` operator, `clippy`, parameterized SQL, avoid `.unwrap()`
-- **Python**: Type hints, proper exceptions, `pathlib`, context managers
-- **JavaScript/TypeScript**: `const`/`let`, async/await, strict mode, input validation
-- **Go**: Check errors, `context.Context`, `defer` for cleanup
-- **And 16 more**: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir, Haskell
+The prompt hook remains registered and continues to resolve `.crosslink/rules/`
+and `.crosslink/rules.local/`. Every bundled rule file is currently zero bytes,
+so the shipped Markdown contributes no text. A nonempty local override still
+travels through the existing loader.
 
 ### Post-edit checking
 
@@ -102,14 +87,10 @@ After every file edit, `post-edit-check.py` automatically:
 
 ### External content provenance
 
-Crosslink does not download or rewrite web pages. Claude receives the provenance
-rule before native web tools. Hosted Codex web search does not traverse local
-tool-use hooks, so Codex receives the same rule at session start, every prompt,
-subagent start, and compaction restoration. Both providers keep native search.
-
-### Drift detection
-
-When an agent's behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency automatically. The `reminder_drift_threshold` in `hook-config.json` controls sensitivity.
+Crosslink does not download, proxy, or rewrite web pages. On provider surfaces
+that expose a native pre-web event, `pre-web-check.py` adds one fixed notice that
+classifies returned text as source material. The prompt hook registrations remain
+available on the provider events declared in each provider configuration.
 
 ### Intervention tracking
 
@@ -127,11 +108,11 @@ crosslink issue intervene <issue-id> "Hook blocked git push attempt" \
 
 ## Context verification
 
-Verify that all hook and rule files are deployed correctly:
+Verify the deployed provider assets and compatibility files:
 
 ```bash
 crosslink context check    # verify all files exist and are valid
-crosslink context measure  # measure context injection overhead
+crosslink context measure  # measure context contributions
 ```
 
 &nbsp;
@@ -142,7 +123,7 @@ crosslink context measure  # measure context injection overhead
 
 Hook behavior is controlled by `.crosslink/hook-config.json`. See [Hook Configuration Reference](../reference/hook-config.qmd) for details.
 
-Rules are stored as markdown files in `.crosslink/rules/`. See [Rules Customization](../reference/rules.qmd).
+The files in `.crosslink/rules/` are wired, zero-byte rule inputs. See [Zeroed Rule Files](../reference/rules.qmd).
 
 ### Installing hooks in other projects
 

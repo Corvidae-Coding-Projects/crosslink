@@ -8,25 +8,17 @@ use crate::db::Database;
 use super::config::SentinelConfig;
 use super::sources::SignalDecision;
 
-/// Record of the most recent dispatch for a signal, used for dedup decisions.
 struct SeenRecord {
     outcome: String,
     attempt_number: i32,
     completed_at: Option<DateTime<Utc>>,
 }
 
-/// In-memory dedup cache loaded from `sentinel_dispatches`.
-///
-/// Determines whether a signal should be dispatched (New), retried with
-/// escalation (Escalate), or skipped entirely (Skip).
 pub struct SeenSet {
-    /// `signal_ref` -> most recent dispatch record
     seen: HashMap<String, SeenRecord>,
 }
 
 impl SeenSet {
-    /// Load the `SeenSet` from the database. Takes the most recent dispatch
-    /// per `signal_ref`.
     pub fn load(db: &Database) -> Result<Self> {
         let dispatches = db.load_dispatch_seen_set()?;
         let mut seen = HashMap::with_capacity(dispatches.len());
@@ -50,7 +42,6 @@ impl SeenSet {
         Ok(Self { seen })
     }
 
-    /// Evaluate whether a signal should be dispatched, escalated, or skipped.
     pub fn evaluate(&self, signal_ref: &str, config: &SentinelConfig) -> SignalDecision {
         let Some(record) = self.seen.get(signal_ref) else {
             return SignalDecision::New;
@@ -67,7 +58,6 @@ impl SeenSet {
         }
     }
 
-    /// Check if a failed/orphaned dispatch is eligible for escalation retry.
     fn evaluate_retry(record: &SeenRecord, config: &SentinelConfig) -> SignalDecision {
         if !config.escalation.enabled {
             return SignalDecision::Skip("escalation disabled");
@@ -85,10 +75,6 @@ impl SeenSet {
     }
 }
 
-/// Layer 3: Authoritative database dedup check.
-///
-/// Even if the in-memory `SeenSet` is stale (e.g., sentinel restarted mid-cycle),
-/// this check prevents duplicate dispatches.
 pub fn db_dedup_check(
     db: &Database,
     gh_issue_number: i64,
@@ -99,7 +85,6 @@ pub fn db_dedup_check(
         return Ok(SignalDecision::New);
     };
 
-    // Mirror the SeenSet logic against the authoritative DB record
     match dispatch.outcome.as_str() {
         "pending" => Ok(SignalDecision::Skip("agent in-flight (db)")),
         "success" => Ok(SignalDecision::Skip("already resolved (db)")),
@@ -129,11 +114,6 @@ pub fn db_dedup_check(
     }
 }
 
-/// Layer 4: GitHub comment dedup check.
-///
-/// Before posting a result comment, verify we haven't already posted for this
-/// dispatch ID. Checks for the marker string `sentinel #<dispatch-id>` in
-/// existing comments.
 pub fn gh_comment_already_posted(gh_issue_number: i64, dispatch_id: i64) -> bool {
     let marker = format!("sentinel #{dispatch_id}");
     let output = std::process::Command::new("gh")
@@ -160,7 +140,7 @@ pub fn gh_comment_already_posted(gh_issue_number: i64, dispatch_id: i64) -> bool
                 gh_issue_number,
                 stderr.trim()
             );
-            // On failure, assume not posted (proceed cautiously)
+
             false
         }
         Err(e) => {
@@ -170,14 +150,12 @@ pub fn gh_comment_already_posted(gh_issue_number: i64, dispatch_id: i64) -> bool
     }
 }
 
-/// Extract the GH issue number from a signal reference like "GH#499:replicate".
 pub fn parse_gh_issue_number(signal_ref: &str) -> Option<i64> {
     let rest = signal_ref.strip_prefix("GH#")?;
     let num_str = rest.split(':').next()?;
     num_str.parse().ok()
 }
 
-/// Extract the label from a signal reference like "GH#499:replicate" -> "replicate".
 pub fn parse_signal_label_suffix(signal_ref: &str) -> Option<&str> {
     signal_ref.split(':').nth(1)
 }
@@ -264,7 +242,7 @@ mod tests {
             SeenRecord {
                 outcome: "failure".to_string(),
                 attempt_number: 1,
-                // Completed 2 hours ago — well past 30min cooldown
+
                 completed_at: Some(Utc::now() - chrono::Duration::hours(2)),
             },
         );
@@ -284,7 +262,7 @@ mod tests {
             SeenRecord {
                 outcome: "failure".to_string(),
                 attempt_number: 1,
-                // Completed 5 minutes ago — within 30min cooldown
+
                 completed_at: Some(Utc::now() - chrono::Duration::minutes(5)),
             },
         );
@@ -303,7 +281,7 @@ mod tests {
             "GH#499:replicate".to_string(),
             SeenRecord {
                 outcome: "failure".to_string(),
-                attempt_number: 2, // max_attempts = 2
+                attempt_number: 2,
                 completed_at: Some(Utc::now() - chrono::Duration::hours(2)),
             },
         );
@@ -386,7 +364,7 @@ mod tests {
         );
         let seen = SeenSet { seen: seen_map };
         let config = SentinelConfig::default();
-        // Same issue, different label = new signal
+
         assert_eq!(seen.evaluate("GH#499:fix", &config), SignalDecision::New);
     }
 }

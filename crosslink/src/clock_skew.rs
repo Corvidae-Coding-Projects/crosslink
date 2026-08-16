@@ -1,13 +1,3 @@
-//! Clock skew detection using git commit timestamps as an independent witness.
-//!
-//! During compaction, event timestamps from agent logs are compared against
-//! the git commit timestamp that introduced them to the hub branch. If the
-//! skew exceeds a threshold, a `SkewViolation` is recorded.
-//!
-//! This provides a stronger integrity guarantee than comparing against
-//! `Utc::now()` — the git committer date acts as a trusted timestamp oracle
-//! that is independent of the agent's local clock.
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,12 +6,8 @@ use std::process::Command;
 
 use crate::events::{Event, EventEnvelope};
 
-/// Clock skew threshold in seconds. Events whose timestamp differs from the
-/// git commit timestamp by more than this are flagged.
 const SKEW_THRESHOLD_SECS: i64 = 60;
 
-/// A clock skew violation detected by comparing an event timestamp against
-/// the git commit that introduced it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkewViolation {
     pub agent_id: String,
@@ -31,23 +17,12 @@ pub struct SkewViolation {
     pub skew_seconds: i64,
 }
 
-/// A git commit with its hash and committer timestamp.
 #[derive(Debug, Clone)]
 struct GitCommit {
     hash: String,
     timestamp: DateTime<Utc>,
 }
 
-/// Detect clock skew violations by comparing event timestamps against the
-/// git commit timestamps that introduced them to the hub branch.
-///
-/// For each agent's `events.log`, finds all git commits that modified the file,
-/// extracts the event lines added in each commit, and flags any where
-/// `|event_timestamp - commit_timestamp| > SKEW_THRESHOLD_SECS`.
-///
-/// # Errors
-///
-/// Returns an error if the agents directory cannot be read or git commands fail.
 pub fn detect_git_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
     let mut violations = Vec::new();
 
@@ -88,11 +63,6 @@ pub fn detect_git_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>
     Ok(violations)
 }
 
-/// Write skew violations to `checkpoint/skew_warnings.json`.
-///
-/// # Errors
-///
-/// Returns an error if the checkpoint directory cannot be created or the file cannot be written.
 pub fn write_skew_violations(cache_dir: &Path, violations: &[SkewViolation]) -> Result<()> {
     let dir = cache_dir.join("checkpoint");
     std::fs::create_dir_all(&dir)
@@ -102,12 +72,6 @@ pub fn write_skew_violations(cache_dir: &Path, violations: &[SkewViolation]) -> 
     crate::utils::atomic_write(&path, content.as_bytes())
 }
 
-/// Read back skew violations written by [`write_skew_violations`].
-///
-/// Test-only: the production reader was removed with the v2 `crosslink compact`
-/// path (#754); only [`write_skew_violations`] remains live (the migration's
-/// internal compaction emits the file). This helper keeps the writer's
-/// round-trip under test.
 #[cfg(test)]
 fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
     let path = cache_dir.join("checkpoint").join("skew_warnings.json");
@@ -120,7 +84,6 @@ fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
         .with_context(|| format!("Failed to parse skew warnings: {}", path.display()))
 }
 
-/// Get all git commits that modified a file, newest first.
 fn get_commits_for_file(cache_dir: &Path, file_path: &str) -> Result<Vec<GitCommit>> {
     let output = Command::new("git")
         .args(["log", "--format=%H %cI", "--", file_path])
@@ -153,11 +116,6 @@ fn get_commits_for_file(cache_dir: &Path, file_path: &str) -> Result<Vec<GitComm
     Ok(commits)
 }
 
-/// Extract event envelopes that were added (not removed) in a specific commit.
-///
-/// Parses the git diff output for the commit, looking for lines starting with
-/// `+` (excluding the `+++` diff header). Each added line is parsed as an
-/// NDJSON event envelope.
 fn get_events_added_in_commit(
     cache_dir: &Path,
     commit_hash: &str,
@@ -188,7 +146,6 @@ fn get_events_added_in_commit(
     Ok(events)
 }
 
-/// Create a brief human-readable description of an event.
 fn describe_event(event: &Event) -> String {
     match event {
         Event::IssueCreated { uuid, title, .. } => {
@@ -271,7 +228,6 @@ mod tests {
         }
     }
 
-    /// Set up a git repo in a temp directory to simulate the hub cache.
     fn setup_git_repo(dir: &Path) {
         Command::new("git")
             .args(["init"])
@@ -288,7 +244,7 @@ mod tests {
             .current_dir(dir)
             .output()
             .expect("git config name failed");
-        // Create initial commit so we have a HEAD
+
         std::fs::write(dir.join(".gitkeep"), "").unwrap();
         Command::new("git")
             .args(["add", "."])
@@ -302,7 +258,6 @@ mod tests {
             .expect("git commit failed");
     }
 
-    /// Commit a file with a specific committer timestamp.
     fn commit_with_timestamp(dir: &Path, message: &str, timestamp: &DateTime<Utc>) {
         let ts_str = timestamp.to_rfc3339();
         Command::new("git")
@@ -393,13 +348,13 @@ mod tests {
         let violations = detect_git_skew_violations(cache_dir).unwrap();
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].agent_id, "agent-1");
-        // Git truncates timestamps to second precision, so allow ±1s tolerance
+
         assert!(
             (violations[0].skew_seconds - 300).abs() <= 1,
             "Expected skew ~300s, got {}",
             violations[0].skew_seconds
         );
-        // Compare at second precision (git truncates sub-seconds)
+
         assert_eq!(
             violations[0].commit_timestamp.timestamp(),
             commit_time.timestamp()
@@ -414,7 +369,6 @@ mod tests {
 
         let commit_time = Utc::now();
 
-        // Agent 1: event within threshold
         let agent1_dir = cache_dir.join("agents/agent-1");
         std::fs::create_dir_all(&agent1_dir).unwrap();
         let mut env1 = make_envelope(
@@ -436,7 +390,6 @@ mod tests {
         env1.timestamp = commit_time + Duration::seconds(5);
         crate::events::append_event(&agent1_dir.join("events.log"), &env1).unwrap();
 
-        // Agent 2: event with excessive skew
         let agent2_dir = cache_dir.join("agents/agent-2");
         std::fs::create_dir_all(&agent2_dir).unwrap();
         let mut env2 = make_envelope(
@@ -585,7 +538,7 @@ mod tests {
 
         let violations = detect_git_skew_violations(cache_dir).unwrap();
         assert_eq!(violations.len(), 1);
-        // Git truncates timestamps to second precision, so allow ±1s tolerance
+
         assert!(
             (violations[0].skew_seconds - 120).abs() <= 1,
             "Expected skew ~120s, got {}",
@@ -864,7 +817,6 @@ mod tests {
         let agents_dir = cache_dir.join("agents");
         std::fs::create_dir_all(&agents_dir).unwrap();
 
-        // Create a file (not directory) in agents dir - should be skipped
         std::fs::write(agents_dir.join("not-a-dir.txt"), "file").unwrap();
 
         Command::new("git")

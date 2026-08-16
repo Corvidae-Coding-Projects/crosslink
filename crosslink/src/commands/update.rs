@@ -40,11 +40,7 @@ pub fn run(
                  Run `crosslink agent init <id>` first to enable it."
             );
         }
-        // Direct-DB fallback: only the four metadata fields flow through
-        // Database::update_issue. Description-clear (`--no-description`) is
-        // not supported here because `Database::update_issue` takes
-        // `Option<&str>` without the three-valued distinction; the CLI
-        // never exercises that combination in the non-writer path.
+
         let desc_for_db = match update.description {
             DescriptionUpdate::Set(s) => Some(s),
             _ => None,
@@ -70,8 +66,6 @@ mod tests {
         let db = Database::open(&db_path).unwrap();
         (db, dir)
     }
-
-    // ==================== Unit Tests ====================
 
     #[test]
     fn test_update_title() {
@@ -214,7 +208,6 @@ mod tests {
             .create_issue("Original title", Some("Original desc"), "high")
             .unwrap();
 
-        // Only update title
         run(
             &db,
             None,
@@ -294,7 +287,6 @@ mod tests {
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.title, malicious);
 
-        // Verify database is intact
         let issues = db.list_issues(None, None, None).unwrap();
         assert!(!issues.is_empty());
     }
@@ -318,10 +310,8 @@ mod tests {
 
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.title, "Updated closed issue");
-        assert_eq!(issue.status, "closed"); // Status should remain closed
+        assert_eq!(issue.status, "closed");
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

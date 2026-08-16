@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::Path;
 
-/// Top-level sentinel configuration from `.crosslink/hook-config.json`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct SentinelConfig {
@@ -31,7 +30,6 @@ impl Default for SentinelConfig {
     }
 }
 
-/// Source adapter configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct SourcesConfig {
@@ -42,7 +40,6 @@ pub struct SourcesConfig {
     pub cpitd: CpitdSourceConfig,
 }
 
-/// GitHub label polling configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct GitHubLabelsConfig {
@@ -62,7 +59,6 @@ impl Default for GitHubLabelsConfig {
     }
 }
 
-/// Internal hygiene source configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct InternalHygieneConfig {
@@ -79,7 +75,6 @@ impl Default for InternalHygieneConfig {
     }
 }
 
-/// Maintenance sweep source configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct MaintenanceSweepSourceConfig {
@@ -100,26 +95,19 @@ impl Default for MaintenanceSweepSourceConfig {
     }
 }
 
-/// GitHub CI failure source configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct GitHubCIConfig {
     pub enabled: bool,
 }
 
-/// cpitd clone-detection source configuration.
-///
-/// Runs `cpitd` clone detection on an interval (default weekly) and files
-/// crosslink issues for newly detected clones, surfacing each as a sentinel
-/// signal. Disabled by default — clone scanning is a periodic, opt-in concern.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct CpitdSourceConfig {
     pub enabled: bool,
-    /// Hours between clone scans (default 168 = weekly).
+
     pub interval_hours: u64,
-    /// Minimum token sequence length to report (passthrough to cpitd, matches
-    /// the `crosslink cpitd scan` CLI default).
+
     pub min_tokens: u32,
 }
 
@@ -133,19 +121,17 @@ impl Default for CpitdSourceConfig {
     }
 }
 
-/// Default agent settings for dispatched agents.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct DefaultAgentConfig {
     #[serde(alias = "model_tier")]
     pub model: String,
     pub timeout_minutes: u64,
-    /// Verify level as a string ("local", "ci", "thorough"). Parse via `verify_level()`.
+
     pub verify: String,
 }
 
 impl DefaultAgentConfig {
-    /// Parse the verify string into a `VerifyLevel`, falling back to `Local` on invalid input.
     pub fn verify_level(&self) -> crate::commands::kickoff::VerifyLevel {
         crate::commands::kickoff::parse_verify_level(&self.verify)
             .unwrap_or(crate::commands::kickoff::VerifyLevel::Local)
@@ -162,14 +148,12 @@ impl Default for DefaultAgentConfig {
     }
 }
 
-/// Webhook server configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct WebhookServerConfig {
     pub enabled: bool,
     pub port: u16,
-    /// GitHub webhook secret for HMAC-SHA256 signature verification.
-    /// If None, signatures are not verified (not recommended for production).
+
     pub secret: Option<String>,
 }
 
@@ -183,24 +167,20 @@ impl Default for WebhookServerConfig {
     }
 }
 
-/// Outbound notification configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct NotificationConfig {
     pub enabled: bool,
-    /// Webhook URLs to POST dispatch results to. Supports Slack incoming
-    /// webhooks (auto-detected by URL pattern) and generic JSON endpoints.
+
     pub webhook_urls: Vec<String>,
 }
 
 impl NotificationConfig {
-    /// Check if a URL looks like a Slack incoming webhook.
     pub fn is_slack_url(url: &str) -> bool {
         url.contains("hooks.slack.com")
     }
 }
 
-/// Automatic model escalation configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct EscalationConfig {
@@ -209,7 +189,7 @@ pub struct EscalationConfig {
     pub model: String,
     pub cooldown_minutes: u64,
     pub max_attempts: u32,
-    /// Stored as integer percentage (150 = 1.5x) to avoid float in config.
+
     pub timeout_multiplier_pct: u32,
 }
 
@@ -226,8 +206,6 @@ impl Default for EscalationConfig {
 }
 
 impl SentinelConfig {
-    /// Load sentinel config from hook-config.json.
-    /// Returns default config if the sentinel key is absent.
     pub fn load(crosslink_dir: &Path) -> Result<Self> {
         let config_path = crosslink_dir.join("hook-config.json");
         if !config_path.exists() {

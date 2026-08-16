@@ -5,7 +5,6 @@ use std::path::Path;
 use crate::commands::init;
 use crate::ContextCommands;
 
-/// Language detection: maps manifest files to (language name, rule filename).
 const LANGUAGE_MANIFESTS: &[(&str, &str, &str)] = &[
     ("Cargo.toml", "Rust", "rust.md"),
     ("package.json", "JavaScript", "javascript.md"),
@@ -24,7 +23,6 @@ const LANGUAGE_MANIFESTS: &[(&str, &str, &str)] = &[
     (".shellcheckrc", "Shell", "shell.md"),
 ];
 
-/// Expected provider-neutral hook files under Crosslink's integration root.
 const EXPECTED_HOOKS: &[&str] = &[
     "prompt-guard.py",
     "post-edit-check.py",
@@ -36,7 +34,6 @@ const EXPECTED_HOOKS: &[&str] = &[
     "hook_protocol.py",
 ];
 
-/// Expected command files that should exist in .claude/commands/.
 const EXPECTED_COMMANDS: &[&str] = &[
     "workflow.md",
     "feature.md",
@@ -49,7 +46,6 @@ const EXPECTED_COMMANDS: &[&str] = &[
     "audit.md",
 ];
 
-/// Expected rule files in .crosslink/rules/.
 const EXPECTED_RULES: &[&str] = &[
     "global.md",
     "project.md",
@@ -71,10 +67,6 @@ pub fn run(command: ContextCommands, crosslink_dir: &Path) -> Result<()> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// measure — report context injection sizes
-// ---------------------------------------------------------------------------
-
 fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     let project_root = crosslink_dir
         .parent()
@@ -83,13 +75,11 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     println!("Context injection measurement");
     println!("{}", "=".repeat(60));
 
-    // 1. Rule files
     let rules_dir = crosslink_dir.join("rules");
     let mut total_rules: usize = 0;
     let mut active_rules: usize = 0;
     let mut dormant_rules: usize = 0;
 
-    // Detect active languages
     let active_langs = detect_active_languages(project_root);
 
     let rules_local_dir = crosslink_dir.join("rules.local");
@@ -98,7 +88,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     println!("{:<35} {:>8} {:>8}  STATUS", "FILE", "BYTES", "~TOKENS");
     println!("{}", "-".repeat(65));
 
-    // Collect overridden filenames from rules.local/
     let local_overrides: std::collections::HashSet<String> = if rules_local_dir.is_dir() {
         fs::read_dir(&rules_local_dir)
             .ok()
@@ -127,7 +116,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
             let path = entry.path();
             let filename = entry.file_name().to_string_lossy().to_string();
 
-            // If overridden by rules.local/, show the local version's size
             let (size, suffix) = if local_overrides.contains(&filename) {
                 let local_path = rules_local_dir.join(&filename);
                 let s = fs::metadata(&local_path).map_or(0, |m| m.len() as usize);
@@ -152,7 +140,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    // Show additive rules from rules.local/ (files not present in rules/)
     if rules_local_dir.is_dir() {
         let base_files: std::collections::HashSet<String> = if rules_dir.is_dir() {
             fs::read_dir(&rules_dir)
@@ -210,7 +197,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         dormant_rules / 4
     );
 
-    // 2. Active languages
     println!("\n## Detected languages");
     if active_langs.is_empty() {
         println!("  (none detected)");
@@ -220,7 +206,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    // 3. Provider instruction files
     println!("\n## Project instructions");
     for name in ["AGENTS.md", "CLAUDE.md"] {
         let instruction_path = project_root.join(name);
@@ -233,7 +218,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    // 4. Skills and legacy Claude commands
     let mut total_skills: usize = 0;
     println!("\n## Skill files");
     for relative in [".claude/skills", ".agents/skills", ".claude/commands"] {
@@ -259,7 +243,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         total_skills / 4
     );
 
-    // 5. Estimated behavioral guard size (first prompt)
     let tree_est: usize = 2000;
     let deps_est: usize = 1200;
     let wrapper_est: usize = 500;
@@ -277,7 +260,6 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         full_guard / 4
     );
 
-    // 6. Condensed reminder estimate
     let condensed_est: usize = 500;
     println!("\n## Condensed reminder (subsequent prompts)");
     println!(
@@ -286,11 +268,10 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         condensed_est / 4
     );
 
-    // 7. Savings comparison
     println!("\n## Adaptive reminder savings (over 50 prompts)");
     let always_total = full_guard + condensed_est * 49;
-    // With adaptive (threshold=5): full guard + ~9 condensed reminders
-    let adaptive_reminders = 49 / 5; // roughly 9 reminders
+
+    let adaptive_reminders = 49 / 5;
     let adaptive_total = full_guard + condensed_est * adaptive_reminders;
     let saved = always_total.saturating_sub(adaptive_total);
     println!(
@@ -333,7 +314,6 @@ fn detect_active_languages(project_root: &Path) -> Vec<String> {
     let mut found = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // Check project root and immediate subdirs
     let mut check_dirs = vec![project_root.to_path_buf()];
     if let Ok(entries) = fs::read_dir(project_root) {
         for entry in entries.filter_map(std::result::Result::ok) {
@@ -355,7 +335,6 @@ fn detect_active_languages(project_root: &Path) -> Vec<String> {
         }
     }
 
-    // Shell detection: scan for .sh files in root, scripts/, and bin/
     if !seen.contains("Shell") {
         let shell_dirs = [
             project_root.to_path_buf(),
@@ -382,7 +361,6 @@ fn detect_active_languages(project_root: &Path) -> Vec<String> {
 }
 
 fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
-    // Always-active files
     if matches!(
         filename,
         "global.md"
@@ -397,7 +375,6 @@ fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
         return true;
     }
 
-    // Check if the rule matches a detected language
     for &(_, lang, rule_file) in LANGUAGE_MANIFESTS {
         if filename == rule_file && active_langs.iter().any(|l| l == lang) {
             return true;
@@ -406,10 +383,6 @@ fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
 
     false
 }
-
-// ---------------------------------------------------------------------------
-// check — verify crosslink deployment integrity
-// ---------------------------------------------------------------------------
 
 fn walk_markdown_files(root: &Path) -> Vec<std::path::PathBuf> {
     let mut pending = vec![root.to_path_buf()];
@@ -438,7 +411,6 @@ fn check(crosslink_dir: &Path, project_root: &Path) {
     println!("Crosslink deployment check");
     println!("{}", "=".repeat(40));
 
-    // 1. Rule files
     println!("\n## Rule files");
     let rules_dir = crosslink_dir.join("rules");
     for &name in EXPECTED_RULES {
@@ -451,18 +423,15 @@ fn check(crosslink_dir: &Path, project_root: &Path) {
         }
     }
 
-    // Also check language rule files
     for &(rule_name, _content) in init::RULE_FILES {
         let path = rules_dir.join(rule_name);
         if path.is_file() {
-            // verbose: could print OK
         } else {
             println!("  MISSING  {rule_name}");
             problems += 1;
         }
     }
 
-    // 2. Hook files
     println!("\n## Hook files");
     let hooks_dir = crosslink_dir.join("integrations/hooks");
     for &name in EXPECTED_HOOKS {
@@ -475,7 +444,6 @@ fn check(crosslink_dir: &Path, project_root: &Path) {
         }
     }
 
-    // 3. Command files
     println!("\n## Command files");
     let commands_dir = project_root.join(".claude/commands");
     for &name in EXPECTED_COMMANDS {
@@ -504,7 +472,6 @@ fn check(crosslink_dir: &Path, project_root: &Path) {
         }
     }
 
-    // 4. Hook config
     println!("\n## Configuration");
     let config_path = crosslink_dir.join("hook-config.json");
     if config_path.is_file() {
@@ -526,7 +493,6 @@ fn check(crosslink_dir: &Path, project_root: &Path) {
         problems += 1;
     }
 
-    // Summary
     println!();
     if problems == 0 {
         println!("All checks passed.");

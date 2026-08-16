@@ -1,6 +1,6 @@
-// Coverage for the /settings/github page. Mocks the GitHub API hooks
-// so we can drive the form and discovery flows without hitting the
-// real `/api/v1/dashboard/github/*` endpoints or github.com.
+
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -213,7 +213,7 @@ describe("SettingsGithub page", () => {
     fireEvent.change(screen.getByLabelText(/clone url/i), {
       target: { value: "https://github.com/owner/repo.git" },
     });
-    // Without init: slug undefined, init undefined — payload only has url.
+
     fireEvent.click(screen.getByRole("button", { name: /clone & track/i }));
     expect(clone.mutate).toHaveBeenCalledWith(
       { url: "https://github.com/owner/repo.git", slug: undefined, init: false, agentId: undefined },
@@ -233,7 +233,7 @@ describe("SettingsGithub page", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: /initialize after clone/i }),
     );
-    // Without agent id: button disabled, warning shown.
+
     const btn = screen.getByRole("button", { name: /clone & track/i });
     expect(btn).toBeDisabled();
     expect(screen.getByText(/agent id required/i)).toBeInTheDocument();
@@ -262,7 +262,7 @@ describe("SettingsGithub page", () => {
     render(withClient(<SettingsGithub />));
 
     fireEvent.click(screen.getByRole("button", { name: /browse my-org/i }));
-    // Check the Initialize checkbox — agent-id field appears, Track All is disabled.
+
     fireEvent.click(screen.getByRole("checkbox", { name: /initialize cloned repos/i }));
     const agentField = screen.getByLabelText(/agent id/i);
     expect(agentField).toBeInTheDocument();

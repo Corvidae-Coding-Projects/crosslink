@@ -5,8 +5,6 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
 
-// GPG fingerprint parsing tests moved to signing.rs
-
 #[test]
 fn test_sync_manager_new() {
     let dir = tempdir().unwrap();
@@ -35,17 +33,15 @@ fn test_read_locks_no_cache() {
     std::fs::create_dir_all(&crosslink_dir).unwrap();
 
     let manager = SyncManager::new(&crosslink_dir).unwrap();
-    // Cache doesn't exist yet, but read_locks should return empty
-    // (it checks if the file exists)
+
     let locks_path = manager.cache_dir.join("locks.json");
     assert!(!locks_path.exists());
 }
 
-/// Helper: create a git repo with an initial commit.
 fn init_git_repo(path: &Path) {
     let p = path.to_string_lossy();
     Command::new("git").args(["init", &p]).output().unwrap();
-    // Set user config so commits work on CI (no global git config).
+
     Command::new("git")
         .args(["-C", &p, "config", "user.email", "test@test.com"])
         .output()
@@ -67,7 +63,6 @@ fn test_read_locks_auto_v1_default() {
     let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     std::fs::create_dir_all(&cache_dir).unwrap();
 
-    // No meta/version.json -> defaults to V1 -> reads locks.json
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     let locks = manager.read_locks_auto().unwrap();
     assert!(locks.locks.is_empty());
@@ -75,16 +70,11 @@ fn test_read_locks_auto_v1_default() {
 
 #[test]
 fn test_read_locks_auto_frozen_v2_is_empty() {
-    // 754b: the v2 lock READ path is gone. A non-v3 (frozen / pre-migration)
-    // hub has no live lock state — `read_locks_auto` returns empty. Migration
-    // reads locks from the compacted checkpoint, not from `locks/*.json`.
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
     let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     std::fs::create_dir_all(&cache_dir).unwrap();
 
-    // Even with a V2 layout marker and a per-issue lock file present, the read
-    // path no longer materializes them.
     let meta_dir = cache_dir.join("meta");
     std::fs::create_dir_all(&meta_dir).unwrap();
     crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
@@ -108,8 +98,6 @@ fn test_read_locks_auto_frozen_v2_is_empty() {
     assert!(locks.locks.is_empty());
 }
 
-// resolve_main_repo_root tests are in utils::tests
-
 #[test]
 fn test_sync_manager_in_worktree_uses_main_hub_cache() {
     let dir = tempdir().unwrap();
@@ -120,7 +108,6 @@ fn test_sync_manager_in_worktree_uses_main_hub_cache() {
     let main_crosslink = main_root.join(".crosslink");
     std::fs::create_dir_all(&main_crosslink).unwrap();
 
-    // Create worktree
     Command::new("git")
         .args([
             "-C",
@@ -149,43 +136,33 @@ fn test_sync_manager_in_worktree_uses_main_hub_cache() {
 
     let manager = SyncManager::new(&wt_crosslink).unwrap();
 
-    // cache_dir should point to the main repo's hub cache, not the worktree's
-    // Canonicalize the parent (.crosslink) since .hub-cache doesn't exist yet.
     let expected_parent = main_crosslink.canonicalize().unwrap();
     let actual_parent = manager.cache_dir.parent().unwrap().canonicalize().unwrap();
     assert_eq!(actual_parent, expected_parent);
     assert_eq!(manager.cache_dir.file_name().unwrap(), HUB_CACHE_DIR);
 
-    // repo_root should be the main repo, not the worktree
     assert_eq!(
         manager.repo_root.canonicalize().unwrap(),
         main_root.canonicalize().unwrap()
     );
 }
 
-// ------------------------------------------------------------------
-// Helper: set up a real git repo with a bare remote and .crosslink dir.
-// Returns (work_dir, remote_dir).
-// ------------------------------------------------------------------
 fn setup_sync_env() -> (tempfile::TempDir, tempfile::TempDir) {
     let remote_dir = tempfile::tempdir().unwrap();
     let work_dir = tempfile::tempdir().unwrap();
 
-    // Init bare remote
     Command::new("git")
         .current_dir(remote_dir.path())
         .args(["init", "--bare", "-b", "main"])
         .output()
         .unwrap();
 
-    // Init work repo
     Command::new("git")
         .current_dir(work_dir.path())
         .args(["init", "-b", "main"])
         .output()
         .unwrap();
 
-    // Config git identity
     for args in [
         vec!["config", "user.email", "test@test.local"],
         vec!["config", "user.name", "Test"],
@@ -203,7 +180,6 @@ fn setup_sync_env() -> (tempfile::TempDir, tempfile::TempDir) {
             .unwrap();
     }
 
-    // Initial commit + push
     std::fs::write(work_dir.path().join("README.md"), "# test\n").unwrap();
     Command::new("git")
         .current_dir(work_dir.path())
@@ -221,7 +197,6 @@ fn setup_sync_env() -> (tempfile::TempDir, tempfile::TempDir) {
         .output()
         .unwrap();
 
-    // Create .crosslink dir with hook-config.json
     let crosslink_dir = work_dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
     std::fs::write(
@@ -233,16 +208,12 @@ fn setup_sync_env() -> (tempfile::TempDir, tempfile::TempDir) {
     (work_dir, remote_dir)
 }
 
-// ------------------------------------------------------------------
-// read_tracker_remote
-// ------------------------------------------------------------------
-
 #[test]
 fn test_read_tracker_remote_default() {
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
-    // No hook-config.json -> defaults to "origin"
+
     let remote = read_tracker_remote(&crosslink_dir);
     assert_eq!(remote, "origin");
 }
@@ -252,7 +223,7 @@ fn test_read_tracker_remote_missing_field_defaults_origin() {
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
-    // hook-config.json exists but has no tracker_remote field -> "origin"
+
     std::fs::write(
         crosslink_dir.join("hook-config.json"),
         r#"{"remote":"origin"}"#,
@@ -276,11 +247,6 @@ fn test_read_tracker_remote_custom_value() {
     assert_eq!(remote, "upstream");
 }
 
-// ── GH#611: silent inference from git remotes ────────────────────
-
-/// `git remote add` a name pointing at a placeholder URL on `repo`.
-/// The URL value doesn't matter for `git remote` (the listing command),
-/// so we just need a syntactically valid string.
 fn add_git_remote(repo: &Path, name: &str) {
     let url = format!("https://example.invalid/{name}.git");
     let status = Command::new("git")
@@ -293,20 +259,15 @@ fn add_git_remote(repo: &Path, name: &str) {
 
 #[test]
 fn test_read_tracker_remote_single_origin_no_warn() {
-    // The single most common project shape: one git remote called "origin",
-    // hook-config.json has no `tracker_remote` field. Before GH#611 this
-    // path emitted a WARN once per process; after, it must be silent.
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
-    // hook-config.json from setup_sync_env only sets {"remote":"origin"},
-    // intentionally NOT a tracker_remote field — so we drop into inference.
+
     let remote = read_tracker_remote(&crosslink_dir);
     assert_eq!(remote, "origin");
 }
 
 #[test]
 fn test_read_tracker_remote_single_non_origin_remote() {
-    // One remote, not called "origin" — inferred verbatim.
     let dir = tempdir().unwrap();
     Command::new("git")
         .current_dir(dir.path())
@@ -317,7 +278,7 @@ fn test_read_tracker_remote_single_non_origin_remote() {
 
     let crosslink_dir = dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
-    // hook-config.json exists but has no tracker_remote field
+
     std::fs::write(crosslink_dir.join("hook-config.json"), "{}").unwrap();
 
     let remote = read_tracker_remote(&crosslink_dir);
@@ -329,14 +290,13 @@ fn test_read_tracker_remote_single_non_origin_remote() {
 
 #[test]
 fn test_read_tracker_remote_multi_remotes_prefers_origin() {
-    // Multiple remotes including "origin" — origin wins regardless of order.
     let dir = tempdir().unwrap();
     Command::new("git")
         .current_dir(dir.path())
         .args(["init", "-b", "main"])
         .output()
         .unwrap();
-    // Add in non-alphabetical order to confirm origin wins on name, not order.
+
     add_git_remote(dir.path(), "zzz");
     add_git_remote(dir.path(), "origin");
     add_git_remote(dir.path(), "fork");
@@ -350,7 +310,6 @@ fn test_read_tracker_remote_multi_remotes_prefers_origin() {
 
 #[test]
 fn test_read_tracker_remote_multi_remotes_no_origin_picks_first_alphabetical() {
-    // Multiple remotes, none called origin → first alphabetically (deterministic).
     let dir = tempdir().unwrap();
     Command::new("git")
         .current_dir(dir.path())
@@ -373,7 +332,6 @@ fn test_read_tracker_remote_multi_remotes_no_origin_picks_first_alphabetical() {
 
 #[test]
 fn test_read_tracker_remote_explicit_config_wins_over_inference() {
-    // hook-config.json's explicit value beats whatever git remotes say.
     let dir = tempdir().unwrap();
     Command::new("git")
         .current_dir(dir.path())
@@ -400,13 +358,6 @@ fn test_read_tracker_remote_explicit_config_wins_over_inference() {
 
 #[test]
 fn test_read_tracker_remote_falls_back_when_corrupt_placeholder() {
-    // GH#739: older builds of the init walkthrough wrote the literal
-    // UI placeholder "(text)" into hook-config.json for every
-    // ConfigType::String key. read_tracker_remote() must detect this
-    // corrupt sentinel and fall back to "origin" so push/sync don't
-    // fail with the (correct but unhelpful) RemoteMisconfigured("(text)")
-    // error. The permanent fix is `crosslink config set tracker_remote
-    // <name>` or `crosslink init --force`.
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
@@ -422,10 +373,6 @@ fn test_read_tracker_remote_falls_back_when_corrupt_placeholder() {
     );
 }
 
-// ------------------------------------------------------------------
-// SyncManager::new() with hook-config.json having a tracker_remote key
-// ------------------------------------------------------------------
-
 #[test]
 fn test_sync_manager_new_reads_remote_from_config() {
     let dir = tempdir().unwrap();
@@ -439,10 +386,6 @@ fn test_sync_manager_new_reads_remote_from_config() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     assert_eq!(manager.remote(), "upstream");
 }
-
-// ------------------------------------------------------------------
-// is_v2_layout, is_initialized, cache_path, remote
-// ------------------------------------------------------------------
 
 #[test]
 fn test_is_v2_layout_false_when_no_meta() {
@@ -484,10 +427,6 @@ fn test_remote_accessor() {
     assert_eq!(manager.remote(), "origin");
 }
 
-// ------------------------------------------------------------------
-// init_cache -- a fresh hub bootstraps directly into v3 (754b REQ-10)
-// ------------------------------------------------------------------
-
 #[test]
 fn test_init_cache_bootstraps_v3() {
     let (work_dir, _remote_dir) = setup_sync_env();
@@ -498,7 +437,6 @@ fn test_init_cache_bootstraps_v3() {
     manager.init_cache().unwrap();
     assert!(manager.is_initialized());
 
-    // Fresh hub is v3: marker refs exist, no legacy locks.json is written.
     assert!(manager.hub_mode().is_v3());
     assert_eq!(
         crate::hub_v3::detect_hub_version(&manager.cache_dir).unwrap(),
@@ -516,7 +454,7 @@ fn test_init_cache_idempotent() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
 
     manager.init_cache().unwrap();
-    // Second call should be a no-op (cache_dir exists)
+
     manager.init_cache().unwrap();
     assert!(manager.is_initialized());
     assert!(manager.hub_mode().is_v3());
@@ -529,7 +467,6 @@ fn test_init_cache_bootstrap_pushes_refs_to_remote() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // The genesis refs were pushed to the configured remote (best-effort).
     let remote_version =
         crate::hub_v3::detect_remote_hub_version(&manager.repo_root, "origin").unwrap();
     assert!(matches!(
@@ -540,14 +477,12 @@ fn test_init_cache_bootstrap_pushes_refs_to_remote() {
 
 #[test]
 fn test_init_cache_fresh_clone_joins_v3_remote() {
-    // Machine 1 bootstraps a v3 hub and pushes its refs.
     let (work_dir, remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
     assert!(manager.hub_mode().is_v3());
 
-    // Machine 2: a fresh clone of the same remote.
     let work_dir2 = tempfile::tempdir().unwrap();
     Command::new("git")
         .current_dir(work_dir2.path())
@@ -589,8 +524,6 @@ fn test_init_cache_fresh_clone_joins_v3_remote() {
     )
     .unwrap();
 
-    // init_cache on machine 2 must JOIN the existing v3 hub (fetch refs), not
-    // bootstrap a conflicting genesis.
     let manager2 = SyncManager::new(&crosslink_dir2).unwrap();
     manager2.init_cache().unwrap();
     assert!(manager2.is_initialized());
@@ -605,9 +538,6 @@ fn test_init_cache_fresh_clone_joins_v3_remote() {
 
 #[test]
 fn test_fresh_v3_hub_create_issue_end_to_end() {
-    // Fresh repo bootstraps v3; a SharedWriter create_issue then yields an id
-    // from the deterministic reduction (REQ-4), proving the event-only write +
-    // reduction path works on a brand-new hub.
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let agent = make_agent("issuer");
@@ -630,7 +560,6 @@ fn test_fresh_v3_hub_create_issue_end_to_end() {
         .unwrap();
     assert_eq!(id, 1, "first reduction-assigned display id must be 1");
 
-    // The id is materialized by reducing the agent ref (not a counter file).
     let source = crate::hub_source::RefHubSource::new(sync.cache_path()).unwrap();
     let state = crate::compaction::reduce(&source).unwrap().state;
     assert!(
@@ -641,8 +570,6 @@ fn test_fresh_v3_hub_create_issue_end_to_end() {
 
 #[test]
 fn test_two_machine_v3_join_round_trip() {
-    // Machine 1 bootstraps + creates an issue + pushes. Machine 2 clones, joins
-    // the v3 hub, creates its own issue, pushes. Machine 1 fetches and sees it.
     let (work_dir, remote_dir) = setup_sync_env();
     let cl1 = work_dir.path().join(".crosslink");
     std::fs::write(
@@ -659,7 +586,6 @@ fn test_two_machine_v3_join_round_trip() {
     w1.create_issue(&db1, "from m1", None, "high", None, None)
         .unwrap();
 
-    // Machine 2: fresh clone of the same remote.
     let work2 = tempfile::tempdir().unwrap();
     for args in [
         vec!["init", "-b", "main"],
@@ -698,7 +624,6 @@ fn test_two_machine_v3_join_round_trip() {
     w2.create_issue(&db2, "from m2", None, "medium", None, None)
         .unwrap();
 
-    // Machine 1 fetches and reduces: it must now see machine 2's issue.
     sync1.fetch().unwrap();
     let source = crate::hub_source::RefHubSource::new(sync1.cache_path()).unwrap();
     let state = crate::compaction::reduce(&source).unwrap().state;
@@ -714,14 +639,10 @@ fn test_two_machine_v3_join_round_trip() {
 
 #[test]
 fn test_v2_fetch_is_read_only_no_new_commits() {
-    // A frozen v2 hub's fetch must NOT create any commit on the v2 branch — it
-    // is a read-only mirror update only (754b).
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let wp = work_dir.path();
 
-    // Build an explicit v2 `crosslink/hub` worktree (a fresh init would bootstrap
-    // v3) so the hub resolves to V2 mode.
     let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     for args in [
         vec![
@@ -796,10 +717,6 @@ fn test_v2_fetch_is_read_only_no_new_commits() {
     );
 }
 
-// ------------------------------------------------------------------
-// fetch
-// ------------------------------------------------------------------
-
 #[test]
 fn test_fetch_on_initialized_cache() {
     let (work_dir, _remote_dir) = setup_sync_env();
@@ -807,7 +724,6 @@ fn test_fetch_on_initialized_cache() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // fetch should succeed (hub branch has no remote, but that's handled gracefully)
     manager.fetch().unwrap();
 }
 
@@ -816,17 +732,12 @@ fn test_fetch_v3_after_bootstrap_pushed_refs() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
-    // Bootstrap pushes the v3 refs to the remote during init_cache.
+
     manager.init_cache().unwrap();
     assert!(manager.hub_mode().is_v3());
 
-    // A subsequent fetch takes the v3 ref-adoption path and succeeds.
     manager.fetch().unwrap();
 }
-
-// ------------------------------------------------------------------
-// read_allowed_signers
-// ------------------------------------------------------------------
 
 #[test]
 fn test_read_allowed_signers_no_file() {
@@ -836,23 +747,11 @@ fn test_read_allowed_signers_no_file() {
     std::fs::create_dir_all(cache_dir.join("trust")).unwrap();
 
     let manager = SyncManager::new(&crosslink_dir).unwrap();
-    // No allowed_signers file -> should return an empty/default store
+
     let result = manager.read_allowed_signers();
-    // Either Ok or Err is acceptable; just ensure it doesn't panic
+
     let _ = result;
 }
-
-// ------------------------------------------------------------------
-// find_stale_locks_with_age
-// ------------------------------------------------------------------
-
-// ------------------------------------------------------------------
-// find_stale_locks_with_age (V2 path)
-// ------------------------------------------------------------------
-
-// ------------------------------------------------------------------
-// claim_lock / release_lock (needs a real git repo + hub cache)
-// ------------------------------------------------------------------
 
 fn make_agent(id: &str) -> AgentConfig {
     AgentConfig {
@@ -866,18 +765,8 @@ fn make_agent(id: &str) -> AgentConfig {
     }
 }
 
-// ------------------------------------------------------------------
-// ensure_agent_dir (needs a git repo)
-// ------------------------------------------------------------------
-
-// ------------------------------------------------------------------
-// push_heartbeat (needs a git repo)
-// ------------------------------------------------------------------
-
 #[test]
 fn test_push_heartbeat_writes_to_agent_ref() {
-    // A fresh hub bootstraps v3 (754b), so the heartbeat lands on the agent's
-    // own ref, not a worktree `heartbeats/*.json` file.
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
@@ -905,14 +794,10 @@ fn test_push_heartbeat_no_change_is_ok() {
     manager.init_cache().unwrap();
 
     let agent = make_agent("hb-agent");
-    // Push same heartbeat twice -- second commit may be "nothing to commit"
+
     manager.push_heartbeat(&agent, None).unwrap();
     manager.push_heartbeat(&agent, None).unwrap();
 }
-
-// ------------------------------------------------------------------
-// verify_recent_commits / verify_locks_signature
-// ------------------------------------------------------------------
 
 #[test]
 fn test_verify_locks_signature_on_initialized_cache() {
@@ -921,18 +806,13 @@ fn test_verify_locks_signature_on_initialized_cache() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // Should return some verification result (Valid, Unsigned, Invalid, or NoCommits)
-    // depending on whether global git signing is active. Just verify it doesn't panic.
     let result = manager.verify_locks_signature().unwrap();
-    // Any variant is acceptable here
+
     let _ = result;
 }
 
 #[test]
 fn test_verify_locks_signature_no_commits_on_v3_hub() {
-    // A fresh v3 hub (754b) has no `locks.json` history on its host branch, so
-    // `verify_locks_signature` (which looks for the commit touching locks.json)
-    // reports NoCommits.
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
@@ -945,14 +825,6 @@ fn test_verify_locks_signature_no_commits_on_v3_hub() {
     ));
 }
 
-// ------------------------------------------------------------------
-// verify_entry_signatures
-// ------------------------------------------------------------------
-
-// ------------------------------------------------------------------
-// propagate_agent_hooks
-// ------------------------------------------------------------------
-
 #[test]
 fn test_propagate_agent_hooks_no_src() {
     let (work_dir, _remote_dir) = setup_sync_env();
@@ -960,7 +832,6 @@ fn test_propagate_agent_hooks_no_src() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // No canonical hooks directory in the repo root -> propagation is a no-op.
     manager.propagate_agent_hooks().unwrap();
 }
 
@@ -971,7 +842,6 @@ fn test_propagate_agent_hooks_copies_files() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // Create source hooks dir
     let hooks_src = work_dir
         .path()
         .join(".crosslink")
@@ -980,7 +850,6 @@ fn test_propagate_agent_hooks_copies_files() {
     std::fs::create_dir_all(&hooks_src).unwrap();
     std::fs::write(hooks_src.join("pre-tool-use.sh"), "#!/bin/bash\n").unwrap();
 
-    // Propagate
     manager.propagate_agent_hooks().unwrap();
 
     let hooks_dst = manager
@@ -1008,13 +877,9 @@ fn test_propagate_agent_hooks_idempotent() {
     std::fs::write(hooks_src.join("hook.sh"), "#!/bin/bash\n").unwrap();
 
     manager.propagate_agent_hooks().unwrap();
-    // Second call should be a no-op (dst already exists)
+
     manager.propagate_agent_hooks().unwrap();
 }
-
-// ------------------------------------------------------------------
-// ensure_cache_git_identity
-// ------------------------------------------------------------------
 
 #[test]
 fn test_ensure_cache_git_identity_sets_identity() {
@@ -1023,17 +888,8 @@ fn test_ensure_cache_git_identity_sets_identity() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // Call directly -- should succeed even if already set
     manager.ensure_cache_git_identity().unwrap();
 }
-
-// ------------------------------------------------------------------
-// check_divergence / count_unpushed_commits
-// ------------------------------------------------------------------
-
-// ------------------------------------------------------------------
-// migrate_from_locks_branch -- no old branch case
-// ------------------------------------------------------------------
 
 #[test]
 fn test_migrate_from_locks_branch_no_old_branch() {
@@ -1041,14 +897,9 @@ fn test_migrate_from_locks_branch_no_old_branch() {
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
 
-    // No old branch -> returns false
     let migrated = manager.migrate_from_locks_branch().unwrap();
     assert!(!migrated);
 }
-
-// ------------------------------------------------------------------
-// configure_signing -- no agent config case
-// ------------------------------------------------------------------
 
 #[test]
 fn test_configure_signing_no_agent_config() {
@@ -1057,7 +908,6 @@ fn test_configure_signing_no_agent_config() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // No agent.json -> should be no-op
     manager.configure_signing(&crosslink_dir).unwrap();
 }
 
@@ -1068,13 +918,8 @@ fn test_configure_signing_cache_not_exists() {
     std::fs::create_dir_all(&crosslink_dir).unwrap();
     let manager = SyncManager::new(&crosslink_dir).unwrap();
 
-    // cache_dir doesn't exist -> early return
     manager.configure_signing(&crosslink_dir).unwrap();
 }
-
-// ------------------------------------------------------------------
-// ensure_agent_key_published -- no agent config case
-// ------------------------------------------------------------------
 
 #[test]
 fn test_ensure_agent_key_published_no_cache() {
@@ -1083,7 +928,6 @@ fn test_ensure_agent_key_published_no_cache() {
     std::fs::create_dir_all(&crosslink_dir).unwrap();
     let manager = SyncManager::new(&crosslink_dir).unwrap();
 
-    // cache_dir doesn't exist -> returns false
     let published = manager.ensure_agent_key_published(&crosslink_dir).unwrap();
     assert!(!published);
 }
@@ -1095,11 +939,6 @@ fn test_ensure_agent_key_published_no_agent_config() {
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // No agent.json -> returns false
     let published = manager.ensure_agent_key_published(&crosslink_dir).unwrap();
     assert!(!published);
 }
-
-// ------------------------------------------------------------------
-// find_stale_locks_v2 direct
-// ------------------------------------------------------------------

@@ -1,12 +1,12 @@
 name: Publish to crates.io
 
-# Release pipeline: validates release PRs (dry-run) and publishes on tag push.
-# PRs to main come from release/* or hotfix/* branches (git flow).
-# Tag pushes trigger the actual crates.io publish.
-#
-# NOTE: This workflow does NOT re-run CI. Branch protection on main requires
-# the CI check suite to pass before merge. By the time this runs, CI has
-# already passed on the PR branch. This avoids duplicate CI runs.
+
+
+
+
+
+
+
 on:
   push:
     tags:

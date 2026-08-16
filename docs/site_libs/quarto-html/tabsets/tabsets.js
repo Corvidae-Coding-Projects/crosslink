@@ -1,4 +1,4 @@
-// grouped tabsets
+
 
 export function init() {
   window.addEventListener("pageshow", (_event) => {
@@ -86,7 +86,7 @@ export function init() {
     const selectorsToSync = setupSelectorSync();
     for (const [group, selectedName] of Object.entries(getTabSettings())) {
       const selectors = selectorsToSync[group];
-      // it's possible that stale state gives us empty selections, so we explicitly check here.
+
       if (selectors) {
         toggleAll(selectedName, selectors);
       }

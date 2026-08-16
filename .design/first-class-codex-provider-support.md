@@ -307,6 +307,20 @@ The existing init and kickoff unit suites become provider matrices. New fixture 
 
 `docs/ARCHITECTURE.md` becomes an agent integration layer diagram rather than a Claude-only layer. The README's “works everywhere” statement is backed by an explicit support matrix. Installation explains that init installs integrations while `agent.provider` selects execution. Hook documentation lists real provider coverage, especially the Codex hosted-web limitation. Container documentation uses account-login volumes only. Kickoff, swarm, sentinel, design, and orchestration examples include both providers without treating Codex as a generic binary.
 
+## Implementation amendments
+
+The bundled Markdown rule surfaces remain installed and wired into `UserPromptSubmit`, `SubagentStart`, session restoration, kickoff guidance, manifest tracking, drift checks, and `rules.local` overrides. Every bundled file under `.crosslink/rules/` and `resources/crosslink/rules/` is intentionally zero bytes. Initialization and updates preserve those empty compatibility files instead of deleting the loader or treating emptiness as damage.
+
+The native-web boundary is implemented by a fixed pre-web notice and provider context hooks. It performs no network request, page download, content rewrite, keyword filter, bot-detector workaround, or API-key exchange. The retired safe-fetch server, dependency, registration, sanitization data, and Anthropic trigger are absent.
+
+The repository instruction corpus is replaced rather than copied. Root `CLAUDE.md` is independently rewritten, root `AGENTS.md` carries the Codex-facing counterpart, every canonical skill is newly worded, Claude command adapters point to those skills, and the Codex plugin is generated from the canonical assets. The generated projections must remain hash-synchronized.
+
+Source comments and docstrings are removed across Rust, Python, JavaScript, TypeScript, CSS, SCSS, HTML, SVG, shell, workflow, and configuration sources, including generated site assets. Required interpreter shebangs remain. Where comment syntax previously carried runtime meaning, such as CLI help, Vite typing, managed boundaries, or Quarto styling, equivalent non-comment metadata or code replaces it.
+
+Repository documentation and metadata use `https://github.com/Corvidae-Coding-Projects/crosslink` and contain no obsolete ownership or control attribution.
+
+Local-only Git repositories are a supported kickoff topology. Before the first issue is created, kickoff initializes the v3 coordination hub and promotes any SQLite issue records so the generated worktree can resolve that issue without a remote. Generated worktree directories and kickoff runtime files remain ignored. Dotted configuration commands write nested JSON paths, so `crosslink config set agent.provider codex` changes the provider actually consumed by diagnostics and launchers while preserving provider option siblings and migrating the earlier flat-key shape.
+
 ## Open Questions
 
 No unresolved architecture questions remain. The user selected both integrations by default with an override, explicit provider configuration with a binary override, repository-local assets plus plugin packaging, provenance-based native web handling without duplicate fetching or magic-string filtering, and normal account-login authentication without API keys.

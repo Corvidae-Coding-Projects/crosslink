@@ -1,4 +1,3 @@
-// E-ana tablet — prune command: squash hub/knowledge branch history for storage efficiency
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use std::path::Path;
@@ -7,7 +6,6 @@ use std::process::Command;
 use crate::knowledge::KnowledgeManager;
 use crate::sync::SyncManager;
 
-/// Options for the prune command.
 pub struct PruneOpts {
     pub dry_run: bool,
     pub force: bool,
@@ -16,7 +14,6 @@ pub struct PruneOpts {
     pub knowledge_only: bool,
 }
 
-/// Size stats for a branch before/after pruning.
 #[derive(Debug, Serialize)]
 struct BranchStats {
     branch: String,
@@ -24,7 +21,6 @@ struct BranchStats {
     commits_after: usize,
 }
 
-/// Run a git command in the given directory, returning its output.
 fn git_in_dir(dir: &Path, args: &[&str]) -> Result<std::process::Output> {
     let output = Command::new("git")
         .current_dir(dir)
@@ -43,7 +39,6 @@ fn git_in_dir(dir: &Path, args: &[&str]) -> Result<std::process::Output> {
     Ok(output)
 }
 
-/// Count the number of commits on the current branch in a worktree.
 fn count_commits(cache_dir: &Path) -> Result<usize> {
     let output = git_in_dir(cache_dir, &["rev-list", "--count", "HEAD"])?;
     let count_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -52,14 +47,9 @@ fn count_commits(cache_dir: &Path) -> Result<usize> {
         .with_context(|| format!("Failed to parse commit count: {count_str:?}"))
 }
 
-/// Remove stale data files from the hub branch cache.
-///
-/// Cleans up old heartbeat files (V1 layout) and agent directories
-/// for decommissioned agents (those with no events).
 fn remove_stale_hub_data(cache_dir: &Path) -> Result<Vec<String>> {
     let mut removed = Vec::new();
 
-    // Clean up old V1 heartbeat files
     let heartbeats_dir = cache_dir.join("heartbeats");
     if heartbeats_dir.is_dir() {
         for entry in std::fs::read_dir(&heartbeats_dir)? {
@@ -70,14 +60,12 @@ fn remove_stale_hub_data(cache_dir: &Path) -> Result<Vec<String>> {
                 std::fs::remove_file(entry.path())?;
             }
         }
-        // Remove the directory if now empty
+
         if std::fs::read_dir(&heartbeats_dir)?.next().is_none() {
             std::fs::remove_dir(&heartbeats_dir)?;
         }
     }
 
-    // Clean up agent directories for decommissioned agents
-    // (those whose events.log is empty or missing)
     let agents_dir = cache_dir.join("agents");
     if agents_dir.is_dir() {
         for entry in std::fs::read_dir(&agents_dir)? {
@@ -101,7 +89,6 @@ fn remove_stale_hub_data(cache_dir: &Path) -> Result<Vec<String>> {
     Ok(removed)
 }
 
-/// Count stale data files without removing them (for dry-run).
 fn count_stale_hub_data(cache_dir: &Path) -> Vec<String> {
     let mut stale = Vec::new();
 
@@ -139,10 +126,6 @@ fn count_stale_hub_data(cache_dir: &Path) -> Vec<String> {
     stale
 }
 
-/// Squash the history of a branch in a cache worktree.
-///
-/// Creates a new orphan commit (or keeps the last N commits) with the current
-/// tree state, then force-updates the branch ref and force-pushes.
 fn squash_branch(
     cache_dir: &Path,
     branch: &str,
@@ -170,17 +153,13 @@ fn squash_branch(
     }
 
     let commits_after = if keep_commits <= 1 {
-        // Squash everything into a single commit with the current tree.
-        // 1. Stage all current content (ensures index matches worktree)
         git_in_dir(cache_dir, &["add", "-A"])?;
 
-        // 2. Write the current index as a tree object
         let tree_output = git_in_dir(cache_dir, &["write-tree"])?;
         let tree_hash = String::from_utf8_lossy(&tree_output.stdout)
             .trim()
             .to_string();
 
-        // 3. Create a root commit (no parent) with this tree
         let commit_output = Command::new("git")
             .current_dir(cache_dir)
             .args([
@@ -203,32 +182,26 @@ fn squash_branch(
             .trim()
             .to_string();
 
-        // 4. Update the branch ref to the new root commit
         git_in_dir(
             cache_dir,
             &["update-ref", &format!("refs/heads/{branch}"), &new_head],
         )?;
 
-        // 5. Reset HEAD to the new commit
         git_in_dir(cache_dir, &["reset", "--hard", &new_head])?;
 
         1
     } else {
-        // Keep last N commits: rewrite history preserving recent commits.
-        // Find the base commit (Nth from HEAD)
         let base_ref = format!("HEAD~{keep_commits}");
         let base_hash_output = git_in_dir(cache_dir, &["rev-parse", &base_ref])?;
         let base_hash = String::from_utf8_lossy(&base_hash_output.stdout)
             .trim()
             .to_string();
 
-        // Get the tree at the base commit
         let tree_output = git_in_dir(cache_dir, &["rev-parse", &format!("{base_hash}^{{tree}}")])?;
         let tree_hash = String::from_utf8_lossy(&tree_output.stdout)
             .trim()
             .to_string();
 
-        // Create a new root commit with the base tree
         let commit_output = Command::new("git")
             .current_dir(cache_dir)
             .args([
@@ -254,17 +227,14 @@ fn squash_branch(
             .trim()
             .to_string();
 
-        // Save current tip
         let tip_output = git_in_dir(cache_dir, &["rev-parse", "HEAD"])?;
         let tip_hash = String::from_utf8_lossy(&tip_output.stdout)
             .trim()
             .to_string();
 
-        // Detach, reset to new base, cherry-pick the kept commits
         git_in_dir(cache_dir, &["checkout", "--detach", "HEAD"])?;
         git_in_dir(cache_dir, &["reset", "--hard", &new_base])?;
 
-        // Get list of commits to replay (oldest first)
         let range = format!("{base_hash}..{tip_hash}");
         let log_output = git_in_dir(cache_dir, &["rev-list", "--reverse", &range])?;
         let log_text = String::from_utf8_lossy(&log_output.stdout)
@@ -277,7 +247,6 @@ fn squash_branch(
             }
         }
 
-        // Update the branch ref to point to the new history
         let new_tip_output = git_in_dir(cache_dir, &["rev-parse", "HEAD"])?;
         let new_tip = String::from_utf8_lossy(&new_tip_output.stdout)
             .trim()
@@ -288,10 +257,9 @@ fn squash_branch(
         )?;
         git_in_dir(cache_dir, &["checkout", branch])?;
 
-        keep_commits + 1 // base squash commit + kept commits
+        keep_commits + 1
     };
 
-    // Force-push the rewritten branch
     let refspec = format!("{branch}:{branch}");
     git_in_dir(cache_dir, &["push", "--force", remote, &refspec])?;
 
@@ -302,7 +270,6 @@ fn squash_branch(
     })
 }
 
-/// Entry point for `crosslink prune`.
 pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
     if !opts.force && !opts.dry_run {
         tracing::warn!("This will rewrite branch history and force-push.");
@@ -313,7 +280,6 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
     let mut results: Vec<BranchStats> = Vec::new();
     let mut stale_removed: Vec<String> = Vec::new();
 
-    // --- Hub branch ---
     if !opts.knowledge_only {
         let sync = SyncManager::new(crosslink_dir)?;
         sync.init_cache()?;
@@ -326,7 +292,6 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
         } else {
             let removed = remove_stale_hub_data(cache_dir)?;
             if !removed.is_empty() {
-                // INTENTIONAL: staging is best-effort — we check for actual changes before committing
                 let _ = git_in_dir(cache_dir, &["add", "-A"]);
                 let has_changes = git_in_dir(cache_dir, &["diff", "--cached", "--quiet"]).is_err();
                 if has_changes {
@@ -346,7 +311,6 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
         results.push(stats);
     }
 
-    // --- Knowledge branch ---
     if !opts.hub_only {
         let km = KnowledgeManager::new(crosslink_dir)?;
         if km.is_initialized() {
@@ -369,7 +333,6 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
         }
     }
 
-    // --- Output ---
     if json {
         #[derive(Serialize)]
         struct PruneReport {
@@ -386,7 +349,6 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Human-readable output
     if opts.dry_run {
         println!("Prune plan (dry run):\n");
     }

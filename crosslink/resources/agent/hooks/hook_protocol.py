@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Normalize Claude and Codex hook payloads and outputs for Crosslink."""
+
 
 from __future__ import annotations
 
@@ -57,9 +57,9 @@ def _patch_paths(command: str) -> tuple[list[str], list[str]]:
                 if operation == "Update":
                     pending_update = path
                 elif not has_operation and line.startswith("*** Move to:"):
-                    # A move is encoded as Update old + Move to new. The old
-                    # path must be treated as deleted while the new path is a
-                    # surviving affected file.
+
+
+
                     if pending_update and pending_update not in deleted:
                         deleted.append(pending_update)
                     pending_update = None
@@ -179,7 +179,7 @@ def _project_root(event: HookEvent) -> Path:
 
 
 def claim_event(hook_id: str, event: HookEvent, ttl_seconds: int = 600) -> bool:
-    """Claim one logical hook invocation across local and plugin copies."""
+
     identity = "\0".join(
         (
             hook_id,

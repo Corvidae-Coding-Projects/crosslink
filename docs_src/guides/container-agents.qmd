@@ -158,14 +158,17 @@ crosslink container rm my-feature
 
 ---
 
-## Hook enforcement inside containers
+## Repository hooks inside containers
 
-The same crosslink hooks that enforce policy in local sessions also run inside containers -- automatically, with zero additional configuration:
+The same Crosslink repository hooks used in local sessions also run inside containers:
 
 - **Git mutations blocked** -- `git push`, `git merge`, `git rebase` are blocked by hooks
 - **Commits gated** -- `git commit` requires an active crosslink issue
 - **Stub detection** -- post-edit hooks catch TODOs and incomplete code
-- **Language rules** -- project-specific best practices are injected
+- **Session state** -- active issue and heartbeat data remain available
+
+The rule hook remains installed in the container. Its bundled Markdown inputs are
+zero bytes, matching local execution.
 
 Container execution maps the selected provider to an externally isolated
 posture. Codex may use danger-full-access only inside that boundary; host Codex
@@ -206,23 +209,3 @@ crosslink kickoff run "my feature" --container docker
 # Podman container
 crosslink kickoff run "my feature" --container podman
 ```
-
-<!-- &nbsp;
-
----
-
-## Command reference
-
-| Command | Description |
-|---------|-------------|
-| `container build` | Build the agent container image |
-| `container start <worktree>` | Start a container for a worktree |
-| `container ps` | List running containers |
-| `container logs <name>` | Stream container logs |
-| `container stop <name>` | Gracefully stop a container |
-| `container kill <name>` | Stop and remove a container |
-| `container rm <name>` | Remove a stopped container |
-| `container shell <name>` | Open a shell in a container |
-| `container snapshot <name>` | Save container state as an image |
-
-See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination](multi-agent.qmd) for distributed locking. -->

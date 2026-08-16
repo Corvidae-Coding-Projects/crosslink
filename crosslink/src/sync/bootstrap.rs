@@ -2,32 +2,14 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Tracks the one-time bootstrap phase of a hub branch.
-///
-/// New hubs require inherently unsigned commits (init, key publication)
-/// before signing can be configured. This state lets enforcement
-/// distinguish the bootstrap phase from normal operation.
-///
-/// Lifecycle:
-/// 1. `init_cache()` writes `status: "pending"` in the first commit.
-/// 2. `crosslink trust approve` sets `status: "complete"`.
-/// 3. Enforcement blocks with actionable guidance when pending; filters
-///    bootstrap commits (identified by message prefix) when complete.
-///
-/// Stored at `meta/bootstrap.json` on the hub branch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BootstrapState {
-    /// `"pending"` during setup, `"complete"` after first `trust approve`.
     pub status: String,
-    /// ISO 8601 timestamp when bootstrap was completed.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
 }
 
-/// Read bootstrap state from `meta/bootstrap.json` in the cache directory.
-///
-/// Returns `None` if the file does not exist (backwards compat with old repos)
-/// or cannot be parsed.
 pub fn read_bootstrap_state(cache_dir: &Path) -> Option<BootstrapState> {
     let path = cache_dir.join("meta").join("bootstrap.json");
     let content = std::fs::read_to_string(&path).ok()?;
@@ -40,7 +22,6 @@ pub fn read_bootstrap_state(cache_dir: &Path) -> Option<BootstrapState> {
     }
 }
 
-/// Write bootstrap state to `meta/bootstrap.json`.
 pub fn write_bootstrap_state(cache_dir: &Path, state: &BootstrapState) -> Result<()> {
     let meta_dir = cache_dir.join("meta");
     std::fs::create_dir_all(&meta_dir)
@@ -52,7 +33,6 @@ pub fn write_bootstrap_state(cache_dir: &Path, state: &BootstrapState) -> Result
     Ok(())
 }
 
-/// Mark bootstrap as complete. Called by `trust approve` on first approval.
 pub fn complete_bootstrap(cache_dir: &Path) -> Result<()> {
     let mut state = read_bootstrap_state(cache_dir).unwrap_or_else(|| BootstrapState {
         status: "pending".to_string(),

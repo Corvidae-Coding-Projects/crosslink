@@ -1,7 +1,7 @@
-// Coverage for the /settings/preferences page. Exercises the
-// preferences store directly (no mocks) — the store is pure JS and
-// already covered by preferences.test.ts, so here we just assert that
-// the UI mirrors + mutates it correctly.
+
+
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -48,7 +48,7 @@ describe("SettingsPreferences page", () => {
 
   it("severity checkboxes default to critical-only and toggle on/off", () => {
     render(<SettingsPreferences />);
-    // Enable audible first so the fieldset isn't disabled.
+
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /play a tone when an alert fires/i,
