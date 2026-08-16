@@ -137,6 +137,7 @@ impl Default for CpitdSourceConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct DefaultAgentConfig {
+    #[serde(alias = "model_tier")]
     pub model: String,
     pub timeout_minutes: u64,
     /// Verify level as a string ("local", "ci", "thorough"). Parse via `verify_level()`.
@@ -154,7 +155,7 @@ impl DefaultAgentConfig {
 impl Default for DefaultAgentConfig {
     fn default() -> Self {
         Self {
-            model: "claude-sonnet-4-6".to_string(),
+            model: "standard".to_string(),
             timeout_minutes: 30,
             verify: "local".to_string(),
         }
@@ -204,6 +205,7 @@ impl NotificationConfig {
 #[serde(default)]
 pub struct EscalationConfig {
     pub enabled: bool,
+    #[serde(alias = "model_tier")]
     pub model: String,
     pub cooldown_minutes: u64,
     pub max_attempts: u32,
@@ -215,7 +217,7 @@ impl Default for EscalationConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            model: "claude-opus-4-6".to_string(),
+            model: "advanced".to_string(),
             cooldown_minutes: 30,
             max_attempts: 2,
             timeout_multiplier_pct: 150,

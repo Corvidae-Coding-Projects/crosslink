@@ -29,7 +29,7 @@ The `crosslink` binary will be available in your PATH after install.
 ## Build from source
 
 ```bash
-git clone https://github.com/forecast-bio/crosslink.git
+git clone https://github.com/Corvidae-Coding-Projects/crosslink.git
 cd crosslink/crosslink
 cargo install --path .
 ```
@@ -47,7 +47,7 @@ cargo build --release
 
 ## VS Code extension
 
-Search **"Crosslink Issue Tracker"** in VS Code Extensions, or visit the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).
+Search **"Crosslink Issue Tracker"** in VS Code Extensions, or visit the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=corvidae-coding-projects.crosslink-issue-tracker).
 
 The extension bundles the CLI binary and provides:
 
@@ -63,8 +63,9 @@ The extension bundles the CLI binary and provides:
 ## Requirements
 
 - **Rust 1.87+** (for `cargo install`) — [install rustup](https://rustup.rs/)
-- **Python 3.6+** — required for Claude Code hooks
+- **Python 3.6+** — required for Claude Code and Codex hooks
 - **Git** — required for multi-agent coordination features
+- A normal signed-in **Claude Code** or **Codex** CLI account for autonomous runs
 
 &nbsp;
 
@@ -80,4 +81,8 @@ crosslink init
 
 The interactive TUI walkthrough guides you through initial configuration — choosing tracking mode, setting up hooks, and configuring agent identity. Sensible defaults are pre-selected so you can accept them all to get started fast.
 
-This sets up the `.crosslink/` directory, Claude Code hooks, and default rules. See [Your First Agent Session](quickstart.qmd) for next steps.
+This sets up `.crosslink/`, both Claude Code and Codex repository integrations,
+provider-neutral rules, shared MCP servers, and skills. Install only one side
+with `--agent-integration claude|codex`; this controls installed assets and does
+not select the runtime provider. See [Claude and Codex providers](../guides/providers.qmd)
+and [Your First Agent Session](quickstart.qmd).

@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Container-based agents – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -69,19 +75,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../guides/swarm.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -182,6 +187,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -241,6 +250,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -253,7 +266,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -297,6 +310,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../guides/providers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Claude and Codex providers</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../guides/multi-agent.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Multi-agent coordination</span></a>
   </div>
@@ -373,11 +392,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <h2 id="toc-title">On this page</h2>
    
   <ul>
-  <li><a href="#why-containers" id="toc-why-containers" class="nav-link active" data-scroll-target="#why-containers">Why containers?</a></li>
+  <li><a href="#why-containers" id="toc-why-containers" class="nav-link active" data-scroll-target="#why-containers">Why containers?</a>
+  <ul>
+  <li><a href="#local-sandbox-alternative" id="toc-local-sandbox-alternative" class="nav-link" data-scroll-target="#local-sandbox-alternative">Local sandbox alternative</a></li>
+  </ul></li>
   <li><a href="#quick-start" id="toc-quick-start" class="nav-link" data-scroll-target="#quick-start">Quick start</a></li>
   <li><a href="#managing-container-lifecycle" id="toc-managing-container-lifecycle" class="nav-link" data-scroll-target="#managing-container-lifecycle">Managing container lifecycle</a>
   <ul>
-  <li><a href="#building-the-image" id="toc-building-the-image" class="nav-link" data-scroll-target="#building-the-image">Building the image</a></li>
+  <li><a href="#getting-the-image" id="toc-getting-the-image" class="nav-link" data-scroll-target="#getting-the-image">Getting the image</a></li>
+  <li><a href="#building-the-image-locally" id="toc-building-the-image-locally" class="nav-link" data-scroll-target="#building-the-image-locally">Building the image locally</a></li>
   <li><a href="#monitoring-containers" id="toc-monitoring-containers" class="nav-link" data-scroll-target="#monitoring-containers">Monitoring containers</a></li>
   <li><a href="#manual-control" id="toc-manual-control" class="nav-link" data-scroll-target="#manual-control">Manual control</a></li>
   </ul></li>
@@ -421,11 +444,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <ul>
 <li><strong>Isolation</strong> – agents cannot access your host filesystem outside the worktree</li>
 <li><strong>Reproducibility</strong> – consistent environment regardless of host OS</li>
-<li><strong>Security</strong> – <code>--dangerously-skip-permissions</code> becomes safe inside a container because crosslink hooks still enforce policy (no push, no merge, gated commits)</li>
+<li><strong>Security</strong> – provider execution may use a broader sandbox only inside the configured external container boundary; Crosslink hooks still enforce repository policy</li>
 <li><strong>Cross-platform</strong> – works on Windows, Linux, and macOS anywhere Docker runs</li>
 </ul>
 <p>&nbsp;</p>
+<section id="local-sandbox-alternative" class="level3">
+<h3 class="anchored" data-anchor-id="local-sandbox-alternative">Local sandbox alternative</h3>
+<p>If you can’t run Docker or Podman but still want host isolation, set <code>sandbox.command</code> in <code>hook-config.json</code>. The configured command wraps the structured provider invocation at the shell boundary.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> config set sandbox.command <span class="st">"firejail --quiet --net=none"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>A container is still the stronger answer when one is available – this lever just makes the local path less raw when it’s the only option.</p>
+<p>&nbsp;</p>
 <hr>
+</section>
 </section>
 <section id="quick-start" class="level2">
 <h2 class="anchored" data-anchor-id="quick-start">Quick start</h2>
@@ -440,8 +470,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"add batch retry logic"</span> <span class="dt">\</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"add batch retry logic"</span> <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Creates branch, worktree, builds the image (if needed), starts a container, and launches the agent inside it.</p>
 </div>
 </div>
@@ -450,21 +480,35 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="managing-container-lifecycle" class="level2">
 <h2 class="anchored" data-anchor-id="managing-container-lifecycle">Managing container lifecycle</h2>
-<section id="building-the-image" class="level3">
-<h3 class="anchored" data-anchor-id="building-the-image">Building the image</h3>
+<section id="getting-the-image" class="level3">
+<h3 class="anchored" data-anchor-id="getting-the-image">Getting the image</h3>
+<p>The default image used by <code>--container docker|podman</code> is published to GitHub Container Registry as <a href="https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent"><code>ghcr.io/corvidae-coding-projects/crosslink-agent</code></a>, built for both <code>linux/amd64</code> and <code>linux/arm64</code>. Published tags:</p>
+<ul>
+<li><code>:latest</code> — the most recent tagged release</li>
+<li><code>:&lt;version&gt;</code> (e.g.&nbsp;<code>:0.5.2</code>) — pinned release</li>
+<li><code>:nightly</code> — floating tag tracking <code>develop</code></li>
+<li><code>:nightly-&lt;short-sha&gt;</code> — immutable nightly snapshots</li>
+</ul>
+<p>The first <code>--container docker</code> launch will pull the image automatically; subsequent launches reuse the local copy. Pin <code>--image ghcr.io/corvidae-coding-projects/crosslink-agent:&lt;version&gt;</code> for reproducible runs.</p>
+</section>
+<section id="building-the-image-locally" class="level3">
+<h3 class="anchored" data-anchor-id="building-the-image-locally">Building the image locally</h3>
 <div class="columns">
 <div class="column" style="width:35%;">
 <p><strong>You say / do:</strong></p>
 <blockquote class="blockquote">
-<p>“Set up the container image for this project.”</p>
+<p>“Build the agent image from source instead of pulling.”</p>
 </blockquote>
-<p>The image is built once and reused for all subsequent agent launches. It includes the full toolchain for your project.</p>
+<p>Useful when iterating on <code>crosslink/resources/container/Dockerfile</code> or running offline. Produces a single-arch image tagged <code>:local</code>.</p>
 </div><div class="column" style="width:5%;">
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container build</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>The default image includes: Rust toolchain (matches project’s <code>rust-version</code>), Python 3, Git, Claude Code CLI, and crosslink binary.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">just</span> build-image            <span class="co"># tags :local</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"..."</span> <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker <span class="dt">\</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--image</span> ghcr.io/corvidae-coding-projects/crosslink-agent:local</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The image includes both Claude Code and Codex CLIs, Crosslink, git, Python, <code>uv</code>, and non-root UID remapping. The entrypoint installs both repository integrations without changing <code>agent.provider</code> and runs the final process as the remapped non-root user.</p>
 </div>
 </div>
 </section>
@@ -481,27 +525,27 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container ps</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container logs my-feature <span class="at">-f</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container ps</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container logs my-feature <span class="at">-f</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Lists all running agent containers and streams live output from a specific agent.</p>
 </div>
 </div>
 </section>
 <section id="manual-control" class="level3">
 <h3 class="anchored" data-anchor-id="manual-control">Manual control</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Start a container manually for an existing worktree</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container start .worktrees/my-feature <span class="dt">\</span></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--issue</span> 42 <span class="dt">\</span></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--prompt</span> .worktrees/my-feature/KICKOFF.md</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Graceful stop</span></span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container stop my-feature</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Stop and remove</span></span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container kill my-feature</span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Remove a stopped container</span></span>
-<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container rm my-feature</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Start a container manually for an existing worktree</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container start .worktrees/my-feature <span class="dt">\</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--issue</span> 42 <span class="dt">\</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--prompt</span> .worktrees/my-feature/KICKOFF.md</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Graceful stop</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container stop my-feature</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Stop and remove</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container kill my-feature</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Remove a stopped container</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container rm my-feature</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -515,7 +559,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><strong>Stub detection</strong> – post-edit hooks catch TODOs and incomplete code</li>
 <li><strong>Language rules</strong> – project-specific best practices are injected</li>
 </ul>
-<p>This means you can use <code>--dangerously-skip-permissions</code> for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.</p>
+<p>Container execution maps the selected provider to an externally isolated posture. Codex may use danger-full-access only inside that boundary; host Codex defaults to workspace-write.</p>
+<p>Authentication uses normal interactive account login in provider- and user-scoped persistent volumes. No API-key environment variables are accepted or forwarded:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth login <span class="at">--provider</span> codex</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth status <span class="at">--provider</span> codex</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth refresh <span class="at">--provider</span> claude</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth logout <span class="at">--provider</span> codex</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -529,14 +578,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Launches the agent inside the container</li>
 <li>The agent works autonomously: explore, implement, test, commit</li>
 </ol>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Local tmux (default)</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Docker container</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> docker</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Podman container</span></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> podman</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Local tmux (default)</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Docker container</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> docker</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Podman container</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> podman</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <!-- &nbsp;
 
 ---
@@ -974,21 +1023,21 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -1005,12 +1054,12 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -1023,7 +1072,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -1047,7 +1096,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -1074,7 +1123,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

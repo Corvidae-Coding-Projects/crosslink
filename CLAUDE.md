@@ -27,7 +27,7 @@ When I hand you a GitHub issue:
 
 - End sentences with periods, including before tool calls.
 - Reference code as `file_path:line_number`.
-- Reference GitHub issues as `owner/repo#123` (e.g. `forecast-bio/crosslink#611`).
+- Reference GitHub issues as `owner/repo#123` (e.g. `Corvidae-Coding-Projects/crosslink#611`).
 - Reference local crosslink issues as `#123`.
 
 ---

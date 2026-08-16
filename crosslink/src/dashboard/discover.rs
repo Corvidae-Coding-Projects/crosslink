@@ -26,7 +26,7 @@ use anyhow::Result;
 use super::db::DashboardDb;
 
 /// Default walk depth when none is passed on the CLI. Deep enough to
-/// catch `~/code/forecast/repo` (depth 3) and `~/work/org/repo`
+/// catch `~/code/crosslink/repo` (depth 3) and `~/work/org/repo`
 /// (depth 3) without descending into every `node_modules` fossil.
 pub const DEFAULT_DEPTH: usize = 4;
 
@@ -294,9 +294,9 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
 
-        mk_repo(&root.join("code/forecast/alpha"), None, true); // hit
-        mk_repo(&root.join("code/forecast/beta"), None, true); // hit
-        mk_repo(&root.join("code/forecast/gamma"), None, false); // plain git, no crosslink
+        mk_repo(&root.join("code/crosslink/alpha"), None, true); // hit
+        mk_repo(&root.join("code/crosslink/beta"), None, true); // hit
+        mk_repo(&root.join("code/crosslink/gamma"), None, false); // plain git, no crosslink
         mk_repo(&root.join("code/other/delta"), None, true); // hit
         mk_repo(&root.join("code/vendored/node_modules/package"), None, true); // skipped: noise dir ancestor
         mk_repo(&root.join(".dotdir/hidden"), None, true); // skipped: hidden dir ancestor

@@ -273,6 +273,11 @@ pub struct TokenUsage {
     pub timestamp: DateTime<Utc>,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_input_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_output_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,6 +285,8 @@ pub struct TokenUsage {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_estimate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata_json: Option<String>,
 }
 
 #[cfg(test)]

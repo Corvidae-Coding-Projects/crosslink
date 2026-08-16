@@ -1,0 +1,11 @@
+{"type":"thread.started","thread_id":"codex-thread"}
+{"type":"turn.started","thread_id":"codex-thread"}
+{"type":"item.completed","thread_id":"codex-thread","item":{"id":"m1","type":"agent_message","text":"working"}}
+{"type":"item.completed","thread_id":"codex-thread","item":{"id":"c1","type":"command_execution","command":"cargo test","status":"completed"}}
+{"type":"item.completed","thread_id":"codex-thread","item":{"id":"f1","type":"file_change","changes":[{"path":"src/lib.rs"}]}}
+{"type":"item.completed","thread_id":"codex-thread","item":{"id":"w1","type":"web_search","status":"completed"}}
+{"type":"item.completed","thread_id":"codex-thread","item":{"id":"x1","type":"mcp_tool_call","status":"completed"}}
+{"type":"turn.completed","thread_id":"codex-thread","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":3,"reasoning_output_tokens":2}}
+{"type":"turn.failed","thread_id":"codex-thread","status":"failed"}
+{"type":"turn.waiting","thread_id":"codex-thread"}
+{"type":"turn.timed_out","thread_id":"codex-thread"}

@@ -3,7 +3,7 @@
 Generate small layered-shape SVG icons for each feature card on the home page.
 
 Each icon is 2-4 overlapping shapes with multiply blending, inspired by
-Forecast brand layered shapes. Output: one SVG per card in docs_src/assets/img/cards/.
+Crosslink brand layered shapes. Output: one SVG per card in docs_src/assets/img/cards/.
 
 Usage:
     python3 scripts/generate-card-icons.py -o docs_src/assets/img/cards

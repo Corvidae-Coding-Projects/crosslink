@@ -18,7 +18,7 @@ You direct. Your agents remember. Nothing gets lost.
 
 ::: {.cta-buttons}
 [Get Started](getting-started/quickstart.qmd){.btn-primary}
-[View on GitHub](https://github.com/forecast-bio/crosslink){.btn-secondary}
+[View on GitHub](https://github.com/Corvidae-Coding-Projects/crosslink){.btn-secondary}
 :::
 
 :::
@@ -108,7 +108,7 @@ Tell your agent what to fix and it handles the rest — `quick` creates, labels,
 ![](assets/img/cards/everywhere.svg){.card-icon}
 
 ### Works Everywhere
-Native CLI + VS Code extension. Integrates with Claude Code, Aider, Cursor, Continue.dev, or any AI agent via the context provider.
+Native CLI + VS Code extension. First-class Claude Code and Codex providers, plus a custom-provider boundary and context integrations for other agents.
 :::
 
 :::
@@ -153,11 +153,11 @@ crosslink session end --notes "Fixed. PR ready."
 cargo install crosslink
 
 # Or build from source
-git clone https://github.com/forecast-bio/crosslink.git
+git clone https://github.com/Corvidae-Coding-Projects/crosslink.git
 cd crosslink/crosslink && cargo install --path .
 ```
 
-Also available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).
+Also available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=corvidae-coding-projects.crosslink-issue-tracker).
 
 &nbsp;
 

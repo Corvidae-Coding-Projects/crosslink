@@ -272,7 +272,7 @@ they are present in this prompt; do not push otherwise.
    database is connected. If it reports no agent, run `crosslink agent init` first. Then run `crosslink sync`
    to pull the latest coordination state from the hub.
 2. **Start your crosslink session**: Run `crosslink session start` then `crosslink session work {issue_id}`
-3. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
+3. **Read the project's AGENTS.md and CLAUDE.md** (when present) plus `.crosslink/rules/` for conventions before starting; provider-specific files apply only to their provider
 4. Explore relevant code before making changes
 5. **Check the knowledge repo** for relevant research before starting:
    `crosslink knowledge search '<relevant terms>'`
@@ -457,7 +457,7 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
     Some(section)
 }
 
-/// Build the --allowedTools string for the claude CLI.
+/// Build the tool allow-list consumed by providers that support one.
 pub(crate) fn build_allowed_tools(
     conventions: &ProjectConventions,
     verify: &VerifyLevel,

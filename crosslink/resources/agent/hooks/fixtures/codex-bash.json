@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "thread-1",
+  "turn_id": "turn-1",
+  "tool_use_id": "call-2",
+  "tool_name": "Bash",
+  "tool_input": {"command": "git status"},
+  "cwd": "."
+}

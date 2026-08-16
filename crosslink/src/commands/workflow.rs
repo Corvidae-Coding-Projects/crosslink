@@ -12,13 +12,14 @@ pub fn run(
     crosslink_dir: &Path,
     get_db: impl FnOnce() -> Result<Database>,
 ) -> Result<()> {
-    let claude_dir = crosslink_dir
+    let integrations_dir = crosslink_dir
         .parent()
         .context("Cannot determine project root")?
-        .join(".claude");
+        .join(".crosslink")
+        .join("integrations");
     match command {
         WorkflowCommands::Diff { section, check } => {
-            diff(crosslink_dir, &claude_dir, section.as_deref(), check);
+            diff(crosslink_dir, &integrations_dir, section.as_deref(), check);
             Ok(())
         }
         WorkflowCommands::Trail { id, kind, json } => {
@@ -90,7 +91,7 @@ fn has_custom_marker(deployed_path: &Path) -> bool {
 ///
 /// When `check` is true, operates in CI mode: exits 0 if all drifted files are
 /// marked with `# crosslink:custom`, exits 1 with a summary otherwise.
-pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, check: bool) {
+pub fn diff(crosslink_dir: &Path, integrations_dir: &Path, section: Option<&str>, check: bool) {
     let show_all = section.is_none();
     let mut drifted: Vec<String> = Vec::new();
 
@@ -195,16 +196,20 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
         if !check {
             println!("=== Hooks ===");
         }
-        let hooks_dir = claude_dir.join("hooks");
+        let hooks_dir = integrations_dir.join("hooks");
         for (filename, default_content) in HOOK_FILES {
             let path = hooks_dir.join(filename);
             let result = compare_file(&path, default_content);
             if !check {
-                println!("  .claude/hooks/{}: {}", filename, compare_display(&result));
+                println!(
+                    "  .crosslink/integrations/hooks/{}: {}",
+                    filename,
+                    compare_display(&result)
+                );
             }
             if let CompareResult::Customized(_) = result {
                 if check && !has_custom_marker(&path) {
-                    drifted.push(format!(".claude/hooks/{filename}"));
+                    drifted.push(format!(".crosslink/integrations/hooks/{filename}"));
                 }
             }
         }
@@ -351,6 +356,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -378,6 +384,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -413,6 +420,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -442,6 +450,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -467,6 +476,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -494,6 +504,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,

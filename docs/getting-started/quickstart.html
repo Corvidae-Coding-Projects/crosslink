@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Your first agent session – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -68,19 +74,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../getting-started/installation.html" rel="next">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -181,6 +186,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -240,6 +249,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -252,7 +265,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -358,7 +371,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> install crosslink</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> your-project</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>This creates <code>.crosslink/</code> (config, rules, database), <code>.claude/hooks/</code> (behavioral hooks), and <code>.claude/settings.json</code> (hook wiring). See <a href="../getting-started/installation.html">Installation</a> for more install options.</p>
+<p>This creates <code>.crosslink/</code> (config, rules, database, shared hooks/MCP), Claude settings and skills, and Codex hooks, config, skills, and managed <code>AGENTS.md</code> guidance. Both integrations are installed by default; <code>agent.provider</code> selects the runtime. See <a href="../getting-started/installation.html">Installation</a> and <a href="../guides/providers.html">Claude and Codex providers</a>.</p>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -902,21 +915,21 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -933,12 +946,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -951,7 +964,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -975,7 +988,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -1002,7 +1015,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

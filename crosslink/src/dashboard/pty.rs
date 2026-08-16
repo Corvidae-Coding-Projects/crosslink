@@ -74,10 +74,12 @@ pub struct PtySession {
     pub project_slug: String,
     pub command: String,
     pub started_at: String,
-    /// Master end of the PTY. Wrapped in `Mutex<Option<...>>` so the
-    /// reader thread can take ownership of the read half while the
-    /// write half stays accessible from request handlers.
+    /// Master/control end of the PTY, retained for resize and lifecycle.
     master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
+    /// Persistent PTY input writer. `MasterPty::take_writer` is one-shot and
+    /// dropping the returned handle sends EOF, so request handlers must share
+    /// this handle instead of taking a new writer for each input frame.
+    writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
     /// Broadcast channel for stdout bytes — every connected WS gets a
     /// receiver. Replay buffer is filled from the same producer.
     broadcaster: broadcast::Sender<Vec<u8>>,
@@ -108,20 +110,19 @@ impl PtySession {
         (receiver, snapshot)
     }
 
-    /// Forward stdin bytes to the PTY. Returns an error if the master
-    /// has already been closed (process exited).
+    /// Forward stdin bytes to the PTY. Returns an error if its persistent
+    /// input writer has already been closed (process exited).
     ///
     /// # Errors
     /// Returns an error if the master end is unavailable or write fails.
     pub fn write_stdin(&self, data: &[u8]) -> Result<()> {
         let mut guard = self
-            .master
+            .writer
             .lock()
-            .map_err(|_| anyhow::anyhow!("pty master mutex poisoned"))?;
-        let master = guard
+            .map_err(|_| anyhow::anyhow!("pty writer mutex poisoned"))?;
+        let writer = guard
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("pty already closed"))?;
-        let mut writer = master.take_writer().context("take pty writer")?;
         writer.write_all(data).context("write to pty")?;
         Ok(())
     }
@@ -156,6 +157,9 @@ impl Drop for PtySession {
             if let Some(h) = g.take() {
                 h.abort();
             }
+        }
+        if let Ok(mut g) = self.writer.lock() {
+            *g = None;
         }
         // Dropping the master closes the PTY (kills the child).
         if let Ok(mut g) = self.master.lock() {
@@ -258,12 +262,11 @@ pub fn spawn_pty(
     // Take a clone of the master we can read from in the background
     // thread. portable_pty exposes try_clone_reader for exactly this.
     let mut reader = pair.master.try_clone_reader().context("clone pty reader")?;
+    let writer = pair.master.take_writer().context("take pty writer")?;
 
     let tx_for_reader = tx.clone();
     let replay_for_reader = Arc::clone(&replay);
-    let exit_code_for_reader = Arc::clone(&exit_code);
-    let exit_notify_for_reader = Arc::clone(&exit_notify);
-
+    let (exit_ready_tx, exit_ready_rx) = std::sync::mpsc::sync_channel::<()>(0);
     // Reader runs on a blocking-friendly worker because portable_pty
     // gives us a sync Read. Copy each chunk into the replay buffer
     // and broadcast to subscribers.
@@ -286,21 +289,43 @@ pub fn spawn_pty(
             // Best effort: if no subscribers, send returns Err — fine.
             let _ = tx_for_reader.send(chunk);
         }
-        // Reader returned EOF — wait for the child to actually exit
-        // so we record the right code.
-        let code = child.wait().map_or(-1, |status| status.exit_code() as i32);
-        if let Ok(mut g) = exit_code_for_reader.lock() {
-            *g = Some(code);
-        }
-        exit_notify_for_reader.notify_waiters();
-        // Send a final empty chunk so any client polling the channel
-        // wakes up; ServerFrame::Exit is rendered separately.
+        // The child waiter closes the master after recording the exit code.
+        // Once that makes the reader reach EOF, wake clients with a sentinel;
+        // ServerFrame::Exit is rendered separately.
+        let _ = exit_ready_rx.recv();
         let _ = tx_for_reader.send(Vec::new());
     });
 
-    // Convert the join handle to a Tokio JoinHandle of () for storage.
+    let master = Arc::new(Mutex::new(Some(pair.master)));
+    let writer = Arc::new(Mutex::new(Some(writer)));
+    let master_for_waiter = Arc::clone(&master);
+    let writer_for_waiter = Arc::clone(&writer);
+    let exit_code_for_waiter = Arc::clone(&exit_code);
+    let exit_notify_for_waiter = Arc::clone(&exit_notify);
+
+    // Wait for the child independently from output EOF. ConPTY keeps its
+    // output pipe open for as long as the pseudoconsole master exists, so
+    // waiting for EOF before calling child.wait() deadlocks exit detection on
+    // Windows. Record the child status first, then close the master so ConPTY
+    // flushes its remaining output and lets the reader deliver the sentinel.
+    let waiter_handle = tokio::task::spawn_blocking(move || {
+        let code = child.wait().map_or(-1, |status| status.exit_code() as i32);
+        if let Ok(mut g) = exit_code_for_waiter.lock() {
+            *g = Some(code);
+        }
+        if let Ok(mut g) = writer_for_waiter.lock() {
+            *g = None;
+        }
+        if let Ok(mut g) = master_for_waiter.lock() {
+            *g = None;
+        }
+        exit_notify_for_waiter.notify_waiters();
+        let _ = exit_ready_tx.send(());
+    });
+
+    // Convert both blocking handles to one Tokio JoinHandle for storage.
     let reader_handle: JoinHandle<()> = tokio::spawn(async move {
-        let _ = reader_handle.await;
+        let _ = tokio::join!(reader_handle, waiter_handle);
     });
 
     Ok(Arc::new(PtySession {
@@ -308,7 +333,8 @@ pub fn spawn_pty(
         project_slug: cwd.to_string_lossy().into_owned(),
         command: command.to_string(),
         started_at,
-        master: Arc::new(Mutex::new(Some(pair.master))),
+        master,
+        writer,
         broadcaster: tx,
         replay,
         exit_code,
@@ -344,16 +370,35 @@ impl From<&PtySession> for PtySessionView {
 mod tests {
     use super::*;
 
+    /// ConPTY asks its terminal frontend for the current cursor position before
+    /// it releases the child process. The browser's xterm frontend answers this
+    /// in production; headless Windows tests must emulate the same response.
+    fn answer_windows_cursor_position_query(session: &PtySession) {
+        if cfg!(target_os = "windows") {
+            session
+                .write_stdin(b"\x1b[1;1R")
+                .expect("answer ConPTY cursor-position query");
+        }
+    }
+
+    /// Return a native executable that is guaranteed to exist on the current
+    /// test host and exits successfully after writing the current identity.
+    /// It needs no shell or arguments, which keeps the test focused on PTY
+    /// lifecycle behavior across Unix PTYs and Windows ConPTY.
+    fn identity_test_command() -> (String, Vec<String>) {
+        let command = if cfg!(target_os = "windows") {
+            "whoami.exe"
+        } else {
+            "whoami"
+        };
+        (command.to_string(), Vec::new())
+    }
+
     #[tokio::test]
     async fn test_spawn_echo_completes_with_exit_zero() {
-        let session = spawn_pty(
-            &std::env::temp_dir(),
-            "/bin/sh",
-            &["-c".to_string(), "echo hello && exit 0".to_string()],
-            24,
-            80,
-        )
-        .expect("spawn pty");
+        let (command, args) = identity_test_command();
+        let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
+        answer_windows_cursor_position_query(&session);
 
         // Wait up to 5s for exit notification.
         let _ = tokio::time::timeout(
@@ -367,35 +412,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe_returns_replay_after_output() {
-        let session = spawn_pty(
-            &std::env::temp_dir(),
-            "/bin/sh",
-            &["-c".to_string(), "printf 'foobar' && sleep 0.1".to_string()],
-            24,
-            80,
-        )
-        .expect("spawn pty");
+        let (command, args) = identity_test_command();
+        let expected = std::process::Command::new(&command)
+            .output()
+            .expect("run identity command directly");
+        assert!(expected.status.success(), "identity command must succeed");
+        let expected = String::from_utf8_lossy(&expected.stdout)
+            .trim()
+            .to_ascii_lowercase();
+        assert!(!expected.is_empty(), "identity command must write output");
 
-        // Give the reader thread time to drain.
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        let (_rx, snapshot) = session.subscribe();
-        let s = String::from_utf8_lossy(&snapshot);
-        assert!(s.contains("foobar"), "got: {s:?}");
+        let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
+        answer_windows_cursor_position_query(&session);
+
+        // ConPTY initialization can take substantially longer than Unix PTY
+        // startup on shared CI runners. Poll for the actual output rather than
+        // coupling the assertion to a fixed scheduling delay.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let (_rx, snapshot) = session.subscribe();
+            let s = String::from_utf8_lossy(&snapshot);
+            if s.to_ascii_lowercase().contains(&expected) {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "expected identity {expected:?}, got: {s:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
     }
 
     #[tokio::test]
     async fn test_session_registry_insert_get_remove() {
         let reg = SessionRegistry::new();
-        // Use `sh -c :` instead of `/bin/true`: some macOS/CI runners
-        // reject direct `/bin/true` with ENOENT through portable-pty.
-        let s = spawn_pty(
-            &std::env::temp_dir(),
-            "/bin/sh",
-            &["-c".to_string(), ":".to_string()],
-            24,
-            80,
-        )
-        .expect("spawn");
+        let (command, args) = identity_test_command();
+        let s = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn");
+        answer_windows_cursor_position_query(&s);
         let id = s.id.clone();
         reg.insert(Arc::clone(&s)).await;
         assert!(reg.get(&id).await.is_some());

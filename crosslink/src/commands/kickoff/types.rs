@@ -8,9 +8,9 @@ use std::time::Duration;
 ///
 /// Consolidated here to avoid duplicating the string literal across kickoff,
 /// swarm, and CLI default values.
-pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/dollspace-gay/crosslink-agent:latest";
+pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest";
 
-/// Reasoning-effort levels accepted by `claude --effort` (gh#61).
+/// Provider-neutral reasoning-effort levels accepted by kickoff (gh#61).
 ///
 /// Single source of truth for the clap `PossibleValuesParser` on
 /// `kickoff run` / `kickoff plan` and for any non-clap caller that needs
@@ -22,7 +22,7 @@ pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// Container runtime for agent execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerMode {
-    /// Run as a local process (tmux session with claude CLI).
+    /// Run as a local process in a tmux session with the selected provider.
     None,
     /// Run inside a Docker container.
     Docker,
@@ -74,6 +74,9 @@ pub struct KickoffMetadata {
     pub started_at: String,
     /// Timeout in seconds (matches `--timeout` flag).
     pub timeout_secs: u64,
+    /// Runtime provider selected independently from its executable path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Resolved model the agent was dispatched with (matches `--model`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -95,6 +98,7 @@ impl KickoffMetadata {
         Self {
             started_at,
             timeout_secs: opts.timeout.as_secs(),
+            provider: None,
             model: Some(opts.model.to_string()),
             effort: opts.effort.map(ToString::to_string),
             budget_usd: opts.budget_usd.map(ToString::to_string),
@@ -133,18 +137,17 @@ pub struct KickoffOpts<'a> {
     pub design_doc: Option<&'a super::super::design_doc::DesignDoc>,
     pub doc_path: Option<&'a str>,
     pub skip_permissions: bool,
-    /// Optional claude `--permission-mode <mode>` (GH#603). When set,
+    /// Compatibility `--permission-mode <mode>` override (GH#603). When set,
     /// overrides `skip_permissions`'s `--dangerously-skip-permissions`
     /// with the finer-grained mode (acceptEdits/auto/bypassPermissions/
     /// default/dontAsk/plan). CLI marks the flags as mutually exclusive.
     pub permission_mode: Option<&'a str>,
-    /// Optional claude `--effort <level>` (gh#61). One of [`EFFORT_LEVELS`];
+    /// Optional provider reasoning effort (gh#61). One of [`EFFORT_LEVELS`];
     /// the CLI validates the value fail-closed. `None` reproduces today's
     /// invocation with no `--effort` token.
     pub effort: Option<&'a str>,
-    /// Optional claude `--max-budget-usd <amount>` (gh#61) — a fail-closed
-    /// spend ceiling for unattended dispatch. Per-session: under swarm each
-    /// dispatched agent receives this cap (Decision D1). `None` emits no flag.
+    /// Optional provider monetary budget (gh#61). Unsupported providers reject
+    /// this capability rather than silently ignoring it.
     pub budget_usd: Option<&'a str>,
     /// Optional prompt template path (gh#62, REQ-6). When set (via `--template`
     /// or a per-phase swarm template), it takes precedence over the
@@ -152,8 +155,9 @@ pub struct KickoffOpts<'a> {
     /// placeholder set rather than replacing the built prompt wholesale.
     /// `None` falls back to the config setting, then the built-in prompt.
     pub template: Option<&'a Path>,
-    /// Agent binary to launch (read from hook-config.json `agent.binary`,
-    /// default "claude"). Allows pointing kickoff at a different agent CLI.
+    /// Legacy caller snapshot retained for source compatibility. Launches
+    /// resolve `agent.provider` and its executable from configuration.
+    #[allow(dead_code)]
     pub agent_binary: String,
 }
 
@@ -276,25 +280,23 @@ pub struct PlanOpts<'a> {
     pub dry_run: bool,
     pub issue: Option<i64>,
     pub quiet: bool,
-    /// Pass `--dangerously-skip-permissions` to the plan agent's claude
-    /// session. Default `false` keeps plan mode read-only and fail-closed;
-    /// headless dispatchers set it so claude's workspace-trust dialog does
-    /// not block the agent (gh#66).
+    /// Compatibility no-prompt override. Default `false` keeps plan mode
+    /// read-only and fail-closed (gh#66).
     pub skip_permissions: bool,
     /// Pass `--permission-mode <mode>`. Mutually exclusive with
     /// `skip_permissions`; does not itself clear the trust dialog.
     pub permission_mode: Option<&'a str>,
-    /// Optional claude `--effort <level>` (gh#61). See [`KickoffOpts::effort`].
+    /// Optional provider reasoning effort. See [`KickoffOpts::effort`].
     pub effort: Option<&'a str>,
-    /// Optional claude `--max-budget-usd <amount>` (gh#61). See
+    /// Optional provider monetary budget (gh#61). See
     /// [`KickoffOpts::budget_usd`].
     pub budget_usd: Option<&'a str>,
     /// Optional prompt template path (gh#62, REQ-6). See
     /// [`KickoffOpts::template`]; for plan mode the `{{branch}}`,
     /// `{{description}}`, and `{{allowed_tools}}` placeholders render empty.
     pub template: Option<&'a Path>,
-    /// Agent binary to launch (read from hook-config.json `agent.binary`,
-    /// default "claude").
+    /// Legacy caller snapshot retained for source compatibility.
+    #[allow(dead_code)]
     pub agent_binary: String,
 }
 
@@ -311,6 +313,8 @@ pub(crate) struct PreflightResult {
     pub timeout_cmd: &'static str,
     /// Optional sandbox wrapper command from hook-config.json `sandbox.command`.
     pub sandbox_command: Option<String>,
+    /// Fully resolved provider configuration used by every launch boundary.
+    pub agent: crate::agents::ResolvedAgent,
 }
 
 /// Detected platform for generating targeted install instructions.

@@ -24,7 +24,7 @@ const LANGUAGE_MANIFESTS: &[(&str, &str, &str)] = &[
     (".shellcheckrc", "Shell", "shell.md"),
 ];
 
-/// Expected hook files that should exist in .claude/hooks/.
+/// Expected provider-neutral hook files under Crosslink's integration root.
 const EXPECTED_HOOKS: &[&str] = &[
     "prompt-guard.py",
     "post-edit-check.py",
@@ -32,6 +32,8 @@ const EXPECTED_HOOKS: &[&str] = &[
     "pre-web-check.py",
     "work-check.py",
     "crosslink_config.py",
+    "heartbeat.py",
+    "hook_protocol.py",
 ];
 
 /// Expected command files that should exist in .claude/commands/.
@@ -60,11 +62,10 @@ pub fn run(command: ContextCommands, crosslink_dir: &Path) -> Result<()> {
     match command {
         ContextCommands::Measure { verbose } => measure(crosslink_dir, verbose),
         ContextCommands::Check => {
-            let claude_dir = crosslink_dir
+            let project_root = crosslink_dir
                 .parent()
-                .context("Cannot determine project root")?
-                .join(".claude");
-            check(crosslink_dir, &claude_dir);
+                .context("Cannot determine project root")?;
+            check(crosslink_dir, project_root);
             Ok(())
         }
     }
@@ -219,57 +220,44 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    // 3. CLAUDE.md
-    let claude_md = project_root.join("CLAUDE.md");
-    let claude_md_size = if claude_md.is_file() {
-        fs::metadata(&claude_md).map_or(0, |m| m.len() as usize)
-    } else {
-        0
-    };
-
-    println!("\n## CLAUDE.md");
-    if claude_md_size > 0 {
-        println!(
-            "  {:>8} bytes ({} tokens)",
-            claude_md_size,
-            claude_md_size / 4
-        );
-    } else {
-        println!("  (not found)");
-    }
-
-    // 4. Skill files (.claude/commands/)
-    let commands_dir = project_root.join(".claude/commands");
-    let mut total_skills: usize = 0;
-
-    println!("\n## Skill files (.claude/commands/)");
-    if commands_dir.is_dir() {
-        println!("{:<35} {:>8} {:>8}", "FILE", "BYTES", "~TOKENS");
-        println!("{}", "-".repeat(55));
-
-        let mut entries: Vec<_> = fs::read_dir(&commands_dir)
-            .context("Failed to read commands directory")?
-            .filter_map(std::result::Result::ok)
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
-            .collect();
-        entries.sort_by_key(std::fs::DirEntry::file_name);
-
-        for entry in &entries {
-            let path = entry.path();
-            let filename = entry.file_name().to_string_lossy().to_string();
-            let size = fs::metadata(&path).map_or(0, |m| m.len() as usize);
-            total_skills += size;
-            println!("{:<35} {:>8} {:>8}", filename, size, size / 4);
+    // 3. Provider instruction files
+    println!("\n## Project instructions");
+    for name in ["AGENTS.md", "CLAUDE.md"] {
+        let instruction_path = project_root.join(name);
+        if instruction_path.is_file() {
+            let size =
+                fs::metadata(&instruction_path).map_or(0, |metadata| metadata.len() as usize);
+            println!("  {name:<12} {size:>8} bytes ({} tokens)", size / 4);
+        } else {
+            println!("  {name:<12} (not found)");
         }
-        println!();
-        println!(
-            "  Total skills: {:>8} bytes ({} tokens)",
-            total_skills,
-            total_skills / 4
-        );
-    } else {
-        println!("  (not found)");
     }
+
+    // 4. Skills and legacy Claude commands
+    let mut total_skills: usize = 0;
+    println!("\n## Skill files");
+    for relative in [".claude/skills", ".agents/skills", ".claude/commands"] {
+        let skill_root = project_root.join(relative);
+        let mut root_total = 0;
+        if skill_root.is_dir() {
+            for entry in walk_markdown_files(&skill_root) {
+                root_total += fs::metadata(entry).map_or(0, |metadata| metadata.len() as usize);
+            }
+            total_skills += root_total;
+            println!(
+                "  {relative:<20} {root_total:>8} bytes ({} tokens)",
+                root_total / 4
+            );
+        } else {
+            println!("  {relative:<20} (not found)");
+        }
+    }
+    println!(
+        "  {:<20} {:>8} bytes ({} tokens)",
+        "total",
+        total_skills,
+        total_skills / 4
+    );
 
     // 5. Estimated behavioral guard size (first prompt)
     let tree_est: usize = 2000;
@@ -402,7 +390,7 @@ fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
             | "tracking-strict.md"
             | "tracking-normal.md"
             | "tracking-relaxed.md"
-            | "sanitize-patterns.txt"
+            | "external-content.md"
             | "knowledge.md"
             | "web.md"
     ) {
@@ -423,7 +411,28 @@ fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
 // check — verify crosslink deployment integrity
 // ---------------------------------------------------------------------------
 
-fn check(crosslink_dir: &Path, claude_dir: &Path) {
+fn walk_markdown_files(root: &Path) -> Vec<std::path::PathBuf> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        if let Ok(entries) = fs::read_dir(directory) {
+            for entry in entries.filter_map(std::result::Result::ok) {
+                if entry.path().is_dir() {
+                    pending.push(entry.path());
+                } else if entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "md")
+                {
+                    files.push(entry.path());
+                }
+            }
+        }
+    }
+    files
+}
+
+fn check(crosslink_dir: &Path, project_root: &Path) {
     let mut problems = 0;
 
     println!("Crosslink deployment check");
@@ -455,7 +464,7 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) {
 
     // 2. Hook files
     println!("\n## Hook files");
-    let hooks_dir = claude_dir.join("hooks");
+    let hooks_dir = crosslink_dir.join("integrations/hooks");
     for &name in EXPECTED_HOOKS {
         let path = hooks_dir.join(name);
         if path.is_file() {
@@ -468,13 +477,29 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) {
 
     // 3. Command files
     println!("\n## Command files");
-    let commands_dir = claude_dir.join("commands");
+    let commands_dir = project_root.join(".claude/commands");
     for &name in EXPECTED_COMMANDS {
         let path = commands_dir.join(name);
         if path.is_file() {
             println!("  OK  {name}");
         } else {
             println!("  MISSING  {name}");
+            problems += 1;
+        }
+    }
+
+    println!("\n## Provider integrations");
+    for relative in [
+        ".claude/settings.json",
+        ".mcp.json",
+        ".codex/hooks.json",
+        ".codex/config.toml",
+        "AGENTS.md",
+    ] {
+        if project_root.join(relative).is_file() {
+            println!("  OK  {relative}");
+        } else {
+            println!("  MISSING  {relative}");
             problems += 1;
         }
     }

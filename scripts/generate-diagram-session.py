@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a Forecast-styled vertical diagram for the crosslink session lifecycle.
+Generate a Crosslink-styled vertical diagram for the crosslink session lifecycle.
 
 Usage:
     python3 scripts/generate-diagram-session.py -o docs_src/assets/img/session-flow.svg

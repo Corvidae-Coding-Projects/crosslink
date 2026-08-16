@@ -3,12 +3,12 @@ name = "crosslink"
 version = "0.9.0-beta.1"
 edition = "2021"
 rust-version = "1.87"
-authors = ["dollspace-gay", "Maxine Levesque <hello@maxine.science>", "Forecast Analytical <analytical@forecast.bio>"]
+authors = ["Dollspace", "Maxine Levesque <hello@maxine.science>", "Crosslink contributors"]
 description = "A synced issue tracker CLI for multi-agent AI development"
 documentation = "https://docs.rs/crosslink"
 license = "MIT"
-repository = "https://github.com/dollspace-gay/crosslink"
-homepage = "https://forecast.bio/crosslink"
+repository = "https://github.com/Corvidae-Coding-Projects/crosslink"
+homepage = "https://github.com/Corvidae-Coding-Projects/crosslink"
 readme = "../README.md"
 keywords = ["issue-tracker", "cli", "ai-development", "session-management", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
@@ -48,6 +48,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 notify = "6"
 toml = "0.8"
+toml_edit = "0.22"
 sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

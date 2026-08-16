@@ -33,7 +33,7 @@ use crate::server::state::AppState;
 /// Note: the project-detail route uses `{*slug}` (wildcard capture)
 /// because crosslink slugs have the shape `owner/repo` and therefore
 /// contain a slash. A single-segment capture (`{slug}`) would fail to
-/// match. Clients can hit `/projects/forecast-bio/crosslink` directly;
+/// match. Clients can hit `/projects/Corvidae-Coding-Projects/crosslink` directly;
 /// no URL-encoding required.
 pub fn build_router() -> Router<AppState> {
     // Write endpoints split by slug *and* issue id. Axum picks the

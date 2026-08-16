@@ -10,7 +10,7 @@ argument-hint: ["feature description"] | --issue <id> | --gh-issue <number> | --
 - Current branch: !`git branch --show-current`
 - Active session: !`crosslink session status`
 - Existing design docs: !`find .design -maxdepth 1 -name '*.md' -type f 2>/dev/null || true`
-- Architecture files: !`find . -maxdepth 1 -type f \( -name README.md -o -name CLAUDE.md -o -name ARCHITECTURE.md -o -name ADR.md \) 2>/dev/null`
+- Architecture files: !`find . -maxdepth 1 -type f \( -name README.md -o -name AGENTS.md -o -name CLAUDE.md -o -name ARCHITECTURE.md -o -name ADR.md \) 2>/dev/null`
 
 ## Your task
 
@@ -32,7 +32,7 @@ If no arguments are given, ask the user what feature they want to design.
 1. **Gather context** from all available sources:
    - If `--issue <id>`: run `crosslink issue show <id>` to read the issue
    - If `--gh-issue <number>`: run `gh issue view <number>`
-   - Read architecture files (README.md, CLAUDE.md, ARCHITECTURE.md) if they exist
+   - Read architecture files (README.md, AGENTS.md, CLAUDE.md, ARCHITECTURE.md) if they exist
    - Search for related code using `Grep` and `Glob` — find modules, types, functions, and test patterns related to the feature
    - Check existing knowledge: `crosslink knowledge search "<keywords>"`
    - Check existing design docs in `.design/`

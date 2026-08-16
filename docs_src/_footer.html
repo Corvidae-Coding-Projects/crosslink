@@ -1,18 +1,18 @@
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule" />
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark" />
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule" />
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark" />
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">&copy; 2026 Forecast Bio, Inc. &middot; Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">&copy; 2026 Crosslink contributors &middot; Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -29,12 +29,12 @@
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -47,7 +47,7 @@
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -71,7 +71,7 @@
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -98,7 +98,7 @@
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

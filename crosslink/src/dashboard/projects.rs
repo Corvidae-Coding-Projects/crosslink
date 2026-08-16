@@ -124,9 +124,9 @@ fn parse_slug(slug: &str) -> Result<(&str, &str)> {
 /// Parse `owner/repo` out of a git remote URL.
 ///
 /// Handles the common forms:
-/// - `git@github.com:forecast-bio/sigil.git`
-/// - `https://github.com/forecast-bio/sigil.git`
-/// - `https://github.com/forecast-bio/sigil` (no `.git`)
+/// - `git@github.com:Corvidae-Coding-Projects/sigil.git`
+/// - `https://github.com/Corvidae-Coding-Projects/sigil.git`
+/// - `https://github.com/Corvidae-Coding-Projects/sigil` (no `.git`)
 /// - Arbitrary hosts (e.g. `git@gitlab.example.com:group/proj.git`)
 ///
 /// Returns `None` if the URL doesn't match an obvious "host/owner/repo"
@@ -925,8 +925,8 @@ mod tests {
     #[test]
     fn test_parse_slug_valid() {
         assert_eq!(
-            parse_slug("forecast-bio/crosslink").unwrap(),
-            ("forecast-bio", "crosslink")
+            parse_slug("Corvidae-Coding-Projects/crosslink").unwrap(),
+            ("Corvidae-Coding-Projects", "crosslink")
         );
     }
 
@@ -949,24 +949,24 @@ mod tests {
     #[test]
     fn test_slug_from_ssh_url() {
         assert_eq!(
-            slug_from_remote_url("git@github.com:forecast-bio/sigil.git"),
-            Some("forecast-bio/sigil".to_string())
+            slug_from_remote_url("git@github.com:Corvidae-Coding-Projects/sigil.git"),
+            Some("Corvidae-Coding-Projects/sigil".to_string())
         );
     }
 
     #[test]
     fn test_slug_from_https_url_with_git_suffix() {
         assert_eq!(
-            slug_from_remote_url("https://github.com/forecast-bio/sigil.git"),
-            Some("forecast-bio/sigil".to_string())
+            slug_from_remote_url("https://github.com/Corvidae-Coding-Projects/sigil.git"),
+            Some("Corvidae-Coding-Projects/sigil".to_string())
         );
     }
 
     #[test]
     fn test_slug_from_https_url_without_git_suffix() {
         assert_eq!(
-            slug_from_remote_url("https://github.com/forecast-bio/sigil"),
-            Some("forecast-bio/sigil".to_string())
+            slug_from_remote_url("https://github.com/Corvidae-Coding-Projects/sigil"),
+            Some("Corvidae-Coding-Projects/sigil".to_string())
         );
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
         let repo = tempdir().unwrap();
         make_fake_repo(
             repo.path(),
-            "https://github.com/forecast-bio/test-a.git",
+            "https://github.com/Corvidae-Coding-Projects/test-a.git",
             true,
         );
 
@@ -1020,7 +1020,7 @@ mod tests {
             .conn
             .query_row("SELECT slug FROM projects WHERE id = 1", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(slug, "forecast-bio/test-a");
+        assert_eq!(slug, "Corvidae-Coding-Projects/test-a");
     }
 
     #[test]
@@ -1029,7 +1029,7 @@ mod tests {
         let repo = tempdir().unwrap();
         make_fake_repo(
             repo.path(),
-            "https://github.com/forecast-bio/test-b.git",
+            "https://github.com/Corvidae-Coding-Projects/test-b.git",
             true,
         );
 
@@ -1049,7 +1049,7 @@ mod tests {
         let repo = tempdir().unwrap();
         make_fake_repo(
             repo.path(),
-            "https://github.com/forecast-bio/test-c.git",
+            "https://github.com/Corvidae-Coding-Projects/test-c.git",
             true,
         );
 
@@ -1066,7 +1066,7 @@ mod tests {
         let repo = tempdir().unwrap();
         make_fake_repo(
             repo.path(),
-            "https://github.com/forecast-bio/test-d.git",
+            "https://github.com/Corvidae-Coding-Projects/test-d.git",
             false,
         );
 
@@ -1089,7 +1089,7 @@ mod tests {
         let repo = tempdir().unwrap();
         make_fake_repo(
             repo.path(),
-            "https://github.com/forecast-bio/test-e.git",
+            "https://github.com/Corvidae-Coding-Projects/test-e.git",
             false,
         );
         // Seed local v3 marker refs off the current HEAD.
@@ -1119,12 +1119,12 @@ mod tests {
         let repo = tempdir().unwrap();
         make_fake_repo(
             repo.path(),
-            "https://github.com/forecast-bio/test-e.git",
+            "https://github.com/Corvidae-Coding-Projects/test-e.git",
             true,
         );
 
         track_at_path(repo.path(), None, &db_path).unwrap();
-        untrack_with_path("forecast-bio/test-e", &db_path).unwrap();
+        untrack_with_path("Corvidae-Coding-Projects/test-e", &db_path).unwrap();
 
         // Row gone
         let db = DashboardDb::open(&db_path).unwrap();
@@ -1159,7 +1159,7 @@ mod tests {
         let dir = tempdir().unwrap();
         make_fake_repo(
             dir.path(),
-            "https://github.com/forecast-bio/test-x.git",
+            "https://github.com/Corvidae-Coding-Projects/test-x.git",
             false,
         );
         assert_eq!(detect_default_branch(dir.path()).as_deref(), Some("main"));

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 150" role="img" aria-labelledby="title">
+  <title id="title">Crosslink</title>
+  <rect width="760" height="150" fill="none"/>
+  <g fill="none" stroke="#000" stroke-width="10" stroke-linecap="round">
+    <path d="M46 42h58l28 33-28 33H46L18 75z"/>
+    <path d="M104 42h58l28 33-28 33h-58L76 75z"/>
+  </g>
+  <text x="220" y="103" fill="#000" font-family="Helvetica, Arial, sans-serif" font-size="82" letter-spacing="-3">crosslink</text>
+</svg>

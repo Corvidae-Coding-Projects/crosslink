@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>CLI reference – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -33,19 +39,18 @@ ul.task-list li input[type="checkbox"] {
 <link href="../reference/hook-config.html" rel="next">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -146,6 +151,10 @@ ul.task-list li input[type="checkbox"] {
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -205,6 +214,10 @@ ul.task-list li input[type="checkbox"] {
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -217,7 +230,7 @@ ul.task-list li input[type="checkbox"] {
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -267,6 +280,12 @@ ul.task-list li input[type="checkbox"] {
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../reference/state-files.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">State and config files</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../reference/rules.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Rules customization</span></a>
   </div>
@@ -361,11 +380,23 @@ ul.task-list li input[type="checkbox"] {
 <tbody>
 <tr class="odd">
 <td><code>--json</code></td>
-<td>JSON output (supported by <code>list</code>, <code>show</code>, <code>search</code>, <code>session status</code>)</td>
+<td>JSON output (supported by <code>list</code>, <code>show</code>, <code>search</code>, <code>session status</code>, <code>swarm status</code>, <code>issue tree</code>, <code>blocked</code>, <code>ready</code>, <code>next</code>)</td>
 </tr>
 <tr class="even">
 <td><code>--quiet</code> / <code>-q</code></td>
 <td>Minimal output (just IDs, counts), useful for scripting</td>
+</tr>
+<tr class="odd">
+<td><code>--log-level &lt;LEVEL&gt;</code></td>
+<td>Set log verbosity: <code>error</code>, <code>warn</code> (default), <code>info</code>, <code>debug</code>, <code>trace</code></td>
+</tr>
+<tr class="even">
+<td><code>--log-format &lt;FORMAT&gt;</code></td>
+<td>Log output format: <code>text</code> (default), <code>json</code></td>
+</tr>
+<tr class="odd">
+<td><code>crosslink doctor [--json]</code></td>
+<td>Provider, login, integration, plugin, MCP, hook-trust, and container credential diagnostics</td>
 </tr>
 </tbody>
 </table>
@@ -443,8 +474,16 @@ ul.task-list li input[type="checkbox"] {
 <td>Search issues by text</td>
 </tr>
 <tr class="odd">
+<td><code>crosslink issue search &lt;query&gt; --from &lt;repo&gt;</code></td>
+<td>Search issues in an external repository</td>
+</tr>
+<tr class="even">
 <td><code>crosslink show &lt;id&gt;</code></td>
 <td>Show issue details</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink show &lt;id&gt; --from &lt;repo&gt;</code></td>
+<td>Show issue details from an external repository</td>
 </tr>
 <tr class="even">
 <td><code>crosslink show &lt;id&gt; --json</code></td>
@@ -1039,6 +1078,14 @@ ul.task-list li input[type="checkbox"] {
 <td>Search with filters</td>
 </tr>
 <tr class="even">
+<td><code>crosslink knowledge search &lt;query&gt; --from &lt;repo&gt;</code></td>
+<td>Search knowledge in an external repository</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink knowledge show &lt;slug&gt; --from &lt;repo&gt;</code></td>
+<td>Show a knowledge page from an external repository</td>
+</tr>
+<tr class="even">
 <td><code>crosslink knowledge import &lt;directory&gt;</code></td>
 <td>Bulk import markdown files</td>
 </tr>
@@ -1175,10 +1222,14 @@ ul.task-list li input[type="checkbox"] {
 <td>Verify SQLite schema version</td>
 </tr>
 <tr class="even">
+<td><code>crosslink integrity layout</code></td>
+<td>Verify hub file paths and V1/V2 layout consistency</td>
+</tr>
+<tr class="odd">
 <td><code>crosslink compact</code></td>
 <td>Run event compaction manually</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td><code>crosslink compact --force</code></td>
 <td>Force compaction even if lease is held by another agent</td>
 </tr>
@@ -1247,8 +1298,8 @@ ul.task-list li input[type="checkbox"] {
 <td>Launch from a design document</td>
 </tr>
 <tr class="odd">
-<td><code>crosslink kickoff run &lt;desc&gt; --timeout 2h --model opus</code></td>
-<td>With timeout and model</td>
+<td><code>crosslink kickoff run &lt;desc&gt; --timeout 2h --model standard</code></td>
+<td>With timeout and provider-aware model tier</td>
 </tr>
 <tr class="even">
 <td><code>crosslink kickoff run &lt;desc&gt; --dry-run</code></td>
@@ -1388,6 +1439,42 @@ ul.task-list li input[type="checkbox"] {
 <td><code>crosslink swarm config --budget-window &lt;DUR&gt; --model &lt;MODEL&gt;</code></td>
 <td>Configure budget parameters</td>
 </tr>
+<tr class="odd">
+<td><code>crosslink swarm create</code></td>
+<td>Create a new independent swarm (UUID-based)</td>
+</tr>
+<tr class="even">
+<td><code>crosslink swarm list</code></td>
+<td>List all swarms with status</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink swarm switch &lt;uuid&gt;</code></td>
+<td>Switch active swarm context</td>
+</tr>
+<tr class="even">
+<td><code>crosslink swarm move &lt;agent&gt; --to-phase &lt;phase&gt;</code></td>
+<td>Move an agent to a different phase</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink swarm merge &lt;phase1&gt; &lt;phase2&gt;</code></td>
+<td>Merge two phases into one</td>
+</tr>
+<tr class="even">
+<td><code>crosslink swarm split &lt;phase&gt; --after &lt;agent&gt;</code></td>
+<td>Split a phase at a boundary</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink swarm remove &lt;agent&gt;</code></td>
+<td>Remove an agent from the plan</td>
+</tr>
+<tr class="even">
+<td><code>crosslink swarm reorder &lt;agent&gt; --position &lt;index&gt;</code></td>
+<td>Change agent execution order</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink swarm rename &lt;phase&gt; --name &lt;new-name&gt;</code></td>
+<td>Rename a phase</td>
+</tr>
 </tbody>
 </table>
 <p>&nbsp;</p>
@@ -1457,6 +1544,22 @@ ul.task-list li input[type="checkbox"] {
 <tr class="odd">
 <td><code>crosslink container snapshot &lt;name&gt; --tag cached</code></td>
 <td>Save container state as image</td>
+</tr>
+<tr class="even">
+<td><code>crosslink container auth login --provider claude|codex</code></td>
+<td>Interactive normal-account login into a provider-scoped volume</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink container auth status --provider claude|codex</code></td>
+<td>Redacted login readiness check</td>
+</tr>
+<tr class="even">
+<td><code>crosslink container auth refresh --provider claude|codex</code></td>
+<td>Refresh the normal account session</td>
+</tr>
+<tr class="odd">
+<td><code>crosslink container auth logout --provider claude|codex</code></td>
+<td>Confirm and remove the credential volume (<code>--force</code> for non-interactive use)</td>
 </tr>
 </tbody>
 </table>
@@ -1598,7 +1701,15 @@ ul.task-list li input[type="checkbox"] {
 <tbody>
 <tr class="odd">
 <td><code>crosslink init</code></td>
-<td>Initialize crosslink in current project</td>
+<td>Initialize Crosslink and both Claude/Codex integrations</td>
+</tr>
+<tr class="even">
+<td><code>crosslink init --agent-integration claude|codex|both</code></td>
+<td>Select installed integration assets without changing <code>agent.provider</code></td>
+</tr>
+<tr class="odd">
+<td><code>crosslink init --update [--dry-run]</code></td>
+<td>Manifest-safe managed asset upgrade/preview</td>
 </tr>
 <tr class="even">
 <td><code>crosslink init --force</code></td>
@@ -2021,21 +2132,21 @@ ul.task-list li input[type="checkbox"] {
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -2052,12 +2163,12 @@ ul.task-list li input[type="checkbox"] {
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -2070,7 +2181,7 @@ ul.task-list li input[type="checkbox"] {
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -2094,7 +2205,7 @@ ul.task-list li input[type="checkbox"] {
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -2121,7 +2232,7 @@ ul.task-list li input[type="checkbox"] {
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

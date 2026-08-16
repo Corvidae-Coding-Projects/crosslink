@@ -3,7 +3,7 @@ description: Answer questions about crosslink usage and commands
 argument-hint: [question about crosslink]
 ---
 
-You are helping the user understand and use crosslink, an issue tracker designed for AI-assisted development. Read the project's CLAUDE.md for the full command reference, then answer the user's question using that context.
+You are helping the user understand and use crosslink, an issue tracker designed for AI-assisted development. Read the project's AGENTS.md, CLAUDE.md, and `.crosslink/rules/` when present, then answer the user's question using that context.
 
 ## What is Crosslink?
 
@@ -360,4 +360,4 @@ crosslink serve                                        # web dashboard server
 
 ## Now Answer the User's Question
 
-Read the project's CLAUDE.md file for any project-specific crosslink configuration, then answer the user's question about crosslink usage.
+Read the project's AGENTS.md, CLAUDE.md, and `.crosslink/rules/` for project-specific Crosslink configuration, then answer the user's question about Crosslink usage.

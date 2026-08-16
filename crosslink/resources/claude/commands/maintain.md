@@ -130,7 +130,7 @@ Check that key documentation files exist and aren't stale:
 
 - `README.md` — exists?
 - `CHANGELOG.md` — has entries for recent work?
-- `CLAUDE.md` — exists and reflects current project structure?
+- `AGENTS.md` and `CLAUDE.md` — when present, do they reflect current project structure and provider guidance?
 
 Read the first 20 lines of each to assess whether they're current. Flag any that reference features or structures that no longer exist.
 

@@ -1,7 +1,7 @@
 """
-Forecast brand constants and SVG primitives for diagram generation.
+Crosslink brand constants and SVG primitives for diagram generation.
 
-Palette from docs_src/_brand.yml. Typography follows Forecast house style:
+Palette from docs_src/_brand.yml. Typography follows Crosslink house style:
   - Helvetica for top-level headings (h1-equivalent)
   - Times New Roman italic for sub-headings (h2-equivalent)
   - Helvetica for body text

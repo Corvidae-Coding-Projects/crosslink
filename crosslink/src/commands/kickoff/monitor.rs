@@ -4,6 +4,96 @@ use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
 
+use crate::agents::{parse_jsonl_event, runtime_provider, runtime_snapshot};
+
+const RUNTIME_LOG: &str = ".crosslink/runtime/agent-events.jsonl";
+const USAGE_MARKER: &str = ".crosslink/runtime/recorded-usage.json";
+
+fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, agent_id: &str) {
+    use sha2::{Digest, Sha256};
+
+    let provider = runtime_provider(worktree_dir);
+    let log_path = worktree_dir.join(RUNTIME_LOG);
+    let Ok(raw) = std::fs::read_to_string(&log_path) else {
+        return;
+    };
+    let marker_path = worktree_dir.join(USAGE_MARKER);
+    let mut recorded: std::collections::HashSet<String> = std::fs::read_to_string(&marker_path)
+        .ok()
+        .and_then(|body| serde_json::from_str(&body).ok())
+        .unwrap_or_default();
+    let Ok(db) = crate::db::Database::open(&crosslink_dir.join("issues.db")) else {
+        return;
+    };
+    let pricing = crate::token_usage::load_pricing_config(crosslink_dir);
+    let metadata = std::fs::read_to_string(worktree_dir.join(".kickoff-metadata.json"))
+        .ok()
+        .and_then(|body| serde_json::from_str::<KickoffMetadata>(&body).ok());
+    let configured_model = metadata
+        .as_ref()
+        .and_then(|value| value.model.as_deref())
+        .unwrap_or("default");
+    let mut changed = false;
+    for line in raw.lines() {
+        let Ok(event) = parse_jsonl_event(provider, line) else {
+            continue;
+        };
+        let Some(usage) = event.usage.as_ref() else {
+            continue;
+        };
+        let hash = format!("{:x}", Sha256::digest(line.as_bytes()));
+        if recorded.contains(&hash) {
+            continue;
+        }
+        let model = event
+            .raw
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(configured_model);
+        let provider_metadata = serde_json::json!({
+            "event_type": event.raw.get("type"),
+            "provider_session_id": event.session_id,
+        });
+        let parsed = crate::token_usage::parse_runtime_usage(
+            usage,
+            provider,
+            agent_id,
+            None,
+            model,
+            &pricing,
+            Some(&provider_metadata),
+        );
+        if db
+            .create_token_usage_for_provider(
+                &parsed.agent_id,
+                parsed.session_id,
+                parsed.provider.as_str(),
+                parsed.input_tokens,
+                parsed.output_tokens,
+                parsed.cached_input_tokens,
+                parsed.reasoning_output_tokens,
+                parsed.cache_read_tokens,
+                parsed.cache_creation_tokens,
+                &parsed.model,
+                parsed.cost_estimate,
+                parsed.provider_metadata_json.as_deref(),
+            )
+            .is_ok()
+        {
+            recorded.insert(hash);
+            changed = true;
+        }
+    }
+    if changed {
+        if let Ok(body) = serde_json::to_vec_pretty(&recorded) {
+            let temporary = marker_path.with_extension("json.tmp");
+            if std::fs::write(&temporary, body).is_ok() {
+                let _ = std::fs::rename(temporary, marker_path);
+            }
+        }
+    }
+}
+
 use super::helpers::*;
 use super::types::*;
 
@@ -55,7 +145,9 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Check .kickoff-status
+    record_runtime_usage(crosslink_dir, &worktree_dir, agent);
+
+    // Check .kickoff-status and normalized provider events.
     let status_file = worktree_dir.join(".kickoff-status");
     let mut agent_status = if status_file.exists() {
         std::fs::read_to_string(&status_file)
@@ -65,6 +157,14 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
     } else {
         "running (no status file yet)".to_string()
     };
+    let runtime = runtime_snapshot(&worktree_dir);
+    if let Some(status) = runtime.status {
+        if normalize_status(&agent_status) == "running"
+            || matches!(status.as_str(), "done" | "failed" | "timed-out" | "waiting")
+        {
+            agent_status = status;
+        }
+    }
 
     // Check if the agent has exceeded its timeout
     if agent_status.contains("running") && is_timed_out(&worktree_dir) {
@@ -93,6 +193,12 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
     println!("Agent:     {agent}");
     println!("Worktree:  {}", worktree_dir.display());
     println!("Status:    {agent_status}");
+    if let Some(session_id) = runtime.session_id {
+        println!(
+            "Provider:  {} session {session_id}",
+            runtime_provider(&worktree_dir)
+        );
+    }
 
     // Show timeout metadata if available
     if let Some(meta) = read_timeout_metadata(&worktree_dir) {
@@ -191,7 +297,7 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
 
             // Read .kickoff-status sentinel
             let status_file = wt_path.join(".kickoff-status");
-            let agent_status = if status_file.exists() {
+            let mut agent_status = if status_file.exists() {
                 let raw = std::fs::read_to_string(&status_file)
                     .unwrap_or_default()
                     .trim()
@@ -201,13 +307,21 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
                 "running".to_string()
             };
 
+            let agent_id = read_agent_id(&wt_path, crosslink_dir)
+                .unwrap_or_else(|| format!("driver--{dir_name}"));
+            record_runtime_usage(crosslink_dir, &wt_path, &agent_id);
+            if let Some(status) = runtime_snapshot(&wt_path).status {
+                if agent_status == "running"
+                    || matches!(status.as_str(), "done" | "failed" | "timed-out" | "waiting")
+                {
+                    agent_status = status;
+                }
+            }
+
             // Try to read issue from .kickoff-criteria.json or agent config
             let issue = read_agent_issue(&wt_path, crosslink_dir);
 
             // Derive agent ID from agent config if available
-            let agent_id = read_agent_id(&wt_path, crosslink_dir)
-                .unwrap_or_else(|| format!("driver--{dir_name}"));
-
             // Check tmux session — prefer stored name (may include collision suffix),
             // fall back to derived name for backward compatibility (#507).
             let session_name = std::fs::read_to_string(wt_path.join(".kickoff-session"))
@@ -449,6 +563,15 @@ pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
     let worktree_dir = root.join(".worktrees").join(slug);
 
     if worktree_dir.exists() {
+        let raw_log = worktree_dir.join(RUNTIME_LOG);
+        if let Ok(content) = std::fs::read_to_string(&raw_log) {
+            println!("Provider event log: {}", raw_log.display());
+            let recent: Vec<_> = content.lines().rev().take(lines).collect();
+            for line in recent.into_iter().rev() {
+                println!("{line}");
+            }
+            println!();
+        }
         println!("Recent commits in worktree:");
         let output = Command::new("git")
             .current_dir(&worktree_dir)
@@ -466,9 +589,6 @@ pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
             }
         }
     }
-
-    // Suppress unused variable warning
-    let _ = lines;
 
     Ok(())
 }

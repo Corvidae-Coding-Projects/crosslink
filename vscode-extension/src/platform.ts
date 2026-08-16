@@ -21,7 +21,9 @@ let _cachedPlatformInfo: PlatformInfo | null = null;
  * Result is cached since platform info never changes during a process lifetime.
  */
 export function detectPlatform(): PlatformInfo {
-    if (_cachedPlatformInfo) return _cachedPlatformInfo;
+    if (_cachedPlatformInfo) {
+        return _cachedPlatformInfo;
+    }
 
     const platform = os.platform() as Platform;
     const arch = os.arch() as Architecture;

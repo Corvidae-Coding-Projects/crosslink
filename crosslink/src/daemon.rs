@@ -334,13 +334,12 @@ fn read_pid(pid_file: &Path) -> Option<u32> {
 fn is_process_running(pid: u32) -> bool {
     use std::process::Command;
     Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()
-        .map(|output| {
+        .is_ok_and(|output| {
             let stdout = String::from_utf8_lossy(&output.stdout);
             stdout.contains(&pid.to_string())
         })
-        .unwrap_or(false)
 }
 
 #[cfg(not(windows))]

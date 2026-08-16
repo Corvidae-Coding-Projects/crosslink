@@ -132,12 +132,14 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
     #[cfg(windows)]
     {
         let username = std::env::var("USERNAME").unwrap_or_default();
-        if !username.is_empty() {
+        if username.is_empty() {
+            tracing::warn!("USERNAME not set, skipping Windows ACL permissions for SSH keys");
+        } else {
             // Restrict the keys directory: remove inheritance, grant full control to current user
             let dir_result = Command::new("icacls")
-                .arg(&keys_dir.to_string_lossy().as_ref())
+                .arg(keys_dir.as_os_str())
                 .args(["/inheritance:r", "/grant:r"])
-                .arg(format!("{}:(OI)(CI)(F)", username))
+                .arg(format!("{username}:(OI)(CI)(F)"))
                 .output();
             match dir_result {
                 Ok(output) if !output.status.success() => {
@@ -155,9 +157,9 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
 
             // Restrict the private key: remove inheritance, grant read-only to current user
             let key_result = Command::new("icacls")
-                .arg(&private_path.to_string_lossy().as_ref())
+                .arg(private_path.as_os_str())
                 .args(["/inheritance:r", "/grant:r"])
-                .arg(format!("{}:(R)", username))
+                .arg(format!("{username}:(R)"))
                 .output();
             match key_result {
                 Ok(output) if !output.status.success() => {
@@ -172,8 +174,6 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
                 }
                 _ => {}
             }
-        } else {
-            tracing::warn!("USERNAME not set, skipping Windows ACL permissions for SSH keys");
         }
     }
 

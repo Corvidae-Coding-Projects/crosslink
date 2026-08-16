@@ -22,7 +22,11 @@ cd your-project
 crosslink init
 ```
 
-This creates `.crosslink/` (config, rules, database), `.claude/hooks/` (behavioral hooks), and `.claude/settings.json` (hook wiring). See [Installation](installation.qmd) for more install options.
+This creates `.crosslink/` (config, rules, database, shared hooks/MCP), Claude
+settings and skills, and Codex hooks, config, skills, and managed `AGENTS.md`
+guidance. Both integrations are installed by default; `agent.provider` selects
+the runtime. See [Installation](installation.qmd) and
+[Claude and Codex providers](../guides/providers.qmd).
 
 &nbsp;
 

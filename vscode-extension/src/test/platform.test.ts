@@ -7,15 +7,18 @@
  */
 
 import * as assert from "assert";
-import * as os from "os";
-import * as fs from "fs";
 import * as path from "path";
+
+// These modules are stubbed below. CommonJS returns their mutable export
+// objects; TypeScript namespace imports compile to read-only getter wrappers.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const os: typeof import("os") = require("os");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const fs: typeof import("fs") = require("fs");
 
 // ---------------------------------------------------------------------------
 // Helpers for lightweight stubbing (no sinon dep needed)
 // ---------------------------------------------------------------------------
-
-type Stub<T> = { restore: () => void } & { returns: (v: T) => void };
 
 function stubMethod<O extends object, K extends keyof O>(
   obj: O,
@@ -36,7 +39,6 @@ suite("platform.ts — detectPlatform", () => {
   // the function picks up the stub. Node caches modules, so we delete the
   // cache entry before each require.
   function freshDetectPlatform() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     delete require.cache[require.resolve("../platform")];
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require("../platform").detectPlatform;
@@ -98,7 +100,6 @@ suite("platform.ts — resolveBinaryPath with override", () => {
   let existsStub: { restore: () => void };
 
   function freshResolveBinaryPath() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     delete require.cache[require.resolve("../platform")];
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require("../platform").resolveBinaryPath;

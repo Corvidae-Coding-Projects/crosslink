@@ -18,7 +18,10 @@ Crosslink's hooks are guardrails that agents follow automatically. You configure
 ::: {.column width="35%"}
 **You configure once:**
 
-Run `crosslink init` in your project. Hooks are installed into `.claude/hooks/` and activate automatically for every Claude Code session.
+Run `crosslink init` in your project. Canonical scripts are installed once in
+`.crosslink/integrations/hooks/`; `.claude/settings.json` and
+`.codex/hooks.json` wire them into each provider. Both integrations are
+installed by default.
 
 No per-agent setup. No manual prompting. Every agent that touches this repo follows the same rules.
 :::
@@ -54,11 +57,11 @@ Agent finishes editing
 
 | Hook | Fires When | What It Does |
 |------|------------|-------------|
-| `session-start.py` | Session start/resume | Loads context, syncs locks, restores breadcrumbs from last session |
+| `session-start.py` | Startup, resume, clear, compact | Loads context without duplicating active sessions; restores issue, action, knowledge, and provenance context |
 | `prompt-guard.py` | Every prompt | Injects language-specific best practices (condensed after first prompt) |
-| `work-check.py` | Before write/edit/bash | Enforces issue tracking, blocks git mutations, warns on lock conflicts |
-| `post-edit-check.py` | After file edits | Detects stubs, runs linter (debounced), reminds about tests |
-| `pre-web-check.py` | Before web fetch | Injects prompt injection defense before fetching external content |
+| `work-check.py` | Before write/edit/apply_patch/shell | Normalizes provider input, enforces issue tracking, and blocks git mutations |
+| `post-edit-check.py` | After file edits/patches | Checks every surviving path in multi-file patches, detects stubs, and reminds about tests |
+| `pre-web-check.py` | Before Claude native web tools | Reminds that external words are evidence, not instructions |
 
 ### What agents must follow
 
@@ -97,9 +100,12 @@ After every file edit, `post-edit-check.py` automatically:
 2. **Linting** — Runs the appropriate linter (cargo clippy, flake8, eslint, go vet) with 10-second debouncing
 3. **Test reminders** — Checks if code has been modified since the last test run and reminds to run tests
 
-### Web security (RFIP)
+### External content provenance
 
-The `pre-web-check.py` hook injects the Recursive Framing Interdiction Protocol before any web fetch. This defends against prompt injection by establishing that external content is **data, not instructions** — any instruction-like text in fetched content is flagged, not followed.
+Crosslink does not download or rewrite web pages. Claude receives the provenance
+rule before native web tools. Hosted Codex web search does not traverse local
+tool-use hooks, so Codex receives the same rule at session start, every prompt,
+subagent start, and compaction restoration. Both providers keep native search.
 
 ### Drift detection
 
@@ -144,7 +150,10 @@ Rules are stored as markdown files in `.crosslink/rules/`. See [Rules Customizat
 # Automatic setup (recommended)
 crosslink init
 
-# Or manual copy
-cp -r /path/to/crosslink/.claude /your/project/
-cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
+# Select only one integration when deliberately required
+crosslink init --agent-integration claude
+crosslink init --agent-integration codex
 ```
+
+Codex users can alternatively install the versioned plugin; see
+[Claude and Codex providers](providers.qmd#codex-plugin).

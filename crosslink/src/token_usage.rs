@@ -1,7 +1,7 @@
 //! Token usage parsing and cost estimation.
 //!
 //! Provides utilities for:
-//! - Parsing token usage data from Claude API response metadata
+//! - Parsing provider usage data from normalized runtime events
 //! - Estimating costs based on model pricing
 //! - Extracting usage from kickoff report JSON
 
@@ -9,8 +9,11 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::agents::{AgentProvider, RuntimeUsage};
+
 /// Raw token usage data as reported by the Claude API.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct RawTokenUsage {
     pub input_tokens: i64,
     pub output_tokens: i64,
@@ -27,10 +30,14 @@ pub struct ParsedUsage {
     pub session_id: Option<i64>,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub provider: AgentProvider,
+    pub cached_input_tokens: Option<i64>,
+    pub reasoning_output_tokens: Option<i64>,
     pub cache_read_tokens: Option<i64>,
     pub cache_creation_tokens: Option<i64>,
     pub model: String,
     pub cost_estimate: Option<f64>,
+    pub provider_metadata_json: Option<String>,
 }
 
 /// Model pricing per million tokens (input, output, cache read, cache creation).
@@ -75,18 +82,18 @@ pub struct PricingConfig {
 #[must_use]
 pub fn load_pricing_config(crosslink_dir: &Path) -> PricingConfig {
     let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return PricingConfig::default(),
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return PricingConfig::default();
     };
     let value: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
         Err(_) => return PricingConfig::default(),
     };
-    match value.get("pricing") {
-        Some(pricing) => serde_json::from_value(pricing.clone()).unwrap_or_default(),
-        None => PricingConfig::default(),
-    }
+    value
+        .get("pricing")
+        .map_or_else(PricingConfig::default, |pricing| {
+            serde_json::from_value(pricing.clone()).unwrap_or_default()
+        })
 }
 
 fn get_pricing(model: &str, cfg: &PricingConfig) -> Option<ModelPricing> {
@@ -162,6 +169,7 @@ pub fn estimate_cost_cfg(
 
 /// Estimate cost in USD for a token usage record using the default pricing config.
 #[must_use]
+#[allow(dead_code)]
 pub fn estimate_cost(
     model: &str,
     input_tokens: i64,
@@ -181,6 +189,7 @@ pub fn estimate_cost(
 
 /// Parse a raw Claude API usage block into a `ParsedUsage` using the given pricing config.
 #[must_use]
+#[allow(dead_code)]
 pub fn parse_api_usage_cfg(
     raw: &RawTokenUsage,
     agent_id: &str,
@@ -201,15 +210,57 @@ pub fn parse_api_usage_cfg(
         session_id,
         input_tokens: raw.input_tokens,
         output_tokens: raw.output_tokens,
+        provider: AgentProvider::Claude,
+        cached_input_tokens: None,
+        reasoning_output_tokens: None,
         cache_read_tokens: raw.cache_read_input_tokens,
         cache_creation_tokens: raw.cache_creation_input_tokens,
         model: model.to_string(),
         cost_estimate: cost,
+        provider_metadata_json: None,
+    }
+}
+
+/// Convert normalized provider usage into a database-ready record. Codex
+/// account sessions remain unpriced unless project pricing explicitly matches
+/// the selected model.
+#[must_use]
+pub fn parse_runtime_usage(
+    raw: &RuntimeUsage,
+    provider: AgentProvider,
+    agent_id: &str,
+    session_id: Option<i64>,
+    model: &str,
+    cfg: &PricingConfig,
+    provider_metadata: Option<&serde_json::Value>,
+) -> ParsedUsage {
+    let cost = estimate_cost_cfg(
+        model,
+        raw.input_tokens,
+        raw.output_tokens,
+        raw.cached_input_tokens,
+        None,
+        cfg,
+    );
+    ParsedUsage {
+        agent_id: agent_id.to_string(),
+        session_id,
+        input_tokens: raw.input_tokens,
+        output_tokens: raw.output_tokens,
+        provider,
+        cached_input_tokens: raw.cached_input_tokens,
+        reasoning_output_tokens: raw.reasoning_output_tokens,
+        cache_read_tokens: raw.cached_input_tokens,
+        cache_creation_tokens: None,
+        model: model.to_string(),
+        cost_estimate: cost,
+        provider_metadata_json: provider_metadata.map(serde_json::Value::to_string),
     }
 }
 
 /// Parse a raw Claude API usage block into a `ParsedUsage` using the default pricing config.
 #[must_use]
+#[allow(dead_code)]
 pub fn parse_api_usage(
     raw: &RawTokenUsage,
     agent_id: &str,

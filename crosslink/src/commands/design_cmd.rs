@@ -1,36 +1,33 @@
-// E-ana tablet — design command: launch foreground Claude session for design doc authoring
-use anyhow::{bail, Context, Result};
-use std::process::{Command, Stdio};
+// E-ana tablet — provider-aware foreground design session.
+use anyhow::{Context, Result};
+use std::path::Path;
+use std::time::Duration;
 
-/// Run `crosslink design` — launch a foreground Claude session with the /design skill prompt.
-///
-/// If called from inside Claude Code (detected via `CLAUDE_CODE` env var), prints
-/// a message directing the user to `/design` and exits with code 1.
+use crate::agents::{
+    build_invocation, execute_foreground, resolve_agent, ApprovalPolicy, ExecutionPolicy,
+    InvocationRequest, OutputProtocol, SandboxPosture,
+};
+
 pub fn run(
+    crosslink_dir: &Path,
     description: Option<&str>,
     issue: Option<i64>,
     gh_issue: Option<i64>,
     continue_slug: Option<&str>,
 ) -> Result<()> {
-    // 1. Claude Code detection
     if std::env::var("CLAUDE_CODE").is_ok() || std::env::var("CLAUDECODE").is_ok() {
-        eprintln!("Already inside Claude Code \u{2014} use /design instead.");
+        eprintln!("Already inside Claude Code — use the installed `design` skill (`/design`).");
+        std::process::exit(1);
+    }
+    if ["CODEX_THREAD_ID", "CODEX_SESSION_ID"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
+    {
+        eprintln!("Already inside Codex — ask it to use the installed `design` skill.");
         std::process::exit(1);
     }
 
-    // 2. Verify `claude` CLI is on PATH
-    let claude_available = Command::new("which")
-        .arg("claude")
-        .output()
-        .is_ok_and(|o| o.status.success());
-
-    if !claude_available {
-        bail!(
-            "`claude` CLI not found. Install it:\n\n  \
-             npm install -g @anthropic-ai/claude-code\n\n  \
-             Or: brew install claude-code"
-        );
-    }
+    let agent = resolve_agent(crosslink_dir)?;
 
     // 3. Build the prompt arguments line
     let mut args_parts = Vec::new();
@@ -50,8 +47,8 @@ pub fn run(
 
     let arguments = args_parts.join(" ");
 
-    // 4. Read the /design skill template
-    let skill_prompt = include_str!("../../resources/claude/commands/design.md");
+    // The same canonical skill is installed into both provider discovery roots.
+    let skill_prompt = include_str!("../../resources/agent/skills/design/SKILL.md");
 
     // Strip the YAML frontmatter (everything between first --- and second ---)
     let prompt_body = strip_frontmatter(skill_prompt);
@@ -63,16 +60,37 @@ pub fn run(
         format!("ARGUMENTS: {arguments}\n\n{prompt_body}")
     };
 
-    // 6. Launch foreground Claude session.
-    // The `claude` CLI accepts the initial prompt as a positional argument;
-    // there is no `--prompt` flag (see issue #568).
-    let status = Command::new("claude")
-        .arg(&full_prompt)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("Failed to launch claude session")?;
+    let mut prompt = tempfile::Builder::new()
+        .prefix("crosslink-design-")
+        .suffix(".md")
+        .tempfile_in(std::env::temp_dir())
+        .context("Failed to create the design prompt")?;
+    use std::io::Write as _;
+    prompt
+        .write_all(full_prompt.as_bytes())
+        .context("Failed to write the design prompt")?;
+
+    let model = agent.resolve_model(None);
+    let invocation = build_invocation(
+        &agent,
+        &InvocationRequest {
+            cwd: crosslink_dir.parent().unwrap_or(crosslink_dir),
+            prompt_file: prompt.path(),
+            model: model.as_deref(),
+            allowed_tools: None,
+            policy: ExecutionPolicy {
+                approval: ApprovalPolicy::Interactive,
+                sandbox: SandboxPosture::WorkspaceWrite,
+                effort: None,
+                monetary_budget_usd: None,
+                timeout: Duration::from_secs(24 * 60 * 60),
+            },
+            output: OutputProtocol::Interactive,
+            verified_hook_trust: false,
+            claude_config_dir: std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref(),
+        },
+    )?;
+    let status = execute_foreground(&invocation)?;
 
     if !status.success() {
         let code = status.code().unwrap_or(1);

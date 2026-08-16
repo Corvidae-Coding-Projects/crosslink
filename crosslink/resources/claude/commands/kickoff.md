@@ -9,7 +9,7 @@ argument-hint: <feature description> [--issue <id>] [--verify local|ci|thorough]
 - Current repo root: !`git rev-parse --show-toplevel`
 - Current branch: !`git branch --show-current`
 - tmux available: !`which tmux`
-- agent binary available: !`which $(crosslink config get agent.binary 2>/dev/null || echo claude)`
+- provider diagnostics: !`crosslink --json doctor 2>/dev/null`
 
 ## Your task
 
@@ -25,7 +25,7 @@ The user may pass these flags after the feature description:
   - `thorough`: Everything in `ci` plus a structured adversarial self-review.
 - `--issue <id>`: Use an existing crosslink issue instead of creating a new one.
 - `--container <runtime>`: Use `docker` or `podman` instead of local tmux. Default: `none`.
-- `--model <model>`: LLM model to use (provider/model format, e.g. `opencode-go/deepseek-v4-flash`, `google-vertex/gemini-3.1-pro-preview`). Default: from `hook-config.json` or `opus`.
+- `--model <tier-or-model>`: Semantic tier (`default`, `standard`, or `advanced`) or an explicit provider model. Default: `standard`, resolved through the selected provider's model map.
 - `--timeout <duration>`: Max runtime (e.g. `1h`, `30m`). Default: `1h`.
 - `--template <path>`: Interpolate the built prompt into a template file rather than using the built-in prompt directly (gh#62). See **Prompt templates** below.
 - All other text is the feature description.
@@ -67,17 +67,17 @@ The agent binary and default model are configured via `hook-config.json`:
 ```jsonc
 {
     "agent": {
-        "binary": "opencode"
+        "provider": "codex"
     },
     "sentinel": {
         "default_agent": {
-            "model": "opencode-go/deepseek-v4-flash"
+            "model": "standard"
         }
     }
 }
 ```
 
-When a non-Claude binary is configured, the wrapper automatically omits Anthropic-specific environment variables (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`) and credential mounts (`~/.claude`).
+`agent.provider` selects protocol behavior. `agent.binary` is an optional executable-path override; custom providers must set it. Known providers use normal account login and provider-scoped credential mounts, never API-key forwarding.
 
 ### Prompt templates (gh#62)
 

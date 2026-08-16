@@ -504,7 +504,7 @@ pub fn push_ref_with_lease(
 /// Force-push a ref, overwriting the remote tip unconditionally.
 ///
 /// Used ONLY by the `migrate hub-v3 --remigrate-from-v2` recovery path
-/// (forecast-bio/crosslink#653): the regenerated v3 genesis does not descend
+/// (Corvidae-Coding-Projects/crosslink#653): the regenerated v3 genesis does not descend
 /// from the stale remote v3 hub it supersedes, so a fast-forward or
 /// `--force-with-lease` push would be rejected. The operation is explicitly
 /// opted into and serialized under the hub write lock.

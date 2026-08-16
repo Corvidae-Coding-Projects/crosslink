@@ -1,0 +1,35 @@
+{
+  "name": "crosslink-codex",
+  "version": "0.9.0-beta.1",
+  "description": "Crosslink workflow, policy hooks, skills, and repository knowledge tools for Codex.",
+  "author": {
+    "name": "Crosslink contributors",
+    "url": "https://github.com/Corvidae-Coding-Projects/crosslink"
+  },
+  "homepage": "https://github.com/Corvidae-Coding-Projects/crosslink",
+  "repository": "https://github.com/Corvidae-Coding-Projects/crosslink",
+  "license": "MIT",
+  "keywords": [
+    "crosslink",
+    "codex",
+    "agent-workflow",
+    "issue-tracking"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Crosslink Codex",
+    "shortDescription": "Coordinate Codex work with Crosslink",
+    "longDescription": "Adds Crosslink's provider-neutral workflow skills, lifecycle policy hooks, issue/session memory, and local knowledge tools to Codex.",
+    "developerName": "Crosslink contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Corvidae-Coding-Projects/crosslink",
+    "defaultPrompt": [
+      "Help me plan and complete this work with Crosslink tracking."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

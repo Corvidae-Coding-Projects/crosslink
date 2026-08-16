@@ -22,6 +22,12 @@ To start a design session, ask your agent:
 
 This triggers the conversational design document workflow.
 
+From a normal shell, `crosslink design` launches the configured Claude Code or
+Codex provider interactively with this same canonical skill. Inside either
+provider, Crosslink detects the active environment and directs you to the
+installed `design` skill instead of nesting another agent process. Child
+terminal I/O and exit status are preserved.
+
 ::: {.column-screen .center}
 ![](../assets/img/design-flow.svg){width="850px"}
 :::

@@ -14,6 +14,7 @@ Complete command reference for the crosslink CLI.
 | `--quiet` / `-q` | Minimal output (just IDs, counts), useful for scripting |
 | `--log-level <LEVEL>` | Set log verbosity: `error`, `warn` (default), `info`, `debug`, `trace` |
 | `--log-format <FORMAT>` | Log output format: `text` (default), `json` |
+| `crosslink doctor [--json]` | Provider, login, integration, plugin, MCP, hook-trust, and container credential diagnostics |
 
 &nbsp;
 
@@ -299,7 +300,7 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink kickoff run <desc> --container docker` | Launch in a Docker container |
 | `crosslink kickoff run <desc> --verify ci` | Launch with CI verification |
 | `crosslink kickoff run <desc> --doc DESIGN.md` | Launch from a design document |
-| `crosslink kickoff run <desc> --timeout 2h --model opus` | With timeout and model |
+| `crosslink kickoff run <desc> --timeout 2h --model standard` | With timeout and provider-aware model tier |
 | `crosslink kickoff run <desc> --dry-run` | Print prompt without launching |
 | `crosslink kickoff list` | List active kickoff agents with worktree, tmux, and Docker discovery |
 | `crosslink kickoff list --status running` | Filter by status (`running`/`done`/`failed`/`all`) |
@@ -366,6 +367,10 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink container rm <name>` | Remove a stopped container |
 | `crosslink container shell <name>` | Open a shell in a running container |
 | `crosslink container snapshot <name> --tag cached` | Save container state as image |
+| `crosslink container auth login --provider claude|codex` | Interactive normal-account login into a provider-scoped volume |
+| `crosslink container auth status --provider claude|codex` | Redacted login readiness check |
+| `crosslink container auth refresh --provider claude|codex` | Refresh the normal account session |
+| `crosslink container auth logout --provider claude|codex` | Confirm and remove the credential volume (`--force` for non-interactive use) |
 
 &nbsp;
 
@@ -414,5 +419,7 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 
 | Command | Description |
 |---------|-------------|
-| `crosslink init` | Initialize crosslink in current project |
+| `crosslink init` | Initialize Crosslink and both Claude/Codex integrations |
+| `crosslink init --agent-integration claude|codex|both` | Select installed integration assets without changing `agent.provider` |
+| `crosslink init --update [--dry-run]` | Manifest-safe managed asset upgrade/preview |
 | `crosslink init --force` | Re-initialize, resetting rules to defaults |

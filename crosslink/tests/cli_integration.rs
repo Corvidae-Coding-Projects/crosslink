@@ -3084,8 +3084,10 @@ fn test_init_deploys_mcp_knowledge_server_integration() {
 
     // knowledge-server.py must exist after init
     assert!(
-        dir.path().join(".claude/mcp/knowledge-server.py").exists(),
-        "knowledge-server.py not deployed"
+        dir.path()
+            .join(".crosslink/integrations/mcp/knowledge-server.py")
+            .exists(),
+        "provider-neutral knowledge-server.py not deployed"
     );
 
     // .mcp.json must exist and reference both MCP servers
@@ -3094,8 +3096,8 @@ fn test_init_deploys_mcp_knowledge_server_integration() {
 
     let mcp_content = std::fs::read_to_string(&mcp_path).unwrap();
     assert!(
-        mcp_content.contains("crosslink-safe-fetch"),
-        ".mcp.json missing crosslink-safe-fetch"
+        !mcp_content.contains("crosslink-safe-fetch"),
+        ".mcp.json retained the retired downloader"
     );
     assert!(
         mcp_content.contains("crosslink-knowledge"),
@@ -4010,4 +4012,73 @@ fn test_kickoff_plan_accepts_valid_effort_level() {
         !e.contains("invalid value"),
         "'xhigh' is a valid effort level, got: {err}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_design_custom_provider_receives_skill_prompt_and_propagates_exit_code() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = test_dir();
+    init_crosslink(dir.path());
+    let capture = dir.path().join("design-prompt.txt");
+    let stub = dir.path().join("design-agent");
+    std::fs::write(
+        &stub,
+        format!("#!/bin/sh\ncat > '{}'\nexit 37\n", capture.display()),
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&stub).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&stub, permissions).unwrap();
+
+    let config_path = dir.path().join(".crosslink/hook-config.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["agent"] = serde_json::json!({
+        "provider": "custom",
+        "binary": stub,
+    });
+    std::fs::write(
+        &config_path,
+        format!("{}\n", serde_json::to_string_pretty(&config).unwrap()),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
+        .current_dir(dir.path())
+        .env_remove("CLAUDE_CODE")
+        .env_remove("CLAUDECODE")
+        .env_remove("CODEX_THREAD_ID")
+        .env_remove("CODEX_SESSION_ID")
+        .args(["design", "provider-neutral feature"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(37));
+    let prompt = std::fs::read_to_string(capture).unwrap();
+    assert!(prompt.contains("ARGUMENTS: \"provider-neutral feature\""));
+    assert!(prompt.contains("Design — interactive design document authoring"));
+}
+
+#[test]
+fn test_design_detects_both_agent_environments() {
+    let dir = test_dir();
+    init_crosslink(dir.path());
+    for (name, expected) in [
+        ("CLAUDE_CODE", "Already inside Claude Code"),
+        ("CODEX_THREAD_ID", "Already inside Codex"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
+            .current_dir(dir.path())
+            .env_remove("CLAUDE_CODE")
+            .env_remove("CLAUDECODE")
+            .env_remove("CODEX_THREAD_ID")
+            .env_remove("CODEX_SESSION_ID")
+            .env(name, "fixture")
+            .args(["design", "feature"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
+    }
 }

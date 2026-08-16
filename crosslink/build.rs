@@ -29,14 +29,10 @@ fn main() {
         }
     }
 
-    // Track claude resource files
-    println!("cargo:rerun-if-changed=resources/claude/settings.json");
-    println!("cargo:rerun-if-changed=resources/claude/hooks/prompt-guard.py");
-    println!("cargo:rerun-if-changed=resources/claude/hooks/post-edit-check.py");
-    println!("cargo:rerun-if-changed=resources/claude/hooks/session-start.py");
-    println!("cargo:rerun-if-changed=resources/claude/hooks/pre-web-check.py");
-    println!("cargo:rerun-if-changed=resources/claude/hooks/work-check.py");
-    println!("cargo:rerun-if-changed=resources/claude/mcp/safe-fetch-server.py");
+    // Track canonical agent and thin provider resources.
+    println!("cargo:rerun-if-changed=resources/agent/");
+    println!("cargo:rerun-if-changed=resources/providers/");
+    println!("cargo:rerun-if-changed=resources/plugins/crosslink-codex/");
     println!("cargo:rerun-if-changed=resources/mcp.json");
     println!("cargo:rerun-if-changed=resources/claude/commands/workflow.md");
 
@@ -61,14 +57,14 @@ fn main() {
         }
     }
 
-    // Auto-discover and track all skill files in resources/claude/skills/
+    // Auto-discover and track all canonical skill files.
     // Skills are directories (each with a SKILL.md plus optional reference files)
     // bundled into projects so collaborators get a consistent skill surface.
-    println!("cargo:rerun-if-changed=resources/claude/skills/");
-    let skills_dir = Path::new("resources/claude/skills");
+    println!("cargo:rerun-if-changed=resources/agent/skills/");
+    let skills_dir = Path::new("resources/agent/skills");
     if skills_dir.is_dir() {
         if let Err(e) = generate_skills_file(skills_dir) {
-            eprintln!("cargo:warning=Failed to generate skills_gen.rs: {e}");
+            panic!("Failed to generate skills_gen.rs: {e}");
         }
     }
 
@@ -170,6 +166,7 @@ fn generate_skills_file(skills_dir: &Path) -> Result<(), Box<dyn std::error::Err
     // Walk skill subdirectories and collect (relative_path_within_skills, const_name) pairs.
     // Relative path is e.g. "architect/SKILL.md" or "rust-gpu-discipline/anti-patterns.md".
     let mut skill_entries: Vec<(String, String)> = Vec::new();
+    let mut metadata_names = std::collections::HashSet::new();
 
     let mut skill_dirs: Vec<_> = fs::read_dir(skills_dir)?
         .filter_map(std::result::Result::ok)
@@ -180,6 +177,46 @@ fn generate_skills_file(skills_dir: &Path) -> Result<(), Box<dyn std::error::Err
 
     for skill_dir in skill_dirs {
         let skill_name = skill_dir.file_name().to_string_lossy().to_string();
+        let skill_md = skill_dir.path().join("SKILL.md");
+        let metadata = fs::read_to_string(&skill_md)
+            .map_err(|error| format!("{} is missing or unreadable: {error}", skill_md.display()))?;
+        for stale_path in [".claude/hooks/", ".claude/mcp/"] {
+            if metadata.contains(stale_path) {
+                return Err(format!(
+                    "{} contains stale provider-only operational path {stale_path}",
+                    skill_md.display()
+                )
+                .into());
+            }
+        }
+        let mut lines = metadata.lines();
+        if lines.next() != Some("---") {
+            return Err(format!("{} is missing YAML frontmatter", skill_md.display()).into());
+        }
+        let mut name = None;
+        let mut description = None;
+        for line in lines.by_ref() {
+            if line == "---" {
+                break;
+            }
+            if let Some(value) = line.strip_prefix("name:") {
+                name = Some(value.trim().trim_matches('"').to_string());
+            }
+            if let Some(value) = line.strip_prefix("description:") {
+                description = Some(value.trim().trim_matches('"').to_string());
+            }
+        }
+        let name = name
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("{} frontmatter is missing name", skill_md.display()))?;
+        if description.is_none_or(|value| value.is_empty()) {
+            return Err(
+                format!("{} frontmatter is missing description", skill_md.display()).into(),
+            );
+        }
+        if !metadata_names.insert(name.clone()) {
+            return Err(format!("duplicate skill metadata name: {name}").into());
+        }
 
         let mut files: Vec<_> = fs::read_dir(skill_dir.path())?
             .filter_map(std::result::Result::ok)
@@ -191,7 +228,7 @@ fn generate_skills_file(skills_dir: &Path) -> Result<(), Box<dyn std::error::Err
         for file in files {
             let filename = file.file_name().to_string_lossy().to_string();
             let rel_path = format!("{skill_name}/{filename}");
-            let track_path = format!("resources/claude/skills/{rel_path}");
+            let track_path = format!("resources/agent/skills/{rel_path}");
             println!("cargo:rerun-if-changed={track_path}");
 
             // include_str! requires UTF-8. Skill bundles like `.skill` (zip) or
@@ -226,11 +263,11 @@ fn generate_skills_file(skills_dir: &Path) -> Result<(), Box<dyn std::error::Err
         gen_file,
         "// Auto-generated by build.rs — do not edit manually"
     )?;
-    writeln!(gen_file, "// Generated from resources/claude/skills/")?;
+    writeln!(gen_file, "// Generated from resources/agent/skills/")?;
     writeln!(gen_file)?;
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    let abs_skills_dir = Path::new(&manifest_dir).join("resources/claude/skills");
+    let abs_skills_dir = Path::new(&manifest_dir).join("resources/agent/skills");
 
     for (rel_path, const_name) in &skill_entries {
         let abs_path = abs_skills_dir.join(rel_path);

@@ -5,16 +5,10 @@ use std::process::Command;
 /// Resolve the agent binary from `hook-config.json`'s `agent.binary`
 /// (default "claude").
 pub fn read_agent_binary(crosslink_dir: &Path) -> String {
-    let config_path = crosslink_dir.join("hook-config.json");
-    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
-    parsed
-        .get("agent")
-        .and_then(|a| a.get("binary"))
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map_or_else(|| "claude".to_string(), ToString::to_string)
+    crate::agents::resolve_agent(crosslink_dir).map_or_else(
+        |_| "claude".to_string(),
+        |agent| agent.binary.to_string_lossy().into_owned(),
+    )
 }
 
 /// Read the `agent.kickoff_template` setting from `hook-config.json`.
@@ -237,13 +231,7 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
         .sync_all()
         .with_context(|| format!("Failed to fsync temp file for {}", path.display()))?;
 
-    tmp.persist(path).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to rename temp file to {}: {}",
-            path.display(),
-            e.error
-        )
-    })?;
+    persist_atomic_temp_file(tmp, path)?;
 
     // Best-effort: fsync the parent directory so the rename itself is durable.
     // Failure here is not fatal — the file-level fsync above already ensures
@@ -273,11 +261,77 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
     Ok(())
 }
 
+/// Persist a prepared temporary file over its destination. `MoveFileExW`,
+/// which backs `NamedTempFile::persist` on Windows, can transiently return
+/// access denied when concurrent writers replace the same destination while
+/// the preceding writer's file handle is still closing. Serialize the small
+/// rename window in-process and retry boundedly for cross-process contention;
+/// every attempt remains an atomic replace operation.
+#[cfg(windows)]
+fn persist_atomic_temp_file(
+    mut tmp: tempfile::NamedTempFile,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static PERSIST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = PERSIST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    const MAX_ATTEMPTS: usize = 20;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match tmp.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(error)
+                if error.error.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < MAX_ATTEMPTS =>
+            {
+                tmp = error.file;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "Failed to rename temp file to {}: {}",
+                    path.display(),
+                    error.error
+                ));
+            }
+        }
+    }
+
+    unreachable!("bounded persist loop always returns")
+}
+
+#[cfg(not(windows))]
+fn persist_atomic_temp_file(
+    tmp: tempfile::NamedTempFile,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
+    tmp.persist(path).map(|_| ()).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to rename temp file to {}: {}",
+            path.display(),
+            error.error
+        )
+    })
+}
+
 /// Escape a string for safe interpolation into a shell command.
 /// Wraps in single quotes with embedded single quotes escaped as `'\''`.
 #[must_use]
 pub fn shell_escape_arg(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Render a filesystem path for a POSIX-compatible shell and quote it as one
+/// argument. Crosslink's launch scripts run through a POSIX shell even when
+/// the host path was assembled with Windows separators.
+#[must_use]
+pub fn shell_escape_path(path: &std::path::Path) -> String {
+    let rendered = path.to_string_lossy().replace('\\', "/");
+    shell_escape_arg(&rendered)
 }
 
 // ── Compact identifiers (base62) ─────────────────────────────────────────

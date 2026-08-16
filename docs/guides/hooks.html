@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Behavioral hooks – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -69,19 +75,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../guides/web-dashboard.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -182,6 +187,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -241,6 +250,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -253,7 +266,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -297,6 +310,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../guides/providers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Claude and Codex providers</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../guides/multi-agent.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Multi-agent coordination</span></a>
   </div>
@@ -383,7 +402,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#large-task-management" id="toc-large-task-management" class="nav-link" data-scroll-target="#large-task-management">Large task management</a></li>
   <li><a href="#language-detection" id="toc-language-detection" class="nav-link" data-scroll-target="#language-detection">Language detection</a></li>
   <li><a href="#post-edit-checking" id="toc-post-edit-checking" class="nav-link" data-scroll-target="#post-edit-checking">Post-edit checking</a></li>
-  <li><a href="#web-security-rfip" id="toc-web-security-rfip" class="nav-link" data-scroll-target="#web-security-rfip">Web security (RFIP)</a></li>
+  <li><a href="#external-content-provenance" id="toc-external-content-provenance" class="nav-link" data-scroll-target="#external-content-provenance">External content provenance</a></li>
   <li><a href="#drift-detection" id="toc-drift-detection" class="nav-link" data-scroll-target="#drift-detection">Drift detection</a></li>
   <li><a href="#intervention-tracking" id="toc-intervention-tracking" class="nav-link" data-scroll-target="#intervention-tracking">Intervention tracking</a></li>
   </ul></li>
@@ -430,7 +449,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="columns">
 <div class="column" style="width:35%;">
 <p><strong>You configure once:</strong></p>
-<p>Run <code>crosslink init</code> in your project. Hooks are installed into <code>.claude/hooks/</code> and activate automatically for every Claude Code session.</p>
+<p>Run <code>crosslink init</code> in your project. Canonical scripts are installed once in <code>.crosslink/integrations/hooks/</code>; <code>.claude/settings.json</code> and <code>.codex/hooks.json</code> wire them into each provider. Both integrations are installed by default.</p>
 <p>No per-agent setup. No manual prompting. Every agent that touches this repo follows the same rules.</p>
 </div><div class="column" style="width:5%;">
 <p>→</p>
@@ -474,8 +493,8 @@ Agent finishes editing
 <tbody>
 <tr class="odd">
 <td><code>session-start.py</code></td>
-<td>Session start/resume</td>
-<td>Loads context, syncs locks, restores breadcrumbs from last session</td>
+<td>Startup, resume, clear, compact</td>
+<td>Loads context without duplicating active sessions; restores issue, action, knowledge, and provenance context</td>
 </tr>
 <tr class="even">
 <td><code>prompt-guard.py</code></td>
@@ -484,18 +503,18 @@ Agent finishes editing
 </tr>
 <tr class="odd">
 <td><code>work-check.py</code></td>
-<td>Before write/edit/bash</td>
-<td>Enforces issue tracking, blocks git mutations, warns on lock conflicts</td>
+<td>Before write/edit/apply_patch/shell</td>
+<td>Normalizes provider input, enforces issue tracking, and blocks git mutations</td>
 </tr>
 <tr class="even">
 <td><code>post-edit-check.py</code></td>
-<td>After file edits</td>
-<td>Detects stubs, runs linter (debounced), reminds about tests</td>
+<td>After file edits/patches</td>
+<td>Checks every surviving path in multi-file patches, detects stubs, and reminds about tests</td>
 </tr>
 <tr class="odd">
 <td><code>pre-web-check.py</code></td>
-<td>Before web fetch</td>
-<td>Injects prompt injection defense before fetching external content</td>
+<td>Before Claude native web tools</td>
+<td>Reminds that external words are evidence, not instructions</td>
 </tr>
 </tbody>
 </table>
@@ -540,9 +559,9 @@ Agent finishes editing
 <li><strong>Test reminders</strong> — Checks if code has been modified since the last test run and reminds to run tests</li>
 </ol>
 </section>
-<section id="web-security-rfip" class="level3">
-<h3 class="anchored" data-anchor-id="web-security-rfip">Web security (RFIP)</h3>
-<p>The <code>pre-web-check.py</code> hook injects the Recursive Framing Interdiction Protocol before any web fetch. This defends against prompt injection by establishing that external content is <strong>data, not instructions</strong> — any instruction-like text in fetched content is flagged, not followed.</p>
+<section id="external-content-provenance" class="level3">
+<h3 class="anchored" data-anchor-id="external-content-provenance">External content provenance</h3>
+<p>Crosslink does not download or rewrite web pages. Claude receives the provenance rule before native web tools. Hosted Codex web search does not traverse local tool-use hooks, so Codex receives the same rule at session start, every prompt, subagent start, and compaction restoration. Both providers keep native search.</p>
 </section>
 <section id="drift-detection" class="level3">
 <h3 class="anchored" data-anchor-id="drift-detection">Drift detection</h3>
@@ -575,9 +594,10 @@ Agent finishes editing
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Automatic setup (recommended)</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Or manual copy</span></span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> <span class="at">-r</span> /path/to/crosslink/.claude /your/project/</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> <span class="at">-r</span> /path/to/crosslink/.crosslink/rules /your/project/.crosslink/</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Select only one integration when deliberately required</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init <span class="at">--agent-integration</span> claude</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init <span class="at">--agent-integration</span> codex</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Codex users can alternatively install the versioned plugin; see <a href="../guides/providers.html#codex-plugin">Claude and Codex providers</a>.</p>
 
 
 </section>
@@ -997,21 +1017,21 @@ Agent finishes editing
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -1028,12 +1048,12 @@ Agent finishes editing
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -1046,7 +1066,7 @@ Agent finishes editing
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -1070,7 +1090,7 @@ Agent finishes editing
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -1097,7 +1117,7 @@ Agent finishes editing
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

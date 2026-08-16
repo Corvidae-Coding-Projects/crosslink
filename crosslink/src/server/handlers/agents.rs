@@ -180,6 +180,26 @@ fn agent_tmux_session(agent_id: &str) -> String {
     }
 }
 
+fn worktree_runtime_status(worktree: &std::path::Path) -> Option<String> {
+    let sentinel = std::fs::read_to_string(worktree.join(".kickoff-status"))
+        .ok()
+        .map(|value| value.trim().to_string());
+    let runtime = crate::agents::runtime_snapshot(worktree).status;
+    match (sentinel, runtime) {
+        (Some(current), Some(normalized))
+            if current.eq_ignore_ascii_case("running")
+                || matches!(
+                    normalized.as_str(),
+                    "done" | "failed" | "timed-out" | "waiting"
+                ) =>
+        {
+            Some(normalized)
+        }
+        (Some(current), _) => Some(current),
+        (None, runtime) => runtime,
+    }
+}
+
 use crate::server::errors::internal_error;
 
 // ---------------------------------------------------------------------------
@@ -290,12 +310,9 @@ pub async fn get_agent(
     let branch = worktree.as_deref().and_then(read_worktree_branch);
     let worktree_path = worktree.as_ref().map(|p| p.to_string_lossy().into_owned());
 
-    let kickoff_status = worktree.as_ref().and_then(|wt| {
-        let path = wt.join(".kickoff-status");
-        std::fs::read_to_string(path)
-            .ok()
-            .map(|s| s.trim().to_string())
-    });
+    let kickoff_status = worktree
+        .as_ref()
+        .and_then(|worktree| worktree_runtime_status(worktree));
 
     let heartbeat_history = hb
         .as_ref()
@@ -347,17 +364,7 @@ pub async fn get_agent_status(
 
     let kickoff_status = worktree.as_ref().map_or_else(
         || "unknown".to_string(),
-        |wt| {
-            let path = wt.join(".kickoff-status");
-            if path.exists() {
-                std::fs::read_to_string(&path)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string()
-            } else {
-                "running".to_string()
-            }
-        },
+        |worktree| worktree_runtime_status(worktree).unwrap_or_else(|| "running".to_string()),
     );
 
     let session_name = agent_tmux_session(&agent_id);

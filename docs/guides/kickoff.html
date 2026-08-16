@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Kickoff: Autonomous feature agents – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -69,19 +75,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../guides/design-workflow.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -182,6 +187,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -241,6 +250,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -253,7 +266,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -297,6 +310,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../guides/providers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Claude and Codex providers</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../guides/multi-agent.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Multi-agent coordination</span></a>
   </div>
@@ -393,6 +412,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#verify-ci" id="toc-verify-ci" class="nav-link" data-scroll-target="#verify-ci"><code>--verify ci</code></a></li>
   <li><a href="#verify-thorough" id="toc-verify-thorough" class="nav-link" data-scroll-target="#verify-thorough"><code>--verify thorough</code></a></li>
   <li><a href="#safety-constraints" id="toc-safety-constraints" class="nav-link" data-scroll-target="#safety-constraints">Safety constraints</a></li>
+  <li><a href="#configuring-agent-permissions" id="toc-configuring-agent-permissions" class="nav-link" data-scroll-target="#configuring-agent-permissions">Configuring agent permissions</a></li>
+  <li><a href="#dispatch-dials-reasoning-effort-and-spend-ceiling" id="toc-dispatch-dials-reasoning-effort-and-spend-ceiling" class="nav-link" data-scroll-target="#dispatch-dials-reasoning-effort-and-spend-ceiling">Dispatch dials: reasoning effort and spend ceiling</a></li>
   </ul></li>
   <li><a href="#managing-kickoffs" id="toc-managing-kickoffs" class="nav-link" data-scroll-target="#managing-kickoffs">Managing kickoffs</a>
   <ul>
@@ -430,7 +451,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p><img src="../assets/img/cards/kickoff.svg" class="card-icon img-fluid"></p>
 <section id="tldr" class="level2">
 <h2 class="anchored" data-anchor-id="tldr">tl;dr</h2>
-<p>The <code>/kickoff</code> flow launches an autonomous Claude agent in an isolated git worktree to implement a feature in the background. You describe what you want, and a fully instrumented agent handles the rest – tracked through crosslink the entire way.</p>
+<p>The <code>/kickoff</code> flow launches the configured Claude Code or Codex provider in an isolated git worktree. You describe what you want, and a fully instrumented agent handles the rest—tracked through Crosslink the entire way.</p>
 </section>
 </div>
 <p>&nbsp;</p>
@@ -558,7 +579,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="tmux-session" class="level3">
 <h3 class="anchored" data-anchor-id="tmux-session">5. tmux session</h3>
-<p>A detached tmux session is created and <code>claude</code> is launched inside it with the <code>KICKOFF.md</code> prompt and pre-approved tool permissions.</p>
+<p>A detached tmux session launches the selected provider. Claude receives its supported prompt/output flags. Codex runs <code>codex exec -</code> with the kickoff document on stdin, JSONL output, an explicit worktree root, <code>workspace-write</code> sandboxing, and explicit approval policy.</p>
 <pre><code>Feature agent launched.
 
   Worktree: .worktrees/add-batch-retry-logic
@@ -574,7 +595,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Once trust is approved, the background agent:</p>
 <ol type="1">
 <li>Starts a crosslink session and marks the feature issue as its focus</li>
-<li>Reads <code>CLAUDE.md</code> and explores relevant code</li>
+<li>Reads <code>AGENTS.md</code>, <code>CLAUDE.md</code> when present, and provider-neutral Crosslink rules before exploring relevant code</li>
 <li>Documents its plan via <code>crosslink issue comment</code></li>
 <li>Implements the feature (no stubs, full error handling)</li>
 <li>Records breadcrumbs with <code>crosslink session action</code> to survive context compression</li>
@@ -623,12 +644,44 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="anchored" data-anchor-id="safety-constraints">Safety constraints</h3>
 <p>The background agent operates under the same crosslink hook enforcement as interactive sessions:</p>
 <ul>
-<li><strong>Always blocked:</strong> <code>git push</code>, <code>git merge</code>, <code>git rebase</code>, <code>git reset</code>, and other destructive git commands (except when CI verification is enabled, where push is allowed)</li>
+<li><strong>Always blocked:</strong> <code>git merge</code>, <code>git rebase</code>, <code>git cherry-pick</code>, <code>git reset</code>, force-push, and the other destructive git commands</li>
+<li><strong>Push:</strong> plain <code>git push</code> is permitted only for the CI-verification draft-PR steps the prompt specifies; force-push is always blocked</li>
 <li><strong>Gated on active issue:</strong> <code>git commit</code> requires an active crosslink work item</li>
 <li><strong>Tool auto-approval:</strong> Only pre-approved tools run without prompting; anything else pauses the agent</li>
 <li><strong>Isolated worktree:</strong> All changes are confined to <code>.worktrees/</code> – your main checkout is untouched</li>
 <li><strong>Full audit trail:</strong> Every decision, discovery, and intervention is logged on the crosslink issue</li>
 </ul>
+<p>&nbsp;</p>
+</section>
+<section id="configuring-agent-permissions" class="level3">
+<h3 class="anchored" data-anchor-id="configuring-agent-permissions">Configuring agent permissions</h3>
+<p>Execution policy is mapped by the provider adapter. Repository hooks live in <code>.claude/settings.json</code> and <code>.codex/hooks.json</code>; provider defaults live under <code>agent.providers</code> in <code>hook-config.json</code>. Compatibility flags such as <code>--skip-permissions</code> and <code>--permission-mode</code> are translated deliberately, and an unsupported mapping is an error.</p>
+<ul>
+<li><strong>Persistent policy</strong> – Claude’s allowed tools remain in <code>.claude/settings.json</code>; Codex sandbox and approval defaults live under <code>agent.providers.codex</code> and Codex’s own configuration.</li>
+<li><strong>Per-invocation aliases</strong> – <code>--skip-permissions</code> and <code>--permission-mode</code> map to provider-neutral approval and sandbox postures. Crosslink rejects combinations whose documented meaning cannot be preserved.</li>
+</ul>
+<p>See <a href="../guides/providers.html">Claude and Codex providers</a> for provider configuration, hook trust, policy mapping, and account login.</p>
+<p>&nbsp;</p>
+</section>
+<section id="dispatch-dials-reasoning-effort-and-spend-ceiling" class="level3">
+<h3 class="anchored" data-anchor-id="dispatch-dials-reasoning-effort-and-spend-ceiling">Dispatch dials: reasoning effort and spend ceiling</h3>
+<p>Two optional per-launch dials sit alongside <code>--model</code> on <code>kickoff run</code> and <code>kickoff plan</code>:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"add batch retry logic"</span> <span class="at">--model</span> standard <span class="at">--effort</span> high</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><strong><code>--effort &lt;low|medium|high|xhigh|max&gt;</code></strong> – how much reasoning the dispatched session spends per turn. Invalid levels are rejected before anything is created, so a typo fails the launch rather than silently dispatching an un-dialed agent.</li>
+<li><strong><code>--budget-usd &lt;amount&gt;</code></strong> – a provider spend ceiling when supported. Claude receives the cap. Codex normal-account runs reject it because the CLI exposes no truthful per-run USD cap.</li>
+</ul>
+<p>Both are optional; omitting them launches exactly as before. Whatever you set is recorded in the worktree’s <code>.kickoff-metadata.json</code> alongside the resolved model, so the run record answers what the dispatch was actually given:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"started_at"</span><span class="fu">:</span> <span class="st">"2026-08-02T05:44:02Z"</span><span class="fu">,</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"timeout_secs"</span><span class="fu">:</span> <span class="dv">3600</span><span class="fu">,</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"provider"</span><span class="fu">:</span> <span class="st">"claude"</span><span class="fu">,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"model"</span><span class="fu">:</span> <span class="st">"standard"</span><span class="fu">,</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"effort"</span><span class="fu">:</span> <span class="st">"high"</span><span class="fu">,</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"budget_usd"</span><span class="fu">:</span> <span class="st">"5"</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>For swarm, the dials are configured once and apply to every agent the swarm launches:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm config <span class="at">--budget-window</span> 5h <span class="at">--model</span> standard <span class="at">--effort</span> high</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -638,11 +691,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="monitoring-with-check" class="level3">
 <h3 class="anchored" data-anchor-id="monitoring-with-check">Monitoring with <code>/check</code></h3>
 <p>While the agent works, use <code>/check</code> to monitor progress:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Check a specific session</span></span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/check</span> feat-add-batch-retry-logic</span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Check all feature sessions in this repo</span></span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="ex">/check</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Check a specific session</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/check</span> feat-add-batch-retry-logic</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Check all feature sessions in this repo</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="ex">/check</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>/check</code> reads the tmux pane, the <code>.kickoff-status</code> sentinel file, and crosslink issue state to report whether the agent is working, waiting for input, errored, or done.</p>
 </section>
 <section id="listing-active-agents" class="level3">
@@ -659,7 +712,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff list</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff list</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Output includes agent name, worktree path, branch, backend (tmux/docker), uptime, and current status.</p>
 </div>
 </div>
@@ -678,7 +731,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff cleanup</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff cleanup</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Prunes stale worktrees, terminates dead tmux sessions, and removes stopped Docker containers. Only cleans up agents whose <code>.kickoff-status</code> is <code>DONE</code> or whose processes are no longer running.</p>
 </div>
 </div>
@@ -686,12 +739,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="running-multiple-agents" class="level3">
 <h3 class="anchored" data-anchor-id="running-multiple-agents">Running multiple agents</h3>
 <p>You can launch multiple kickoff agents simultaneously on different features. Each gets its own worktree, branch, crosslink agent identity, and tmux session. Lock coordination via the <code>crosslink/hub</code> branch prevents two agents from working on the same issue.</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/kickoff</span> <span class="st">"add batch retry logic"</span></span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/kickoff</span> <span class="st">"refactor config parser"</span></span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/kickoff</span> <span class="st">"fix auth token refresh"</span> <span class="at">--verify</span> ci</span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Monitor all at once</span></span>
-<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="ex">/check</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/kickoff</span> <span class="st">"add batch retry logic"</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/kickoff</span> <span class="st">"refactor config parser"</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/kickoff</span> <span class="st">"fix auth token refresh"</span> <span class="at">--verify</span> ci</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Monitor all at once</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="ex">/check</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>See <a href="../guides/multi-agent.html">Multi-Agent Coordination</a> for details on distributed locking.</p>
 
 
@@ -1112,21 +1165,21 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -1143,12 +1196,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -1161,7 +1214,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -1185,7 +1238,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -1212,7 +1265,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

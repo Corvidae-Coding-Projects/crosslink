@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Generate the crosslink banner image as an SVG using Forecast brand primitives.
+Generate the crosslink banner image as an SVG using Crosslink brand primitives.
 
-Concept: Interconnected AI agents as layered organic shapes in the Forecast
+Concept: Interconnected AI agents as layered organic shapes in the Crosslink
 visual language — overlapping ellipses, circles, and rounded rectangles with
 scattered dot accents suggesting data flow between agents.
 

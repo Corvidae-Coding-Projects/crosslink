@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "thread-1",
+  "turn_id": "turn-1",
+  "tool_use_id": "call-1",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Add File: src/a.rs\n+pub fn a() {}\n*** Add File: src/b.rs\n+pub fn b() {}\n*** Update File: src/lib.rs\n@@\n-old\n+new\n*** Update File: src/old.rs\n*** Move to: src/moved.rs\n@@\n-old\n+new\n*** Delete File: src/deleted.rs\n*** End Patch"
+  },
+  "cwd": "."
+}

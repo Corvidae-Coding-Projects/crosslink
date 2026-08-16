@@ -17,8 +17,12 @@ ARG GOSU_VERSION=1.17
 # provides the C toolchain/linker the entrypoint's rustup install has no
 # counterpart for — without cc, cargo test/clippy/check fail at link, GH#9)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git openssh-client curl ca-certificates jq python3 sudo build-essential \
+    git openssh-client curl ca-certificates jq python3 sudo build-essential nodejs npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Codex CLI. Authentication is performed interactively into a persistent,
+# provider-scoped volume; the image never receives API keys or credentials.
+RUN npm install -g @openai/codex
 
 # Remove default ubuntu user (occupies UID 1000, conflicts with host UID remapping)
 RUN userdel -r ubuntu 2>/dev/null || true
@@ -33,6 +37,9 @@ SHELL ["/bin/bash", "-c"]
 
 # Claude CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# MCP launch helper used by both providers.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install gosu for clean privilege dropping in entrypoint.
 # Architecture is selected via the buildx-provided TARGETARCH so the same

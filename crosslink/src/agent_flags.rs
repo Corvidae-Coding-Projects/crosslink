@@ -21,7 +21,7 @@
 //! Consumers in this PR:
 //! - `crosslink agent flags [--strict]` — operator visibility +
 //!   `PreToolUse` hook integration (`--strict` exits 2 when paused/kill
-//!   so `.claude/hooks/work-check.py` can block tool use cleanly).
+//!   so the canonical `work-check.py` hook can block tool use cleanly).
 //! - `crate::agent_requests::poll` — applies remote requests by
 //!   writing these flags.
 //!

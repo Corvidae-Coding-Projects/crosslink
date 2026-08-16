@@ -25,11 +25,11 @@ Ask the user:
 
 ## Step 3: Review Security Policies
 
-Read `.crosslink/rules/global.md` (the security section), `.crosslink/rules/web.md`, and `.crosslink/rules/sanitize-patterns.txt`.
+Read `.crosslink/rules/global.md`, `.crosslink/rules/web.md`, and `.crosslink/rules/external-content.md`.
 
 Ask the user:
 - Are the OWASP/injection prevention rules current for your stack?
-- Does `sanitize-patterns.txt` cover your application's sensitive patterns?
+- Does `external-content.md` clearly preserve source provenance and instruction boundaries?
 - For web projects: are the RFIP (Recursive Framing Interdiction Protocol) rules in `web.md` appropriate?
 
 ## Step 4: Review Language Rules
@@ -43,7 +43,7 @@ Ask the user:
 
 ## Step 5: Review Hook Implementations
 
-Read each hook file in `.claude/hooks/`:
+Read each hook file in `.crosslink/integrations/hooks/`:
 - `work-check.py` — enforces issue tracking before code changes
 - `session-start.py` — loads context on session start
 - `prompt-guard.py` — guards against prompt injection

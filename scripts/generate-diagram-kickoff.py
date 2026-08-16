@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a Forecast-styled diagram for the crosslink kickoff flow.
+Generate a Crosslink-styled diagram for the crosslink kickoff flow.
 
 Shows: Human → /kickoff → [branch, worktree, agent] → Agent works → Results
 
