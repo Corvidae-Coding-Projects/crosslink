@@ -9,9 +9,9 @@
 
 <title>State and config files – crosslink</title>
 <style>
-/* Default styles provided by pandoc.
-** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-*/
+
+
+
 span.smallcaps{font-variant: small-caps;}
 div.columns{display: flex; gap: 1.5em;}
 div.column{flex: auto;}
@@ -23,10 +23,10 @@ div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
+  margin: 0 0.8em 0.2em -1em;
   vertical-align: middle;
 }
-/* CSS for syntax highlighting */
+
 html { -webkit-text-size-adjust: 100%; }
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
@@ -84,9 +84,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-8cce2f57aedf5571b4e03663078cd69a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b413dd9c4f99a7352b6ea6c674fdaeb3.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-8cce2f57aedf5571b4e03663078cd69a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -132,7 +132,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   margin-right: 0px;
 }
 .navbar-title {
-  color: #F95838;
+  color:
   font-size: 19pt;
   font-family: 'Times New Roman';
   font-style: italic;
@@ -224,7 +224,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </li>
         <li>
     <a class="dropdown-item" href="../guides/hooks.html">
- <span class="dropdown-text">Behavioral hooks</span></a>
+ <span class="dropdown-text">Repository hooks</span></a>
   </li>
         <li>
     <a class="dropdown-item" href="../guides/tracking-modes.html">
@@ -255,7 +255,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </li>
         <li>
     <a class="dropdown-item" href="../reference/rules.html">
- <span class="dropdown-text">Rules customization</span></a>
+ <span class="dropdown-text">Zeroed rule files</span></a>
   </li>
         <li>
     <a class="dropdown-item" href="../reference/kickoff-report.html">
@@ -271,10 +271,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span class="menu-text"></span></a>
   </li>
 </ul>
-          </div> <!-- /navcollapse -->
+          </div>
             <div class="quarto-navbar-tools">
 </div>
-      </div> <!-- /container-fluid -->
+      </div>
     </nav>
   <nav class="quarto-secondary-nav">
     <div class="container-fluid d-flex">
@@ -287,9 +287,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     </div>
   </nav>
 </header>
-<!-- content -->
+
 <div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
-<!-- sidebar -->
+
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
     <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
@@ -323,7 +323,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           <li class="sidebar-item">
   <div class="sidebar-item-container">
   <a href="../reference/rules.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">Rules customization</span></a>
+ <span class="menu-text">Zeroed rule files</span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -338,7 +338,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     </div>
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
-<!-- margin-sidebar -->
+
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         <nav id="TOC" role="doc-toc" class="toc-active" data-toc-expanded="99">
     <h2 id="toc-title">On this page</h2>
@@ -384,7 +384,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </ul>
 </nav>
     </div>
-<!-- main -->
+
 <main class="content" id="quarto-document-content">
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../reference/commands.html">Reference</a></li><li class="breadcrumb-item"><a href="../reference/state-files.html">State and config files</a></li></ol></nav>
@@ -633,7 +633,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tr>
 <tr class="even">
 <td><code>rules/</code>, <code>rules.local/</code></td>
-<td>Project rules injected into agent context. Edit via <code>crosslink workflow</code> or directly as Markdown – see <a href="../reference/rules.html">Rules reference</a>.</td>
+<td>Rule-loader inputs. Bundled files are zero bytes; nonempty local overrides remain wired. See <a href="../reference/rules.html">Rules reference</a>.</td>
 </tr>
 <tr class="odd">
 <td><code>meta/</code>, <code>orchestrator/</code>, <code>locks/</code></td>
@@ -645,7 +645,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 </section>
 
-</main> <!-- /main -->
+</main>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";
@@ -664,11 +664,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       return false;
     }
     const onCopySuccess = function(e) {
-      // button target
+
       const button = e.trigger;
-      // don't keep focus
+
       button.blur();
-      // flash "checked"
+
       button.classList.add('code-copy-button-checked');
       var currentTitle = button.getAttribute("title");
       button.setAttribute("title", "Copied!");
@@ -693,7 +693,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         button.setAttribute("title", currentTitle);
         button.classList.remove('code-copy-button-checked');
       }, 1000);
-      // clear code selection
+
       e.clearSelection();
     }
     const getTextToCopy = function(trigger) {
@@ -723,13 +723,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       var isInternal = (href) => {
           return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
       }
-      // Inspect non-navigation links and adorn them if external
+
      var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
       for (var i=0; i<links.length; i++) {
         const link = links[i];
         if (!isInternal(link.href)) {
-          // undo the damage that might have been done by quarto-nav.js in the case of
-          // links that we want to consider external
+
+
           if (link.dataset.originalHref !== undefined) {
             link.href = link.dataset.originalHref;
           }
@@ -764,7 +764,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     for (var i=0; i<noterefs.length; i++) {
       const ref = noterefs[i];
       tippyHover(ref, function() {
-        // use id or data attribute instead here
+
         let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
         try { href = new URL(href).hash; } catch {}
         const id = href.replace(/^#\/?/, "");
@@ -778,7 +778,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     }
     const xrefs = window.document.querySelectorAll('a.quarto-xref');
     const processXRef = (id, note) => {
-      // Strip column container classes
+
       const stripColumnClz = (el) => {
         el.classList.remove("page-full", "page-columns");
         if (el.children) {
@@ -789,7 +789,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       }
       stripColumnClz(note)
       if (id === null || id.startsWith('sec-')) {
-        // Special case sections, only their first couple elements
+
         const container = document.createElement("div");
         if (note.children && note.children.length > 2) {
           container.appendChild(note.children[0].cloneNode(true));
@@ -813,7 +813,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           return note.innerHTML;
         }
       } else {
-        // Remove any anchor links if they are present
+
         const anchorLink = note.querySelector('a.anchorjs-link');
         if (anchorLink) {
           anchorLink.remove();
@@ -851,7 +851,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               instance.show();
             }
           } else {
-            // See if we can fetch this
+
             fetch(url.split('#')[0])
             .then(res => res.text())
             .then(html => {
@@ -868,8 +868,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
             });
           }
         } else {
-          // See if we can fetch a full url (with no hash to target)
-          // This is a special case and we should probably do some content thinning / targeting
+
+
           fetch(url)
           .then(res => res.text())
           .then(html => {
@@ -877,9 +877,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
             const htmlDoc = parser.parseFromString(html, "text/html");
             const note = htmlDoc.querySelector('main.content');
             if (note !== null) {
-              // This should only happen for chapter cross references
-              // (since there is no id in the URL)
-              // remove the first header
+
+
+
               if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
                 note.children[0].remove();
               }
@@ -914,7 +914,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           let height = null;
           let parent = null;
           if (lineIds.length > 0) {
-              //compute the position of the single el (top and bottom and make a div)
+
               const el = window.document.getElementById(lineIds[0]);
               top = el.offsetTop;
               height = el.offsetHeight;
@@ -925,7 +925,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it
+
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");
@@ -961,7 +961,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           });
           selectedAnnoteEl = undefined;
         };
-          // Handle positioning of the toggle
+
       window.addEventListener(
         "resize",
         throttle(() => {
@@ -975,11 +975,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       let throttle = false;
       let timer;
         return (...args) => {
-          if(!throttle) { // first call gets through
+          if(!throttle) {
               fn.apply(this, args);
               throttle = true;
-          } else { // all the others get throttled
-              if(timer) clearTimeout(timer); // cancel #2
+          } else {
+              if(timer) clearTimeout(timer);
               timer = setTimeout(() => {
                 fn.apply(this, args);
                 timer = throttle = false;
@@ -987,7 +987,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           }
         };
       }
-        // Attach click handler to the DT
+
         const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
         for (const annoteDlNode of annoteDls) {
           annoteDlNode.addEventListener('click', (event) => {
@@ -1001,7 +1001,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               selectCodeLines(clickedEl);
               clickedEl.classList.add('code-annotation-active');
             } else {
-              // Unselect the line
+
               unselectCodeLines();
               clickedEl.classList.remove('code-annotation-active');
             }
@@ -1053,12 +1053,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       </a>
   </div>
   <div class="nav-page nav-page-next">
-      <a href="../reference/rules.html" class="pagination-link" aria-label="Rules customization">
-        <span class="nav-page-text">Rules customization</span> <i class="bi bi-arrow-right-short"></i>
+      <a href="../reference/rules.html" class="pagination-link" aria-label="Zeroed rule files">
+        <span class="nav-page-text">Zeroed rule files</span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>
-</div> <!-- /content -->
+</div>
 <footer class="crosslink-footer" id="crosslink-footer">
   <hr class="crosslink-rule">
   <div class="crosslink-wordmark-row">
@@ -1072,14 +1072,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <script>
 (function() {
-  // Move footer below Quarto's page navigation links
+
   var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
-    // Insert footer after the page navigation element
+
     pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
   } else {
-    // Fallback: append to content area
+
     var contentArea = document.querySelector('#quarto-content main.content');
     if (!contentArea) {
       contentArea = document.querySelector('#quarto-content > .page-columns');
@@ -1089,7 +1089,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     }
   }
 
-  // Resolve wordmark path
+
   var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
@@ -1107,15 +1107,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     tryNext();
   }
 
-  // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches Crosslink visual palette:
-  //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
+
+
+
   var COLOR_TABLE = [
-    { color: '#ede2e4', weight: 10 }, // warm grey
-    { color: '#FFB6C6', weight: 5 },  // pink
-    { color: '#F95838', weight: 5 },  // red
-    { color: '#00A6DB', weight: 8 },  // blue
-    { color: '#FFCE02', weight: 7 },  // yellow
+    { color: '#ede2e4', weight: 10 },
+    { color: '#FFB6C6', weight: 5 },
+    { color: '#F95838', weight: 5 },
+    { color: '#00A6DB', weight: 8 },
+    { color: '#FFCE02', weight: 7 },
   ];
   var TOTAL_WEIGHT = 0;
   for (var ci = 0; ci < COLOR_TABLE.length; ci++) TOTAL_WEIGHT += COLOR_TABLE[ci].weight;
@@ -1135,12 +1135,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
-  // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
+
   var FIELD_W = 180;
-  var ORIGIN_Y = 45;       // logo baseline within the confetti container
-  var SLOPE = -0.28;       // mean trend: rises 28px per 100px rightward
-  var CONE_HALF_ANGLE = 0.22; // cone half-width as fraction of x distance
-  var NOISE = 10;          // extra random noise on top of cone positioning
+  var ORIGIN_Y = 45;
+  var SLOPE = -0.28;
+  var CONE_HALF_ANGLE = 0.22;
+  var NOISE = 10;
 
   function sampleDot() {
     for (var attempts = 0; attempts < 50; attempts++) {
@@ -1148,7 +1148,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       var meanY = ORIGIN_Y + SLOPE * x;
       var spread = Math.max(5, x * CONE_HALF_ANGLE);
       var y = meanY + (Math.random() - 0.5) * 2 * spread;
-      // Extra noise to fuzz the cone edges
+
       x += (Math.random() - 0.5) * NOISE;
       y += (Math.random() - 0.5) * NOISE;
       if (x >= 0) return { x: Math.floor(x), y: Math.floor(y) };
@@ -1172,7 +1172,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     dots.push(dot);
   }
 
-  // Sort left-to-right for sequential reveal (emanating from logo)
+
   dots.sort(function(a, b) {
     return parseFloat(a.style.left) - parseFloat(b.style.left);
   });

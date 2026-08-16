@@ -1,9 +1,3 @@
-//! LLM-assisted document decomposition.
-//!
-//! Accepts a markdown design document, calls the selected provider with a structured
-//! prompt requesting JSON output, and transforms the result into an
-//! [`OrchestratorPlan`](crate::server::types::OrchestratorPlan).
-
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -19,11 +13,6 @@ use crate::orchestrator::models::{
     StoredPlan,
 };
 
-// ---------------------------------------------------------------------------
-// Prompt
-// ---------------------------------------------------------------------------
-
-/// Build the system prompt instructing the LLM to decompose a design document.
 const fn build_system_prompt() -> &'static str {
     concat!(
         "You are a software architecture decomposition engine. ",
@@ -70,7 +59,6 @@ const fn build_system_prompt() -> &'static str {
     )
 }
 
-/// Build the user prompt containing the document to decompose.
 fn build_user_prompt(document: &str) -> String {
     format!(
         "Decompose the following design document into a phased execution plan.\n\n\
@@ -80,19 +68,13 @@ fn build_user_prompt(document: &str) -> String {
     )
 }
 
-// ---------------------------------------------------------------------------
-// Provider invocation
-// ---------------------------------------------------------------------------
-
 const DECOMPOSE_SCHEMA: &str =
     include_str!("../../resources/agent/schemas/decompose-response.json");
 
-/// Call the configured provider with its supported structured-output protocol.
 async fn call_agent_cli(crosslink_dir: &Path, document: &str) -> Result<(AgentProvider, String)> {
     let system_prompt = build_system_prompt();
     let user_prompt = build_user_prompt(document);
 
-    // Combine into a single prompt since `<agent> -p` takes one prompt argument.
     let full_prompt = format!("{system_prompt}\n\n---\n\n{user_prompt}");
     let temp = tempfile::tempdir().context("Failed to create decomposition input directory")?;
     let prompt_path = temp.path().join("prompt.md");
@@ -191,27 +173,15 @@ async fn call_agent_cli(crosslink_dir: &Path, document: &str) -> Result<(AgentPr
     Ok((agent.provider, stdout))
 }
 
-// ---------------------------------------------------------------------------
-// Response parsing
-// ---------------------------------------------------------------------------
-
-/// Extract JSON from the Claude CLI response.
-///
-/// The `--output-format json` flag wraps the response in a JSON envelope with
-/// a `result` field. We try to parse that envelope first, falling back to
-/// direct JSON parsing if the output is raw JSON.
 fn extract_json_from_response(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
 
-    // Try the Claude CLI JSON envelope: {"type":"result","result":"<json>", ...}
     if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(result_text) = envelope.get("result").and_then(|v| v.as_str()) {
-            // The result field contains the LLM's text output — extract JSON from it
             return extract_json_block(result_text);
         }
     }
 
-    // Fallback: maybe it's already raw JSON matching our schema
     extract_json_block(trimmed)
 }
 
@@ -236,13 +206,9 @@ fn extract_provider_response(provider: AgentProvider, raw: &str) -> Result<Strin
     extract_json_block(&final_text)
 }
 
-/// Find and extract a JSON object from text that may contain surrounding prose.
-///
-/// Looks for the first `{` and last `}` to extract the JSON block.
 fn extract_json_block(text: &str) -> Result<String> {
     let trimmed = text.trim();
 
-    // Strip markdown code fences if present
     let cleaned = if trimmed.starts_with("```") {
         let start = trimmed.find('\n').map_or(0, |i| i + 1);
         let end = trimmed.rfind("```").unwrap_or(trimmed.len());
@@ -251,7 +217,6 @@ fn extract_json_block(text: &str) -> Result<String> {
         trimmed
     };
 
-    // Find the JSON object boundaries
     let start = cleaned
         .find('{')
         .context("LLM response does not contain a JSON object")?;
@@ -266,19 +231,10 @@ fn extract_json_block(text: &str) -> Result<String> {
     Ok(cleaned[start..=end].to_string())
 }
 
-/// Parse the extracted JSON into our LLM response type.
 fn parse_llm_response(json_str: &str) -> Result<LlmDecomposeResponse> {
     serde_json::from_str(json_str).context("Failed to parse LLM JSON response into expected schema")
 }
 
-// ---------------------------------------------------------------------------
-// Transform LLM response → API types
-// ---------------------------------------------------------------------------
-
-/// Convert an LLM decomposition response into an API-facing `OrchestratorPlan`.
-///
-/// Generates stable IDs for each phase/stage/task and computes aggregate
-/// statistics.
 fn transform_to_plan(response: LlmDecomposeResponse, slug: &str) -> OrchestratorPlan {
     let mut total_stages = 0usize;
     let plan_id = Uuid::new_v4().to_string();
@@ -338,13 +294,8 @@ fn transform_to_plan(response: LlmDecomposeResponse, slug: &str) -> Orchestrator
     }
 }
 
-// ---------------------------------------------------------------------------
-// Plan storage
-// ---------------------------------------------------------------------------
-
 use crate::orchestrator::models::ORCHESTRATOR_DIR;
 
-/// Ensure the orchestrator storage directory exists.
 fn ensure_plans_dir(crosslink_dir: &Path) -> Result<PathBuf> {
     let dir = crosslink_dir.join(ORCHESTRATOR_DIR);
     std::fs::create_dir_all(&dir)
@@ -352,7 +303,6 @@ fn ensure_plans_dir(crosslink_dir: &Path) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Store a plan on disk and return its file path.
 fn store_plan(
     crosslink_dir: &Path,
     plan: &OrchestratorPlan,
@@ -376,11 +326,6 @@ fn store_plan(
     Ok(path)
 }
 
-/// Load a stored plan from disk by its ID.
-///
-/// # Errors
-///
-/// Returns an error if the plan file cannot be read or parsed.
 pub fn load_plan(crosslink_dir: &Path, plan_id: &str) -> Result<StoredPlan> {
     let dir = crosslink_dir.join(ORCHESTRATOR_DIR);
     let path = dir.join(format!("{plan_id}.json"));
@@ -389,11 +334,6 @@ pub fn load_plan(crosslink_dir: &Path, plan_id: &str) -> Result<StoredPlan> {
     serde_json::from_str(&content).context("Failed to parse stored plan")
 }
 
-/// List all stored plan IDs.
-///
-/// # Errors
-///
-/// Returns an error if the orchestrator directory cannot be read.
 pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
     let dir = crosslink_dir.join(ORCHESTRATOR_DIR);
     if !dir.exists() {
@@ -412,23 +352,6 @@ pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
     Ok(ids)
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/// Decompose a design document into an orchestrator plan.
-///
-/// This is the main entry point called by the HTTP handler. It:
-/// 1. Resolves and calls the configured provider with the document
-/// 2. Parses the JSON response
-/// 3. Transforms it into an `OrchestratorPlan`
-/// 4. Stores the plan on disk
-/// 5. Returns the plan
-///
-/// # Errors
-///
-/// Returns an error if the document is empty, the LLM call fails, or
-/// plan storage fails.
 pub async fn decompose_document(
     crosslink_dir: &Path,
     document: &str,
@@ -440,17 +363,14 @@ pub async fn decompose_document(
 
     let effective_slug = slug.unwrap_or("untitled");
 
-    // Call the LLM
     let (provider, raw_response) = call_agent_cli(crosslink_dir, document).await?;
 
-    // Extract and parse JSON
     let json_str = extract_provider_response(provider, &raw_response)
         .with_context(|| format!("Failed to extract {provider} decomposition output"))?;
     let llm_response = parse_llm_response(&json_str).with_context(|| {
         format!("{provider} returned a response outside the decomposition schema")
     })?;
 
-    // Validate: at least one phase with at least one stage
     if llm_response.phases.is_empty() {
         bail!("LLM produced an empty plan with no phases");
     }
@@ -460,18 +380,12 @@ pub async fn decompose_document(
         }
     }
 
-    // Transform to API types
     let plan = transform_to_plan(llm_response, effective_slug);
 
-    // Store on disk
     store_plan(crosslink_dir, &plan, document)?;
 
     Ok(plan)
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -602,7 +516,7 @@ mod tests {
         assert_eq!(plan.phases.len(), 1);
         assert_eq!(plan.phases[0].stages.len(), 1);
         assert_eq!(plan.phases[0].stages[0].tasks.len(), 1);
-        // IDs should be nested
+
         assert!(plan.phases[0].id.contains("-p0"));
         assert!(plan.phases[0].stages[0].id.contains("-s0"));
         assert!(plan.phases[0].stages[0].tasks[0].id.contains("-t0"));
@@ -750,11 +664,10 @@ mod tests {
 
     #[test]
     fn test_extract_json_block_malformed_brace_order() {
-        // Only a closing brace, no opening brace
         let input = "some text } and { more";
-        // `{` at index 16, `}` at index 10 -> end <= start
+
         let result = extract_json_block(input);
-        // find('{') is at 16, rfind('}') is at 10 => end <= start => bail
+
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Malformed JSON"));
     }
@@ -762,7 +675,7 @@ mod tests {
     #[test]
     fn test_extract_json_block_only_opening_brace() {
         let input = "{ no closing brace here";
-        // find('{') succeeds, rfind('}') fails
+
         let result = extract_json_block(input);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("closing brace"));
@@ -789,15 +702,14 @@ mod tests {
 
     #[test]
     fn test_extract_json_from_response_envelope_non_string_result() {
-        // Envelope has "result" but it's a number, not a string
         let envelope = serde_json::json!({
             "type": "result",
             "result": 42
         });
         let raw = serde_json::to_string(&envelope).unwrap();
-        // Should fall through to extract_json_block on the full text
+
         let result = extract_json_from_response(&raw);
-        // The raw text is `{"type":"result","result":42}` which is valid JSON
+
         assert!(result.is_ok());
     }
 
@@ -821,7 +733,6 @@ mod tests {
 
     #[test]
     fn test_parse_llm_response_wrong_schema() {
-        // Valid JSON but wrong schema (missing required "phases" field with stages)
         let result = parse_llm_response(r#"{"foo": "bar"}"#);
         assert!(result.is_err());
     }
@@ -902,10 +813,10 @@ mod tests {
         assert!((stage.tasks[0].complexity_hours - 1.0).abs() < f64::EPSILON);
         assert_eq!(stage.tasks[1].title, "Task B");
         assert!((stage.tasks[1].complexity_hours - 2.5).abs() < f64::EPSILON);
-        // Check task IDs are sequential
+
         assert!(stage.tasks[0].id.contains("-t0"));
         assert!(stage.tasks[1].id.contains("-t1"));
-        // Phase fields
+
         assert_eq!(plan.phases[0].title, "P");
         assert_eq!(plan.phases[0].description, "phase desc");
         assert_eq!(plan.phases[0].gate_criteria, vec!["gate"]);
@@ -925,12 +836,10 @@ mod tests {
             estimated_hours: 0.0,
         };
 
-        // The orchestrator directory should not exist yet
         assert!(!crosslink_dir.join(ORCHESTRATOR_DIR).exists());
 
         store_plan(crosslink_dir, &plan, "content").unwrap();
 
-        // Now it should exist
         assert!(crosslink_dir.join(ORCHESTRATOR_DIR).exists());
     }
 
@@ -939,11 +848,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let crosslink_dir = dir.path();
 
-        // Create the orchestrator directory
         let orch_dir = crosslink_dir.join(ORCHESTRATOR_DIR);
         std::fs::create_dir_all(&orch_dir).unwrap();
 
-        // Write a json file and a non-json file
         std::fs::write(orch_dir.join("plan-1.json"), "{}").unwrap();
         std::fs::write(orch_dir.join("readme.txt"), "hello").unwrap();
         std::fs::write(orch_dir.join("plan-2.json"), "{}").unwrap();

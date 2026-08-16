@@ -1,5 +1,3 @@
-// Swarm status: display current swarm state and probe agent liveness.
-
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -8,7 +6,6 @@ use super::types::*;
 use crate::commands::kickoff::tmux_session_name;
 use crate::sync::SyncManager;
 
-/// Display the current state of the swarm.
 pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -123,7 +120,6 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
             let status_display = if agent.defined_status == AgentStatus::Merged {
                 "merged".to_string()
             } else if agent.live_status != format!("{}", agent.defined_status) {
-                // Live status differs from definition -- show live
                 agent.live_status.clone()
             } else {
                 format!("{}", agent.defined_status)
@@ -145,7 +141,6 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
         println!();
     }
 
-    // Next steps section -- find the active phase and suggest next action
     let mut active_phase_slug: Option<String> = None;
     let mut completed_phases = 0;
     let mut has_failed = false;
@@ -224,7 +219,6 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Cross-reference phase agents with worktree state to get live status.
 pub(super) fn resolve_agents(phase: &PhaseDefinition, repo_root: &Path) -> Vec<ResolvedAgent> {
     phase
         .agents
@@ -243,13 +237,10 @@ pub(super) fn resolve_agents(phase: &PhaseDefinition, repo_root: &Path) -> Vec<R
         .collect()
 }
 
-/// Probe the actual runtime status of an agent by checking its worktree.
 pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
     let worktree = repo_root.join(".worktrees").join(slug);
 
     if !worktree.exists() {
-        // Worktree removed -- check if the agent's branch was merged or exists.
-        // This handles the case where worktrees are cleaned up after PRs are merged.
         if is_branch_merged(repo_root, slug) {
             return "completed (merged)".to_string();
         }
@@ -259,7 +250,6 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
         return "planned".to_string();
     }
 
-    // Check .kickoff-status
     let status_file = worktree.join(".kickoff-status");
     if status_file.exists() {
         if let Ok(content) = std::fs::read_to_string(&status_file) {
@@ -270,7 +260,6 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
         }
     }
 
-    // Check if tmux session is alive by exact slug match
     let session_name = tmux_session_name(slug);
     let tmux_alive = std::process::Command::new("tmux")
         .args(["has-session", "-t", &session_name])
@@ -281,9 +270,6 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
         return "running (tmux)".to_string();
     }
 
-    // Fallback: scan tmux sessions for any containing the slug as a substring.
-    // kickoff::run derives the session name from slugify(description), which may
-    // differ from the agent slug (e.g. "req-1-add-login" vs "add-login").
     if let Ok(output) = std::process::Command::new("tmux")
         .args(["list-sessions", "-F", concat!("#", "{session_name}")])
         .output()
@@ -298,14 +284,10 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
         }
     }
 
-    // Worktree exists but no status file and no tmux -- the session died
-    // before it could write any status. Treat as failed so gate can proceed.
     "failed (session died)".to_string()
 }
 
-/// Check if a branch has been merged into the default branch (main/master).
 pub(super) fn is_branch_merged(repo_root: &Path, slug: &str) -> bool {
-    // Try common branch naming patterns for swarm agents
     for branch in &[slug.to_string(), format!("swarm/{slug}")] {
         let output = std::process::Command::new("git")
             .current_dir(repo_root)
@@ -323,7 +305,6 @@ pub(super) fn is_branch_merged(repo_root: &Path, slug: &str) -> bool {
     false
 }
 
-/// Check if a branch exists locally (even without a worktree).
 pub(super) fn branch_exists(repo_root: &Path, slug: &str) -> bool {
     for branch in &[slug.to_string(), format!("swarm/{slug}")] {
         let output = std::process::Command::new("git")

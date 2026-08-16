@@ -1,4 +1,4 @@
-# Crosslink-owned MCP registrations. `crosslink init` merges only these tables.
+
 [mcp_servers.crosslink-knowledge]
 command = "python3"
 args = [".crosslink/integrations/mcp/knowledge-server.py"]

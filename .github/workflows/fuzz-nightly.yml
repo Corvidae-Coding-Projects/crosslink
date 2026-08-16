@@ -1,12 +1,12 @@
 name: Fuzz (Nightly)
 
-# Extended fuzzing runs on a nightly schedule.
-# Runs all fuzz targets for 300 seconds each to discover edge cases
-# that the 60-second CI smoke tests miss.
+
+
+
 on:
   schedule:
-    - cron: '0 3 * * *' # 3 AM UTC daily
-  workflow_dispatch: # Allow manual triggering
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read

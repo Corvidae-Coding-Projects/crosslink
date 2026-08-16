@@ -8,7 +8,6 @@ use super::core::Database;
 use super::helpers::parse_datetime;
 use crate::models::TokenUsage;
 
-/// Aggregated token usage grouped by agent and model.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct UsageSummaryRow {
     pub agent_id: String,
@@ -25,13 +24,6 @@ pub struct UsageSummaryRow {
 }
 
 impl Database {
-    // === Token usage tracking ===
-
-    /// Record a token usage entry.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     #[allow(clippy::too_many_arguments)]
     #[allow(dead_code)]
     pub fn create_token_usage(
@@ -61,7 +53,6 @@ impl Database {
         )
     }
 
-    /// Record provider-tagged usage and optional provider-specific metadata.
     #[allow(clippy::too_many_arguments)]
     pub fn create_token_usage_for_provider(
         &self,
@@ -101,11 +92,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Get a single token usage record by ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn get_token_usage(&self, id: i64) -> Result<Option<TokenUsage>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, agent_id, session_id, timestamp, provider, input_tokens, output_tokens,
@@ -136,11 +122,6 @@ impl Database {
         Ok(rows.pop())
     }
 
-    /// List token usage records with optional filters.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn list_token_usage(
         &self,
         agent_id: Option<&str>,
@@ -215,12 +196,6 @@ impl Database {
         Ok(rows)
     }
 
-    /// Get aggregated usage summary, optionally filtered by agent and time range.
-    /// Groups by `agent_id` and model.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn get_usage_summary(
         &self,
         agent_id: Option<&str>,

@@ -9,9 +9,9 @@
 
 <title>Your first agent session – crosslink</title>
 <style>
-/* Default styles provided by pandoc.
-** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-*/
+
+
+
 span.smallcaps{font-variant: small-caps;}
 div.columns{display: flex; gap: 1.5em;}
 div.column{flex: auto;}
@@ -23,10 +23,10 @@ div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  margin: 0 0.8em 0.2em -1em;
   vertical-align: middle;
 }
-/* CSS for syntax highlighting */
+
 html { -webkit-text-size-adjust: 100%; }
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
@@ -83,9 +83,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-8cce2f57aedf5571b4e03663078cd69a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b413dd9c4f99a7352b6ea6c674fdaeb3.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-8cce2f57aedf5571b4e03663078cd69a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -131,7 +131,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   margin-right: 0px;
 }
 .navbar-title {
-  color: #F95838;
+  color:
   font-size: 19pt;
   font-family: 'Times New Roman';
   font-style: italic;
@@ -165,26 +165,26 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-getting-started" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">Getting Started</span>
     </a>
-    <ul class="dropdown-menu" aria-labelledby="nav-menu-getting-started">    
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-getting-started">
         <li>
     <a class="dropdown-item" href="../getting-started/quickstart.html">
  <span class="dropdown-text">Your first agent session</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../getting-started/installation.html">
  <span class="dropdown-text">Installation</span></a>
-  </li>  
+  </li>
     </ul>
   </li>
   <li class="nav-item dropdown ">
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-guides" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">Guides</span>
     </a>
-    <ul class="dropdown-menu" aria-labelledby="nav-menu-guides">    
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-guides">
         <li>
     <a class="dropdown-item" href="../guides/session-workflow.html">
  <span class="dropdown-text">Session workflow</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/providers.html">
  <span class="dropdown-text">Claude and Codex providers</span></a>
@@ -192,88 +192,88 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/design-workflow.html">
  <span class="dropdown-text">Design document workflow</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/kickoff.html">
  <span class="dropdown-text">Kickoff: Autonomous feature agents</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/swarm.html">
  <span class="dropdown-text">Swarm orchestration</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/container-agents.html">
  <span class="dropdown-text">Container-based agents</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/knowledge.html">
  <span class="dropdown-text">Knowledge management</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/tui.html">
  <span class="dropdown-text">Terminal dashboard</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/web-dashboard.html">
  <span class="dropdown-text">Web dashboard</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/hooks.html">
- <span class="dropdown-text">Behavioral hooks</span></a>
-  </li>  
+ <span class="dropdown-text">Repository hooks</span></a>
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/tracking-modes.html">
  <span class="dropdown-text">Tracking modes</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/maintenance.html">
  <span class="dropdown-text">Maintenance operations</span></a>
-  </li>  
+  </li>
     </ul>
   </li>
   <li class="nav-item dropdown ">
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-reference" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">Reference</span>
     </a>
-    <ul class="dropdown-menu" aria-labelledby="nav-menu-reference">    
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-reference">
         <li>
     <a class="dropdown-item" href="../reference/commands.html">
  <span class="dropdown-text">CLI reference</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../reference/hook-config.html">
  <span class="dropdown-text">Hook configuration</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../reference/state-files.html">
  <span class="dropdown-text">State and config files</span></a>
   </li>
         <li>
     <a class="dropdown-item" href="../reference/rules.html">
- <span class="dropdown-text">Rules customization</span></a>
-  </li>  
+ <span class="dropdown-text">Zeroed rule files</span></a>
+  </li>
         <li>
     <a class="dropdown-item" href="../reference/kickoff-report.html">
  <span class="dropdown-text">Kickoff report schema</span></a>
-  </li>  
+  </li>
     </ul>
   </li>
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
     <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
-</i> 
+</i>
 <span class="menu-text"></span></a>
-  </li>  
+  </li>
 </ul>
-          </div> <!-- /navcollapse -->
+          </div>
             <div class="quarto-navbar-tools">
 </div>
-      </div> <!-- /container-fluid -->
+      </div>
     </nav>
   <nav class="quarto-secondary-nav">
     <div class="container-fluid d-flex">
@@ -281,34 +281,34 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
         <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../getting-started/quickstart.html">Getting started</a></li><li class="breadcrumb-item"><a href="../getting-started/quickstart.html">Your first agent session</a></li></ol></nav>
-        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         </a>
     </div>
   </nav>
 </header>
-<!-- content -->
+
 <div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
-<!-- sidebar -->
+
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
-    <div class="sidebar-menu-container"> 
+    <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container"> 
+      <div class="sidebar-item-container">
             <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
  <span class="menu-text">Getting started</span></a>
           <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a> 
+          </a>
       </div>
-      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../getting-started/quickstart.html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text">Your first agent session</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../getting-started/installation.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Installation</span></a>
   </div>
@@ -319,11 +319,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     </div>
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
-<!-- margin-sidebar -->
+
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         <nav id="TOC" role="doc-toc" class="toc-active" data-toc-expanded="99">
     <h2 id="toc-title">On this page</h2>
-   
+
   <ul>
   <li><a href="#install-and-initialize" id="toc-install-and-initialize" class="nav-link active" data-scroll-target="#install-and-initialize">1. Install and initialize</a></li>
   <li><a href="#start-a-session" id="toc-start-a-session" class="nav-link" data-scroll-target="#start-a-session">2. Start a session</a></li>
@@ -335,7 +335,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </ul>
 </nav>
     </div>
-<!-- main -->
+
 <main class="content" id="quarto-document-content">
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../getting-started/quickstart.html">Getting started</a></li><li class="breadcrumb-item"><a href="../getting-started/quickstart.html">Your first agent session</a></li></ol></nav>
@@ -347,11 +347,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <div class="quarto-title-meta">
 
-    
-  
-    
+
+
+
   </div>
-  
+
 
 
 </header>
@@ -365,7 +365,6 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 </div>
 <p>&nbsp;</p>
-<!-- ![](../assets/img/quickstart.gif) -->
 <section id="install-and-initialize" class="level2">
 <h2 class="anchored" data-anchor-id="install-and-initialize">1. Install and initialize</h2>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> install crosslink</span>
@@ -497,14 +496,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><a href="../guides/tui.html">Terminal Dashboard</a> — interactive TUI for browsing issues</li>
 <li><a href="../guides/maintenance.html">Maintenance</a> — pruning and health checks</li>
 <li><a href="../guides/multi-agent.html">Multi-Agent</a> — coordinate multiple AI agents</li>
-<li><a href="../guides/hooks.html">Hooks Guide</a> — behavioral guardrails for AI coding</li>
+<li><a href="../guides/hooks.html">Hooks Guide</a> — repository coordination and diagnostics</li>
 <li><a href="../reference/commands.html">CLI Reference</a> — full command reference</li>
 </ul>
 
 
 </section>
 
-</main> <!-- /main -->
+</main>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";
@@ -516,18 +515,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     anchorJS.add('.anchored');
     const isCodeAnnotation = (el) => {
       for (const clz of el.classList) {
-        if (clz.startsWith('code-annotation-')) {                     
+        if (clz.startsWith('code-annotation-')) {
           return true;
         }
       }
       return false;
     }
     const onCopySuccess = function(e) {
-      // button target
+
       const button = e.trigger;
-      // don't keep focus
+
       button.blur();
-      // flash "checked"
+
       button.classList.add('code-copy-button-checked');
       var currentTitle = button.getAttribute("title");
       button.setAttribute("title", "Copied!");
@@ -536,11 +535,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         button.setAttribute("data-bs-toggle", "tooltip");
         button.setAttribute("data-bs-placement", "left");
         button.setAttribute("data-bs-title", "Copied!");
-        tooltip = new bootstrap.Tooltip(button, 
-          { trigger: "manual", 
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
             customClass: "code-copy-button-tooltip",
             offset: [0, -8]});
-        tooltip.show();    
+        tooltip.show();
       }
       setTimeout(function() {
         if (tooltip) {
@@ -552,7 +551,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         button.setAttribute("title", currentTitle);
         button.classList.remove('code-copy-button-checked');
       }, 1000);
-      // clear code selection
+
       e.clearSelection();
     }
     const getTextToCopy = function(trigger) {
@@ -582,13 +581,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       var isInternal = (href) => {
           return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
       }
-      // Inspect non-navigation links and adorn them if external
+
      var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
       for (var i=0; i<links.length; i++) {
         const link = links[i];
         if (!isInternal(link.href)) {
-          // undo the damage that might have been done by quarto-nav.js in the case of
-          // links that we want to consider external
+
+
           if (link.dataset.originalHref !== undefined) {
             link.href = link.dataset.originalHref;
           }
@@ -617,13 +616,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       if (onUntriggerFn) {
         config.onUntrigger = onUntriggerFn;
       }
-      window.tippy(el, config); 
+      window.tippy(el, config);
     }
     const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
     for (var i=0; i<noterefs.length; i++) {
       const ref = noterefs[i];
       tippyHover(ref, function() {
-        // use id or data attribute instead here
+
         let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
         try { href = new URL(href).hash; } catch {}
         const id = href.replace(/^#\/?/, "");
@@ -637,7 +636,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     }
     const xrefs = window.document.querySelectorAll('a.quarto-xref');
     const processXRef = (id, note) => {
-      // Strip column container classes
+
       const stripColumnClz = (el) => {
         el.classList.remove("page-full", "page-columns");
         if (el.children) {
@@ -648,7 +647,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       }
       stripColumnClz(note)
       if (id === null || id.startsWith('sec-')) {
-        // Special case sections, only their first couple elements
+
         const container = document.createElement("div");
         if (note.children && note.children.length > 2) {
           container.appendChild(note.children[0].cloneNode(true));
@@ -672,7 +671,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           return note.innerHTML;
         }
       } else {
-        // Remove any anchor links if they are present
+
         const anchorLink = note.querySelector('a.anchorjs-link');
         if (anchorLink) {
           anchorLink.remove();
@@ -692,7 +691,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       tippyHover(xref, undefined, function(instance) {
         instance.disable();
         let url = xref.getAttribute('href');
-        let hash = undefined; 
+        let hash = undefined;
         if (url.startsWith('#')) {
           hash = url;
         } else {
@@ -710,7 +709,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               instance.show();
             }
           } else {
-            // See if we can fetch this
+
             fetch(url.split('#')[0])
             .then(res => res.text())
             .then(html => {
@@ -720,15 +719,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               if (note !== null) {
                 const html = processXRef(id, note);
                 instance.setContent(html);
-              } 
+              }
             }).finally(() => {
               instance.enable();
               instance.show();
             });
           }
         } else {
-          // See if we can fetch a full url (with no hash to target)
-          // This is a special case and we should probably do some content thinning / targeting
+
+
           fetch(url)
           .then(res => res.text())
           .then(html => {
@@ -736,15 +735,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
             const htmlDoc = parser.parseFromString(html, "text/html");
             const note = htmlDoc.querySelector('main.content');
             if (note !== null) {
-              // This should only happen for chapter cross references
-              // (since there is no id in the URL)
-              // remove the first header
+
+
+
               if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
                 note.children[0].remove();
               }
               const html = processXRef(null, note);
               instance.setContent(html);
-            } 
+            }
           }).finally(() => {
             instance.enable();
             instance.show();
@@ -773,7 +772,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           let height = null;
           let parent = null;
           if (lineIds.length > 0) {
-              //compute the position of the single el (top and bottom and make a div)
+
               const el = window.document.getElementById(lineIds[0]);
               top = el.offsetTop;
               height = el.offsetHeight;
@@ -784,7 +783,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it 
+
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");
@@ -820,7 +819,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           });
           selectedAnnoteEl = undefined;
         };
-          // Handle positioning of the toggle
+
       window.addEventListener(
         "resize",
         throttle(() => {
@@ -834,11 +833,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       let throttle = false;
       let timer;
         return (...args) => {
-          if(!throttle) { // first call gets through
+          if(!throttle) {
               fn.apply(this, args);
               throttle = true;
-          } else { // all the others get throttled
-              if(timer) clearTimeout(timer); // cancel #2
+          } else {
+              if(timer) clearTimeout(timer);
               timer = setTimeout(() => {
                 fn.apply(this, args);
                 timer = throttle = false;
@@ -846,7 +845,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
           }
         };
       }
-        // Attach click handler to the DT
+
         const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
         for (const annoteDlNode of annoteDls) {
           annoteDlNode.addEventListener('click', (event) => {
@@ -860,7 +859,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               selectCodeLines(clickedEl);
               clickedEl.classList.add('code-annotation-active');
             } else {
-              // Unselect the line
+
               unselectCodeLines();
               clickedEl.classList.remove('code-annotation-active');
             }
@@ -914,7 +913,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       </a>
   </div>
 </nav>
-</div> <!-- /content -->
+</div>
 <footer class="crosslink-footer" id="crosslink-footer">
   <hr class="crosslink-rule">
   <div class="crosslink-wordmark-row">
@@ -928,14 +927,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <script>
 (function() {
-  // Move footer below Quarto's page navigation links
+
   var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
-    // Insert footer after the page navigation element
+
     pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
   } else {
-    // Fallback: append to content area
+
     var contentArea = document.querySelector('#quarto-content main.content');
     if (!contentArea) {
       contentArea = document.querySelector('#quarto-content > .page-columns');
@@ -945,7 +944,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     }
   }
 
-  // Resolve wordmark path
+
   var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
@@ -963,15 +962,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     tryNext();
   }
 
-  // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches Crosslink visual palette:
-  //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
+
+
+
   var COLOR_TABLE = [
-    { color: '#ede2e4', weight: 10 }, // warm grey
-    { color: '#FFB6C6', weight: 5 },  // pink
-    { color: '#F95838', weight: 5 },  // red
-    { color: '#00A6DB', weight: 8 },  // blue
-    { color: '#FFCE02', weight: 7 },  // yellow
+    { color: '#ede2e4', weight: 10 },
+    { color: '#FFB6C6', weight: 5 },
+    { color: '#F95838', weight: 5 },
+    { color: '#00A6DB', weight: 8 },
+    { color: '#FFCE02', weight: 7 },
   ];
   var TOTAL_WEIGHT = 0;
   for (var ci = 0; ci < COLOR_TABLE.length; ci++) TOTAL_WEIGHT += COLOR_TABLE[ci].weight;
@@ -991,12 +990,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
-  // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
+
   var FIELD_W = 180;
-  var ORIGIN_Y = 45;       // logo baseline within the confetti container
-  var SLOPE = -0.28;       // mean trend: rises 28px per 100px rightward
-  var CONE_HALF_ANGLE = 0.22; // cone half-width as fraction of x distance
-  var NOISE = 10;          // extra random noise on top of cone positioning
+  var ORIGIN_Y = 45;
+  var SLOPE = -0.28;
+  var CONE_HALF_ANGLE = 0.22;
+  var NOISE = 10;
 
   function sampleDot() {
     for (var attempts = 0; attempts < 50; attempts++) {
@@ -1004,7 +1003,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       var meanY = ORIGIN_Y + SLOPE * x;
       var spread = Math.max(5, x * CONE_HALF_ANGLE);
       var y = meanY + (Math.random() - 0.5) * 2 * spread;
-      // Extra noise to fuzz the cone edges
+
       x += (Math.random() - 0.5) * NOISE;
       y += (Math.random() - 0.5) * NOISE;
       if (x >= 0) return { x: Math.floor(x), y: Math.floor(y) };
@@ -1028,7 +1027,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     dots.push(dot);
   }
 
-  // Sort left-to-right for sequential reveal (emanating from logo)
+
   dots.sort(function(a, b) {
     return parseFloat(a.style.left) - parseFloat(b.style.left);
   });

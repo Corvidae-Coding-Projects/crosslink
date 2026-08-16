@@ -1,5 +1,3 @@
-//! Provider-aware agent configuration, invocation, and event normalization.
-
 mod claude;
 mod codex;
 mod config;

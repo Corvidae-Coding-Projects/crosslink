@@ -1,4 +1,3 @@
-// Mission control: tmux dashboard showing all active agents
 use anyhow::{bail, Context, Result};
 use std::io::IsTerminal;
 use std::path::Path;
@@ -8,22 +7,18 @@ use super::kickoff::{command_available, tmux_session_name};
 
 const MC_SESSION: &str = "mission-control";
 
-/// An active agent discovered from worktrees and runtime inspection.
 struct ActiveAgent {
-    /// Human-readable name (worktree slug)
     slug: String,
-    /// How to attach: tmux session name or container log command
+
     source: AgentSource,
 }
 
 enum AgentSource {
-    /// Agent running in a tmux session
     Tmux(String),
-    /// Agent running in a Docker/Podman container
+
     Container { runtime: String, name: String },
 }
 
-/// Discover all active agents by scanning worktrees and checking runtimes.
 fn discover_agents(crosslink_dir: &Path) -> Result<Vec<ActiveAgent>> {
     let root = crosslink_dir
         .parent()
@@ -45,7 +40,6 @@ fn discover_agents(crosslink_dir: &Path) -> Result<Vec<ActiveAgent>> {
     for entry in entries {
         let slug = entry.file_name().to_string_lossy().to_string();
 
-        // Check tmux session
         let session_name = tmux_session_name(&slug);
         if tmux_session_exists(&session_name) {
             agents.push(ActiveAgent {
@@ -55,7 +49,6 @@ fn discover_agents(crosslink_dir: &Path) -> Result<Vec<ActiveAgent>> {
             continue;
         }
 
-        // Check container runtimes
         let container_name = format!("crosslink-agent-driver--{slug}");
         for runtime in &["docker", "podman"] {
             if !command_available(runtime) {
@@ -91,12 +84,9 @@ fn container_running(runtime: &str, name: &str) -> bool {
         .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
 }
 
-/// Build the command string to view an agent's output in a pane.
 fn pane_command(agent: &ActiveAgent) -> String {
     match &agent.source {
         AgentSource::Tmux(session) => {
-            // Refresh the pane every 2 seconds with the agent's latest output.
-            // `capture-pane -p` dumps the visible content; the loop keeps it live.
             format!(
                 "while tmux has-session -t {session} 2>/dev/null; do clear; tmux capture-pane -t {session} -p -S -50; sleep 2; done; echo 'Session ended.'"
             )
@@ -107,9 +97,7 @@ fn pane_command(agent: &ActiveAgent) -> String {
     }
 }
 
-/// Main entry point: `crosslink mc`
 pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
-    // Validate layout
     let tmux_layout = match layout {
         "tiled" => "tiled",
         "even-horizontal" | "horizontal" => "even-horizontal",
@@ -143,15 +131,12 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
     }
     println!();
 
-    // Kill existing mission-control session to avoid duplicates
     if tmux_session_exists(MC_SESSION) {
-        // INTENTIONAL: kill-session failure is non-fatal — new-session below will fail if session still exists
         let _ = Command::new("tmux")
             .args(["kill-session", "-t", MC_SESSION])
             .output();
     }
 
-    // Create the mission control session with the first agent
     let first_cmd = pane_command(&agents[0]);
     let output = Command::new("tmux")
         .args([
@@ -176,7 +161,6 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         );
     }
 
-    // INTENTIONAL: pane title is cosmetic — failure doesn't affect functionality
     let _ = Command::new("tmux")
         .args([
             "select-pane",
@@ -187,7 +171,6 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         ])
         .output();
 
-    // Add remaining agents as split panes
     for agent in agents.iter().skip(1) {
         let cmd = pane_command(agent);
         let output = Command::new("tmux")
@@ -212,7 +195,6 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
             continue;
         }
 
-        // INTENTIONAL: pane title is cosmetic — failure doesn't affect functionality
         let _ = Command::new("tmux")
             .args([
                 "select-pane",
@@ -224,7 +206,6 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
             .output();
     }
 
-    // INTENTIONAL: layout and pane border config are cosmetic — failure doesn't affect functionality
     let _ = Command::new("tmux")
         .args([
             "select-layout",
@@ -251,9 +232,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
     println!("Mission control ready.");
     println!("  tmux attach -t {MC_SESSION}");
 
-    // If we're not inside tmux already and have a terminal, attach automatically
     if std::env::var("TMUX").is_err() && std::io::stdout().is_terminal() {
-        // INTENTIONAL: attach failure is non-fatal — user can manually attach via printed command
         let _ = Command::new("tmux")
             .args(["attach", "-t", MC_SESSION])
             .status();
@@ -307,7 +286,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Create a worktree directory but no tmux session or container
         let wt_dir = dir.path().join(".worktrees").join("some-feature");
         std::fs::create_dir_all(&wt_dir).unwrap();
 

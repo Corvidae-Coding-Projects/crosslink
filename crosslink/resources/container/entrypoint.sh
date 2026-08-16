@@ -1,13 +1,13 @@
 #!/bin/bash
-# E-ana tablet — container entrypoint for crosslink agent execution
+
 set -euo pipefail
 
-# This entrypoint runs as root to handle UID remapping and system setup,
-# then drops to the agent user via gosu for the final command.
 
-# --- UID remapping ---
-# Match the container agent user's UID/GID to the host user so bind-mounted
-# files are accessible without permission issues (same approach as devcontainers).
+
+
+
+
+
 if [ -n "${HOST_UID:-}" ] && [ "$(id -u agent)" != "$HOST_UID" ]; then
     echo "[crosslink-entrypoint] Remapping agent UID to $HOST_UID:${HOST_GID:-$HOST_UID}..."
     usermod -u "$HOST_UID" agent 2>/dev/null || true
@@ -15,15 +15,15 @@ if [ -n "${HOST_UID:-}" ] && [ "$(id -u agent)" != "$HOST_UID" ]; then
     chown -R agent:agent /home/agent 2>/dev/null || true
 fi
 
-# --- Account authentication ---
-# Provider-scoped credential volumes are mounted directly at ~/.claude or
-# ~/.codex by the launcher. Login is performed with the provider's normal
-# interactive account flow; this entrypoint never accepts or copies API keys.
+
+
+
+
 PROVIDER="${CROSSLINK_AGENT_PROVIDER:-claude}"
 mkdir -p "/home/agent/.${PROVIDER}"
 chown -R agent:agent "/home/agent/.${PROVIDER}" 2>/dev/null || true
 
-# --- Git config (written to agent's home as root, owned by agent) ---
+
 AGENT_ID="${AGENT_ID:-container-agent}"
 AGENT_HOME=$(getent passwd agent | cut -d: -f6)
 GIT_CONFIG="$AGENT_HOME/.gitconfig"
@@ -36,8 +36,8 @@ cat > "$GIT_CONFIG" <<GITEOF
 GITEOF
 chown agent:agent "$GIT_CONFIG"
 
-# --- Toolchain detection ---
-# Scan the first mounted workspace for project files and install matching toolchains.
+
+
 WORKSPACE=$(find /workspaces -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)
 if [ -n "$WORKSPACE" ]; then
     echo "[crosslink-entrypoint] Detected workspace: $WORKSPACE"
@@ -86,18 +86,18 @@ if [ -n "$WORKSPACE" ]; then
     fi
 fi
 
-# --- Crosslink init ---
-# Set up hooks, skills, and policy in the workspace so container agents are
-# bound by the same rules as host agents. Plain `init` (no --force) is
-# idempotent: completeness is checked for both provider integrations without
-# changing the repository's selected runtime provider.
+
+
+
+
+
 if [ -n "$WORKSPACE" ] && command -v crosslink &>/dev/null; then
     echo "[crosslink-entrypoint] Initializing crosslink hooks in workspace..."
     gosu agent bash -c "cd '$WORKSPACE' && crosslink init --defaults --agent-integration both --skip-signing" 2>&1
 fi
 
 echo "[crosslink-entrypoint] Setup complete. Running command as agent..."
-# Drop to agent user. PATH includes Claude CLI and cargo locations.
+
 export PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:/usr/local/go/bin:$PATH"
 export HOME=/home/agent
 exec gosu agent "$@"

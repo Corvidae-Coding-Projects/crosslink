@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""
-Generate a Crosslink-styled diagram for the design document workflow.
 
-Shows: Explore → Interview → Draft → Validate → Iterate loop → Implementation outputs
 
-Usage:
-    python3 scripts/generate-diagram-design.py -o docs_src/assets/img/design-flow.svg
-"""
+
+
+
+
+
+
 
 import argparse
 import math
@@ -30,12 +30,12 @@ def generate():
 
     cx = WIDTH / 2
 
-    # ── Title ─────────────────────────────────────────────────────────────
+
     svg += text(cx, 36, "Design document workflow", cls="heading", size=22, fill=P["black"])
     svg += text(cx, 56, "from idea to validated, codebase-grounded spec",
                 cls="subheading", size=14, fill=P["muted"])
 
-    # ── Main flow (horizontal, top row) ───────────────────────────────────
+
     flow_y = 155
     nodes = [
         (100,  P["blue"],   "Explore",   "search code +\nknowledge pages"),
@@ -55,22 +55,22 @@ def generate():
             svg += text(nx, flow_y + 10 + i * 16, line,
                         cls="mono" if is_code else "body", size=11, fill=P["muted"])
 
-    # Straight arrows between nodes (solid, black)
+
     for i in range(len(nodes) - 1):
         x1 = nodes[i][0] + 65
         x2 = nodes[i + 1][0] - 65
         svg += arrow_straight(x1, flow_y, x2, flow_y, P["text"], stroke_width=2)
 
-    # ── Iterate loop: Validate → back to Interview ────────────────────────
-    # Solid red curve, tighter arc
+
+
     loop_drop = 70
     svg += (f'  <path d="M 580 {flow_y + 48} Q 580 {flow_y + loop_drop} 420 {flow_y + loop_drop} '
             f'Q 260 {flow_y + loop_drop} 260 {flow_y + 48}" '
             f'fill="none" stroke="{P["red"]}" stroke-width="2" '
             f'stroke-linecap="round" opacity="0.7"/>\n')
-    # Arrowhead — compute angle from the final bezier approach
-    # Path ends at (260, flow_y+48), approaching from below (260, flow_y+loop_drop)
-    arr_angle = math.atan2((flow_y + 48) - (flow_y + loop_drop), 0)  # straight up
+
+
+    arr_angle = math.atan2((flow_y + 48) - (flow_y + loop_drop), 0)
     hl = 8
     ax1 = 260 - hl * math.cos(arr_angle - 0.4)
     ay1 = (flow_y + 48) - hl * math.sin(arr_angle - 0.4)
@@ -78,11 +78,11 @@ def generate():
     ay2 = (flow_y + 48) - hl * math.sin(arr_angle + 0.4)
     svg += (f'  <polygon points="260,{flow_y + 48} {ax1:.1f},{ay1:.1f} {ax2:.1f},{ay2:.1f}" '
             f'fill="{P["red"]}" opacity="0.7"/>\n')
-    # Label — positioned below the arc, moved up to avoid overlap
+
     svg += text(420, flow_y + loop_drop - 6, "/design --continue &lt;slug&gt;", cls="mono",
                 size=12, fill=P["red"])
 
-    # ── Validation status callout ─────────────────────────────────────────
+
     vy = flow_y + 120
     svg += rrect(180, vy, 340, 65, P["gray"], rx=16)
     checks = [
@@ -93,13 +93,13 @@ def generate():
     for i, (check, color) in enumerate(checks):
         svg += text(cx, vy + 20 + i * 18, check, cls="mono", size=11, fill=color)
 
-    # ── Output cards (bottom row) ─────────────────────────────────────────
+
     out_y = vy + 90
 
     svg += text(cx, out_y - 5, "From design to implementation", cls="heading",
                 size=16, fill=P["black"])
 
-    # Arrow from validate down to output row (solid)
+
     svg += arrow_straight(cx, vy + 65, cx, out_y + 10, P["muted"], stroke_width=1.5)
 
     card_y = out_y + 15
@@ -125,7 +125,7 @@ def generate():
                         size=11 if is_cmd else 13,
                         fill=P["text"], anchor="start")
 
-    # ── Confetti ──────────────────────────────────────────────────────────
+
     svg += confetti(rng, 10, 80, 60, 80, 5)
     svg += confetti(rng, 630, 80, 60, 80, 5)
 

@@ -1,9 +1,3 @@
-//! Checkpoint state types and I/O for the compaction engine.
-//!
-//! The checkpoint is the materialized state produced by reducing all events.
-//! It lives at `checkpoint/state.json` in the hub cache and tracks display ID
-//! allocation, lock state, issue state, and compaction metadata.
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,7 +7,6 @@ use uuid::Uuid;
 
 use crate::events::OrderingKey;
 
-/// Materialized state produced by compaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointState {
     pub next_display_id: i64,
@@ -21,20 +14,13 @@ pub struct CheckpointState {
     pub display_id_map: BTreeMap<Uuid, i64>,
     pub locks: BTreeMap<i64, LockEntry>,
     pub issues: BTreeMap<Uuid, CompactIssue>,
-    /// Milestones, keyed by uuid. Mirrors the `meta/milestones/{uuid}.json`
-    /// (`MilestoneEntry`) file schema. `#[serde(default)]` so checkpoints
-    /// written before PR3.5 parse with an empty map.
+
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub milestones: BTreeMap<Uuid, CompactMilestone>,
-    /// Tombstones: uuids of deleted issues. Deletion wins forever — any event
-    /// for a uuid in this set (including a later-ordered `IssueCreated`) is
-    /// ignored, so a deleted issue can never be resurrected. `#[serde(default)]`
-    /// for backward compatibility with pre-PR3.5 checkpoints.
+
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub deleted_issues: BTreeSet<Uuid>,
-    /// Next milestone display id to allocate. Mirrors `counters.json`'s
-    /// `next_milestone_id`. Carried-id adoption (first-claim-wins by
-    /// `OrderingKey`) bumps this past adopted ids, exactly like `next_display_id`.
+
     #[serde(default = "default_next_id")]
     pub next_milestone_id: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -43,14 +29,11 @@ pub struct CheckpointState {
     pub compaction_lease: Option<CompactionLease>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsigned_event_warnings: Vec<UnsignedEventWarning>,
-    /// Compaction watermark (last processed ordering key), written atomically
-    /// with the rest of the checkpoint state to prevent inconsistent recovery.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watermark: Option<OrderingKey>,
 }
 
-/// Default for `next_*_id` counters when absent from a serialized checkpoint
-/// (display ids start at 1).
 const fn default_next_id() -> i64 {
     1
 }
@@ -74,7 +57,6 @@ impl Default for CheckpointState {
     }
 }
 
-/// A lock entry in the checkpoint state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockEntry {
     pub agent_id: String,
@@ -83,7 +65,6 @@ pub struct LockEntry {
     pub claimed_at: DateTime<Utc>,
 }
 
-/// Compact issue representation for reduction (tracks mutable fields only).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactIssue {
     pub uuid: Uuid,
@@ -101,10 +82,10 @@ pub struct CompactIssue {
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
-    /// When the issue becomes actionable (GH #361).
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_at: Option<DateTime<Utc>>,
-    /// Hard deadline (GH #361).
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -115,21 +96,14 @@ pub struct CompactIssue {
     pub related: BTreeSet<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub milestone_uuid: Option<Uuid>,
-    /// Comments, keyed by comment uuid for deterministic order + idempotency.
-    /// Mirrors the `CommentEntry` / `CommentFile` file schema. `#[serde(default)]`
-    /// so pre-PR3.5 checkpoints parse with an empty map.
+
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub comments: BTreeMap<Uuid, CompactComment>,
-    /// Time entries, keyed by entry uuid (event-only identity) for deterministic
-    /// order + idempotency. Mirrors the `TimeEntry` file schema.
+
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub time_entries: BTreeMap<Uuid, CompactTimeEntry>,
 }
 
-/// A reduced comment mirroring `CommentEntry` / `CommentFile` (`issue_file.rs`).
-///
-/// `display_id` is the counter-claimed `i64` comment id (the `id` field of
-/// `CommentEntry`); the keying uuid lives on `CompactIssue::comments`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompactComment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,10 +124,6 @@ pub struct CompactComment {
     pub signature: Option<String>,
 }
 
-/// A reduced time entry mirroring `TimeEntry` (`issue_file.rs`).
-///
-/// `display_id` is the counter-claimed `i64` id; the keying entry uuid lives on
-/// `CompactIssue::time_entries` (event-only identity, not in the file schema).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompactTimeEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,9 +135,6 @@ pub struct CompactTimeEntry {
     pub duration_seconds: Option<i64>,
 }
 
-/// A reduced milestone mirroring `MilestoneEntry` (`issue_file.rs`).
-///
-/// `display_id` is the counter-claimed milestone id, adopted first-claim-wins.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompactMilestone {
     pub uuid: Uuid,
@@ -182,18 +149,16 @@ pub struct CompactMilestone {
     pub closed_at: Option<DateTime<Utc>>,
 }
 
-/// Advisory compaction lease to prevent concurrent compaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactionLease {
     pub agent_id: String,
     pub acquired_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
-    /// PID of the process that acquired the lease, used for stale detection.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
 }
 
-/// Warning about clock skew detected during compaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkewWarning {
     pub agent_id: String,
@@ -201,7 +166,6 @@ pub struct SkewWarning {
     pub event_timestamp: DateTime<Utc>,
 }
 
-/// Warning about an unsigned event encountered during compaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnsignedEventWarning {
     pub agent_id: String,
@@ -209,21 +173,7 @@ pub struct UnsignedEventWarning {
     pub timestamp: DateTime<Utc>,
 }
 
-// ── Checkpoint I/O ───────────────────────────────────────────────────
-
 impl CheckpointState {
-    /// Parse a `CheckpointState` from raw JSON bytes.
-    ///
-    /// Used by `ObjectStoreSource` to deserialize checkpoint blobs read from
-    /// the git object store without going through a temporary file. Shares the
-    /// same serde path as `read_checkpoint`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the bytes are not valid UTF-8 or cannot be
-    /// deserialized as `CheckpointState`.
-    // PR2+ consumer API: used by ObjectStoreSource (lib consumers and tests),
-    // not by the bin, whose duplicate module tree flags it as dead code.
     #[allow(dead_code)]
     pub fn from_slice(bytes: &[u8]) -> Result<Self> {
         serde_json::from_slice(bytes).context("Failed to parse checkpoint state from bytes")
@@ -237,11 +187,6 @@ fn checkpoint_dir(cache_dir: &Path) -> std::path::PathBuf {
     cache_dir.join("checkpoint")
 }
 
-/// Read checkpoint state from disk. Returns default if missing.
-///
-/// # Errors
-///
-/// Returns an error if the checkpoint file exists but cannot be read or parsed.
 pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
     let path = checkpoint_dir(cache_dir).join(CHECKPOINT_FILE);
     if !path.exists() {
@@ -253,11 +198,6 @@ pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
         .with_context(|| format!("Failed to parse checkpoint: {}", path.display()))
 }
 
-/// Write checkpoint state to disk (pretty-printed JSON).
-///
-/// # Errors
-///
-/// Returns an error if the checkpoint directory cannot be created or the file cannot be written.
 pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()> {
     let dir = checkpoint_dir(cache_dir);
     std::fs::create_dir_all(&dir)
@@ -267,22 +207,12 @@ pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()>
     crate::utils::atomic_write(&path, content.as_bytes())
 }
 
-/// Read the compaction watermark (last processed ordering key).
-///
-/// Reads from the checkpoint state's embedded `watermark` field (atomic).
-/// Falls back to the legacy `watermark.json` file for migration.
-///
-/// # Errors
-///
-/// Returns an error if checkpoint or watermark files cannot be read or parsed.
 pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
-    // Prefer the watermark embedded in checkpoint state (atomic with state).
     let state = read_checkpoint(cache_dir)?;
     if state.watermark.is_some() {
         return Ok(state.watermark);
     }
 
-    // Legacy fallback: separate watermark.json file.
     let path = checkpoint_dir(cache_dir).join(WATERMARK_FILE);
     if !path.exists() {
         return Ok(None);
@@ -294,11 +224,6 @@ pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
     Ok(Some(key))
 }
 
-/// Write the compaction watermark atomically with the checkpoint state.
-///
-/// Reads the current checkpoint, sets the watermark, and writes both
-/// in a single atomic file operation. This prevents inconsistent state
-/// if a crash occurs between writes.
 #[cfg(test)]
 pub(crate) fn write_watermark(cache_dir: &Path, key: &OrderingKey) -> Result<()> {
     let mut state = read_checkpoint(cache_dir)?;
@@ -429,7 +354,6 @@ mod tests {
 
     #[test]
     fn test_compaction_lease_backward_compat() {
-        // Old leases without pid field should deserialize with pid = None
         let json = r#"{"agent_id":"agent-1","acquired_at":"2025-01-01T00:00:00Z","expires_at":"2025-01-01T00:00:30Z"}"#;
         let parsed: CompactionLease = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.agent_id, "agent-1");
@@ -467,18 +391,13 @@ mod tests {
 
     #[test]
     fn test_read_watermark_legacy_fallback() {
-        // When checkpoint state has no embedded watermark but a legacy
-        // watermark.json file exists, read_watermark should fall back
-        // to reading the separate file (lines 163-167).
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path();
 
-        // Write a checkpoint state WITHOUT an embedded watermark.
         let state = CheckpointState::default();
         assert!(state.watermark.is_none());
         write_checkpoint(cache_dir, &state).unwrap();
 
-        // Manually write a legacy watermark.json file in the checkpoint dir.
         let checkpoint_dir = cache_dir.join("checkpoint");
         let legacy_key = OrderingKey {
             timestamp: Utc::now(),
@@ -489,7 +408,6 @@ mod tests {
         let content = serde_json::to_string_pretty(&legacy_key).unwrap();
         std::fs::write(&watermark_path, content).unwrap();
 
-        // read_watermark should fall back to the legacy watermark.json file.
         let loaded = read_watermark(cache_dir).unwrap().unwrap();
         assert_eq!(loaded.agent_id, "legacy-agent");
         assert_eq!(loaded.agent_seq, 99);
@@ -497,12 +415,9 @@ mod tests {
 
     #[test]
     fn test_read_watermark_embedded_takes_precedence_over_legacy() {
-        // When checkpoint state has an embedded watermark AND a legacy
-        // watermark.json file exists, the embedded watermark should win.
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path();
 
-        // Write a checkpoint with an embedded watermark.
         let embedded_key = OrderingKey {
             timestamp: Utc::now(),
             agent_id: "embedded-agent".to_string(),
@@ -510,7 +425,6 @@ mod tests {
         };
         write_watermark(cache_dir, &embedded_key).unwrap();
 
-        // Also write a legacy watermark.json with different data.
         let checkpoint_dir = cache_dir.join("checkpoint");
         let legacy_key = OrderingKey {
             timestamp: Utc::now(),
@@ -521,7 +435,6 @@ mod tests {
         let content = serde_json::to_string_pretty(&legacy_key).unwrap();
         std::fs::write(&watermark_path, content).unwrap();
 
-        // Should prefer the embedded watermark, not the legacy file.
         let loaded = read_watermark(cache_dir).unwrap().unwrap();
         assert_eq!(loaded.agent_id, "embedded-agent");
         assert_eq!(loaded.agent_seq, 50);

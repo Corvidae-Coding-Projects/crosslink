@@ -1,12 +1,3 @@
-//! Handlers for milestone management endpoints.
-//!
-//! Implements:
-//! - `GET /api/v1/milestones` — list milestones (with optional status filter)
-//! - `POST /api/v1/milestones` — create a new milestone
-//! - `GET /api/v1/milestones/:id` — get a single milestone with progress stats
-//! - `POST /api/v1/milestones/:id/assign` — assign an issue to a milestone
-//! - `POST /api/v1/milestones/:id/close` — close a milestone
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -22,7 +13,6 @@ use crate::server::{
     },
 };
 
-/// Build a `MilestoneDetail` from a `Milestone` by looking up assigned issues.
 fn build_detail(
     db: &crate::db::Database,
     milestone: crate::models::Milestone,
@@ -36,7 +26,6 @@ fn build_detail(
     let progress_percent = if issue_count == 0 {
         0.0
     } else {
-        // Milestone issue counts are small enough to fit in u32.
         let completed = u32::try_from(completed_count).unwrap_or(u32::MAX);
         let total = u32::try_from(issue_count).unwrap_or(u32::MAX);
         f64::from(completed) / f64::from(total) * 100.0
@@ -49,18 +38,6 @@ fn build_detail(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/milestones` — list milestones.
-///
-/// Query params:
-/// - `?status=open|closed|all` — filter by status (default: open)
-///
-/// # Errors
-///
-/// Returns an error if the database query or detail building fails.
 pub async fn list_milestones(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<MilestoneListQuery>,
@@ -82,15 +59,6 @@ pub async fn list_milestones(
     Ok(Json(MilestoneListResponse { items, total }))
 }
 
-/// `POST /api/v1/milestones` — create a new milestone.
-///
-/// Body: `{"name": "<name>", "description": "<optional>"}`.
-///
-/// Returns the newly created milestone with progress stats.
-///
-/// # Errors
-///
-/// Returns an error if creating, fetching, or building the milestone detail fails.
 pub async fn create_milestone(
     State(state): State<AppState>,
     Json(body): Json<CreateMilestoneRequest>,
@@ -118,11 +86,6 @@ pub async fn create_milestone(
     Ok(Json(detail))
 }
 
-/// `GET /api/v1/milestones/:id` — get a single milestone with progress statistics.
-///
-/// # Errors
-///
-/// Returns an error if the milestone is not found or the detail cannot be built.
 pub async fn get_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -141,13 +104,6 @@ pub async fn get_milestone(
     Ok(Json(detail))
 }
 
-/// `POST /api/v1/milestones/:id/assign` — assign an issue to a milestone.
-///
-/// Body: `{"issue_id": <id>}`.
-///
-/// # Errors
-///
-/// Returns an error if the milestone or issue is not found, or assignment fails.
 pub async fn assign_milestone(
     State(state): State<AppState>,
     Path(milestone_id): Path<i64>,
@@ -155,12 +111,10 @@ pub async fn assign_milestone(
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
 
-    // Verify the milestone exists.
     db.get_milestone(milestone_id)
         .map_err(|e| internal_error("Failed to look up milestone", e))?
         .ok_or_else(|| not_found(format!("Milestone {milestone_id} not found")))?;
 
-    // Verify the issue exists.
     db.get_issue(body.issue_id)
         .map_err(|e| internal_error("Failed to look up issue", e))?
         .ok_or_else(|| not_found(format!("Issue {} not found", body.issue_id)))?;
@@ -172,18 +126,12 @@ pub async fn assign_milestone(
     Ok(Json(OkResponse { ok: true }))
 }
 
-/// `POST /api/v1/milestones/:id/close` — close a milestone.
-///
-/// # Errors
-///
-/// Returns an error if the milestone is not found or closing fails.
 pub async fn close_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
 
-    // Verify the milestone exists first.
     db.get_milestone(id)
         .map_err(|e| internal_error("Failed to look up milestone", e))?
         .ok_or_else(|| not_found(format!("Milestone {id} not found")))?;
@@ -199,10 +147,6 @@ pub async fn close_milestone(
 
     Ok(Json(OkResponse { ok: true }))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -294,7 +238,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_milestone_exists() {
         let (app, _dir) = test_app();
-        // Create first
+
         let create_resp = app
             .clone()
             .oneshot(
@@ -310,7 +254,6 @@ mod tests {
         let created = body_json(create_resp).await;
         let id = created["id"].as_i64().unwrap();
 
-        // Fetch it
         let get_resp = app
             .oneshot(
                 Request::builder()
@@ -345,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn test_close_milestone_success() {
         let (app, _dir) = test_app();
-        // Create first
+
         let create_resp = app
             .clone()
             .oneshot(
@@ -361,7 +304,6 @@ mod tests {
         let created = body_json(create_resp).await;
         let id = created["id"].as_i64().unwrap();
 
-        // Close it
         let close_resp = app
             .oneshot(
                 Request::builder()
@@ -397,7 +339,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_milestones_with_status_filter() {
         let (app, _dir) = test_app();
-        // Create a milestone and close it
+
         let create_resp = app
             .clone()
             .oneshot(
@@ -424,7 +366,6 @@ mod tests {
             .await
             .unwrap();
 
-        // List open milestones — should be empty
         let open_resp = app
             .clone()
             .oneshot(
@@ -440,7 +381,6 @@ mod tests {
         let open_body = body_json(open_resp).await;
         assert_eq!(open_body["total"], 0);
 
-        // List all milestones — should have 1
         let all_resp = app
             .oneshot(
                 Request::builder()
@@ -460,7 +400,6 @@ mod tests {
     async fn test_list_milestones_closed_filter() {
         let (app, _dir) = test_app();
 
-        // Create and close one milestone, leave one open.
         let r1 = app
             .clone()
             .oneshot(
@@ -501,7 +440,6 @@ mod tests {
             .await
             .unwrap();
 
-        // List closed milestones — should have exactly 1.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -545,7 +483,6 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).expect("test db");
 
-        // Seed milestone and issue directly.
         let milestone_id = db.create_milestone("MS", None).unwrap();
         let issue_id = db.create_issue("Issue to assign", None, "medium").unwrap();
 
@@ -572,7 +509,6 @@ mod tests {
     async fn test_assign_milestone_issue_not_found() {
         let (app, _dir) = test_app();
 
-        // Create a milestone first.
         let create_resp = app
             .clone()
             .oneshot(
@@ -588,7 +524,6 @@ mod tests {
         let created = body_json(create_resp).await;
         let milestone_id = created["id"].as_i64().unwrap();
 
-        // Try assigning a non-existent issue.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -622,7 +557,6 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).expect("test db");
 
-        // Create a milestone and two issues, close one.
         let milestone_id = db.create_milestone("Progress MS", None).unwrap();
         let issue_id1 = db.create_issue("Open issue", None, "medium").unwrap();
         let issue_id2 = db.create_issue("Closed issue", None, "medium").unwrap();

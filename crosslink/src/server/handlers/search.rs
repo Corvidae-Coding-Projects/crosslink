@@ -1,8 +1,3 @@
-//! Handler for the unified search endpoint.
-//!
-//! Implements:
-//! - `GET /api/v1/search?q=<query>` — full-text search across issues, comments, and knowledge pages
-
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -20,39 +15,20 @@ use crate::{
     },
 };
 
-// ---------------------------------------------------------------------------
-// Response types
-// ---------------------------------------------------------------------------
-
-/// A single result in the unified search response.
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchResultItem {
-    /// The kind of result: "issue", "comment", or "knowledge".
     pub kind: String,
-    /// Display title (issue title, comment excerpt, or page title).
+
     pub title: String,
-    /// Brief snippet of matching content.
+
     pub snippet: String,
-    /// Unique identifier — issue ID, comment ID, or knowledge slug.
+
     pub id: String,
-    /// For comments: the parent issue ID.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub issue_id: Option<i64>,
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/search
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/search?q=<query>` — unified full-text search.
-///
-/// Searches across issues (title + description), comments (content), and
-/// knowledge pages (full-text). Returns a combined, ordered list of results.
-///
-/// # Errors
-///
-/// Returns an error if the search query is empty or a database/knowledge
-/// search operation fails.
 pub async fn global_search(
     State(state): State<AppState>,
     Query(params): Query<KnowledgeSearchQuery>,
@@ -64,7 +40,6 @@ pub async fn global_search(
 
     let mut results: Vec<SearchResultItem> = Vec::new();
 
-    // --- Search issues ---
     {
         let db = state.db().await;
 
@@ -72,7 +47,6 @@ pub async fn global_search(
             .search_issues(&query)
             .map_err(|e| internal_error("Issue search failed", e))?;
 
-        // --- Search comments (single query instead of N+1) ---
         let matching_comments = db
             .search_comments(&query)
             .map_err(|e| internal_error("Failed to search comments", e))?;
@@ -109,7 +83,6 @@ pub async fn global_search(
         }
     }
 
-    // --- Search knowledge pages ---
     {
         let km = KnowledgeManager::new(&state.crosslink_dir)
             .map_err(|e| internal_error("Failed to initialize knowledge manager", e))?;
@@ -119,14 +92,12 @@ pub async fn global_search(
                 .search_content(&query, 1)
                 .map_err(|e| internal_error("Knowledge search failed", e))?;
 
-            // Build a title lookup from page metadata.
             let pages = km.list_pages().unwrap_or_default();
             let title_map: std::collections::HashMap<String, String> = pages
                 .into_iter()
                 .map(|p| (p.slug.clone(), p.frontmatter.title))
                 .collect();
 
-            // Deduplicate by slug — only show one result per knowledge page.
             let mut seen_slugs = std::collections::HashSet::new();
             for m in matches {
                 if !seen_slugs.insert(m.slug.clone()) {
@@ -164,10 +135,6 @@ pub async fn global_search(
         serde_json::json!({ "items": results, "total": total }),
     ))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -238,7 +205,6 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(tmp.path());
 
-        // Create an issue to search for.
         {
             let db = state.db.lock().await;
             db.create_issue("Fix authentication bug", None, "high")
@@ -275,7 +241,6 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(tmp.path());
 
-        // Create an issue and a comment.
         {
             let db = state.db.lock().await;
             db.create_issue("Some issue", None, "medium").unwrap();
@@ -316,7 +281,6 @@ mod tests {
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
 
-        // Write a knowledge page.
         let page = "---\ntitle: \"Enzyme Kinetics\"\ntags: [biology]\nsources: []\ncontributors: []\ncreated: \"2026-01-01\"\nupdated: \"2026-01-01\"\n---\n\nMichaelis-Menten kinetics describes enzyme catalysis rates.\n";
         std::fs::write(cache_dir.join("enzyme-kinetics.md"), page).unwrap();
 
@@ -369,7 +333,6 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(tmp.path());
 
-        // Create an issue with no description so the snippet is empty.
         {
             let db = state.db.lock().await;
             db.create_issue("Undescribed widget", None, "low").unwrap();
@@ -395,7 +358,7 @@ mod tests {
         assert!(body["total"].as_u64().unwrap() >= 1);
         let items = body["items"].as_array().unwrap();
         let issue_result = items.iter().find(|i| i["kind"] == "issue").unwrap();
-        // snippet should be empty string when no description.
+
         assert_eq!(issue_result["snippet"], "");
     }
 
@@ -414,12 +377,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_knowledge_page_title_fallback() {
-        // When a page file exists but has no frontmatter, its slug is used as the title.
         let tmp = tempfile::tempdir().unwrap();
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
 
-        // Write a page without frontmatter.
         let page = "No frontmatter here. Just a raw doc about widgets.\n";
         std::fs::write(cache_dir.join("raw-widget-doc.md"), page).unwrap();
 
@@ -443,10 +404,10 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         let items = body["items"].as_array().unwrap();
         let knowledge_results: Vec<_> = items.iter().filter(|i| i["kind"] == "knowledge").collect();
-        // The slug is used as title when no frontmatter title is present.
+
         assert!(!knowledge_results.is_empty());
         assert_eq!(knowledge_results[0]["id"], "raw-widget-doc");
-        // title falls back to slug when not in title_map
+
         assert_eq!(knowledge_results[0]["title"], "raw-widget-doc");
     }
 }

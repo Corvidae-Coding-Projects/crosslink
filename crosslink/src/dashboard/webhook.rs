@@ -1,28 +1,3 @@
-//! Outbound webhook delivery for dashboard alert fires (design doc §14
-//! Phase 5 — Polish / webhook alerting).
-//!
-//! When an alert transitions from "not derived" → "derived" during the
-//! poll loop's reconcile pass, we emit a POST to each configured
-//! webhook URL with a payload tailored to the destination:
-//!
-//! - `hooks.slack.com/...`   → Slack Block Kit JSON
-//! - `*.discord.com/...`     → Discord native `{content, embeds}` JSON
-//! - anything else           → generic `{event, severity, ...}` JSON
-//!
-//! Discord webhooks do also accept Slack-formatted payloads on a
-//! `/slack` suffix, but we prefer the native shape so users don't have
-//! to hand-edit their URL.
-//!
-//! Delivery is fire-and-forget: the poll loop spawns a task per URL,
-//! failures are logged via `tracing::warn` with the host portion of
-//! the URL masked. A stuck webhook endpoint doesn't stall the polling
-//! cadence for other projects.
-//!
-//! Configuration lives in the dashboard DB's `config` table under
-//! `webhook.urls`, stored as a JSON array of strings. The GET/PUT REST
-//! surface (see `webhook_api`) edits this value; the poll loop reads
-//! it once per tick.
-
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -33,11 +8,8 @@ use serde_json::{json, Value};
 use super::alerts::{DerivedAlert, Severity};
 use super::db::DashboardDb;
 
-/// Config key under which the JSON-encoded URL list lives.
 pub const KEY_WEBHOOK_URLS: &str = "webhook.urls";
 
-/// One alert-fire event, carried in the dispatch payload. Owns its
-/// strings so callers can freely move it into a spawned task.
 #[derive(Debug, Clone)]
 pub struct AlertNotification {
     pub kind: String,
@@ -49,9 +21,6 @@ pub struct AlertNotification {
 }
 
 impl AlertNotification {
-    /// Build a notification from a derived alert + the project it
-    /// belongs to. The `opened_at` is taken as "now" — the caller that
-    /// observes the fire is responsible for supplying the timestamp.
     #[must_use]
     pub fn new(
         alert: &DerivedAlert,
@@ -68,7 +37,6 @@ impl AlertNotification {
         }
     }
 
-    /// Format for Slack incoming-webhook endpoints (Block Kit).
     #[must_use]
     pub fn to_slack_json(&self) -> Value {
         let emoji = severity_emoji(self.severity);
@@ -100,14 +68,12 @@ impl AlertNotification {
         })
     }
 
-    /// Format for Discord webhooks. Uses the native `content` + single
-    /// `embed` shape with a coloured side bar by severity.
     #[must_use]
     pub fn to_discord_json(&self) -> Value {
         let color = match self.severity {
-            Severity::Critical => 0x00E6_1E4Cu32, // rose
-            Severity::Warning => 0x00F5_9E0Bu32,  // amber
-            Severity::Info => 0x0038_BDF8u32,     // sky
+            Severity::Critical => 0x00E6_1E4Cu32,
+            Severity::Warning => 0x00F5_9E0Bu32,
+            Severity::Info => 0x0038_BDF8u32,
         };
         json!({
             "content": format!(
@@ -128,8 +94,6 @@ impl AlertNotification {
         })
     }
 
-    /// Format for unknown / generic HTTP endpoints. Predictable key set
-    /// for bridges and custom consumers.
     #[must_use]
     pub fn to_generic_json(&self) -> Value {
         json!({
@@ -143,7 +107,6 @@ impl AlertNotification {
         })
     }
 
-    /// Pick the payload shape that matches `url`.
     #[must_use]
     pub fn payload_for(&self, url: &str) -> Value {
         if is_slack_url(url) {
@@ -164,14 +127,11 @@ const fn severity_emoji(severity: Severity) -> &'static str {
     }
 }
 
-/// True if `url` points to Slack's incoming-webhook domain.
 #[must_use]
 pub fn is_slack_url(url: &str) -> bool {
     url.contains("://hooks.slack.com/") || url.contains("://slack.com/api/webhooks/")
 }
 
-/// True if `url` points to Discord's webhook domain (both historical
-/// and current hostnames).
 #[must_use]
 pub fn is_discord_url(url: &str) -> bool {
     url.contains("://discord.com/api/webhooks/")
@@ -179,8 +139,6 @@ pub fn is_discord_url(url: &str) -> bool {
         || url.contains("://canary.discord.com/api/webhooks/")
 }
 
-/// Mask a URL down to its scheme + host for safe logging. Secrets in
-/// Slack/Discord webhook URLs live in the path, which we drop.
 #[must_use]
 pub fn mask_url(url: &str) -> String {
     url.find("://").map_or_else(
@@ -193,14 +151,6 @@ pub fn mask_url(url: &str) -> String {
     )
 }
 
-/// Minimal URL validation: must use https, or http pointed at a
-/// loopback host (for dev/testing and local bridges). We don't parse
-/// the full URL grammar — we only enforce scheme + host prefix, which
-/// is enough to keep a fat-fingered "example.com" out of the store.
-///
-/// # Errors
-/// Returns `Err` on unsupported schemes, or http URLs targeting a
-/// non-loopback host.
 pub fn validate_url(url: &str) -> Result<(), String> {
     if let Some(rest) = url.strip_prefix("https://") {
         if rest.is_empty() || rest.starts_with('/') {
@@ -220,12 +170,6 @@ pub fn validate_url(url: &str) -> Result<(), String> {
     Err("unsupported scheme; expected https (or http on loopback)".into())
 }
 
-/// Load the configured webhook URLs from the `config` table. Returns
-/// an empty vec when the key is missing, so first-run behaves as "no
-/// webhooks configured".
-///
-/// # Errors
-/// Propagates `SQLite` errors other than missing rows.
 pub fn load_urls(db: &DashboardDb) -> Result<Vec<String>> {
     let value: Option<String> = db
         .conn
@@ -253,11 +197,6 @@ pub fn load_urls(db: &DashboardDb) -> Result<Vec<String>> {
     Ok(urls)
 }
 
-/// Persist the given URL list, replacing whatever was there. An empty
-/// list deletes the row so `load_urls` short-circuits next time.
-///
-/// # Errors
-/// Propagates any `SQLite` error.
 pub fn save_urls(db: &DashboardDb, urls: &[String]) -> Result<()> {
     if urls.is_empty() {
         db.conn.execute(
@@ -275,16 +214,8 @@ pub fn save_urls(db: &DashboardDb, urls: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// HTTP timeout for a single webhook dispatch. Keeps a stuck endpoint
-/// from holding open the fire-and-forget task for longer than one
-/// poll tick.
 const DISPATCH_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// POST the appropriate payload shape to `url`. Returns `Ok(())` on a
-/// 2xx response and an error describing the failure otherwise.
-///
-/// # Errors
-/// Network error, non-2xx response, or client-construction failure.
 pub async fn dispatch(url: &str, notification: &AlertNotification) -> Result<()> {
     let payload = notification.payload_for(url);
     let client = reqwest::Client::builder()
@@ -306,9 +237,6 @@ pub async fn dispatch(url: &str, notification: &AlertNotification) -> Result<()>
     Ok(())
 }
 
-/// Fire one notification at every configured URL. Errors are logged,
-/// not returned — the caller is in the poll loop and must not abort
-/// other work.
 pub async fn dispatch_all(urls: &[String], notification: &AlertNotification) {
     for url in urls {
         if let Err(e) = dispatch(url, notification).await {
@@ -436,7 +364,6 @@ mod tests {
         save_urls(&db, &urls).unwrap();
         assert_eq!(load_urls(&db).unwrap(), urls);
 
-        // Empty list clears the row.
         save_urls(&db, &[]).unwrap();
         assert!(load_urls(&db).unwrap().is_empty());
     }

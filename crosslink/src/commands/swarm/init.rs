@@ -1,5 +1,3 @@
-// Swarm init: initialize a swarm plan from a design document.
-
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -8,10 +6,6 @@ use super::types::*;
 use crate::commands::design_doc::{self, DesignDoc};
 use crate::sync::SyncManager;
 
-/// Initialize a swarm plan from a design document.
-///
-/// Parses the design doc to extract requirements/sections and proposes
-/// a phase structure. The plan is written to the hub branch.
 pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     let content = std::fs::read_to_string(doc_path)
         .with_context(|| format!("Failed to read design doc: {}", doc_path.display()))?;
@@ -25,7 +19,6 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     sync.init_cache()?;
     sync.fetch()?;
 
-    // Check if an active swarm already exists (legacy or multi-swarm)
     let has_active = sync.cache_path().join("swarm/active.json").exists()
         || sync.cache_path().join("swarm/plan.json").exists();
     if has_active {
@@ -35,15 +28,11 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
         );
     }
 
-    // Create a new UUID-based swarm slot
     let ctx = create_swarm_slot(&sync, &doc.title)?;
 
-    // Build phases from design doc structure
     let mut phases = propose_phases(&doc);
     let now = chrono::Utc::now().to_rfc3339();
 
-    // Greenfield detection: if no primary source files exist, prepend a scaffold phase
-    // so shared files (Cargo.toml, src/lib.rs, etc.) are created before parallel agents (#393)
     let repo_root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
@@ -77,7 +66,6 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
             checkpoint: None,
         };
 
-        // Make all existing phases depend on the scaffold
         for phase in &mut phases {
             if phase.depends_on.is_empty() {
                 phase.depends_on.push("Phase 0: Scaffold".to_string());
@@ -100,7 +88,6 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
         phases: phase_names,
     };
 
-    // Write plan and phase files
     let plan_path = ctx.plan_path();
     write_hub_json(&sync, &plan_path, &plan)?;
     let mut paths_to_commit: Vec<String> = vec!["swarm/active.json".to_string(), plan_path];
@@ -135,20 +122,13 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Propose phases from a design doc's structure.
-///
-/// Heuristic: each requirement becomes an agent in a single phase.
-/// If there are many requirements, split into phases of ~8 agents each.
-/// If no requirements, create a single phase with one agent per unknown section.
 pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
-    // If the design doc has explicit layer/phase groups, use them as phase boundaries
     if !doc.requirement_groups.is_empty() {
         return propose_phases_from_groups(doc);
     }
 
     let mut agents: Vec<AgentEntry> = Vec::new();
 
-    // Build agent entries from requirements
     for req in &doc.requirements {
         let slug = slugify_requirement(req);
         agents.push(AgentEntry {
@@ -163,7 +143,6 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
         });
     }
 
-    // If no requirements, use acceptance criteria
     if agents.is_empty() {
         for ac in &doc.acceptance_criteria {
             let slug = slugify_requirement(ac);
@@ -180,7 +159,6 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
         }
     }
 
-    // If still no agents, create a single agent from the title
     if agents.is_empty() {
         let slug = crate::commands::kickoff::slugify(&doc.title);
         agents.push(AgentEntry {
@@ -195,7 +173,6 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
         });
     }
 
-    // Split into phases of at most 8 agents
     let max_per_phase = 8;
     let mut phases = Vec::new();
     let chunks: Vec<Vec<AgentEntry>> = agents
@@ -229,7 +206,6 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
     phases
 }
 
-/// Build phases from explicit layer/phase groups in the design doc.
 fn propose_phases_from_groups(doc: &DesignDoc) -> Vec<PhaseDefinition> {
     let mut phases = Vec::new();
 
@@ -252,8 +228,6 @@ fn propose_phases_from_groups(doc: &DesignDoc) -> Vec<PhaseDefinition> {
             })
             .collect();
 
-        // Sequential groups depend on previous phase; parallel groups depend on nothing
-        // (unless they're not the first phase, in which case they depend on the prior sequential)
         let depends_on = if i > 0 && group.execution_hint != "parallel" {
             vec![phases
                 .last()
@@ -263,7 +237,6 @@ fn propose_phases_from_groups(doc: &DesignDoc) -> Vec<PhaseDefinition> {
             .filter(|s| !s.is_empty())
             .collect()
         } else if i > 0 {
-            // Parallel phases still depend on the last phase before them
             phases
                 .last()
                 .map_or_else(Vec::new, |prev| vec![prev.name.clone()])
@@ -286,13 +259,9 @@ fn propose_phases_from_groups(doc: &DesignDoc) -> Vec<PhaseDefinition> {
     phases
 }
 
-/// Slugify a requirement string into a short branch-safe slug.
 pub(super) fn slugify_requirement(req: &str) -> String {
-    // Strip common prefixes like "REQ-1:", "AC-1:", "- "
     let mut text = req.trim_start_matches("- ").trim();
 
-    // Strip ID-like prefixes: "REQ-1:", "AC-2:", "R1:", etc.
-    // Pattern: uppercase letters, optional hyphen, digits, colon
     if let Some(colon_pos) = text.find(':') {
         let prefix = &text[..colon_pos];
         let looks_like_id = !prefix.is_empty()

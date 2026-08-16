@@ -1,6 +1,6 @@
-// Wire types mirroring the Rust serde output of `/api/v1/dashboard/*`.
-// Keep these in sync with crosslink/src/dashboard/api.rs —
-// eventually replaced by ts-rs-generated types (deferred follow-up).
+
+
+
 
 export interface ProjectCountersView {
   open_issues: number;
@@ -22,13 +22,13 @@ export interface ProjectListItem {
   last_activity_at: string | null;
   added_at: string;
   counters: ProjectCountersView;
-  /**
-   * Whether the tracked workspace is initialised enough for the
-   * dashboard's write actions (close issue, release lock, etc.) to
-   * succeed. `"ready"` → all clear. `"agent_missing"` →
-   * `crosslink init` ran but `crosslink agent init` didn't.
-   * `"not_initialized"` → neither ran; clone is bare.
-   */
+
+
+
+
+
+
+
   write_capability: WriteCapability;
 }
 
@@ -48,11 +48,11 @@ export interface IssueFile {
   closed_at?: string | null;
   scheduled_at?: string | null;
   due_at?: string | null;
-  /**
-   * Backend uses `#[serde(skip_serializing_if = "Vec::is_empty")]` on
-   * these list fields — they're omitted from JSON when empty. Callers
-   * must default to `[]` at read time (use `labels ?? []`).
-   */
+
+
+
+
+
   labels?: string[];
   blockers?: string[];
   related?: string[];
@@ -100,7 +100,7 @@ export interface AgentRequestsForAgent {
 
 export interface CiStatus {
   sha: string;
-  /** "passing" | "failing" | "pending" — pipeline-defined */
+
   state: string;
   url?: string | null;
 }
@@ -123,16 +123,16 @@ export interface ProjectDetail {
   agent_requests: AgentRequestsForAgent[];
   ci_status: CiStatus | null;
   signature_state: SignatureState;
-  /** Same semantics as `ProjectListItem.write_capability`. */
+
   write_capability: WriteCapability;
 }
 
 export interface TrackAllOrgArgs {
   org: string;
   cloneRoot?: string;
-  /** When true, server runs crosslink init + agent init in each freshly-cloned repo. */
+
   init?: boolean;
-  /** Required when `init` is true. Alphanumeric + hyphens + underscores. */
+
   agentId?: string;
 }
 
@@ -193,19 +193,19 @@ export interface GithubConfigView {
   token_present: boolean;
   token_fingerprint: string | null;
   default_org: string | null;
-  /**
-   * Where the effective token comes from.
-   * - `"stored"`: encrypted PAT in the dashboard DB (primary path)
-   * - `"gh-cli"`: `gh auth token` fallback (no stored PAT configured)
-   * - `null`: no token available from either source
-   */
+
+
+
+
+
+
   token_source: "stored" | "gh-cli" | null;
 }
 
 export interface GithubConfigUpdate {
-  /** `""` deletes the stored token; `undefined` leaves it unchanged. */
+
   token?: string;
-  /** `null` clears the default org; `undefined` leaves it unchanged. */
+
   default_org?: string | null;
 }
 

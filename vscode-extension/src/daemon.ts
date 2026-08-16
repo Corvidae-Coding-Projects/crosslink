@@ -4,10 +4,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { resolveBinaryPath, ensureExecutable } from './platform';
 
-/** Strip ANSI escape codes (SGR, cursor, OSC) from a string. */
+
 function stripAnsi(s: string): string {
-    // eslint-disable-next-line no-control-regex
-    return s.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '');
+    const escape = String.fromCharCode(27);
+    const bell = String.fromCharCode(7);
+    const pattern = new RegExp(`${escape}\\[[0-9;]*[A-Za-z]|${escape}\\][^${bell}]*${bell}`, 'g');
+    return s.replace(pattern, '');
 }
 
 export interface DaemonOptions {
@@ -33,17 +35,17 @@ export class DaemonManager {
         this.outputChannel = options.outputChannel;
     }
 
-    /**
-     * Checks if the .crosslink directory exists in the workspace.
-     */
+
+
+
     public hasCrosslinkProject(): boolean {
         return fs.existsSync(this.crosslinkDir);
     }
 
-    /**
-     * Starts the daemon process.
-     * The daemon will auto-terminate if stdin closes (zombie prevention).
-     */
+
+
+
+
     public async start(): Promise<void> {
         if (this.process && !this.process.killed) {
             this.outputChannel.appendLine('Daemon is already running');
@@ -57,7 +59,7 @@ export class DaemonManager {
             );
         }
 
-        // Ensure binary is executable on Unix
+
         ensureExecutable(this.binaryPath);
 
         this.outputChannel.appendLine(`Starting daemon: ${this.binaryPath}`);
@@ -65,15 +67,15 @@ export class DaemonManager {
 
         this.isShuttingDown = false;
 
-        // Spawn the daemon with stdin pipe for zombie prevention
-        // When VS Code crashes/closes, the pipe breaks and the daemon exits
+
+
         this.process = cp.spawn(this.binaryPath, ['daemon', 'run', '--dir', this.crosslinkDir], {
             stdio: ['pipe', 'pipe', 'pipe'],
-            detached: false, // Keep attached to parent
+            detached: false,
             windowsHide: true,
         });
 
-        // Handle stdout
+
         this.process.stdout?.on('data', (data: Buffer) => {
             const lines = data.toString().trim().split('\n');
             for (const line of lines) {
@@ -81,7 +83,7 @@ export class DaemonManager {
             }
         });
 
-        // Handle stderr
+
         this.process.stderr?.on('data', (data: Buffer) => {
             const lines = data.toString().trim().split('\n');
             for (const line of lines) {
@@ -89,7 +91,7 @@ export class DaemonManager {
             }
         });
 
-        // Handle process exit
+
         this.process.on('exit', (code, signal) => {
             if (!this.isShuttingDown) {
                 this.outputChannel.appendLine(
@@ -101,14 +103,14 @@ export class DaemonManager {
             this.process = null;
         });
 
-        // Handle errors
+
         this.process.on('error', (err) => {
             this.outputChannel.appendLine(`Daemon error: ${err.message}`);
             vscode.window.showErrorMessage(`Crosslink daemon error: ${err.message}`);
             this.process = null;
         });
 
-        // Wait a moment to ensure it started
+
         await new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 if (this.process && !this.process.killed) {
@@ -126,9 +128,9 @@ export class DaemonManager {
         });
     }
 
-    /**
-     * Stops the daemon process gracefully.
-     */
+
+
+
     public stop(): void {
         if (!this.process) {
             this.outputChannel.appendLine('Daemon is not running');
@@ -138,21 +140,21 @@ export class DaemonManager {
         this.isShuttingDown = true;
         this.outputChannel.appendLine('Stopping daemon...');
 
-        // Close stdin to signal the daemon to exit (zombie prevention)
+
         this.process.stdin?.end();
 
         const pid = this.process.pid;
 
-        // Give it a moment to exit gracefully
+
         const killTimeout = setTimeout(() => {
             if (this.process && !this.process.killed) {
                 this.outputChannel.appendLine('Daemon did not exit gracefully, forcing kill');
                 if (process.platform === 'win32' && pid !== undefined) {
-                    // On Windows, SIGKILL is unreliable; use taskkill /F instead
+
                     try {
                         cp.execFileSync('taskkill', ['/PID', String(pid), '/F']);
-                    } catch {
-                        // Process may have already exited
+                    } catch (error) {
+                        void error;
                     }
                 } else {
                     this.process.kill('SIGKILL');
@@ -164,36 +166,36 @@ export class DaemonManager {
             clearTimeout(killTimeout);
         });
 
-        // Send termination signal
+
         if (process.platform === 'win32' && pid !== undefined) {
-            // On Windows, SIGTERM is a no-op for child processes; use taskkill instead
+
             try {
                 cp.execFileSync('taskkill', ['/PID', String(pid)]);
-            } catch {
-                // Process may have already exited
+            } catch (error) {
+                void error;
             }
         } else {
             this.process.kill('SIGTERM');
         }
     }
 
-    /**
-     * Returns whether the daemon is currently running.
-     */
+
+
+
     public isRunning(): boolean {
         return this.process !== null && !this.process.killed;
     }
 
-    /**
-     * Gets the daemon's PID if running.
-     */
+
+
+
     public getPid(): number | undefined {
         return this.process?.pid;
     }
 
-    /**
-     * Executes a crosslink command and returns the output.
-     */
+
+
+
     public async executeCommand(args: string[]): Promise<string> {
         ensureExecutable(this.binaryPath);
 
@@ -229,9 +231,9 @@ export class DaemonManager {
         });
     }
 
-    /**
-     * Cleans up resources. Call this in extension deactivate().
-     */
+
+
+
     public dispose(): void {
         this.stop();
     }

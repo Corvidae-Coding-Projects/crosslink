@@ -1,23 +1,3 @@
-//! WebSocket hub for real-time event broadcasting.
-//!
-//! Clients connect to `/ws`, optionally send a `subscribe` message to filter
-//! channels, and receive JSON events pushed by the server.
-//!
-//! # Architecture
-//!
-//! A single `tokio::sync::broadcast` channel carries all `WsEvent` variants.
-//! Each connected client runs its own task that reads from a
-//! `broadcast::Receiver` and forwards matching events as JSON text frames.
-//!
-//! Every outgoing message is wrapped in an envelope with a monotonically
-//! increasing `seq` field so clients can detect gaps caused by backpressure.
-//!
-//! Channel names map to event types:
-//! - `"agents"`    → `WsHeartbeatEvent`, `WsAgentStatusEvent`
-//! - `"issues"`    → `WsIssueUpdatedEvent`
-//! - `"locks"`     → `WsLockChangedEvent`
-//! - `"execution"` → `WsExecutionProgressEvent`
-
 use std::collections::HashSet;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -32,18 +12,8 @@ use crate::server::types::{
     WsHeartbeatEvent, WsIssueUpdatedEvent, WsLockChangedEvent, WsSubscribeMessage,
 };
 
-/// Internal channel capacity.  256 slots before lagged receivers start dropping.
 pub const BROADCAST_CAPACITY: usize = 256;
 
-/// All events that can be broadcast over the WebSocket hub.
-///
-/// Each variant carries the concrete event struct defined in `types.rs`.
-/// `Clone` is required by `tokio::sync::broadcast`.
-///
-/// Implements `Serialize` directly so callers can use `serde_json::to_value`
-/// or `serde_json::to_string` without manual dispatch.
-///
-/// All variants are used by their respective handlers.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum WsEvent {
@@ -52,15 +22,13 @@ pub enum WsEvent {
     IssueUpdated(WsIssueUpdatedEvent),
     LockChanged(WsLockChangedEvent),
     ExecutionProgress(WsExecutionProgressEvent),
-    /// Dashboard aggregator emitted fresh `project_state` for a
-    /// tracked project. Fires once per poll-loop tick per project.
+
     DashboardProjectUpdated(WsDashboardProjectEvent),
-    /// Dashboard aggregator's alert set for a project changed.
+
     DashboardAlertsChanged(WsDashboardAlertsEvent),
 }
 
 impl WsEvent {
-    /// Returns the channel name for this event (used to filter subscriptions).
     #[must_use]
     pub const fn channel(&self) -> &'static str {
         match self {
@@ -72,104 +40,66 @@ impl WsEvent {
         }
     }
 
-    /// Serialize this event to a JSON string.
     #[cfg(test)]
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
 
-    /// Serialize this event to a `serde_json::Value` for embedding in a
-    /// `WsEnvelope`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if serialization fails.
     pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
         serde_json::to_value(self)
     }
 }
 
-/// Envelope wrapping every outgoing WebSocket message.
-///
-/// The `seq` field is a per-connection monotonically increasing counter that
-/// starts at 1.  Clients can detect dropped messages by checking for gaps in
-/// the sequence.  When a gap occurs (broadcast buffer overflow), the server
-/// sends a synthetic message with `"type": "gap"` so the client knows to
-/// re-sync.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsEnvelope {
-    /// Per-connection sequence number (starts at 1, never resets).
     pub seq: u64,
-    /// The inner event payload (flattened into this object).
+
     #[serde(flatten)]
     pub data: serde_json::Value,
 }
 
-/// Create a new broadcast channel for WebSocket events.
-///
-/// Returns `(Sender, Receiver)`.  The `Sender` is stored in `AppState`;
-/// each new WebSocket client subscribes from it.
 #[must_use]
 pub fn channel() -> (broadcast::Sender<WsEvent>, broadcast::Receiver<WsEvent>) {
     broadcast::channel(BROADCAST_CAPACITY)
 }
 
-/// HTTP handler — upgrades the connection to WebSocket and hands it off to
-/// `handle_socket`.
-///
-/// Registered at `GET /ws` in the router.
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state.ws_tx))
 }
 
-/// Handle a single WebSocket client for the duration of its connection.
-///
-/// # Protocol
-///
-/// 1. Client connects.
-/// 2. Client **may** send a `subscribe` message to restrict which channels it
-///    receives.  If omitted, the client receives all channels.
-/// 3. Server forwards matching broadcast events as JSON text frames, each
-///    wrapped in a `WsEnvelope` with a monotonically increasing `seq` field.
-/// 4. If the broadcast buffer overflows, the server sends a synthetic `gap`
-///    message with the number of dropped events so the client can re-sync.
-/// 5. Loop ends when the client disconnects or the broadcast sender is dropped.
 async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<WsEvent>) {
     let mut rx = tx.subscribe();
 
-    // Per-connection sequence counter.  Starts at 1 so clients can use 0 as
-    // a sentinel for "no messages received yet".
     let mut seq: u64 = 0;
 
-    // None → client has not filtered; receives all channels.
     let mut subscribed: Option<HashSet<String>> = None;
 
     loop {
         tokio::select! {
-            // Message arriving from the client.
+
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        // Only act on well-formed `subscribe` messages.
+
                         if let Ok(sub) = serde_json::from_str::<WsSubscribeMessage>(&text) {
                             if sub.message_type == "subscribe" {
                                 subscribed = Some(sub.channels.into_iter().collect());
                             }
                         }
                     }
-                    // Client sent Close frame or the stream ended.
+
                     Some(Ok(Message::Close(_))) | None => break,
-                    // Ping/pong and binary frames are not used by this protocol.
+
                     _ => {}
                 }
             }
 
-            // Event arriving from the broadcast channel.
+
             event = rx.recv() => {
                 match event {
                     Ok(ev) => {
-                        // If the client subscribed to specific channels, skip
-                        // events that are not in the subscriber's set.
+
+
                         if let Some(ref channels) = subscribed {
                             if !channels.contains(ev.channel()) {
                                 continue;
@@ -181,15 +111,15 @@ async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<WsEvent>) {
                             let envelope = WsEnvelope { seq, data };
                             if let Ok(json) = serde_json::to_string(&envelope) {
                                 if socket.send(Message::Text(json.into())).await.is_err() {
-                                    // Client disconnected mid-send.
+
                                     break;
                                 }
                             }
                         }
                     }
-                    // The broadcast buffer overflowed; some events were dropped
-                    // for this receiver.  Send a gap notification so the client
-                    // knows to re-sync.
+
+
+
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("ws: client lagged, {n} events dropped");
                         seq += 1;
@@ -204,7 +134,7 @@ async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<WsEvent>) {
                             }
                         }
                     }
-                    // The sender was dropped — the server is shutting down.
+
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -291,9 +221,8 @@ mod tests {
         let json = serde_json::to_string(&envelope).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        // The envelope should have `seq` at the top level.
         assert_eq!(parsed["seq"], 7);
-        // The inner event fields should be flattened into the top level.
+
         assert_eq!(parsed["type"], "agent_status");
         assert_eq!(parsed["agent_id"], "worker-1");
         assert_eq!(parsed["status"], "active");
@@ -331,7 +260,7 @@ mod tests {
     #[test]
     fn test_broadcast_channel_capacity() {
         let (tx, rx) = channel();
-        // channel() returns one initial receiver; drop it to test from zero.
+
         drop(rx);
         assert_eq!(tx.receiver_count(), 0);
         let _rx2 = tx.subscribe();

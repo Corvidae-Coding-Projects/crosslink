@@ -1,24 +1,3 @@
-//! Handlers for issue CRUD and organisation endpoints.
-//!
-//! Implements every issue-related route in the Phase 3A spec:
-//!
-//! - `GET  /api/v1/issues`                    — list with optional filters
-//! - `POST /api/v1/issues`                    — create
-//! - `GET  /api/v1/issues/blocked`            — issues that have open blockers
-//! - `GET  /api/v1/issues/ready`              — open issues with no open blockers
-//! - `GET  /api/v1/issues/:id`               — hydrated detail
-//! - `PATCH /api/v1/issues/:id`              — update title/description/priority
-//! - `DELETE /api/v1/issues/:id`             — delete permanently
-//! - `POST /api/v1/issues/:id/close`         — close
-//! - `POST /api/v1/issues/:id/reopen`        — reopen
-//! - `POST /api/v1/issues/:id/subissue`      — create child issue
-//! - `GET  /api/v1/issues/:id/comments`      — list comments
-//! - `POST /api/v1/issues/:id/comments`      — add comment
-//! - `POST /api/v1/issues/:id/labels`        — add label
-//! - `DELETE /api/v1/issues/:id/labels/:label` — remove label
-//! - `POST /api/v1/issues/:id/block`         — add blocker dependency
-//! - `DELETE /api/v1/issues/:id/block/:blocker_id` — remove blocker dependency
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -37,15 +16,7 @@ use crate::server::{
     ws::WsEvent,
 };
 
-// ---------------------------------------------------------------------------
-// Broadcast helper
-// ---------------------------------------------------------------------------
-
-/// Broadcast an `issue_updated` WebSocket event for the given issue and field.
-///
-/// Failures are intentionally ignored — WebSocket broadcast is best-effort.
 fn broadcast_issue_updated(state: &AppState, issue_id: i64, field: &str) {
-    // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
     let _ = state.ws_tx.send(WsEvent::IssueUpdated(WsIssueUpdatedEvent {
         event_type: crate::server::types::WsEventType::IssueUpdated,
         issue_id,
@@ -53,22 +24,6 @@ fn broadcast_issue_updated(state: &AppState, issue_id: i64, field: &str) {
     }));
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/issues
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/issues` — list issues with optional query-parameter filters.
-///
-/// Query params:
-/// - `status`    — `open` | `closed` | `all` (default: all)
-/// - `label`     — exact label match
-/// - `priority`  — `low` | `medium` | `high`
-/// - `search`    — full-text search across title, description, and comments
-/// - `parent_id` — restrict to sub-issues of this parent
-///
-/// # Errors
-///
-/// Returns an error if the database query fails or an internal inconsistency is detected.
 pub async fn list_issues(
     State(state): State<AppState>,
     Query(params): Query<IssueListQuery>,
@@ -76,7 +31,6 @@ pub async fn list_issues(
     let db = state.db().await;
 
     let issues = if let Some(ref search) = params.search {
-        // Full-text search; apply remaining filters in-memory afterwards.
         let mut results = db
             .search_issues(search)
             .map_err(|e| internal_error("Failed to search issues", e))?;
@@ -89,7 +43,6 @@ pub async fn list_issues(
             }
         }
         if let Some(ref label) = params.label {
-            // Keep only issues that have this label.
             let ids_with_label: Vec<i64> = results
                 .iter()
                 .filter_map(|i| {
@@ -111,7 +64,6 @@ pub async fn list_issues(
         }
         results
     } else {
-        // Use the database-level filtering path.
         let mut results = db
             .list_issues(
                 params.status.as_deref(),
@@ -126,7 +78,6 @@ pub async fn list_issues(
         results
     };
 
-    // Build lightweight summaries using batch queries to avoid N+1.
     let issue_ids: Vec<i64> = issues.iter().map(|i| i.id).collect();
     let labels_map = db.get_labels_batch(&issue_ids).unwrap_or_default();
     let blocker_counts = db.get_blocker_counts_batch(&issue_ids).unwrap_or_default();
@@ -147,15 +98,6 @@ pub async fn list_issues(
     Ok(Json(IssueListResponse { items, total }))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues` — create a new issue.
-///
-/// # Errors
-///
-/// Returns an error if the issue cannot be created or retrieved after creation.
 pub async fn create_issue(
     State(state): State<AppState>,
     Json(body): Json<CreateIssueRequest>,
@@ -186,16 +128,6 @@ pub async fn create_issue(
     Ok(Json(json!(issue)))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/issues/blocked
-// (registered before /:id to avoid being treated as an id)
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/issues/blocked` — open issues that have at least one open blocker.
-///
-/// # Errors
-///
-/// Returns an error if the database query fails.
 pub async fn list_blocked(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -210,16 +142,6 @@ pub async fn list_blocked(
     Ok(Json(json!({ "items": issues, "total": total })))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/issues/ready
-// (registered before /:id to avoid being treated as an id)
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/issues/ready` — open issues with no open blockers.
-///
-/// # Errors
-///
-/// Returns an error if the database query fails.
 pub async fn list_ready(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -234,15 +156,6 @@ pub async fn list_ready(
     Ok(Json(json!({ "items": issues, "total": total })))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/issues/:id
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/issues/:id` — fully hydrated issue: labels, comments, deps, subissues.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or a database query fails.
 pub async fn get_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -270,7 +183,6 @@ pub async fn get_issue(
         .get_subissues(id)
         .map_err(|e| internal_error("Failed to fetch subissues", e))?;
 
-    // Attach milestone if one is assigned.
     let milestone =
         db.get_issue_milestone(id)
             .ok()
@@ -293,14 +205,6 @@ pub async fn get_issue(
     }))
 }
 
-// ---------------------------------------------------------------------------
-// PATCH /api/v1/issues/:id
-// ---------------------------------------------------------------------------
-
-/// `PATCH /api/v1/issues/:id` — update title, description, and/or priority.
-///
-/// # Errors
-/// Returns an error if the issue is not found or the update fails.
 pub async fn update_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -308,7 +212,6 @@ pub async fn update_issue(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
 
-    // Verify the issue exists first.
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
@@ -337,15 +240,6 @@ pub async fn update_issue(
     Ok(Json(json!(issue)))
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /api/v1/issues/:id
-// ---------------------------------------------------------------------------
-
-/// `DELETE /api/v1/issues/:id` — permanently delete an issue.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the delete fails.
 pub async fn delete_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -365,15 +259,6 @@ pub async fn delete_issue(
     Ok(Json(OkResponse { ok: true }))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues/:id/close
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues/:id/close` — mark an issue as closed.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the close operation fails.
 pub async fn close_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -398,15 +283,6 @@ pub async fn close_issue(
     Ok(Json(json!(issue)))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues/:id/reopen
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues/:id/reopen` — reopen a closed issue.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the reopen operation fails.
 pub async fn reopen_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -431,15 +307,6 @@ pub async fn reopen_issue(
     Ok(Json(json!(issue)))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues/:id/subissue
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues/:id/subissue` — create a child issue under `:id`.
-///
-/// # Errors
-///
-/// Returns an error if the parent is not found or child creation fails.
 pub async fn create_subissue(
     State(state): State<AppState>,
     Path(parent_id): Path<i64>,
@@ -447,7 +314,6 @@ pub async fn create_subissue(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
 
-    // Verify parent exists.
     db.get_issue(parent_id)
         .map_err(|e| internal_error("Failed to fetch parent issue", e))?
         .ok_or_else(|| not_found(format!("Parent issue #{parent_id} not found")))?;
@@ -473,22 +339,12 @@ pub async fn create_subissue(
     Ok(Json(json!(child)))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/issues/:id/comments
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/issues/:id/comments` — list all comments on an issue.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the query fails.
 pub async fn list_comments(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
 
-    // Return 404 when the issue itself doesn't exist.
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
@@ -502,19 +358,6 @@ pub async fn list_comments(
     Ok(Json(json!({ "items": comments, "total": total })))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues/:id/comments
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues/:id/comments` — add a comment to an issue.
-///
-/// For `kind = "intervention"`, the comment is stored with the additional
-/// `trigger_type` and `intervention_context` fields via
-/// `db.add_intervention_comment`.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the comment cannot be added.
 pub async fn add_comment(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -522,13 +365,11 @@ pub async fn add_comment(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
 
-    // Verify issue exists.
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
     let comment_id = if body.kind == crate::server::types::CommentKind::Intervention {
-        // #573: Require trigger_type when kind is intervention.
         let trigger = match body.trigger_type.as_deref() {
             Some(t) if !t.is_empty() => t,
             _ => {
@@ -542,7 +383,7 @@ pub async fn add_comment(
             &body.content,
             trigger,
             body.intervention_context.as_deref(),
-            None, // driver_key_fingerprint — not available via REST
+            None,
         )
         .map_err(|e| bad_request(e.to_string()))?
     } else {
@@ -565,15 +406,6 @@ pub async fn add_comment(
     Ok(Json(json!(comment)))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues/:id/labels
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues/:id/labels` — attach a label to an issue.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the label cannot be added.
 pub async fn add_label(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -593,15 +425,6 @@ pub async fn add_label(
     Ok(Json(OkResponse { ok: true }))
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /api/v1/issues/:id/labels/:label
-// ---------------------------------------------------------------------------
-
-/// `DELETE /api/v1/issues/:id/labels/:label` — detach a label from an issue.
-///
-/// # Errors
-///
-/// Returns an error if the issue or label is not found.
 pub async fn remove_label(
     State(state): State<AppState>,
     Path((id, label)): Path<(i64, String)>,
@@ -627,15 +450,6 @@ pub async fn remove_label(
     Ok(Json(OkResponse { ok: true }))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/issues/:id/block
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/issues/:id/block` — declare that `:id` is blocked by `blocker_id`.
-///
-/// # Errors
-///
-/// Returns an error if either issue is not found or the dependency cannot be added.
 pub async fn add_blocker(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -659,15 +473,6 @@ pub async fn add_blocker(
     Ok(Json(OkResponse { ok: true }))
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /api/v1/issues/:id/block/:blocker_id
-// ---------------------------------------------------------------------------
-
-/// `DELETE /api/v1/issues/:id/block/:blocker_id` — remove a blocker dependency.
-///
-/// # Errors
-///
-/// Returns an error if the issue is not found or the dependency does not exist.
 pub async fn remove_blocker(
     State(state): State<AppState>,
     Path((id, blocker_id)): Path<(i64, i64)>,
@@ -693,10 +498,6 @@ pub async fn remove_blocker(
     Ok(Json(OkResponse { ok: true }))
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -706,7 +507,6 @@ mod tests {
     use tempfile::tempdir;
     use tower::util::ServiceExt;
 
-    /// Create a temporary `AppState` backed by a temp dir database.
     fn test_state() -> (AppState, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
@@ -718,7 +518,7 @@ mod tests {
     #[test]
     fn test_broadcast_issue_updated_no_receivers() {
         let (state, _dir) = test_state();
-        // Should not panic even when there are no WebSocket receivers.
+
         broadcast_issue_updated(&state, 1, "status");
     }
 
@@ -735,10 +535,6 @@ mod tests {
             panic!("expected IssueUpdated event");
         }
     }
-
-    // ---------------------------------------------------------------------------
-    // Handler integration tests using axum's test utilities
-    // ---------------------------------------------------------------------------
 
     fn build_router(state: AppState) -> axum::Router {
         use axum::routing::{delete, get, post};
@@ -791,7 +587,6 @@ mod tests {
         let (state, _dir) = test_state();
         let app = build_router(state);
 
-        // Create
         let create_body = r#"{"title": "Test issue", "priority": "high"}"#;
         let response = app
             .clone()
@@ -812,7 +607,6 @@ mod tests {
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let id = created["id"].as_i64().unwrap();
 
-        // Get detail
         let response = app
             .oneshot(
                 Request::builder()
@@ -890,7 +684,6 @@ mod tests {
 
         let app = build_router(state);
 
-        // Close
         let response = app
             .clone()
             .oneshot(
@@ -909,7 +702,6 @@ mod tests {
         let closed: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(closed["status"], "closed");
 
-        // Reopen
         let response = app
             .oneshot(
                 Request::builder()
@@ -950,7 +742,6 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Confirm gone
         let response = app
             .oneshot(
                 Request::builder()
@@ -993,7 +784,6 @@ mod tests {
         assert_eq!(child["parent_id"], parent_id);
         assert_eq!(child["title"], "Child issue");
 
-        // Verify subissue appears in parent detail
         let child_id = child["id"].as_i64().unwrap();
         let response = app
             .oneshot(
@@ -1026,7 +816,6 @@ mod tests {
 
         let app = build_router(state);
 
-        // Add comment
         let body = r#"{"content": "Hello world", "kind": "note"}"#;
         let response = app
             .clone()
@@ -1048,7 +837,6 @@ mod tests {
         assert_eq!(comment["content"], "Hello world");
         assert_eq!(comment["kind"], "note");
 
-        // List comments
         let response = app
             .oneshot(
                 Request::builder()
@@ -1076,7 +864,6 @@ mod tests {
 
         let app = build_router(state);
 
-        // Add label
         let body = r#"{"label": "bug"}"#;
         let response = app
             .clone()
@@ -1092,7 +879,6 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Verify via detail
         let response = app
             .clone()
             .oneshot(
@@ -1113,7 +899,6 @@ mod tests {
             .iter()
             .any(|l| l == "bug"));
 
-        // Remove label
         let response = app
             .clone()
             .oneshot(
@@ -1127,7 +912,6 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Verify removed
         let response = app
             .oneshot(
                 Request::builder()
@@ -1156,7 +940,6 @@ mod tests {
 
         let app = build_router(state);
 
-        // Add blocker
         let body = format!(r#"{{"blocker_id": {blocker_id}}}"#);
         let response = app
             .clone()
@@ -1172,7 +955,6 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Verify in detail
         let response = app
             .clone()
             .oneshot(
@@ -1193,7 +975,6 @@ mod tests {
             .iter()
             .any(|b| b == blocker_id));
 
-        // Remove blocker
         let response = app
             .clone()
             .oneshot(
@@ -1207,7 +988,6 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        // Verify via blocked list (should now be empty)
         let response = app
             .oneshot(
                 Request::builder()
@@ -1769,7 +1549,7 @@ mod tests {
             let p = db.create_issue("Parent task", None, "high").unwrap();
             db.create_subissue(p, "Gizmo sub-task", None, "medium")
                 .unwrap();
-            // Create an unrelated issue that also matches search.
+
             db.create_issue("Gizmo standalone", None, "medium").unwrap();
             p
         };
@@ -1819,7 +1599,7 @@ mod tests {
             .await
             .unwrap();
         let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
-        // Both open and closed should appear when status=all.
+
         assert_eq!(list["total"], 2);
     }
 
@@ -1891,7 +1671,6 @@ mod tests {
 
     #[test]
     fn test_helper_functions_directly() {
-        // Directly cover the helper functions to ensure they produce correct responses.
         let (status, json) = crate::server::errors::internal_error("ctx", "detail");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
@@ -1910,8 +1689,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_issue_with_milestone() {
-        // Assign an issue to a milestone and verify that the detail response
-        // includes the milestone object (exercises lines 268-270).
         let (state, _dir) = test_state();
         let (issue_id, milestone_id) = {
             let db = state.db.lock().await;
@@ -1936,7 +1713,7 @@ mod tests {
             .await
             .unwrap();
         let detail: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
-        // Milestone should be present and have the correct id.
+
         assert!(!detail["milestone"].is_null());
         assert_eq!(detail["milestone"]["id"], milestone_id);
         assert_eq!(detail["milestone"]["name"], "Sprint 1");
@@ -1944,7 +1721,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_issue_priority_only() {
-        // Updating priority alone should succeed and broadcast the change.
         let (state, _dir) = test_state();
         let id = {
             let db = state.db.lock().await;
@@ -1974,11 +1750,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_issues_no_label_match_in_search() {
-        // Search path where label filter removes all results.
         let (state, _dir) = test_state();
         {
             let db = state.db.lock().await;
-            // Create issue with search term but wrong label.
+
             let id = db.create_issue("Widget thing", None, "medium").unwrap();
             db.add_label(id, "enhancement").unwrap();
         };
@@ -1998,7 +1773,7 @@ mod tests {
             .await
             .unwrap();
         let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
-        // Label doesn't match — should return 0 results.
+
         assert_eq!(list["total"], 0);
     }
 }

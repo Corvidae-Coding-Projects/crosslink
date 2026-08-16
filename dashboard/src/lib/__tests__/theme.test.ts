@@ -1,6 +1,6 @@
-// Coverage for lib/theme — resolveTheme + installThemeObserver. We
-// stub matchMedia because happy-dom/jsdom don't implement it
-// realistically for colour-scheme queries.
+
+
+
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -68,9 +68,9 @@ describe("resolveTheme", () => {
   });
 
   it("follows system media query when preference is 'system'", () => {
-    stubMatchMedia(false); // system is light
+    stubMatchMedia(false);
     expect(resolveTheme("system")).toBe("light");
-    stubMatchMedia(true); // system flips to dark
+    stubMatchMedia(true);
     expect(resolveTheme("system")).toBe("dark");
   });
 });
@@ -100,7 +100,7 @@ describe("installThemeObserver", () => {
 
   it("removes .theme-light on <html> when preference is dark", () => {
     stubMatchMedia(true);
-    document.documentElement.classList.add("theme-light"); // pre-existing
+    document.documentElement.classList.add("theme-light");
     const dispose = installThemeObserver();
 
     setPreferences({
@@ -116,7 +116,7 @@ describe("installThemeObserver", () => {
   });
 
   it("in 'system' mode tracks OS flips live", () => {
-    const media = stubMatchMedia(false); // start light
+    const media = stubMatchMedia(false);
 
     setPreferences({
       theme: "system",
@@ -125,12 +125,12 @@ describe("installThemeObserver", () => {
     });
     const dispose = installThemeObserver();
 
-    // Under system=light the class should be present.
+
     expect(document.documentElement.classList.contains("theme-light")).toBe(
       true,
     );
 
-    // Flip the OS to dark; listener should strip the light class.
+
     media.setSystem(true);
     expect(document.documentElement.classList.contains("theme-light")).toBe(
       false,

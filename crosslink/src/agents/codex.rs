@@ -31,8 +31,6 @@ pub(super) fn build(
     match request.policy.sandbox {
         SandboxPosture::ReadOnly => args.extend(["--sandbox".into(), "read-only".into()]),
         SandboxPosture::WorkspaceWrite => {
-            // `--approve-for-me` selects Codex's reviewed workspace-write
-            // posture itself and Clap rejects a simultaneous `--sandbox`.
             if !automatic_review {
                 args.extend(["--sandbox".into(), "workspace-write".into()]);
             }
@@ -55,9 +53,6 @@ pub(super) fn build(
             args.extend(["--config".into(), "approval_policy=\"never\"".into()]);
         }
         ApprovalPolicy::AutoReview | ApprovalPolicy::Automatic => {
-            // Read-only planning needs no write escalation, while externally
-            // isolated execution already bypasses the inner sandbox. Only the
-            // host workspace-write posture uses automatic approval review.
             if request.policy.sandbox == SandboxPosture::WorkspaceWrite {
                 args.push("--approve-for-me".into());
             }

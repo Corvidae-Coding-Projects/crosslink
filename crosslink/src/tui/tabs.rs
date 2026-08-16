@@ -9,7 +9,6 @@ use ratatui::{
 
 use super::TabAction;
 
-/// A placeholder tab for features not yet implemented.
 pub struct PlaceholderTab {
     title: &'static str,
     phase: u8,
@@ -59,7 +58,6 @@ impl super::Tab for PlaceholderTab {
         }
     }
 
-    // Placeholder tabs have no state to initialize or tear down on focus changes.
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
 }

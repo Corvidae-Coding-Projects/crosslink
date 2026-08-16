@@ -15,10 +15,8 @@ pub fn run(command: StyleCommands, crosslink_dir: &Path) -> Result<()> {
     }
 }
 
-/// The marker comment that acknowledges intentional customization.
 const CUSTOM_MARKER: &str = "# crosslink:custom";
 
-/// House style configuration stored in the `house_style` field of `hook-config.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HouseStyleConfig {
     pub url: String,
@@ -43,21 +41,18 @@ fn default_components() -> Vec<String> {
     ]
 }
 
-/// Component directory mappings: (component name, source subdir in cache, target relative to project root)
 const COMPONENT_DIRS: &[(&str, &str, &str)] = &[
     ("rules", "rules", ".crosslink/rules"),
     ("hooks", "hooks", ".crosslink/integrations/hooks"),
     ("commands", "commands", ".claude/commands"),
 ];
 
-/// Read the current hook-config.json as a `serde_json::Value`.
 fn read_hook_config(crosslink_dir: &Path) -> Result<serde_json::Value> {
     let config_path = crosslink_dir.join("hook-config.json");
     let raw = fs::read_to_string(&config_path).context("Failed to read hook-config.json")?;
     serde_json::from_str(&raw).context("hook-config.json is not valid JSON")
 }
 
-/// Write a `serde_json::Value` back to hook-config.json.
 fn write_hook_config(crosslink_dir: &Path, value: &serde_json::Value) -> Result<()> {
     let config_path = crosslink_dir.join("hook-config.json");
     let mut output =
@@ -66,7 +61,6 @@ fn write_hook_config(crosslink_dir: &Path, value: &serde_json::Value) -> Result<
     fs::write(&config_path, output).context("Failed to write hook-config.json")
 }
 
-/// Extract the `HouseStyleConfig` from hook-config.json, if present.
 fn get_house_style(crosslink_dir: &Path) -> Result<Option<HouseStyleConfig>> {
     let config = read_hook_config(crosslink_dir)?;
     match config.get("house_style") {
@@ -79,7 +73,6 @@ fn get_house_style(crosslink_dir: &Path) -> Result<Option<HouseStyleConfig>> {
     }
 }
 
-/// Save the `HouseStyleConfig` into hook-config.json.
 fn set_house_style(crosslink_dir: &Path, hs: &HouseStyleConfig) -> Result<()> {
     let mut config = read_hook_config(crosslink_dir)?;
     let obj = config
@@ -92,7 +85,6 @@ fn set_house_style(crosslink_dir: &Path, hs: &HouseStyleConfig) -> Result<()> {
     write_hook_config(crosslink_dir, &config)
 }
 
-/// Remove the `house_style` field from hook-config.json.
 fn remove_house_style(crosslink_dir: &Path) -> Result<()> {
     let mut config = read_hook_config(crosslink_dir)?;
     let obj = config
@@ -102,17 +94,14 @@ fn remove_house_style(crosslink_dir: &Path) -> Result<()> {
     write_hook_config(crosslink_dir, &config)
 }
 
-/// Path to the style cache directory.
 fn cache_dir(crosslink_dir: &Path) -> std::path::PathBuf {
     crosslink_dir.join(".style-cache")
 }
 
-/// Clone or fetch the house style repo into the cache directory.
 fn fetch_style_repo(crosslink_dir: &Path, url: &str, ref_name: &str) -> Result<()> {
     let cache = cache_dir(crosslink_dir);
 
     if cache.join(".git").exists() {
-        // Already cloned — fetch and reset
         let fetch = std::process::Command::new("git")
             .args(["-C", &cache.to_string_lossy(), "fetch", "origin", ref_name])
             .output()
@@ -139,7 +128,6 @@ fn fetch_style_repo(crosslink_dir: &Path, url: &str, ref_name: &str) -> Result<(
             bail!("git reset failed: {}", stderr.trim());
         }
     } else {
-        // Fresh clone
         if cache.exists() {
             fs::remove_dir_all(&cache).context("Failed to clean existing cache directory")?;
         }
@@ -159,27 +147,23 @@ fn fetch_style_repo(crosslink_dir: &Path, url: &str, ref_name: &str) -> Result<(
     Ok(())
 }
 
-/// Check whether a file contains the `# crosslink:custom` marker.
 fn has_custom_marker(path: &Path) -> bool {
     fs::read_to_string(path).is_ok_and(|content| content.contains(CUSTOM_MARKER))
 }
 
-/// Result of comparing a source file against a deployed file.
 enum FileAction {
-    /// Files are identical — no action needed.
     Unchanged,
-    /// Deployed file has `# crosslink:custom` marker — skip.
+
     CustomMarker,
-    /// File differs and should be updated. Contains a description.
+
     Update(String),
-    /// File is new (doesn't exist locally).
+
     New,
 }
 
-/// Compare a source file from the cache against a deployed file.
 fn compare_files(source: &Path, deployed: &Path) -> FileAction {
     let Ok(source_content) = fs::read_to_string(source) else {
-        return FileAction::Unchanged; // source doesn't exist, nothing to do
+        return FileAction::Unchanged;
     };
 
     fs::read_to_string(deployed).map_or(FileAction::New, |deployed_content| {
@@ -203,7 +187,6 @@ fn compare_files(source: &Path, deployed: &Path) -> FileAction {
     })
 }
 
-/// Ensure .style-cache/ is in .crosslink/.gitignore.
 fn ensure_gitignore(crosslink_dir: &Path) -> Result<()> {
     let gitignore_path = crosslink_dir.join(".gitignore");
     let entry = ".style-cache/";
@@ -222,7 +205,6 @@ fn ensure_gitignore(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink style set <url> [--ref <branch-or-tag>]`
 pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()> {
     let ref_name = ref_name.unwrap_or("main");
 
@@ -233,14 +215,11 @@ pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()
     println!("Setting house style source: {url}");
     println!("  ref: {ref_name}");
 
-    // Ensure .style-cache/ is gitignored
     ensure_gitignore(crosslink_dir)?;
 
-    // Fetch the repo
     println!("  Fetching...");
     fetch_style_repo(crosslink_dir, url, ref_name)?;
 
-    // Validate it looks like a house style repo
     let cache = cache_dir(crosslink_dir);
     let has_content = cache.join("style.json").exists()
         || cache.join("rules").is_dir()
@@ -253,7 +232,6 @@ pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()
         println!("  Expected: rules/, hooks/, commands/, hook-config.json, or style.json");
     }
 
-    // Show style.json metadata if available
     if let Ok(raw) = fs::read_to_string(cache.join("style.json")) {
         if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) {
             if let Some(name) = meta.get("name").and_then(|v| v.as_str()) {
@@ -268,7 +246,6 @@ pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()
         }
     }
 
-    // Save config
     let hs = HouseStyleConfig {
         url: url.to_string(),
         ref_name: ref_name.to_string(),
@@ -281,7 +258,6 @@ pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()
     Ok(())
 }
 
-/// `crosslink style sync [--dry-run]`
 pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
     let hs = get_house_style(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No house style configured. Run 'crosslink style set <url>' first.")
@@ -297,7 +273,6 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
         println!("Syncing house style from {}", hs.url);
     }
 
-    // Fetch latest
     if !dry_run {
         println!("  Fetching latest...");
     }
@@ -307,7 +282,6 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
     let mut changed = 0u32;
     let mut skipped = 0u32;
 
-    // Sync directory-based components (rules, hooks, commands)
     for (component, src_subdir, target_rel) in COMPONENT_DIRS {
         if !hs.components.contains(&component.to_string()) {
             continue;
@@ -380,7 +354,6 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
         }
     }
 
-    // Sync config component (merge hook-config.json)
     if hs.components.contains(&"config".to_string()) {
         let remote_config_path = cache.join("hook-config.json");
         if remote_config_path.exists() {
@@ -400,7 +373,6 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
         }
     }
 
-    // Update last_synced timestamp
     if !dry_run {
         let mut updated_hs = hs;
         updated_hs.last_synced = Some(chrono::Utc::now().to_rfc3339());
@@ -417,12 +389,10 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// Result of merging hook-config.json.
 struct MergeResult {
     fields_updated: u32,
 }
 
-/// Merge remote hook-config.json fields into local, preserving `house_style` and local-only fields.
 fn merge_hook_config(
     crosslink_dir: &Path,
     remote_config_path: &Path,
@@ -443,7 +413,6 @@ fn merge_hook_config(
     let mut fields_updated = 0u32;
 
     for (key, remote_value) in remote_obj {
-        // Never overwrite the house_style section from remote
         if key == "house_style" {
             continue;
         }
@@ -466,7 +435,6 @@ fn merge_hook_config(
     Ok(MergeResult { fields_updated })
 }
 
-/// `crosslink style diff`
 pub fn diff(crosslink_dir: &Path) -> Result<()> {
     let hs = get_house_style(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No house style configured. Run 'crosslink style set <url>' first.")
@@ -481,12 +449,10 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
         bail!("Style cache not found. Run 'crosslink style sync' to fetch the house style first.");
     }
 
-    // Fetch latest for accurate comparison
     fetch_style_repo(crosslink_dir, &hs.url, &hs.ref_name)?;
 
     let mut drift_count = 0u32;
 
-    // Check directory-based components
     for (component, src_subdir, target_rel) in COMPONENT_DIRS {
         if !hs.components.contains(&component.to_string()) {
             continue;
@@ -532,7 +498,6 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // Check config component
     if hs.components.contains(&"config".to_string()) {
         let remote_config_path = cache.join("hook-config.json");
         if remote_config_path.exists() {
@@ -560,7 +525,6 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink style show`
 pub fn show(crosslink_dir: &Path) -> Result<()> {
     let Some(hs) = get_house_style(crosslink_dir)? else {
         println!("No house style configured.");
@@ -577,7 +541,6 @@ pub fn show(crosslink_dir: &Path) -> Result<()> {
     );
     println!("  Components: {}", hs.components.join(", "));
 
-    // Show style.json metadata if cache exists
     let cache = cache_dir(crosslink_dir);
     if let Ok(raw) = fs::read_to_string(cache.join("style.json")) {
         if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) {
@@ -597,7 +560,6 @@ pub fn show(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink style unset`
 pub fn unset(crosslink_dir: &Path) -> Result<()> {
     let hs = get_house_style(crosslink_dir)?;
     if hs.is_none() {
@@ -605,14 +567,12 @@ pub fn unset(crosslink_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // Remove cache directory
     let cache = cache_dir(crosslink_dir);
     if cache.exists() {
         fs::remove_dir_all(&cache).context("Failed to remove style cache")?;
         println!("Removed style cache.");
     }
 
-    // Remove house_style from config
     remove_house_style(crosslink_dir)?;
     println!("House style configuration removed.");
 

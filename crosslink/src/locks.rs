@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Custom serde for `HashMap`<i64, V> that serializes keys as strings for JSON
-/// backward compatibility (locks.json uses string keys on disk).
 mod string_key_map {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::HashMap;
@@ -33,7 +31,6 @@ mod string_key_map {
     }
 }
 
-/// A single issue lock entry in locks.json.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Lock {
     pub agent_id: String,
@@ -43,7 +40,6 @@ pub struct Lock {
     pub signed_by: String,
 }
 
-/// Settings embedded in locks.json.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LockSettings {
     #[serde(default = "default_stale_timeout")]
@@ -62,11 +58,10 @@ impl Default for LockSettings {
     }
 }
 
-/// The top-level locks.json structure.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocksFile {
     pub version: u32,
-    /// Map from issue ID to Lock.
+
     #[serde(with = "string_key_map")]
     pub locks: HashMap<i64, Lock>,
     #[serde(default)]
@@ -74,11 +69,6 @@ pub struct LocksFile {
 }
 
 impl LocksFile {
-    /// Load and parse a locks.json file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read or parsed as valid JSON.
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -87,19 +77,16 @@ impl LocksFile {
         Ok(locks)
     }
 
-    /// Check if a specific issue is locked.
     #[must_use]
     pub fn is_locked(&self, issue_id: i64) -> bool {
         self.locks.contains_key(&issue_id)
     }
 
-    /// Get the lock for a specific issue.
     #[must_use]
     pub fn get_lock(&self, issue_id: i64) -> Option<&Lock> {
         self.locks.get(&issue_id)
     }
 
-    /// Check if an issue is locked by a specific agent.
     #[must_use]
     pub fn is_locked_by(&self, issue_id: i64, agent_id: &str) -> bool {
         self.locks
@@ -107,7 +94,6 @@ impl LocksFile {
             .is_some_and(|l| l.agent_id == agent_id)
     }
 
-    /// List all issue IDs locked by a specific agent.
     #[must_use]
     pub fn agent_locks(&self, agent_id: &str) -> Vec<i64> {
         self.locks
@@ -117,7 +103,6 @@ impl LocksFile {
             .collect()
     }
 
-    /// Create an empty locks file.
     #[must_use]
     pub fn empty() -> Self {
         Self {
@@ -128,9 +113,6 @@ impl LocksFile {
     }
 }
 
-/// Heartbeat for an agent. In v3 the serialized form lives at `heartbeat.json`
-/// at the root of the agent's own ref (`refs/heads/crosslink/agents/<id>`); the legacy
-/// v2/V1 worktree heartbeat files used the same schema.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Heartbeat {
     pub agent_id: String,
@@ -172,8 +154,6 @@ mod tests {
             settings: LockSettings::default(),
         }
     }
-
-    // ==================== LocksFile Tests ====================
 
     #[test]
     fn test_empty_locks() {
@@ -268,8 +248,6 @@ mod tests {
         assert_eq!(locks.settings.stale_lock_timeout_minutes, 120);
     }
 
-    // ==================== Lock Tests ====================
-
     #[test]
     fn test_lock_json_roundtrip() {
         let lock = sample_lock();
@@ -292,8 +270,6 @@ mod tests {
         let parsed: Lock = serde_json::from_str(&json).unwrap();
         assert!(parsed.branch.is_none());
     }
-
-    // ==================== Heartbeat Tests ====================
 
     #[test]
     fn test_heartbeat_json_roundtrip() {
@@ -322,8 +298,6 @@ mod tests {
         let parsed: Heartbeat = serde_json::from_str(&json).unwrap();
         assert!(parsed.active_issue_id.is_none());
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

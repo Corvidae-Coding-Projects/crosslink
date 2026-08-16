@@ -1,5 +1,5 @@
-# Session Workflow — agent handoff across sessions
-# Output: docs_src/assets/img/session-workflow.gif
+
+
 
 Output ../assets/img/session-workflow.gif
 
@@ -15,7 +15,7 @@ Set TypingSpeed 35ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# --- Agent Session 1 ---
+
 Type "# ─── Agent Session 1: Start work ───"
 Enter
 Sleep 1s
@@ -40,7 +40,7 @@ Type `crosslink session end --notes "Dark mode 80% done. Toggle works, need to p
 Enter
 Sleep 3s
 
-# --- Agent Session 2: Picks up from handoff ---
+
 Type "# ─── Agent Session 2: New agent reads handoff and continues ───"
 Enter
 Sleep 1s

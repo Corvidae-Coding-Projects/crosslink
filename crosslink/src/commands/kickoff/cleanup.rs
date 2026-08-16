@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff cleanup: remove stale agent artifacts
 use anyhow::Result;
 use serde::Serialize;
 use std::path::Path;
@@ -8,10 +7,6 @@ use super::helpers::*;
 use super::monitor::discover_agents;
 use super::types::*;
 
-/// `crosslink kickoff cleanup`
-///
-/// Discover and remove stale kickoff agent artifacts: completed tmux sessions,
-/// worktrees with DONE sentinels, and orphaned worktrees whose sessions no longer exist.
 pub fn cleanup(
     crosslink_dir: &Path,
     dry_run: bool,
@@ -21,7 +16,6 @@ pub fn cleanup(
 ) -> Result<()> {
     let agents = discover_agents(crosslink_dir)?;
 
-    // Classify and separate active agents from removable ones
     let (active, removable): (Vec<_>, Vec<_>) = agents
         .into_iter()
         .map(|a| {
@@ -30,7 +24,6 @@ pub fn cleanup(
         })
         .partition(|(_, class)| *class == CleanupClass::Active);
 
-    // Without --force, only clean Done agents (not Stale)
     let (mut to_clean, skipped_stale): (Vec<_>, Vec<_>) = if force {
         (removable, vec![])
     } else {
@@ -39,19 +32,16 @@ pub fn cleanup(
             .partition(|(_, class)| *class == CleanupClass::Done)
     };
 
-    // Sort by worktree path (as a proxy for creation order) so --keep works predictably
     to_clean.sort_by(|a, b| a.0.worktree.cmp(&b.0.worktree));
 
-    // Apply --keep: keep the N most recent (last N items after sorting)
     let to_clean = if keep > 0 && to_clean.len() > keep {
         to_clean[..to_clean.len() - keep].to_vec()
     } else if keep > 0 && to_clean.len() <= keep {
-        vec![] // keep all
+        vec![]
     } else {
         to_clean
     };
 
-    // --- Dry-run / JSON output ---
     if json_output {
         #[derive(Serialize)]
         struct CleanupPlan {
@@ -102,7 +92,6 @@ pub fn cleanup(
     }
 
     if dry_run || !json_output {
-        // Print the plan
         if !to_clean.is_empty() {
             println!("Cleanup candidates:\n");
             for (agent, class) in &to_clean {
@@ -178,7 +167,6 @@ pub fn cleanup(
         println!();
     }
 
-    // --- Execute cleanup ---
     let mut results: Vec<CleanupResult> = Vec::new();
 
     for (agent, class) in &to_clean {
@@ -191,7 +179,6 @@ pub fn cleanup(
             error: None,
         };
 
-        // 1. Kill tmux session if it still exists
         if let Some(ref session_name) = agent.session {
             match Command::new("tmux")
                 .args(["kill-session", "-t", session_name])
@@ -217,7 +204,6 @@ pub fn cleanup(
             }
         }
 
-        // 2. Remove Docker/Podman container if present
         if let Some(ref container_name) = agent.docker {
             for runtime in &["docker", "podman"] {
                 if command_available(runtime) {
@@ -237,11 +223,6 @@ pub fn cleanup(
             }
         }
 
-        // 3. Reconcile the matching pipeline run row before the worktree
-        //    disappears (GH#614): once removed, lazy display reconcile can only
-        //    ever see it as "aborted". Capture the truth now from the agent's
-        //    terminal status — DONE → completed, failed → failed, anything else
-        //    (stale/timed-out/stopped) → aborted.
         if !agent.worktree.is_empty() {
             if let Some(root) = crosslink_dir.parent() {
                 let pipeline_status = match agent.status.as_str() {
@@ -257,7 +238,6 @@ pub fn cleanup(
             }
         }
 
-        // 4. Remove the git worktree
         if !agent.worktree.is_empty() && std::path::Path::new(&agent.worktree).exists() {
             match Command::new("git")
                 .args(["worktree", "remove", "--force", &agent.worktree])
@@ -290,7 +270,6 @@ pub fn cleanup(
         results.push(result);
     }
 
-    // --- Summary ---
     if json_output {
         println!("{}", serde_json::to_string_pretty(&results)?);
     } else {

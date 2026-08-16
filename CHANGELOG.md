@@ -813,7 +813,7 @@ First stable release. Promotes all changes from v0.1.3-beta.1 plus major new fea
 - House style syncing — `crosslink style set/sync/diff/show/unset` for portable project conventions ([GH-91])
 - Consolidated `crosslink config` command — show, get, set, list, reset, diff with typed validation
 - Typed comments and auto-documentation trail — comments carry `kind`, `trigger_type`, and `intervention_context`
-- Driver intervention tracking with `crosslink intervene` command
+- Driver intervention tracking with `crosslink issue intervene` command
 - cpitd (code clone detection) integration with `crosslink cpitd` command
 - Scope session queries to `agent_id` for multi-agent isolation
 - Crates.io publish CI workflow on release tags

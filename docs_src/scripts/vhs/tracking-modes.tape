@@ -1,5 +1,5 @@
-# Tracking Modes — strict vs normal vs relaxed comparison
-# Output: docs_src/assets/img/tracking-modes.gif
+
+
 
 Output ../assets/img/tracking-modes.gif
 
@@ -15,14 +15,14 @@ Set TypingSpeed 35ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# Agent checks its current enforcement level
+
 Type "# Agent checks current tracking mode"
 Enter
 Type "crosslink config get tracking_mode"
 Enter
 Sleep 2s
 
-# Show how modes affect agent behavior
+
 Type "# Strict: agent must have an active issue before writing code"
 Enter
 Type `crosslink config set tracking_mode strict`
@@ -41,7 +41,7 @@ Type `crosslink config set tracking_mode relaxed`
 Enter
 Sleep 2s
 
-# Reset to recommended default
+
 Type "# Reset to strict (recommended for multi-agent setups)"
 Enter
 Type `crosslink config set tracking_mode strict`

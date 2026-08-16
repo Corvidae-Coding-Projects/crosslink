@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Generate all documentation visual assets
-# Prerequisites: brew install vhs (for GIFs)
+
+
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="$SCRIPT_DIR/../assets/img"

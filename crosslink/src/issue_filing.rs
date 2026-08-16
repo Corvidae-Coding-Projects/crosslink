@@ -3,11 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::Command;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/// A ready-to-file GitHub issue built from a review finding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueTemplate {
     pub title: String,
@@ -15,14 +10,12 @@ pub struct IssueTemplate {
     pub labels: Vec<String>,
 }
 
-/// The outcome of a batch filing run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilingResult {
     pub filed: Vec<FiledIssue>,
     pub skipped: Vec<SkippedIssue>,
 }
 
-/// An issue that was successfully created on GitHub.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FiledIssue {
     pub number: u64,
@@ -30,16 +23,12 @@ pub struct FiledIssue {
     pub url: String,
 }
 
-/// An issue that was not filed (e.g. duplicate detected).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkippedIssue {
     pub title: String,
     pub reason: String,
 }
 
-/// Consolidated review finding ready for filing. Self-contained so this
-/// module can be developed independently of findings.rs — the types will be
-/// unified later.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindingForFiling {
     pub title: String,
@@ -51,17 +40,6 @@ pub struct FindingForFiling {
     pub consensus_count: usize,
 }
 
-// ---------------------------------------------------------------------------
-// Template building
-// ---------------------------------------------------------------------------
-
-/// Build a GitHub issue template from a review finding.
-///
-/// - Title is prefixed with the severity in brackets.
-/// - Body is structured markdown with Description, Location, Suggested Fix,
-///   and Metadata sections.
-/// - Labels are derived from severity: critical/high -> "bug", medium ->
-///   "enhancement", low/info -> "tech-debt". "review-finding" is always added.
 #[must_use]
 pub fn build_issue_template(finding: &FindingForFiling) -> IssueTemplate {
     let severity_upper = finding.severity.to_uppercase();
@@ -89,7 +67,7 @@ pub fn build_issue_template(finding: &FindingForFiling) -> IssueTemplate {
     let severity_label = match severity_upper.as_str() {
         "CRITICAL" | "HIGH" => "bug",
         "MEDIUM" => "enhancement",
-        _ => "tech-debt", // LOW, INFO, or anything else
+        _ => "tech-debt",
     };
 
     let labels = vec![severity_label.to_string(), "review-finding".to_string()];
@@ -101,15 +79,9 @@ pub fn build_issue_template(finding: &FindingForFiling) -> IssueTemplate {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Duplicate detection
-// ---------------------------------------------------------------------------
-
-/// Normalize a title for comparison: lowercase, strip leading `[SEVERITY]`
-/// prefix brackets, collapse whitespace.
 fn normalize_title(title: &str) -> String {
     let trimmed = title.trim().to_lowercase();
-    // Strip a leading "[…]" severity prefix if present.
+
     let without_prefix = if trimmed.starts_with('[') {
         match trimmed.find(']') {
             Some(idx) => trimmed[idx + 1..].trim_start().to_string(),
@@ -118,21 +90,19 @@ fn normalize_title(title: &str) -> String {
     } else {
         trimmed
     };
-    // Collapse multiple spaces.
+
     without_prefix
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-/// Extract the set of words from a string.
 fn word_set(s: &str) -> HashSet<String> {
     s.split_whitespace()
         .map(std::string::ToString::to_string)
         .collect()
 }
 
-/// Jaccard similarity between two word sets.
 fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     if a.is_empty() && b.is_empty() {
         return 1.0;
@@ -146,9 +116,6 @@ fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
         / f64::from(u32::try_from(union).unwrap_or(u32::MAX))
 }
 
-/// Check whether `title` is a likely duplicate of any entry in
-/// `existing_issues`. Uses normalized comparison and word-overlap Jaccard
-/// similarity with a threshold of 0.7.
 #[must_use]
 pub fn check_duplicate(title: &str, existing_issues: &[String]) -> bool {
     let norm = normalize_title(title);
@@ -157,17 +124,14 @@ pub fn check_duplicate(title: &str, existing_issues: &[String]) -> bool {
     for existing in existing_issues {
         let existing_norm = normalize_title(existing);
 
-        // Exact match after normalization.
         if norm == existing_norm {
             return true;
         }
 
-        // Substring containment (either direction).
         if norm.contains(&existing_norm) || existing_norm.contains(&norm) {
             return true;
         }
 
-        // Jaccard word-overlap.
         let existing_words = word_set(&existing_norm);
         if jaccard(&norm_words, &existing_words) > 0.7 {
             return true;
@@ -177,11 +141,6 @@ pub fn check_duplicate(title: &str, existing_issues: &[String]) -> bool {
     false
 }
 
-// ---------------------------------------------------------------------------
-// Filing via gh CLI
-// ---------------------------------------------------------------------------
-
-/// Fetch the titles of currently open issues from GitHub via `gh issue list`.
 fn fetch_existing_issue_titles() -> Result<Vec<String>> {
     let output = Command::new("gh")
         .args(["issue", "list", "--json", "title", "--limit", "500"])
@@ -205,7 +164,6 @@ fn fetch_existing_issue_titles() -> Result<Vec<String>> {
     Ok(titles)
 }
 
-/// Create a single issue via `gh issue create` and return `(number, url)`.
 fn create_issue_via_gh(template: &IssueTemplate) -> Result<(u64, String)> {
     let labels_arg = template.labels.join(",");
 
@@ -230,8 +188,6 @@ fn create_issue_via_gh(template: &IssueTemplate) -> Result<(u64, String)> {
 
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    // gh issue create prints the URL — extract the issue number from the
-    // trailing path segment (e.g. …/issues/42).
     let number = url
         .rsplit('/')
         .next()
@@ -241,19 +197,8 @@ fn create_issue_via_gh(template: &IssueTemplate) -> Result<(u64, String)> {
     Ok((number, url))
 }
 
-/// File issues for the given findings. Existing open issues are fetched first
-/// so duplicates can be detected and skipped.
-///
-/// When `dry_run` is true no issues are actually created — the result shows
-/// what *would* happen.
-/// # Errors
-///
-/// Returns an error if fetching existing issues or creating new issues fails.
 pub fn file_issues(findings: &[FindingForFiling], dry_run: bool) -> Result<FilingResult> {
     let existing_titles = if dry_run {
-        // In dry-run mode we still try to fetch existing issues so we can
-        // report duplicates accurately, but we don't fail if gh is
-        // unavailable.
         fetch_existing_issue_titles().unwrap_or_default()
     } else {
         fetch_existing_issue_titles()?
@@ -292,14 +237,9 @@ pub fn file_issues(findings: &[FindingForFiling], dry_run: bool) -> Result<Filin
     Ok(FilingResult { filed, skipped })
 }
 
-/// File issues with a summary table printed to stdout afterwards.
-/// # Errors
-///
-/// Returns an error if issue filing or retrieval fails.
 pub fn file_issues_batch(findings: &[FindingForFiling], dry_run: bool) -> Result<FilingResult> {
     let result = file_issues(findings, dry_run)?;
 
-    // -- Summary table -------------------------------------------------------
     if dry_run {
         println!("=== Dry Run Summary ===");
     } else {
@@ -333,15 +273,9 @@ pub fn file_issues_batch(findings: &[FindingForFiling], dry_run: bool) -> Result
     Ok(result)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // -- build_issue_template ------------------------------------------------
 
     fn make_finding(severity: &str) -> FindingForFiling {
         FindingForFiling {
@@ -405,8 +339,6 @@ mod tests {
         assert!(tmpl.body.contains("**Consensus count**: 3"));
     }
 
-    // -- label mapping -------------------------------------------------------
-
     #[test]
     fn labels_critical_maps_to_bug() {
         let tmpl = build_issue_template(&make_finding("critical"));
@@ -449,8 +381,6 @@ mod tests {
         }
     }
 
-    // -- check_duplicate -----------------------------------------------------
-
     #[test]
     fn duplicate_exact_match() {
         let existing = vec!["[HIGH] Buffer overflow in parser".to_string()];
@@ -480,7 +410,6 @@ mod tests {
 
     #[test]
     fn duplicate_close_match_via_jaccard() {
-        // Same core words, minor variation — should exceed 0.7 Jaccard.
         let existing = vec!["Buffer overflow found in the parser module".to_string()];
         assert!(check_duplicate(
             "[HIGH] Buffer overflow in parser module",
@@ -520,8 +449,6 @@ mod tests {
         let existing: Vec<String> = vec![];
         assert!(!check_duplicate("[HIGH] Something", &existing));
     }
-
-    // -- serde roundtrip -----------------------------------------------------
 
     #[test]
     fn issue_template_serde_roundtrip() {
@@ -564,8 +491,6 @@ mod tests {
         assert_eq!(parsed.line, Some(42));
     }
 
-    // -- normalize_title (internal) ------------------------------------------
-
     #[test]
     fn normalize_strips_prefix_and_lowercases() {
         assert_eq!(normalize_title("[HIGH] Buffer Overflow"), "buffer overflow");
@@ -583,8 +508,6 @@ mod tests {
 
     #[test]
     fn normalize_unclosed_bracket_treated_as_no_prefix() {
-        // A title that starts with '[' but has no ']' should fall through to
-        // the None arm and keep the entire (lowercased) string.
         assert_eq!(
             normalize_title("[unclosed bracket title"),
             "[unclosed bracket title"
@@ -600,8 +523,6 @@ mod tests {
     fn normalize_only_whitespace() {
         assert_eq!(normalize_title("   "), "");
     }
-
-    // -- jaccard (internal) --------------------------------------------------
 
     #[test]
     fn jaccard_both_empty_returns_one() {
@@ -637,7 +558,7 @@ mod tests {
             .iter()
             .map(std::string::ToString::to_string)
             .collect();
-        // intersection = {b,c} = 2, union = {a,b,c,d} = 4 => 0.5
+
         let score = jaccard(&a, &b);
         assert!(
             (score - 0.5).abs() < f64::EPSILON,
@@ -652,11 +573,8 @@ mod tests {
         assert!((jaccard(&a, &b)).abs() < f64::EPSILON);
     }
 
-    // -- check_duplicate: substring containment paths -----------------------
-
     #[test]
     fn duplicate_via_substring_norm_contains_existing() {
-        // norm ("buffer overflow in parser") contains existing ("buffer overflow")
         let existing = vec!["buffer overflow".to_string()];
         assert!(check_duplicate(
             "[HIGH] Buffer overflow in parser",
@@ -666,7 +584,6 @@ mod tests {
 
     #[test]
     fn duplicate_via_substring_existing_contains_norm() {
-        // existing is longer and contains norm
         let existing = vec!["buffer overflow in parser module for all inputs".to_string()];
         assert!(check_duplicate(
             "[HIGH] Buffer overflow in parser",
@@ -676,15 +593,12 @@ mod tests {
 
     #[test]
     fn no_duplicate_when_below_jaccard_threshold() {
-        // Only 1 word overlap out of many unique words -> Jaccard < 0.7
         let existing = vec!["completely unrelated title about networking".to_string()];
         assert!(!check_duplicate(
             "[HIGH] Buffer overflow in parser",
             &existing
         ));
     }
-
-    // -- file_issues (dry_run mode, no gh required) --------------------------
 
     #[test]
     fn file_issues_dry_run_empty_findings() {
@@ -705,7 +619,7 @@ mod tests {
             consensus_count: 1,
         }];
         let result = file_issues(&findings, true).unwrap();
-        // gh is unavailable in test env so existing_titles will be empty (unwrap_or_default)
+
         assert_eq!(result.filed.len(), 1);
         assert_eq!(result.filed[0].number, 0);
         assert_eq!(result.filed[0].url, "(dry run)");
@@ -714,11 +628,6 @@ mod tests {
 
     #[test]
     fn file_issues_dry_run_skips_duplicate_against_empty_existing() {
-        // With dry_run, existing_titles comes from gh (empty on failure).
-        // Two identical findings: first is filed, second is a duplicate of the
-        // *template title* already in filed — but note: check_duplicate only
-        // compares against `existing_titles` fetched from gh, NOT against
-        // already-filed titles in this run.  So both will be filed (number=0).
         let finding = FindingForFiling {
             title: "Duplicate finding".to_string(),
             severity: "low".to_string(),
@@ -730,7 +639,7 @@ mod tests {
         };
         let findings = vec![finding.clone(), finding];
         let result = file_issues(&findings, true).unwrap();
-        // Both filed because existing_titles is empty (gh unavailable)
+
         assert_eq!(result.filed.len(), 2);
     }
 
@@ -753,11 +662,8 @@ mod tests {
         assert!(result.skipped.is_empty());
     }
 
-    // -- file_issues_batch (dry_run mode, no gh required) -------------------
-
     #[test]
     fn file_issues_batch_dry_run_empty() {
-        // Should succeed with empty filed/skipped and print dry-run summary.
         let result = file_issues_batch(&[], true).unwrap();
         assert!(result.filed.is_empty());
         assert!(result.skipped.is_empty());
@@ -790,8 +696,6 @@ mod tests {
         assert!(result.skipped.is_empty());
     }
 
-    // -- build_issue_template: additional body content assertions -----------
-
     #[test]
     fn template_body_contains_source_metadata() {
         let tmpl = build_issue_template(&make_finding("high"));
@@ -818,13 +722,10 @@ mod tests {
 
     #[test]
     fn template_unknown_severity_maps_to_tech_debt() {
-        // Any severity that is not critical/high/medium should get "tech-debt"
         let tmpl = build_issue_template(&make_finding("unknown"));
         assert!(tmpl.labels.contains(&"tech-debt".to_string()));
         assert!(tmpl.labels.contains(&"review-finding".to_string()));
     }
-
-    // -- FilingResult / FiledIssue / SkippedIssue field coverage ------------
 
     #[test]
     fn filed_issue_fields_accessible() {
@@ -858,14 +759,12 @@ mod tests {
         assert!(result.skipped.is_empty());
     }
 
-    // -- Clone / Debug derives -----------------------------------------------
-
     #[test]
     fn issue_template_clone_and_debug() {
         let tmpl = build_issue_template(&make_finding("high"));
         let cloned = tmpl.clone();
         assert_eq!(cloned.title, tmpl.title);
-        // Debug formatting should not panic
+
         let _ = format!("{tmpl:?}");
     }
 
@@ -911,26 +810,17 @@ mod tests {
         let _ = format!("{r:?}");
     }
 
-    // -- file_issues non-dry-run with empty findings (covers line 251, 295) --
-
     #[test]
     fn file_issues_non_dry_run_empty_findings_succeeds() {
-        // With no findings to iterate, file_issues must only call
-        // fetch_existing_issue_titles (line 251 branch) and return an empty result
-        // without invoking create_issue_via_gh. Requires `gh` to be available.
         let result = file_issues(&[], false);
         if let Ok(r) = result {
             assert!(r.filed.is_empty());
             assert!(r.skipped.is_empty());
         }
-        // If gh is unavailable the test is silently skipped; when it is available
-        // it exercises the non-dry-run fetch path (line 251).
     }
 
     #[test]
     fn file_issues_batch_non_dry_run_empty_prints_filing_summary() {
-        // Exercises the `else` branch of `if dry_run` in file_issues_batch
-        // (line 295: "=== Filing Summary ===") without touching create_issue_via_gh.
         let result = file_issues_batch(&[], false);
         if let Ok(r) = result {
             assert!(r.filed.is_empty());
@@ -938,15 +828,8 @@ mod tests {
         }
     }
 
-    // -- skipped path via duplicate of existing gh issue (lines 261-263, 310-312) --
-
     #[test]
     fn file_issues_dry_run_skips_when_matches_existing_gh_issue() {
-        // "Release v0.5.0" is an open issue on this repo.  After stripping the
-        // severity prefix the normalized title becomes "release v0.5.0" — an exact
-        // match against the normalized form of the existing issue title.
-        // If that issue no longer exists the finding is simply filed (no panic),
-        // so the test is still correct.
         let finding = FindingForFiling {
             title: "Release v0.5.0".to_string(),
             severity: "high".to_string(),
@@ -957,15 +840,12 @@ mod tests {
             consensus_count: 1,
         };
         let result = file_issues(&[finding], true).unwrap();
-        // Either skipped (duplicate matched) or filed (issue was closed); either
-        // is acceptable, but one of them must be non-empty.
+
         assert_eq!(result.filed.len() + result.skipped.len(), 1);
     }
 
     #[test]
     fn file_issues_batch_dry_run_prints_skipped_section() {
-        // Supply a finding that matches an existing open issue so that the skipped
-        // section (lines 310-312 in file_issues_batch) is printed.
         let finding = FindingForFiling {
             title: "Release v0.5.0".to_string(),
             severity: "medium".to_string(),
@@ -979,13 +859,8 @@ mod tests {
         assert_eq!(result.filed.len() + result.skipped.len(), 1);
     }
 
-    // -- file_issues: non-dry-run with all-duplicate findings (covers 261-263) --
-
     #[test]
     fn file_issues_non_dry_run_all_duplicates_never_calls_create() {
-        // When every finding is a duplicate of an existing open issue,
-        // create_issue_via_gh is never reached.  This exercises line 251 (non-dry-run
-        // fetch) and lines 261-263 (skipped push) without creating any real issues.
         let finding = FindingForFiling {
             title: "Release v0.5.0".to_string(),
             severity: "critical".to_string(),
@@ -996,18 +871,14 @@ mod tests {
             consensus_count: 2,
         };
         let result = file_issues(&[finding], false);
-        // If gh is unavailable or the issue was closed this simply asserts filed+skipped==1.
+
         if let Ok(r) = result {
             assert_eq!(r.filed.len() + r.skipped.len(), 1);
         }
     }
 
-    // -- jaccard: union==0 guard (line 140) -----------------------------------
-
     #[test]
     fn jaccard_one_non_empty_one_empty_does_not_divide_by_zero() {
-        // When exactly one set is non-empty, union > 0 so the `if union == 0`
-        // guard on line 139 is false; intersection is 0; result is 0.
         let a: HashSet<String> = std::iter::once("only".to_string()).collect();
         let b: HashSet<String> = HashSet::new();
         let score = jaccard(&a, &b);

@@ -87,7 +87,7 @@ Research done by one agent is available to all. Shared markdown knowledge pages 
 ![](assets/img/cards/containers.svg){.card-icon}
 
 ### Container Agents
-Run agents in isolated Docker containers for stronger sandboxing. Same hook enforcement, same coordination — works cross-platform.
+Run agents in isolated Docker containers for stronger sandboxing. The same repository hooks and coordination work cross-platform.
 :::
 
 ::: {.feature-card}

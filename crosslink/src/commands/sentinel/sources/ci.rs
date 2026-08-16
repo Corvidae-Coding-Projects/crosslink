@@ -5,7 +5,6 @@ use std::process::Command;
 
 use super::{Signal, SignalKind, Source, SourceKind};
 
-/// A GitHub Actions workflow run as returned by `gh run list --json`.
 #[derive(Debug, Deserialize)]
 struct GhRun {
     #[serde(rename = "databaseId")]
@@ -19,7 +18,6 @@ struct GhRun {
     url: Option<String>,
 }
 
-/// Polls GitHub Actions for failed workflow runs on the default branch.
 pub struct GitHubCISource {
     default_branch: Option<String>,
 }
@@ -31,7 +29,6 @@ impl GitHubCISource {
         }
     }
 
-    /// Detect the default branch via `gh repo view`.
     fn detect_default_branch(&mut self) -> Result<String> {
         if let Some(ref branch) = self.default_branch {
             return Ok(branch.clone());

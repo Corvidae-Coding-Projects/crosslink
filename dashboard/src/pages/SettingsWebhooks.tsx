@@ -1,17 +1,17 @@
-// /settings/webhooks — outbound alert-delivery configuration
-// (design doc §14 Phase 5 — webhook alerting).
-//
-// The dashboard fires a POST at each configured URL whenever an alert
-// transitions from "not derived" → "derived". Users paste Slack /
-// Discord / generic-JSON endpoints here. The backend routes the
-// payload shape based on the URL host — see
-// crosslink/src/dashboard/webhook.rs.
+
+
+
+
+
+
+
+
 
 import { useEffect, useState } from "react";
 
 import { useWebhooks, useSetWebhooks } from "@/api/client";
 
-/// Trim-aware dedupe that preserves first-occurrence order.
+
 function normalize(urls: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -28,8 +28,8 @@ export function SettingsWebhooks() {
   const loaded = useWebhooks();
   const save = useSetWebhooks();
 
-  // Local draft list the user edits; synced from server data once on
-  // first load and whenever a fresh refetch arrives while not saving.
+
+
   const [draft, setDraft] = useState<string[]>([]);
   const [newUrl, setNewUrl] = useState("");
 

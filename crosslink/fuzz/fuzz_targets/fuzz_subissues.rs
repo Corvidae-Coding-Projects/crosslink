@@ -1,9 +1,9 @@
 #![no_main]
 
-//! Fuzz target for subissue (parent-child) operations.
-//!
-//! Tests create_subissue, get_subissues, update_parent with arbitrary
-//! nesting and reparenting sequences.
+
+
+
+
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
@@ -93,7 +93,7 @@ fuzz_target!(|input: SubissueInput| {
         }
     }
 
-    // Final consistency checks
+
     let _ = db.list_issues(None, None, None);
     for id in &issue_ids {
         let _ = db.get_issue(*id);

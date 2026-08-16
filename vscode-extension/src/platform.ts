@@ -16,10 +16,10 @@ export interface PlatformInfo {
 
 let _cachedPlatformInfo: PlatformInfo | null = null;
 
-/**
- * Detects the current OS and architecture to select the correct binary.
- * Result is cached since platform info never changes during a process lifetime.
- */
+
+
+
+
 export function detectPlatform(): PlatformInfo {
     if (_cachedPlatformInfo) {
         return _cachedPlatformInfo;
@@ -28,17 +28,17 @@ export function detectPlatform(): PlatformInfo {
     const platform = os.platform() as Platform;
     const arch = os.arch() as Architecture;
 
-    // Validate supported platforms
+
     if (!['win32', 'linux', 'darwin'].includes(platform)) {
         throw new Error(`Unsupported platform: ${platform}`);
     }
 
-    // Validate supported architectures
+
     if (!['x64', 'arm64'].includes(arch)) {
         throw new Error(`Unsupported architecture: ${arch}`);
     }
 
-    // Determine binary name based on platform
+
     const binaryName = getBinaryName(platform, arch);
     const requiresChmod = platform !== 'win32';
 
@@ -51,9 +51,9 @@ export function detectPlatform(): PlatformInfo {
     return _cachedPlatformInfo;
 }
 
-/**
- * Gets the binary filename for the given platform and architecture.
- */
+
+
+
 function getBinaryName(platform: Platform, arch: Architecture): string {
     const archSuffix = arch === 'arm64' ? '-arm64' : '';
 
@@ -69,15 +69,15 @@ function getBinaryName(platform: Platform, arch: Architecture): string {
     }
 }
 
-/**
- * Resolves the path to the crosslink binary.
- *
- * @param extensionPath - The path to the extension directory
- * @param overridePath - Optional user-configured override path
- * @returns The absolute path to the binary
- */
+
+
+
+
+
+
+
 export function resolveBinaryPath(extensionPath: string, overridePath?: string): string {
-    // If user has configured an override, use it
+
     if (overridePath && overridePath.trim() !== '') {
         const resolved = path.resolve(overridePath);
         if (!fs.existsSync(resolved)) {
@@ -86,7 +86,7 @@ export function resolveBinaryPath(extensionPath: string, overridePath?: string):
         return resolved;
     }
 
-    // Use bundled binary
+
     const platformInfo = detectPlatform();
     const binaryPath = path.join(extensionPath, 'bin', platformInfo.binaryName);
 
@@ -100,28 +100,28 @@ export function resolveBinaryPath(extensionPath: string, overridePath?: string):
     return binaryPath;
 }
 
-/**
- * Ensures the binary has execute permissions on Unix systems.
- * Must be called before attempting to spawn the binary on Linux/macOS.
- *
- * @param binaryPath - Path to the binary
- */
+
+
+
+
+
+
 export function ensureExecutable(binaryPath: string): void {
     const platformInfo = detectPlatform();
 
     if (!platformInfo.requiresChmod) {
-        // Windows doesn't need chmod
+
         return;
     }
 
     try {
-        // Check current permissions
+
         const stats = fs.statSync(binaryPath);
         const isExecutable = (stats.mode & fs.constants.S_IXUSR) !== 0;
 
         if (!isExecutable) {
-            // Add execute permission for owner, group, and others
-            // Mode 0o755: rwxr-xr-x
+
+
             chmodSync(binaryPath, 0o755);
         }
     } catch (error) {
@@ -131,12 +131,12 @@ export function ensureExecutable(binaryPath: string): void {
     }
 }
 
-/**
- * Verifies the SHA256 checksum of a bundled binary.
- *
- * If no .sha256 file exists (dev build or user-configured override),
- * verification is silently skipped.
- */
+
+
+
+
+
+
 export function verifyBinaryChecksum(binaryPath: string): void {
     const checksumPath = binaryPath + '.sha256';
     if (!fs.existsSync(checksumPath)) {
@@ -155,10 +155,10 @@ export function verifyBinaryChecksum(binaryPath: string): void {
     }
 }
 
-/**
- * Validates that all required binaries are present for the current platform.
- * Useful for extension activation checks.
- */
+
+
+
+
 export function validateBinaries(extensionPath: string): { valid: boolean; error?: string } {
     try {
         const binaryPath = resolveBinaryPath(extensionPath);

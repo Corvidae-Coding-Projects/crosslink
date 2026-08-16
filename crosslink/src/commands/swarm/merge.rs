@@ -1,6 +1,3 @@
-// Swarm merge orchestration: discover worktrees, detect conflicts,
-// compute merge order, and apply diffs.
-
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -8,13 +5,8 @@ use super::io::*;
 use super::types::*;
 use crate::sync::SyncManager;
 
-/// Default base refs to try, in priority order.
 const BASE_REFS: &[&str] = &["develop", "main", "origin/develop", "origin/main"];
 
-/// Detect the base branch by checking which ref exists in the given directory.
-///
-/// Tries `develop`, `main`, `origin/develop`, `origin/main` in order and
-/// returns the first one that resolves. Returns `None` if none exist.
 fn detect_base_branch(repo_dir: &Path) -> Option<String> {
     for base in BASE_REFS {
         let ok = std::process::Command::new("git")
@@ -31,7 +23,6 @@ fn detect_base_branch(repo_dir: &Path) -> Option<String> {
     None
 }
 
-/// Discover agent worktrees that have commits beyond the base branch.
 fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
     let worktrees_dir = repo_root.join(".worktrees");
     if !worktrees_dir.is_dir() {
@@ -53,7 +44,6 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
 
         let slug = entry.file_name().to_string_lossy().to_string();
 
-        // Get changed files relative to the base branch.
         let Some(base) = detect_base_branch(&wt_path) else {
             continue;
         };
@@ -79,7 +69,6 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
             continue;
         }
 
-        // Count commits beyond base branch
         let commit_count = std::process::Command::new("git")
             .current_dir(&wt_path)
             .args(["log", "--oneline", &format!("{base}..HEAD")])
@@ -99,10 +88,6 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
     Ok(sources)
 }
 
-/// Extract line ranges modified by a diff for a specific file in a worktree.
-///
-/// Tries multiple base refs (develop, main, origin/develop, origin/main) to handle
-/// worktrees created from different bases, matching `discover_worktrees` behavior.
 fn extract_diff_ranges(worktree: &Path, file: &str) -> Result<Vec<(usize, usize)>> {
     let base = detect_base_branch(worktree)
         .ok_or_else(|| anyhow::anyhow!("No base ref available for diff"))?;
@@ -120,9 +105,7 @@ fn extract_diff_ranges(worktree: &Path, file: &str) -> Result<Vec<(usize, usize)
     let mut ranges = Vec::new();
 
     for line in stdout.lines() {
-        // Parse unified diff hunk headers: @@ -start,count +start,count @@
         if let Some(rest) = line.strip_prefix("@@ ") {
-            // Extract the +start,count part (new file ranges)
             if let Some(plus_part) = rest.split(' ').find(|s| s.starts_with('+')) {
                 let nums = plus_part.trim_start_matches('+');
                 let parts: Vec<&str> = nums.split(',').collect();
@@ -147,7 +130,6 @@ fn extract_diff_ranges(worktree: &Path, file: &str) -> Result<Vec<(usize, usize)
     Ok(ranges)
 }
 
-/// Check if two sets of line ranges overlap.
 pub(super) fn ranges_overlap(a: &[(usize, usize)], b: &[(usize, usize)]) -> bool {
     for &(a_start, a_end) in a {
         for &(b_start, b_end) in b {
@@ -159,9 +141,7 @@ pub(super) fn ranges_overlap(a: &[(usize, usize)], b: &[(usize, usize)]) -> bool
     false
 }
 
-/// Detect file conflicts between multiple merge sources.
 pub(super) fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict> {
-    // Build map: file -> list of agent slugs that modified it
     let mut file_agents: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
 
@@ -181,11 +161,9 @@ pub(super) fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict
             continue;
         }
 
-        // Build a lookup for worktree paths by agent slug
         let slug_to_source: std::collections::HashMap<&str, &MergeSource> =
             sources.iter().map(|s| (s.agent_slug.as_str(), s)).collect();
 
-        // Check if we can determine overlap by inspecting diff ranges
         let mut all_ranges: Vec<(&str, Vec<(usize, usize)>)> = Vec::new();
         let mut range_extraction_ok = true;
 
@@ -195,12 +173,7 @@ pub(super) fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict
                     Ok(ranges) if !ranges.is_empty() => {
                         all_ranges.push((agent_slug.as_str(), ranges));
                     }
-                    Ok(_) => {
-                        // Empty ranges could mean the file was created or binary
-                        range_extraction_ok = false;
-                        break;
-                    }
-                    Err(_) => {
+                    Ok(_) | Err(_) => {
                         range_extraction_ok = false;
                         break;
                     }
@@ -209,7 +182,6 @@ pub(super) fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict
         }
 
         let conflict_type = if range_extraction_ok {
-            // Check pairwise for overlapping ranges
             let mut has_overlap = false;
             'outer: for i in 0..all_ranges.len() {
                 for j in (i + 1)..all_ranges.len() {
@@ -225,7 +197,6 @@ pub(super) fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict
                 ConflictType::NonOverlapping
             }
         } else {
-            // If we can't extract ranges, check if file is new in any worktree
             ConflictType::CreateModify
         };
 
@@ -239,15 +210,12 @@ pub(super) fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict
     conflicts
 }
 
-/// Compute merge order: non-conflicting agents first, then non-overlapping, then overlapping.
 pub(super) fn compute_merge_order(
     sources: &[MergeSource],
     conflicts: &[FileConflict],
 ) -> Vec<String> {
-    // Classify each agent's worst conflict level
     let mut agent_worst: std::collections::BTreeMap<&str, u8> = std::collections::BTreeMap::new();
 
-    // Start all agents at level 0 (no conflicts)
     for source in sources {
         agent_worst.insert(&source.agent_slug, 0);
     }
@@ -267,14 +235,12 @@ pub(super) fn compute_merge_order(
         }
     }
 
-    // Sort: lowest conflict level first, then alphabetically for stability
     let mut order: Vec<(&str, u8)> = agent_worst.into_iter().collect();
     order.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
 
     order.iter().map(|(slug, _)| slug.to_string()).collect()
 }
 
-/// Orchestrate merging agent worktree changes into a single branch.
 pub fn merge(
     crosslink_dir: &Path,
     branch: &str,
@@ -286,7 +252,6 @@ pub fn merge(
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
 
-    // Resolve the base branch — explicit flag, or auto-detect from repo
     let resolved_base = base_branch
         .map(ToString::to_string)
         .or_else(|| detect_base_branch(repo_root))
@@ -297,7 +262,6 @@ pub fn merge(
             )
         })?;
 
-    // Discover agent worktrees with changes
     let mut sources = discover_worktrees(repo_root)?;
 
     if sources.is_empty() {
@@ -305,7 +269,6 @@ pub fn merge(
         return Ok(());
     }
 
-    // Filter by agent slugs if --agents provided
     if let Some(filter) = agents_filter {
         let slugs: std::collections::HashSet<&str> = filter.split(',').map(str::trim).collect();
         sources.retain(|s| slugs.contains(s.agent_slug.as_str()));
@@ -314,13 +277,10 @@ pub fn merge(
         }
     }
 
-    // Detect file conflicts
     let conflicts = detect_file_conflicts(&sources);
 
-    // Compute merge order
     let merge_order = compute_merge_order(&sources, &conflicts);
 
-    // Build the merge plan
     let plan = MergePlan {
         target_branch: branch.to_string(),
         agents: sources.clone(),
@@ -328,7 +288,6 @@ pub fn merge(
         merge_order: merge_order.clone(),
     };
 
-    // Print summary
     println!("Merge Plan");
     println!("==========");
     println!("Target branch: {branch}");
@@ -339,7 +298,6 @@ pub fn merge(
     );
     println!();
 
-    // Agent details table
     println!("Agent Worktrees:");
     for source in &sources {
         println!(
@@ -357,7 +315,6 @@ pub fn merge(
     }
     println!();
 
-    // Conflict analysis
     if conflicts.is_empty() {
         println!("Conflicts:     none detected");
     } else {
@@ -395,14 +352,12 @@ pub fn merge(
     }
     println!();
 
-    // Merge order
     println!("Merge order:");
     for (i, slug) in merge_order.iter().enumerate() {
         println!("  {}. {}", i + 1, slug);
     }
     println!();
 
-    // Persist the plan to hub branch
     let sync = SyncManager::new(crosslink_dir)?;
     if sync.is_initialized() {
         sync.fetch()?;
@@ -424,7 +379,6 @@ pub fn merge(
         return Ok(());
     }
 
-    // Create the target branch from the resolved base
     let create_branch = std::process::Command::new("git")
         .current_dir(repo_root)
         .args(["checkout", "-b", branch, &resolved_base])
@@ -435,7 +389,7 @@ pub fn merge(
         println!("Created branch '{branch}' from {resolved_base}.");
     } else {
         let stderr = String::from_utf8_lossy(&create_branch.stderr);
-        // If branch already exists, try to check it out
+
         if stderr.contains("already exists") {
             let checkout = std::process::Command::new("git")
                 .current_dir(repo_root)
@@ -455,7 +409,6 @@ pub fn merge(
         }
     }
 
-    // Apply each agent's diff in merge order
     let slug_to_source: std::collections::HashMap<&str, &MergeSource> =
         sources.iter().map(|s| (s.agent_slug.as_str(), s)).collect();
 
@@ -469,7 +422,6 @@ pub fn merge(
 
         println!("Applying changes from '{slug}'...");
 
-        // Generate the diff from the agent's worktree
         let diff_output = std::process::Command::new("git")
             .current_dir(&source.worktree_path)
             .args(["diff", &format!("{resolved_base}...HEAD")])
@@ -492,7 +444,6 @@ pub fn merge(
             continue;
         }
 
-        // Apply the diff using git apply
         let mut apply_cmd = std::process::Command::new("git")
             .current_dir(repo_root)
             .args(["apply", "--3way", "--stat", "-"])
@@ -518,7 +469,6 @@ pub fn merge(
             );
             failed.push(slug.clone());
 
-            // INTENTIONAL: checkout to abort partial apply is best-effort — next agent's diff will be applied fresh
             let _ = std::process::Command::new("git")
                 .current_dir(repo_root)
                 .args(["checkout", "."])
@@ -526,7 +476,6 @@ pub fn merge(
             continue;
         }
 
-        // INTENTIONAL: staging is best-effort — commit below will capture whatever was staged
         let _ = std::process::Command::new("git")
             .current_dir(repo_root)
             .args(["add", "-A"])

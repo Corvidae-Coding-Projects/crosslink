@@ -107,7 +107,7 @@ When `true`, agents automatically steal locks from agents with stale heartbeats.
 
 ### `reminder_drift_threshold`
 
-Number of drift events before hooks escalate reminder frequency. Default: `3`.
+Number of prompt events between prompt-hook reminders. Default: `3`.
 
 ### `gated_git_commands`
 
@@ -147,7 +147,8 @@ Explicit absolute path to the `crosslink` binary used by the Python hook scripts
 
 ### `context_budget_chars`
 
-Estimated character budget the `prompt-guard.py` hook uses to warn before context exhaustion. Integer. Default: `1000000` (1M chars, roughly aligned with a 200k-token window). Set to `0` (or any non-positive value) to disable the guard entirely.
+Estimated character budget used by the prompt hook's context counter. Integer.
+The default is `1000000`; a non-positive value disables the budget check.
 
 ### `kickoff.allowed_tools`
 

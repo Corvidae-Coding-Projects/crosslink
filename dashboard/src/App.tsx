@@ -1,7 +1,7 @@
-// App shell for the multi-project dashboard (GH #429).
-// Wires the QueryClient + BrowserRouter and hands off to the
-// top-level routes. Real SCADA layout (sidebar, global alert rail,
-// terminal list) lands in later P1.* subissues.
+
+
+
+
 
 import { useEffect } from "react";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -29,17 +29,17 @@ import { Terminals } from "@/pages/Terminals";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Errors bubble to components; no auto-retry on 4xx noise.
+
       retry: false,
       refetchOnWindowFocus: false,
     },
   },
 });
 
-/// Keeps a WebSocket subscription alive for the app's lifetime.
-/// Any server-emitted dashboard event invalidates the relevant
-/// React Query cache entries so tiles refresh without waiting for
-/// the 5-second polling fallback.
+
+
+
+
 function DashboardWsBridge() {
   const client = useQueryClient();
   useEffect(() => {
@@ -48,17 +48,17 @@ function DashboardWsBridge() {
   return null;
 }
 
-/// Mounts the alert-sound bridge for the app lifetime. Split from
-/// DashboardWsBridge so it can be disabled in isolation during tests.
+
+
 function AlertSoundBridge() {
   useEffect(() => installAlertSoundBridge(), []);
   return null;
 }
 
-/// One-click light/dark toggle in the nav. Leaves "system" mode alone
-/// unless the user wanted it; first click from "system" picks the
-/// opposite of what's currently rendered so the visible change is
-/// immediate.
+
+
+
+
 function ThemeToggleButton() {
   const prefs = usePreferences();
   const resolved = resolveTheme(prefs.theme);

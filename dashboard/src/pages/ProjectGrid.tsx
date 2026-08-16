@@ -1,6 +1,6 @@
-// Default route — multi-project tile grid. Calls `useProjects()` and
-// renders a `ProjectTile` per row. Empty state has the same "no
-// projects tracked" help text that `crosslink dashboard list` prints.
+
+
+
 
 import { ExportMenu } from "@/components/ExportMenu";
 import { ProjectTile } from "@/components/ProjectTile";

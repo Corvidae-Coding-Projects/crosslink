@@ -1,27 +1,8 @@
-//! Lifecycle smoke tests for timer, session, intervene, design doc, and issue
-//! tree commands.
-//!
-//! These tests exercise end-to-end command flows without requiring external
-//! infrastructure (tmux, containers, etc.).  Tests that do require external
-//! infrastructure are marked `#[ignore]` with an explanatory comment.
-
 use super::harness::{assert_stdout_contains, SmokeHarness};
 
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
-/// Extract the numeric or local issue ID from crosslink command output.
-///
-/// Handles both `Created issue #1` (online display_id) and `Created issue L1`
-/// (offline local ID) output formats.
 fn extract_issue_id(stdout: &str) -> String {
     for line in stdout.lines() {
-        // "Created issue L1" or "Created issue L12" — 'L' followed by one or
-        // more digits as a standalone token (not mid-word like "lifecycle").
-        // Find tokens that are exactly L<digits>.
         for word in line.split_whitespace() {
-            // Strip trailing punctuation
             let word = word.trim_end_matches(&['.', ',', ':', ';', '!', '?', ')'] as &[char]);
             if word.starts_with('L')
                 && word.len() > 1
@@ -30,7 +11,7 @@ fn extract_issue_id(stdout: &str) -> String {
                 return word.to_string();
             }
         }
-        // "Created issue #1" (online display_id)
+
         if let Some(pos) = line.find('#') {
             let id_str: String = line[pos + 1..]
                 .chars()
@@ -41,7 +22,7 @@ fn extract_issue_id(stdout: &str) -> String {
             }
         }
     }
-    // Fallback: look for "Now working on: L1 title" style
+
     for line in stdout.lines() {
         if line.contains("working on") || line.contains("Created") {
             for word in line.split_whitespace() {
@@ -58,21 +39,13 @@ fn extract_issue_id(stdout: &str) -> String {
     panic!("Could not extract issue ID from output:\n{stdout}");
 }
 
-// ===========================================================================
-// Timer roundtrip
-// ===========================================================================
-
-/// Full timer lifecycle: start → show (verify running) → stop → show (verify
-/// stopped with elapsed time).
 #[test]
 fn test_timer_roundtrip() {
     let h = SmokeHarness::new();
 
-    // Create an issue to track time against.
     let create_result = h.run_ok(&["issue", "create", "Timer roundtrip issue"]);
     let issue_id = extract_issue_id(&create_result.stdout);
 
-    // Start the timer.
     let start = h.run_ok(&["timer", "start", &issue_id]);
     assert!(
         start.stdout_contains("Started")
@@ -82,7 +55,6 @@ fn test_timer_roundtrip() {
         start.stdout,
     );
 
-    // Show while running — should indicate active/running state.
     let show_running = h.run_ok(&["timer", "show"]);
     assert!(
         show_running.stdout_contains("running")
@@ -93,7 +65,6 @@ fn test_timer_roundtrip() {
         show_running.stdout,
     );
 
-    // Stop the timer.
     let stop = h.run_ok(&["timer", "stop"]);
     assert!(
         stop.stdout_contains("Stopped")
@@ -104,11 +75,8 @@ fn test_timer_roundtrip() {
         stop.stdout,
     );
 
-    // Show after stopping — should indicate it is no longer active and report
-    // elapsed or total time.
     let show_stopped = h.run_ok(&["timer", "show"]);
-    // After stopping, the timer should either show "no active timer" or show
-    // logged time entries (elapsed seconds/minutes).
+
     let combined = format!("{}{}", show_stopped.stdout, show_stopped.stderr);
     assert!(
         combined.contains("No active")
@@ -124,18 +92,14 @@ fn test_timer_roundtrip() {
     );
 }
 
-/// Starting a timer when one is already running for the same issue should
-/// behave gracefully (idempotent or return an informative error).
 #[test]
 fn test_timer_start_already_running() {
     let h = SmokeHarness::new();
 
     h.run_ok(&["issue", "create", "Double-start issue"]);
 
-    // First start
     h.run_ok(&["timer", "start", "1"]);
 
-    // Second start on the same issue — should not panic.
     let result = h.run(&["timer", "start", "1"]);
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
@@ -149,8 +113,6 @@ fn test_timer_start_already_running() {
     );
 }
 
-/// Stopping a timer when none is running should exit cleanly or give an
-/// informative message.
 #[test]
 fn test_timer_stop_not_running() {
     let h = SmokeHarness::new();
@@ -169,21 +131,13 @@ fn test_timer_stop_not_running() {
     );
 }
 
-// ===========================================================================
-// Session lifecycle
-// ===========================================================================
-
-/// Full session lifecycle: start → work <id> → action "doing X" → status
-/// (verify active) → end --notes "done" → last-handoff (verify saved).
 #[test]
 fn test_session_full_lifecycle() {
     let h = SmokeHarness::new();
 
-    // Create an issue to work on.
     let create_result = h.run_ok(&["issue", "create", "Session lifecycle issue"]);
     let issue_id = extract_issue_id(&create_result.stdout);
 
-    // Start session.
     let start = h.run_ok(&["session", "start"]);
     assert!(
         start.stdout_contains("started")
@@ -193,7 +147,6 @@ fn test_session_full_lifecycle() {
         start.stdout,
     );
 
-    // Set the active work item.
     let work = h.run_ok(&["session", "work", &issue_id]);
     assert!(
         work.stdout_contains("working on")
@@ -204,7 +157,6 @@ fn test_session_full_lifecycle() {
         work.stdout,
     );
 
-    // Record an action breadcrumb.
     let action = h.run_ok(&["session", "action", "Implementing the lifecycle test"]);
     assert!(
         action.stdout_contains("Recorded") || action.stdout_contains("action") || action.success,
@@ -212,7 +164,6 @@ fn test_session_full_lifecycle() {
         action.stdout,
     );
 
-    // Verify session is active with the expected work item.
     let status = h.run_ok(&["session", "status"]);
     assert!(
         status.stdout_contains("active")
@@ -221,14 +172,13 @@ fn test_session_full_lifecycle() {
         "session should be active.\nstdout: {}",
         status.stdout,
     );
-    // The work item should appear somewhere in the status.
+
     assert!(
         status.stdout_contains("lifecycle") || status.stdout_contains(&issue_id) || status.success,
         "session status should reference work item.\nstdout: {}",
         status.stdout,
     );
 
-    // End session with handoff notes.
     let handoff_note = "Done: lifecycle test complete, all assertions passed";
     let end = h.run_ok(&["session", "end", "--notes", handoff_note]);
     assert!(
@@ -240,7 +190,6 @@ fn test_session_full_lifecycle() {
         end.stdout,
     );
 
-    // Start a new session and verify the handoff was saved.
     h.run_ok(&["session", "start"]);
     let last = h.run_ok(&["session", "last-handoff"]);
     assert!(
@@ -253,14 +202,12 @@ fn test_session_full_lifecycle() {
     );
 }
 
-/// Calling `session status` when no session has been started should exit
-/// cleanly or print an informative message.
 #[test]
 fn test_session_status_no_session() {
     let h = SmokeHarness::new();
 
     let result = h.run(&["session", "status"]);
-    // Either succeeds (showing "no active session") or exits non-zero.
+
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
         combined.contains("No active")
@@ -274,21 +221,13 @@ fn test_session_status_no_session() {
     );
 }
 
-// ===========================================================================
-// Intervene command
-// ===========================================================================
-
-/// Create an issue, call `issue intervene`, verify the intervention was
-/// recorded (appears in issue show or workflow trail).
 #[test]
 fn test_intervene_records_event() {
     let h = SmokeHarness::new();
 
-    // Create an issue to intervene on.
     let create_result = h.run_ok(&["issue", "create", "Intervene target"]);
     let issue_id = extract_issue_id(&create_result.stdout);
 
-    // Run the intervene command.
     let intervene = h.run_ok(&[
         "issue",
         "intervene",
@@ -309,11 +248,9 @@ fn test_intervene_records_event() {
         intervene.stdout,
     );
 
-    // Verify the issue still exists and is readable.
     let show = h.run_ok(&["issue", "show", &issue_id]);
     assert_stdout_contains(&show, "Intervene target");
 
-    // The intervention should appear as a comment/event in the workflow trail.
     let trail = h.run_ok(&["workflow", "trail", &issue_id]);
     assert!(
         trail.stdout_contains("Manual correction")
@@ -326,7 +263,6 @@ fn test_intervene_records_event() {
     );
 }
 
-/// Intervening on a nonexistent issue should fail gracefully.
 #[test]
 fn test_intervene_nonexistent_issue() {
     let h = SmokeHarness::new();
@@ -355,15 +291,6 @@ fn test_intervene_nonexistent_issue() {
     );
 }
 
-// ===========================================================================
-// Design doc command (kickoff plan)
-// ===========================================================================
-
-/// Verify that `crosslink kickoff plan --help` exits cleanly.
-///
-/// `crosslink design` is not a top-level command; the design-doc generation
-/// functionality lives under `kickoff plan`.  This test checks the help page
-/// is reachable without panicking.
 #[test]
 fn test_kickoff_plan_help_exists() {
     let h = SmokeHarness::new();
@@ -378,16 +305,12 @@ fn test_kickoff_plan_help_exists() {
     );
 }
 
-/// Verify that `crosslink kickoff list` exits cleanly (no running agents).
-///
-/// Full `kickoff run` requires tmux or container infrastructure which is not
-/// available in CI.
 #[test]
 fn test_kickoff_list_no_agents() {
     let h = SmokeHarness::new();
 
     let result = h.run_ok(&["kickoff", "list"]);
-    // Should succeed and indicate no agents are running.
+
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
         combined.contains("No")
@@ -401,46 +324,34 @@ fn test_kickoff_list_no_agents() {
     );
 }
 
-/// `kickoff run` requires tmux or container infrastructure — skip in CI.
 #[test]
 #[ignore = "requires tmux or container infrastructure not available in CI"]
 fn test_kickoff_run_requires_infra() {
     let h = SmokeHarness::new();
     h.run_ok(&["issue", "create", "Kickoff test issue"]);
-    // Would need a design doc and tmux session to proceed further.
+
     let _result = h.run(&["kickoff", "run", "--help"]);
 }
 
-// ===========================================================================
-// Issue tree with parent/subissue hierarchy
-// ===========================================================================
-
-/// Create a parent issue and a subissue, run `issue tree`, verify both appear
-/// with correct hierarchy.
 #[test]
 fn test_issue_tree_with_subissues() {
     let h = SmokeHarness::new();
 
-    // Create a parent issue.
     let parent_result = h.run_ok(&["issue", "create", "Parent lifecycle issue"]);
     let parent_id = extract_issue_id(&parent_result.stdout);
 
-    // Create a subissue under the parent.
     let sub_result = h.run_ok(&["subissue", &parent_id, "Child lifecycle issue"]);
     let _sub_id = extract_issue_id(&sub_result.stdout);
 
-    // `issue tree` should show both issues.
     let tree = h.run_ok(&["issue", "tree"]);
     assert_stdout_contains(&tree, "Parent lifecycle issue");
     assert_stdout_contains(&tree, "Child lifecycle issue");
 }
 
-/// Issue tree with multiple levels of nesting should render without errors.
 #[test]
 fn test_issue_tree_deep_nesting() {
     let h = SmokeHarness::new();
 
-    // Create root → child → grandchild.
     let root = h.run_ok(&["issue", "create", "Root issue"]);
     let root_id = extract_issue_id(&root.stdout);
 
@@ -455,7 +366,6 @@ fn test_issue_tree_deep_nesting() {
     assert_stdout_contains(&tree, "Grandchild issue");
 }
 
-/// `issue tree --status open` should only show open issues.
 #[test]
 fn test_issue_tree_status_filter() {
     let h = SmokeHarness::new();
@@ -469,10 +379,8 @@ fn test_issue_tree_status_filter() {
     let c2 = h.run_ok(&["subissue", &p_id, "Closed child"]);
     let c2_id = extract_issue_id(&c2.stdout);
 
-    // Close the second child.
     h.run_ok(&["issue", "close", &c2_id]);
 
-    // Tree filtered to open should show open child but not closed child.
     let tree = h.run_ok(&["issue", "tree", "-s", "open"]);
     assert_stdout_contains(&tree, "Open child");
     assert!(
@@ -481,15 +389,9 @@ fn test_issue_tree_status_filter() {
         tree.stdout,
     );
 
-    // Verify open child still visible.
-    let _ = c_id; // suppress unused variable warning
+    let _ = c_id;
 }
 
-// ===========================================================================
-// Daemon lifecycle (no external infra)
-// ===========================================================================
-
-/// `daemon status` when no daemon is running should exit cleanly.
 #[test]
 fn test_daemon_status_not_running() {
     let h = SmokeHarness::new();
@@ -507,7 +409,6 @@ fn test_daemon_status_not_running() {
     );
 }
 
-/// `daemon stop` when no daemon is running should be idempotent.
 #[test]
 fn test_daemon_stop_idempotent() {
     let h = SmokeHarness::new();
@@ -525,10 +426,6 @@ fn test_daemon_stop_idempotent() {
     );
 }
 
-/// `daemon start` followed by `daemon status` and `daemon stop` is the full
-/// daemon lifecycle.  This test is skipped in CI because the daemon process
-/// spawns background threads and may interfere with the test harness on
-/// resource-constrained runners.
 #[test]
 #[ignore = "daemon start spawns a background process; requires a stable process environment, skip in CI"]
 fn test_daemon_start_stop_lifecycle() {
@@ -559,11 +456,6 @@ fn test_daemon_start_stop_lifecycle() {
     );
 }
 
-// ===========================================================================
-// Swarm lifecycle (requires tmux — marked ignore)
-// ===========================================================================
-
-/// `swarm status` with no swarm initialized should exit cleanly.
 #[test]
 fn test_swarm_status_no_swarm() {
     let h = SmokeHarness::new();
@@ -582,24 +474,21 @@ fn test_swarm_status_no_swarm() {
     );
 }
 
-/// `swarm status` (second invocation) confirms the command group is idempotent
-/// and doesn't panic on repeated calls with no active swarm.
 #[test]
 fn test_swarm_status_idempotent() {
     let h = SmokeHarness::new();
 
-    // Run swarm status twice — both should handle gracefully.
     let r1 = h.run(&["swarm", "status"]);
     let r2 = h.run(&["swarm", "status"]);
     let combined1 = format!("{}{}", r1.stdout, r1.stderr);
     let combined2 = format!("{}{}", r2.stdout, r2.stderr);
-    // Both should give consistent results (success or the same error).
+
     assert_eq!(
         r1.success, r2.success,
         "swarm status should be consistent across repeated calls.\nfirst: stdout={} stderr={}\nsecond: stdout={} stderr={}",
         r1.stdout, r1.stderr, r2.stdout, r2.stderr,
     );
-    // At least one of the results should be non-empty or a known message.
+
     assert!(
         combined1.contains("swarm")
             || combined1.contains("No")
@@ -609,13 +498,11 @@ fn test_swarm_status_idempotent() {
         r1.stdout,
         r1.stderr,
     );
-    let _ = combined2; // suppress unused
+    let _ = combined2;
 }
 
-/// Full swarm init and launch requires a design document and tmux — skip in CI.
 #[test]
 #[ignore = "swarm init/launch requires a design document and tmux, which are not available in CI"]
 fn test_swarm_init_requires_infra() {
     let _h = SmokeHarness::new();
-    // Would need to write a design doc and have tmux available.
 }

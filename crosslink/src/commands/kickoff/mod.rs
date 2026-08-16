@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff command: launch agents to implement features
 mod cleanup;
 mod graph;
 mod helpers;
@@ -14,23 +13,19 @@ mod wizard;
 #[cfg(test)]
 mod tests;
 
-// Re-export public types used by external callers (swarm, main, etc.)
 pub use types::{
     ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel,
     DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
 };
 
-// Re-export parse functions (used by dispatch and swarm)
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
 
-// Re-export public command functions (used from main.rs dispatch)
 pub use cleanup::cleanup;
 pub use graph::graph;
 pub use monitor::{list, logs, report, report_all, status, stop};
 pub use plan::{plan, show_plan};
 pub use run::run;
 
-// Re-export crate-internal items used by other modules within this crate
 pub(crate) use helpers::{
     command_available, detect_conventions, format_duration, slugify, tmux_session_name,
 };
@@ -99,9 +94,7 @@ pub fn dispatch(
                 template: template.as_deref(),
                 agent_binary: crate::utils::read_agent_binary(crosslink_dir),
             };
-            // The pipeline "running" row is now written from inside `run()`
-            // once the real worktree + agent identity exist (GH#614) — no more
-            // "pending" placeholder rows appended at dispatch time.
+
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
         }
@@ -209,10 +202,6 @@ pub fn dispatch(
     }
 }
 
-/// Dispatch the unified `crosslink kickoff [doc] [--plan|--run]` entry point.
-///
-/// If no flags are given and stdin is a TTY, launches the interactive wizard.
-/// With `--plan` or `--run`, goes directly to the appropriate function.
 #[allow(clippy::too_many_arguments)]
 fn dispatch_launch(
     crosslink_dir: &Path,
@@ -232,7 +221,6 @@ fn dispatch_launch(
     skip_permissions: bool,
     permission_mode: Option<&str>,
 ) -> Result<()> {
-    // Non-interactive: --plan or --run flag provided
     if do_plan {
         let doc_path = doc.ok_or_else(|| {
             anyhow::anyhow!(
@@ -255,10 +243,7 @@ fn dispatch_launch(
             quiet,
             skip_permissions,
             permission_mode,
-            // gh#61: the unified `kickoff [doc] --plan/--run` entry point does
-            // not expose the dispatch dials — they live on `kickoff run` /
-            // `kickoff plan`. Unset here reproduces the previous invocation.
-            // gh#62: likewise no per-invocation template on this entry point.
+
             effort: None,
             budget_usd: None,
             template: None,
@@ -305,21 +290,18 @@ fn dispatch_launch(
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
             skip_permissions,
             permission_mode,
-            // See the --plan branch above: dials and template are not exposed here.
+
             effort: None,
             budget_usd: None,
             template: None,
             agent_binary: crate::utils::read_agent_binary(crosslink_dir),
         };
-        // mark_running is now invoked from inside run() with the real identity.
+
         run(crosslink_dir, db, writer, &opts)?;
         return Ok(());
     }
 
-    // Interactive mode: launch the wizard
-    // If a doc path was provided, skip source selection (wizard pre-selects it)
     let choices = if let Some(ref doc_path) = doc {
-        // Skip to stage selection with this doc pre-selected
         wizard_with_preselected_doc(crosslink_dir, doc_path)?
     } else {
         wizard::launch_wizard(crosslink_dir)?
@@ -332,7 +314,6 @@ fn dispatch_launch(
         return Ok(());
     };
 
-    // Dispatch based on wizard choices
     match choices.stage {
         wizard::WizardStage::Plan => {
             let doc_path = match &choices.source {
@@ -353,13 +334,10 @@ fn dispatch_launch(
                 dry_run: false,
                 issue,
                 quiet,
-                // Interactive wizard: a TTY is present to answer the trust
-                // dialog, so plan mode keeps the fail-closed default (gh#66).
+
                 skip_permissions: false,
                 permission_mode: None,
-                // The wizard collects model/timeout/verify only; dials stay
-                // unset so an interactive launch is unchanged (gh#61). No
-                // per-invocation template on the wizard path either (gh#62).
+
                 effort: None,
                 budget_usd: None,
                 template: None,
@@ -403,7 +381,7 @@ fn dispatch_launch(
                 doc_path: doc_path_str.as_deref(),
                 skip_permissions: false,
                 permission_mode: None,
-                // See the wizard's Plan branch: dials and template stay unset here.
+
                 effort: None,
                 budget_usd: None,
                 template: None,
@@ -415,13 +393,10 @@ fn dispatch_launch(
     }
 }
 
-/// Launch wizard with a pre-selected design doc (skips source selection screen).
 fn wizard_with_preselected_doc(
     crosslink_dir: &Path,
     doc_path: &Path,
 ) -> Result<Option<wizard::WizardChoices>> {
-    // For now, launch the full wizard — the doc pre-selection is a UX optimization
-    // that we handle by verifying the doc exists upfront
     if !doc_path.exists() {
         bail!(
             "Design document not found: {}\nCreate one with: crosslink design \"feature description\"",
@@ -431,7 +406,6 @@ fn wizard_with_preselected_doc(
     wizard::launch_wizard(crosslink_dir)
 }
 
-/// Show pipeline status overview when `crosslink kickoff status` is called with no args.
 fn pipeline_status_overview(crosslink_dir: &Path, json: bool) -> Result<()> {
     let root = crosslink_dir
         .parent()
@@ -440,9 +414,6 @@ fn pipeline_status_overview(crosslink_dir: &Path, json: bool) -> Result<()> {
     let mut states = pipeline::scan_pipeline_states(root);
     let agents = monitor::discover_agents(crosslink_dir).unwrap_or_default();
 
-    // Reconcile stale "running" rows against the real world before display so
-    // the RUN column never reports a launch that finished or vanished (GH#614).
-    // An agent counts as live only while it still has a session/container.
     let live_ids: Vec<String> = agents
         .iter()
         .filter(|a| a.session.is_some() || a.docker.is_some())

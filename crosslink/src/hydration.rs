@@ -1,10 +1,3 @@
-//! Hydrate local `SQLite` from JSON issue files on the coordination branch.
-//!
-//! On every `crosslink sync`, this module reads all `issues/*.json` files from
-//! the coordination branch worktree cache and writes them into the local `SQLite`
-//! database in a single transaction. This keeps `SQLite` as the universal read
-//! path while JSON on the git branch remains the source of truth.
-
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -16,11 +9,6 @@ use crate::issue_file::{
     read_milestones_file, IssueFile,
 };
 
-/// Deduplicate issue files that share the same `display_id`.
-///
-/// When multiple JSON files claim the same `display_id` (e.g. from a sync loop
-/// that created duplicates), keep the one with the most recent `updated_at`
-/// timestamp and return the rest for cleanup.
 fn dedup_issue_files(issues: &[IssueFile]) -> (Vec<&IssueFile>, Vec<&IssueFile>) {
     let mut by_display_id: HashMap<i64, Vec<&IssueFile>> = HashMap::new();
     let mut no_display_id = Vec::new();
@@ -36,7 +24,6 @@ fn dedup_issue_files(issues: &[IssueFile]) -> (Vec<&IssueFile>, Vec<&IssueFile>)
     let mut dupes = Vec::new();
 
     for (_id, mut group) in by_display_id {
-        // Sort by updated_at descending — most recent first
         group.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
         keep.push(group[0]);
         dupes.extend(group.into_iter().skip(1));
@@ -46,7 +33,6 @@ fn dedup_issue_files(issues: &[IssueFile]) -> (Vec<&IssueFile>, Vec<&IssueFile>)
     (keep, dupes)
 }
 
-/// Statistics returned after hydration.
 #[derive(Debug, Default)]
 pub struct HydrationStats {
     pub issues: usize,
@@ -56,7 +42,6 @@ pub struct HydrationStats {
     pub milestones: usize,
 }
 
-/// Snapshot of an issue row from `SQLite` for preservation during hydration.
 struct SavedIssue {
     id: i64,
     uuid: String,
@@ -73,7 +58,6 @@ struct SavedIssue {
     due_at: Option<String>,
 }
 
-/// Tuple of comment fields saved from `SQLite` before hydration clears them.
 type SavedComment = (
     i64,
     i64,
@@ -87,10 +71,8 @@ type SavedComment = (
     Option<String>,
 );
 
-/// Tuple of time-entry fields saved from `SQLite` before hydration clears them.
 type SavedTimeEntry = (i64, i64, String, Option<String>, Option<i64>);
 
-/// Child-table data preserved for `SQLite`-only issues across hydration.
 struct SavedChildren {
     labels: Vec<(i64, String)>,
     comments: Vec<SavedComment>,
@@ -100,25 +82,6 @@ struct SavedChildren {
     milestone_issues: Vec<(i64, i64)>,
 }
 
-/// Hydrate the local `SQLite` database from JSON files in the coordination branch cache.
-///
-/// This function:
-/// 1. Reads all `issues/*.json` files from `cache_dir/issues/`
-/// 2. Reads `meta/counters.json` and `meta/milestones.json`
-/// 3. Clears all shared data from `SQLite` (issues, comments, labels, deps, etc.)
-/// 4. Re-inserts everything from the JSON files in a single transaction
-///
-/// Sessions are machine-local state and are preserved across hydration.
-/// The `active_issue_id` FK constraint (`ON DELETE SET NULL`) is handled
-/// by saving and restoring work items around the clear/reinsert cycle.
-///
-/// **Data-loss guard (#427):** If JSON has significantly fewer issues than
-/// `SQLite`, hydration is skipped to avoid wiping SQLite-only issues that
-/// haven't been synced to JSON yet (e.g. after `init --force`).
-///
-/// # Errors
-///
-/// Returns an error if reading issue files or database operations fail.
 pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationStats> {
     let issues_dir = cache_dir.join("issues");
     let issue_files = read_all_issue_files(&issues_dir)?;
@@ -127,17 +90,9 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         return Ok(HydrationStats::default());
     }
 
-    // Self-healing merge: if SQLite has issues that JSON doesn't (e.g. after
-    // `init --force` or a partial sync), preserve them through hydration by
-    // re-inserting them after the JSON issues (#427).
     let json_uuids: std::collections::HashSet<String> =
         issue_files.iter().map(|f| f.uuid.to_string()).collect();
 
-    // Snapshot SQLite-only issues (those with UUIDs not present in JSON).
-    // Only preserve issues whose UUID also doesn't appear as a file/directory
-    // in the issues cache — if a UUID exists on disk (even as an empty dir),
-    // the issue was tracked by the hub and its absence from issue_files means
-    // it was intentionally deleted, not lost (#427).
     let all_rows: Vec<SavedIssue> = db
         .conn
         .prepare(
@@ -167,12 +122,9 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         .into_iter()
         .filter(|row| {
             if json_uuids.contains(&row.uuid) {
-                return false; // Already in JSON — will be hydrated normally
+                return false;
             }
-            // Preserve only issues created via direct SQLite (db.create_issue),
-            // not issues that were tracked by SharedWriter and then deleted.
-            // SharedWriter-created issues have a created_by field (agent ID).
-            // Direct SQLite issues have created_by = NULL.
+
             row.created_by.is_none()
         })
         .collect();
@@ -183,15 +135,9 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         );
     }
 
-    // Snapshot child table data for SQLite-only issues before clear_shared_data
-    // destroys it. Without this, labels/comments/deps/relations/time entries
-    // are permanently lost during re-hydration (#310).
     let preserved_ids: Vec<i64> = sqlite_only_rows.iter().map(|r| r.id).collect();
     let saved_children = snapshot_children(db, &preserved_ids)?;
 
-    // Preserved SQLite-only comments may carry negative IDs assigned by a
-    // previous hydration. To avoid colliding with V2 comment IDs assigned in
-    // this pass, start V2 numbering below the lowest preserved ID (#681).
     let v2_comment_id_start = saved_children
         .comments
         .iter()
@@ -201,13 +147,11 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
 
     let (deduped, milestone_entries) = dedup_and_load_milestones(&issue_files, cache_dir)?;
 
-    // Build uuid -> display_id lookup for resolving cross-references
     let mut uuid_to_id: HashMap<String, i64> = deduped
         .iter()
         .filter_map(|f| f.display_id.map(|id| (f.uuid.to_string(), id)))
         .collect();
 
-    // Build milestone uuid -> display_id lookup
     let milestone_uuid_to_id: HashMap<String, i64> = milestone_entries
         .iter()
         .map(|m| (m.uuid.to_string(), m.display_id))
@@ -216,15 +160,11 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     let mut stats = HydrationStats::default();
     let layout_version = read_layout_version(&cache_dir.join("meta")).unwrap_or(1);
 
-    // Disable FK constraints during bulk clear/reinsert to prevent ON DELETE
-    // cascades from corrupting session state (e.g. active_issue_id). PRAGMA
-    // foreign_keys is a no-op inside a transaction, so toggle outside (#461).
     db.set_foreign_keys(false)?;
 
     let result = db.transaction(|| {
         db.clear_shared_data()?;
 
-        // Insert milestones first (issues may reference them)
         for entry in &milestone_entries {
             let created_at = entry.created_at.to_rfc3339();
             let closed_at = entry.closed_at.map(|dt| dt.to_rfc3339());
@@ -240,10 +180,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
             stats.milestones += 1;
         }
 
-        // Sort issues so parents come before children (foreign key constraint)
         let sorted_issues = topo_sort_issues(&deduped);
 
-        // Insert issues and their child data (labels, comments, time entries, milestones)
         hydrate_issues(
             db,
             &sorted_issues,
@@ -255,20 +193,15 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
             &mut stats,
         )?;
 
-        // Hydrate dependencies (single-direction: blockers array on blocked issue)
         hydrate_dependencies(db, &deduped, &uuid_to_id, &mut stats)?;
 
-        // Hydrate relations (single-direction: related array, insert both directions)
         hydrate_relations(db, &deduped, &uuid_to_id, &mut stats)?;
 
-        // Re-insert SQLite-only issues and their children (#427, #310).
         restore_sqlite_only_issues(db, &sqlite_only_rows, &saved_children, &mut stats)?;
 
         Ok(stats)
     });
 
-    // Re-enable FK constraints regardless of transaction outcome (#461).
-    // Use if-let to avoid masking the original transaction error.
     if let Err(e) = db.set_foreign_keys(true) {
         tracing::warn!("failed to re-enable foreign key constraints: {}", e);
     }
@@ -276,50 +209,14 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     result
 }
 
-/// Hydrate the local `SQLite` database from a materialized v3
-/// [`CheckpointState`] (754a PASS 2 — hub-version-routed operation).
-///
-/// This is the V3 analogue of [`hydrate_to_sqlite`]: instead of reading
-/// `issues/*.json` worktree files, it maps the reduced `CompactIssue` /
-/// `CompactMilestone` state straight into the same `db.insert_hydrated_*`
-/// row-insertion helpers, so every table is populated identically to the
-/// file-based path. It preserves the same three invariants:
-///
-/// - **Single transaction.** All clears + inserts run inside one
-///   `db.transaction()` with foreign keys toggled off around it, exactly as
-///   the file path does (#461).
-/// - **#443 session preservation / SQLite-only merge.** Issues that exist in
-///   `SQLite` (created via direct `db.create_issue`, `created_by IS NULL`) but
-///   not in the reduced state are snapshotted with their children and
-///   re-inserted, so `init --force` / partial-sync rows are never wiped (#427,
-///   #310). The session `active_issue_id` FK survives via the same FK-off
-///   clear/reinsert dance.
-/// - **Data-loss guard.** When the reduced state carries NO issues, hydration
-///   is skipped (returns default stats) rather than clearing a populated
-///   `SQLite` — the analogue of [`hydrate_to_sqlite`]'s empty-`issue_files`
-///   early return, which guards against wiping local state from an empty or
-///   not-yet-fetched checkpoint.
-///
-/// Display ids come from the reduction (`CompactIssue.display_id`); issues
-/// whose id is not yet frozen (provisional, REQ-4) get a deterministic negative
-/// local id, matching the file path's offline-issue handling.
-///
-/// # Errors
-///
-/// Returns an error if any database operation fails.
 pub fn hydrate_from_state(
     state: &crate::checkpoint::CheckpointState,
     db: &Database,
 ) -> Result<HydrationStats> {
-    // Data-loss guard: an empty reduced state (no checkpoint yet, or fetch has
-    // not run) must never clear a populated SQLite. Mirrors the empty-issue
-    // early return on the file path.
     if state.issues.is_empty() && state.milestones.is_empty() {
         return Ok(HydrationStats::default());
     }
 
-    // #443 / #427: snapshot SQLite-only issues (UUIDs absent from the reduced
-    // state) so direct-SQLite rows are preserved across the clear/reinsert.
     let state_uuids: std::collections::HashSet<String> =
         state.issues.keys().map(uuid::Uuid::to_string).collect();
     let all_rows: Vec<SavedIssue> = db
@@ -360,10 +257,6 @@ pub fn hydrate_from_state(
     let preserved_ids: Vec<i64> = sqlite_only_rows.iter().map(|r| r.id).collect();
     let saved_children = snapshot_children(db, &preserved_ids)?;
 
-    // Preserved SQLite-only comments may carry negative ids from a previous
-    // hydration. Start this pass's negative comment numbering below the lowest
-    // preserved id so the plain-INSERT comment rows never collide (the v3
-    // analogue of #681).
     let comment_id_start = saved_children
         .comments
         .iter()
@@ -371,9 +264,6 @@ pub fn hydrate_from_state(
         .min()
         .map_or(-1, |min| min.min(0) - 1);
 
-    // Build uuid -> display_id lookup for cross-references (blockers/related/
-    // parent/milestone). Issues without a frozen display id get a deterministic
-    // negative local id assigned during insertion below.
     let mut uuid_to_id: HashMap<String, i64> = state
         .issues
         .values()
@@ -391,10 +281,9 @@ pub fn hydrate_from_state(
     let result = db.transaction(|| {
         db.clear_shared_data()?;
 
-        // Milestones first (issues reference them).
         for m in state.milestones.values() {
             let Some(ms_id) = m.display_id else {
-                continue; // provisional milestone id — skip the FK target row
+                continue;
             };
             let created_at = m.created_at.to_rfc3339();
             let closed_at = m.closed_at.map(|dt| dt.to_rfc3339());
@@ -431,9 +320,6 @@ pub fn hydrate_from_state(
     result
 }
 
-/// Topologically order issue uuids from a [`CheckpointState`] so parents precede
-/// children (foreign-key safe), deterministically. Mirrors [`topo_sort_issues`]
-/// but operates on the reduced state's `CompactIssue` map.
 fn topo_sort_state_issues(
     state: &crate::checkpoint::CheckpointState,
 ) -> Vec<&crate::checkpoint::CompactIssue> {
@@ -466,8 +352,6 @@ fn topo_sort_state_issues(
     sorted
 }
 
-/// Insert issues + their child rows (labels, comments, time entries, milestone
-/// link) from a reduced [`CheckpointState`]. The V3 analogue of [`hydrate_issues`].
 fn hydrate_state_issues(
     db: &Database,
     state: &crate::checkpoint::CheckpointState,
@@ -476,11 +360,6 @@ fn hydrate_state_issues(
     comment_id_start: i64,
     stats: &mut HydrationStats,
 ) -> Result<()> {
-    // Negative local ids for issues without a frozen display id, and for v3
-    // comments/time-entries (event-only identity, no counter-claimed i64).
-    // `comment_id_start` begins below the lowest preserved SQLite-only comment
-    // id so this pass's negative ids never collide with rows re-inserted by
-    // `restore_sqlite_only_issues` (the v3 analogue of #681).
     let mut next_local_id: i64 = -1;
     let mut next_v2_comment_id: i64 = comment_id_start;
 
@@ -522,10 +401,9 @@ fn hydrate_state_issues(
             db.insert_hydrated_label(display_id, label)?;
         }
 
-        // Comments are keyed by uuid; emit in deterministic uuid order (BTreeMap).
         for (comment_uuid, c) in &issue.comments {
             let comment_created = c.created_at.to_rfc3339();
-            // Reduction-assigned i64 id if frozen, else a deterministic negative id.
+
             let cid = c.display_id.unwrap_or_else(|| {
                 let id = next_v2_comment_id;
                 next_v2_comment_id -= 1;
@@ -549,9 +427,7 @@ fn hydrate_state_issues(
         for (entry_uuid, te) in &issue.time_entries {
             let started = te.started_at.to_rfc3339();
             let ended = te.ended_at.map(|dt| dt.to_rfc3339());
-            // Time entries have no natural i64 identity in v3; derive a stable
-            // negative id from the entry uuid's low bytes so re-hydration is
-            // idempotent (INSERT ... id PRIMARY KEY).
+
             let te_id = te
                 .display_id
                 .unwrap_or_else(|| negative_id_from_uuid(entry_uuid));
@@ -573,9 +449,6 @@ fn hydrate_state_issues(
     Ok(())
 }
 
-/// Derive a stable negative i64 id from a uuid's first 7 bytes, used for v3
-/// time entries that carry no counter-claimed id. Always negative so it never
-/// collides with positive reduction-assigned ids.
 fn negative_id_from_uuid(u: &uuid::Uuid) -> i64 {
     let b = u.as_bytes();
     let mut acc: i64 = 0;
@@ -585,8 +458,6 @@ fn negative_id_from_uuid(u: &uuid::Uuid) -> i64 {
     -(acc + 1)
 }
 
-/// Insert dependency rows from each issue's `blockers` set. V3 analogue of
-/// [`hydrate_dependencies`]. Dangling references (deleted blocker) are skipped.
 fn hydrate_state_dependencies(
     db: &Database,
     state: &crate::checkpoint::CheckpointState,
@@ -609,8 +480,6 @@ fn hydrate_state_dependencies(
     }
 }
 
-/// Insert relation rows from each issue's `related` set. V3 analogue of
-/// [`hydrate_relations`].
 fn hydrate_state_relations(
     db: &Database,
     state: &crate::checkpoint::CheckpointState,
@@ -633,7 +502,6 @@ fn hydrate_state_relations(
     }
 }
 
-/// Deduplicate issue files and load milestone entries from cache.
 fn dedup_and_load_milestones<'a>(
     issue_files: &'a [IssueFile],
     cache_dir: &Path,
@@ -665,8 +533,6 @@ fn dedup_and_load_milestones<'a>(
     Ok((deduped, milestone_entries))
 }
 
-/// Sort issues so parents appear before children (for foreign key constraints).
-/// Issues without parents come first, then children in dependency order.
 fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
     let uuid_set: std::collections::HashSet<_> = issues.iter().map(|i| i.uuid).collect();
     let mut roots: Vec<&'a IssueFile> = Vec::new();
@@ -679,16 +545,9 @@ fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
         }
     }
 
-    // Simple two-pass: roots first, then children.
-    // For deeper nesting, a full topo sort would be needed,
-    // but crosslink typically has at most 1-2 levels of nesting.
-    //
-    // Sort roots by (created_at, uuid) so offline issues without display_id
-    // get assigned the same local IDs across re-hydration passes (#499).
     roots.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.uuid.cmp(&b.uuid)));
     let mut sorted = roots;
 
-    // Multi-pass: keep appending children whose parent is already in sorted
     let mut remaining = children;
     for _ in 0..10 {
         if remaining.is_empty() {
@@ -702,12 +561,11 @@ fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
         sorted.extend(ready);
         remaining = still_remaining;
     }
-    // Any remaining (orphaned parents not in the set) go at the end
+
     sorted.extend(remaining);
     sorted
 }
 
-/// Insert issues and their child data (labels, comments, time entries, milestones).
 #[allow(clippy::too_many_arguments)]
 fn hydrate_issues(
     db: &Database,
@@ -720,18 +578,14 @@ fn hydrate_issues(
     stats: &mut HydrationStats,
 ) -> Result<()> {
     let mut next_local_id: i64 = -1;
-    // V2 standalone comments use UUIDs, not sequential integer IDs.
-    // Assign unique negative IDs during hydration so each row satisfies
-    // the PRIMARY KEY UNIQUE constraint on the comments table. Start below
-    // any preserved SQLite-only comment ID so restore_sqlite_only_issues
-    // can re-insert its rows without collision (#681).
+
     let mut next_v2_comment_id: i64 = v2_comment_id_start;
 
     for issue in sorted_issues {
         let display_id = issue.display_id.unwrap_or_else(|| {
             let local_id = next_local_id;
             next_local_id -= 1;
-            // Track in uuid_to_id so cross-references resolve
+
             uuid_to_id.insert(issue.uuid.to_string(), local_id);
             local_id
         });
@@ -763,18 +617,16 @@ fn hydrate_issues(
         })?;
         stats.issues += 1;
 
-        // Labels
         for label in &issue.labels {
             db.insert_hydrated_label(display_id, label)?;
         }
 
-        // Comments - inline (v1) entries on the issue file
         for comment in &issue.comments {
             let comment_created = comment.created_at.to_rfc3339();
             db.insert_hydrated_comment(
                 comment.id,
                 display_id,
-                None, // comment uuid not tracked yet
+                None,
                 Some(&comment.author),
                 &comment.content,
                 &comment_created,
@@ -786,15 +638,12 @@ fn hydrate_issues(
             stats.comments += 1;
         }
 
-        // Comments - standalone v2 comment files in issues/{uuid}/comments/
         if layout_version >= 2 {
             let comments_dir = issues_dir.join(issue.uuid.to_string()).join("comments");
             if let Ok(v2_comments) = read_comment_files(&comments_dir) {
                 for cf in &v2_comments {
                     let cf_uuid = cf.uuid.to_string();
-                    // GH#12: comments have no unique uuid index, so hydration
-                    // must dedup manually (duplicate hub files, or rows that
-                    // survive outside the cleared shared set).
+
                     if comment_uuid_exists(db, &cf_uuid)? {
                         continue;
                     }
@@ -818,7 +667,6 @@ fn hydrate_issues(
             }
         }
 
-        // Time entries
         for te in &issue.time_entries {
             let started = te.started_at.to_rfc3339();
             let ended = te.ended_at.map(|dt| dt.to_rfc3339());
@@ -831,7 +679,6 @@ fn hydrate_issues(
             )?;
         }
 
-        // Milestone association
         if let Some(ms_uuid) = &issue.milestone_uuid {
             if let Some(&ms_id) = milestone_uuid_to_id.get(&ms_uuid.to_string()) {
                 db.insert_hydrated_milestone_issue(ms_id, display_id)?;
@@ -842,7 +689,6 @@ fn hydrate_issues(
     Ok(())
 }
 
-/// Snapshot child-table data for the given issue IDs before `clear_shared_data` removes them.
 fn snapshot_children(db: &Database, preserved_ids: &[i64]) -> Result<SavedChildren> {
     if preserved_ids.is_empty() {
         return Ok(SavedChildren {
@@ -919,13 +765,6 @@ fn snapshot_children(db: &Database, preserved_ids: &[i64]) -> Result<SavedChildr
     })
 }
 
-/// Whether a comment with this uuid is already present in `SQLite`.
-///
-/// Comments have no unique index on `uuid` (unlike `issues.uuid`), so
-/// hydration must dedup manually: without it, a hub comment adopted into the
-/// preserved snapshot (via a numeric issue-id collision) is re-inserted next
-/// to the fresh hub copy on every pass — one extra copy per mutating
-/// invocation (GH#12).
 fn comment_uuid_exists(db: &Database, uuid: &str) -> Result<bool> {
     let count: i64 = db.conn.query_row(
         "SELECT COUNT(*) FROM comments WHERE uuid = ?1",
@@ -935,14 +774,6 @@ fn comment_uuid_exists(db: &Database, uuid: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
-/// Re-insert SQLite-only issues and their child data after hydration clears shared tables.
-///
-/// Runs AFTER the hub-derived rows are inserted, and `insert_hydrated_issue`
-/// is INSERT OR REPLACE — so a preserved local-only issue whose id equals a
-/// reduction-assigned display id would silently REPLACE the hub issue at that
-/// id (GH#5: creates after a legacy `import` vanish while the CLI reports
-/// success). Ids that collide are remapped to fresh negative local ids so
-/// both issues survive; the local-only issue keeps its identity via uuid.
 fn restore_sqlite_only_issues(
     db: &Database,
     sqlite_only_rows: &[SavedIssue],
@@ -992,14 +823,7 @@ fn restore_sqlite_only_issues(
     for (issue_id, label) in &saved_children.labels {
         db.insert_hydrated_label(mapped(*issue_id), label)?;
     }
-    // GH#11: comment PKs collide the same way issue ids do — preserved
-    // comments carry positive v2/import-era ids while the pass above inserts
-    // hub comments at frozen positive display ids. insert_hydrated_comment
-    // is a plain INSERT, so a collision aborts the whole hydration
-    // transaction with SQLITE_CONSTRAINT_PRIMARYKEY (error 1555): the
-    // post-migrate "sync cannot complete" failure. Re-key colliding
-    // preserved comment ids to fresh negative ids — comment ids are not
-    // FK targets, so only the PK itself moves.
+
     let occupied_comments = occupied_comment_ids(db)?;
     let mut next_comment_local = occupied_comments
         .iter()
@@ -1023,10 +847,6 @@ fn restore_sqlite_only_issues(
         driver_key_fingerprint,
     ) in &saved_children.comments
     {
-        // GH#12: a snapshot adopted via a numeric issue-id collision carries
-        // copies of hub comments the hydration pass above just re-inserted;
-        // restoring those verbatim is the +1-copy-per-pass growth. uuid-less
-        // local comments always restore.
         if let Some(u) = uuid.as_deref() {
             if comment_uuid_exists(db, u)? {
                 continue;
@@ -1087,9 +907,6 @@ fn restore_sqlite_only_issues(
     Ok(())
 }
 
-/// All comment ids currently present in `SQLite` (the hub-derived comment
-/// rows inserted earlier in this hydration pass). The restore pass must not
-/// re-insert a preserved comment at an id the hub already occupies (GH#11).
 fn occupied_comment_ids(db: &Database) -> Result<std::collections::HashSet<i64>> {
     let ids = db
         .conn
@@ -1099,8 +916,6 @@ fn occupied_comment_ids(db: &Database) -> Result<std::collections::HashSet<i64>>
     Ok(ids)
 }
 
-/// All issue ids currently present in `SQLite` (the hub-derived rows inserted
-/// earlier in this hydration pass, since shared tables were cleared first).
 fn occupied_issue_ids(db: &Database) -> Result<std::collections::HashSet<i64>> {
     let ids = db
         .conn
@@ -1110,7 +925,6 @@ fn occupied_issue_ids(db: &Database) -> Result<std::collections::HashSet<i64>> {
     Ok(ids)
 }
 
-/// Hydrate the dependencies table from `blockers` arrays in issue files.
 fn hydrate_dependencies(
     db: &Database,
     issue_files: &[&IssueFile],
@@ -1126,13 +940,11 @@ fn hydrate_dependencies(
                 db.insert_dependency_raw(blocker_id, blocked_id)?;
                 stats.dependencies += 1;
             }
-            // Dangling UUID (deleted blocker) is silently skipped
         }
     }
     Ok(())
 }
 
-/// Hydrate the relations table from `related` arrays in issue files.
 fn hydrate_relations(
     db: &Database,
     issue_files: &[&IssueFile],
@@ -1153,23 +965,11 @@ fn hydrate_relations(
     Ok(())
 }
 
-// ── Lazy auto-hydration ─────────────────────────────────────────────
-
 const LAST_HYDRATED_REF_FILE: &str = ".last-hydrated-ref";
 
-/// Check if the hub branch has moved since the last hydration and re-hydrate if needed.
-///
-/// This makes read operations automatically pick up changes from other
-/// worktrees without requiring an explicit `crosslink sync` (#500).
-///
-/// Returns `true` if re-hydration was performed.
-///
-/// # Errors
-///
-/// Returns an error if hydration fails.
 pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
     let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) else {
-        return Ok(false); // No sync manager — nothing to hydrate
+        return Ok(false);
     };
 
     if !sync.is_initialized() {
@@ -1179,7 +979,7 @@ pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
     let cache_dir = sync.cache_path();
     let current_ref = hub_head_ref(crosslink_dir);
     let Some(current_ref) = current_ref else {
-        return Ok(false); // Can't determine hub ref — skip
+        return Ok(false);
     };
 
     let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
@@ -1188,7 +988,7 @@ pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
         .map(|s| s.trim().to_string());
 
     if last_ref.as_deref() == Some(&current_ref) {
-        return Ok(false); // Hub hasn't moved — no re-hydration needed
+        return Ok(false);
     }
 
     tracing::debug!(
@@ -1199,16 +999,11 @@ pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
 
     hydrate_to_sqlite(cache_dir, db)?;
 
-    // Store the ref we just hydrated from
     let _ = std::fs::write(&marker_path, &current_ref);
 
     Ok(true)
 }
 
-/// Record the current hub branch HEAD ref after a successful hydration.
-///
-/// Called from `sync_cmd` and the daemon after explicit hydration so that
-/// lazy auto-hydration doesn't redundantly re-hydrate.
 pub fn record_hydrated_ref(crosslink_dir: &Path) {
     if let Some(ref_sha) = hub_head_ref(crosslink_dir) {
         let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
@@ -1216,7 +1011,6 @@ pub fn record_hydrated_ref(crosslink_dir: &Path) {
     }
 }
 
-/// Get the current HEAD SHA of the hub branch from the hub cache worktree.
 fn hub_head_ref(crosslink_dir: &Path) -> Option<String> {
     let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
     if !sync.is_initialized() {
@@ -1362,7 +1156,6 @@ mod tests {
         let issue_a = make_issue(1, "Blocked issue");
         let issue_b = make_issue(2, "Blocker issue");
 
-        // issue_a is blocked by issue_b
         let mut issue_a_with_dep = issue_a;
         issue_a_with_dep.blockers = vec![issue_b.uuid];
 
@@ -1384,12 +1177,12 @@ mod tests {
         let cache = tempdir().unwrap();
 
         let mut issue = make_issue(1, "Issue with dangling dep");
-        issue.blockers = vec![Uuid::new_v4()]; // non-existent blocker
+        issue.blockers = vec![Uuid::new_v4()];
         write_issues_to_cache(cache.path(), &[issue]);
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.issues, 1);
-        assert_eq!(stats.dependencies, 0); // silently skipped
+        assert_eq!(stats.dependencies, 0);
     }
 
     #[test]
@@ -1431,15 +1224,13 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let cache = tempdir().unwrap();
 
-        // First hydration
         let issue = make_issue(1, "Original");
         write_issues_to_cache(cache.path(), std::slice::from_ref(&issue));
         hydrate_to_sqlite(cache.path(), &db).unwrap();
 
-        // Second hydration with updated title
         let mut updated = issue;
         updated.title = "Updated".to_string();
-        // Re-create the issues dir fresh
+
         let issues_dir = cache.path().join("issues");
         std::fs::remove_dir_all(&issues_dir).unwrap();
         write_issues_to_cache(cache.path(), &[updated]);
@@ -1456,18 +1247,16 @@ mod tests {
         let cache = tempdir().unwrap();
 
         let mut offline = make_issue(0, "Offline");
-        offline.display_id = None; // not yet pushed
+        offline.display_id = None;
 
         let pushed = make_issue(1, "Pushed");
         write_issues_to_cache(cache.path(), &[offline, pushed]);
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
-        assert_eq!(stats.issues, 2); // both get hydrated
+        assert_eq!(stats.issues, 2);
 
-        // Pushed issue gets its display_id
         assert!(db.get_issue(1).unwrap().is_some());
 
-        // Offline issue gets a negative ID
         let offline_issue = db.get_issue(-1).unwrap();
         assert!(offline_issue.is_some());
         assert_eq!(offline_issue.unwrap().title, "Offline");
@@ -1488,7 +1277,6 @@ mod tests {
         write_issues_to_cache(cache.path(), &[issue]);
 
         hydrate_to_sqlite(cache.path(), &db).unwrap();
-        // If we got here without error, time entries were inserted successfully
     }
 
     #[test]
@@ -1499,7 +1287,6 @@ mod tests {
         let issue = make_issue(1, "Test");
         write_issues_to_cache(cache.path(), &[issue]);
 
-        // Write per-file milestone
         let ms_dir = cache.path().join("meta").join("milestones");
         std::fs::create_dir_all(&ms_dir).unwrap();
         let ms_uuid = Uuid::new_v4();
@@ -1531,7 +1318,6 @@ mod tests {
         let issue = make_issue(1, "Test");
         write_issues_to_cache(cache.path(), &[issue]);
 
-        // Write legacy single-file milestones.json (no per-file dir)
         let meta_dir = cache.path().join("meta");
         std::fs::create_dir_all(&meta_dir).unwrap();
         let ms_uuid = Uuid::new_v4();
@@ -1560,8 +1346,6 @@ mod tests {
         assert_eq!(ms.unwrap().name, "legacy-ms");
     }
 
-    // ---- dedup_issue_files ----
-
     #[test]
     fn test_dedup_no_duplicates() {
         let a = make_issue(1, "A");
@@ -1579,7 +1363,7 @@ mod tests {
         old.updated_at = Utc::now() - Duration::seconds(60);
         let mut new = make_issue(1, "New");
         new.updated_at = Utc::now();
-        // same display_id — new should be kept
+
         let issues = [old, new];
         let (keep, dupes) = dedup_issue_files(&issues);
         assert_eq!(keep.len(), 1);
@@ -1614,8 +1398,6 @@ mod tests {
         assert_eq!(keep[0].title, "Newest");
     }
 
-    // ---- hydrate_to_sqlite duplicate warning path ----
-
     #[test]
     fn test_hydrate_deduplicates_same_display_id() {
         use chrono::Duration;
@@ -1626,17 +1408,15 @@ mod tests {
         old.updated_at = Utc::now() - Duration::seconds(60);
         let mut new = make_issue(1, "New title");
         new.updated_at = Utc::now();
-        // Write both files — they share display_id 1
+
         write_issues_to_cache(cache.path(), &[old, new]);
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
-        // Only one issue should land in the DB (the duplicate is skipped)
+
         assert_eq!(stats.issues, 1);
         let loaded = db.get_issue(1).unwrap().unwrap();
         assert_eq!(loaded.title, "New title");
     }
-
-    // ---- topo_sort_issues ----
 
     #[test]
     fn test_topo_sort_roots_before_children() {
@@ -1644,7 +1424,6 @@ mod tests {
         let mut child = make_issue(2, "Child");
         child.parent_uuid = Some(parent.uuid);
 
-        // Pass child before parent — topo sort should fix order
         let sorted = topo_sort_issues(&[&child, &parent]);
         assert_eq!(sorted[0].title, "Parent");
         assert_eq!(sorted[1].title, "Child");
@@ -1658,9 +1437,8 @@ mod tests {
         let mut child = make_issue(3, "Child");
         child.parent_uuid = Some(parent.uuid);
 
-        // Pass in reverse order
         let sorted = topo_sort_issues(&[&child, &parent, &grandparent]);
-        // grandparent must come before parent, parent before child
+
         let pos = |title: &str| sorted.iter().position(|i| i.title == title).unwrap();
         assert!(pos("Grandparent") < pos("Parent"));
         assert!(pos("Parent") < pos("Child"));
@@ -1668,15 +1446,13 @@ mod tests {
 
     #[test]
     fn test_topo_sort_orphaned_parent_uuid_treated_as_root() {
-        // A child whose parent UUID is NOT in the set goes to `roots` directly
-        // (the `_ =>` arm in the match), so it is sorted alongside other roots.
         let mut orphan_child = make_issue(2, "OrphanChild");
-        orphan_child.parent_uuid = Some(Uuid::new_v4()); // unknown parent — not in uuid_set
+        orphan_child.parent_uuid = Some(Uuid::new_v4());
 
         let root = make_issue(1, "Root");
 
         let sorted = topo_sort_issues(&[&orphan_child, &root]);
-        // Both are treated as roots; all issues present, exact order unspecified.
+
         assert_eq!(sorted.len(), 2);
         let titles: Vec<&str> = sorted.iter().map(|i| i.title.as_str()).collect();
         assert!(titles.contains(&"Root"));
@@ -1689,15 +1465,11 @@ mod tests {
         assert!(sorted.is_empty());
     }
 
-    // ---- hydrate_dependencies / hydrate_relations with None display_id ----
-
     #[test]
     fn test_hydrate_dependency_skips_issue_with_no_display_id() {
         let (db, _dir) = setup_test_db();
         let cache = tempdir().unwrap();
 
-        // An issue with no display_id that has a blocker — the blocked issue
-        // has no display_id so hydrate_dependencies should `continue` for it.
         let blocker = make_issue(1, "Blocker");
         let mut offline = make_issue(0, "Offline blocked");
         offline.display_id = None;
@@ -1706,7 +1478,7 @@ mod tests {
         write_issues_to_cache(cache.path(), &[blocker, offline]);
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
-        // The dependency should NOT be inserted (offline issue has no display_id)
+
         assert_eq!(stats.dependencies, 0);
     }
 
@@ -1732,14 +1504,12 @@ mod tests {
         let cache = tempdir().unwrap();
 
         let mut issue = make_issue(1, "Issue with dangling relation");
-        issue.related = vec![Uuid::new_v4()]; // non-existent related issue
+        issue.related = vec![Uuid::new_v4()];
         write_issues_to_cache(cache.path(), &[issue]);
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
-        assert_eq!(stats.relations, 0); // silently skipped
+        assert_eq!(stats.relations, 0);
     }
-
-    // ---- issue with description and closed_at ----
 
     #[test]
     fn test_hydrate_issue_with_description_and_closed_at() {
@@ -1764,8 +1534,6 @@ mod tests {
         assert!(loaded.closed_at.is_some());
     }
 
-    // ---- milestone association via milestone_uuid ----
-
     #[test]
     fn test_hydrate_issue_milestone_association() {
         let (db, _dir) = setup_test_db();
@@ -1777,7 +1545,6 @@ mod tests {
         issue.milestone_uuid = Some(ms_uuid);
         write_issues_to_cache(cache.path(), &[issue]);
 
-        // Write the milestone file so it gets a display_id
         let ms_dir = cache.path().join("meta").join("milestones");
         std::fs::create_dir_all(&ms_dir).unwrap();
         let entry = crate::issue_file::MilestoneEntry {
@@ -1795,7 +1562,6 @@ mod tests {
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.milestones, 1);
 
-        // Verify the milestone<->issue link was created
         let ms = db.get_issue_milestone(1).unwrap();
         assert!(ms.is_some());
         assert_eq!(ms.unwrap().name, "Sprint 1");
@@ -1803,7 +1569,6 @@ mod tests {
 
     #[test]
     fn test_hydrate_issue_milestone_uuid_not_in_map() {
-        // milestone_uuid set on issue but no matching milestone file — link silently skipped
         let (db, _dir) = setup_test_db();
         let cache = tempdir().unwrap();
 
@@ -1814,10 +1579,7 @@ mod tests {
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.issues, 1);
         assert_eq!(stats.milestones, 0);
-        // No panic, no error — silently ignored
     }
-
-    // ---- milestone with closed_at ----
 
     #[test]
     fn test_hydrate_milestone_with_closed_at() {
@@ -1848,8 +1610,6 @@ mod tests {
         assert_eq!(ms.status, crate::models::IssueStatus::Closed);
     }
 
-    // ---- v2 layout: standalone comment files ----
-
     #[test]
     fn test_hydrate_v2_standalone_comment_files() {
         let (db, _dir) = setup_test_db();
@@ -1858,12 +1618,10 @@ mod tests {
         let issue = make_issue(1, "V2 issue");
         let issue_uuid = issue.uuid;
 
-        // Write the issue using v2 layout: issues/{uuid}/issue.json
         let issue_dir = cache.path().join("issues").join(issue_uuid.to_string());
         std::fs::create_dir_all(&issue_dir).unwrap();
         write_issue_file(&issue_dir.join("issue.json"), &issue).unwrap();
 
-        // Write a standalone comment file: issues/{uuid}/comments/{comment-uuid}.json
         let comments_dir = issue_dir.join("comments");
         std::fs::create_dir_all(&comments_dir).unwrap();
         let comment_uuid = Uuid::new_v4();
@@ -1882,7 +1640,6 @@ mod tests {
         };
         write_comment_file(&comments_dir.join(format!("{comment_uuid}.json")), &cf).unwrap();
 
-        // Write layout version 2
         let meta_dir = cache.path().join("meta");
         write_layout_version(&meta_dir, 2).unwrap();
 
@@ -1900,16 +1657,9 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let cache = tempdir().unwrap();
 
-        // A direct-SQLite issue occupying numeric id 1 (created_by NULL ->
-        // classified sqlite-only and preserved across hydration passes).
         let local_id = db.create_issue("Local-only issue", None, "medium").unwrap();
         assert_eq!(local_id, 1);
 
-        // Hub issue whose display id collides with the local row's id, plus
-        // one hub comment. GH#12 growth mechanism: after pass 1 the hub
-        // comment sits on numeric id 1, so pass 2's preservation snapshot
-        // adopts it and restores it NEXT TO the fresh copy pass 2 inserts —
-        // one extra copy per pass without the uuid dedup guard.
         let issue = make_issue(1, "Hub issue");
         let issue_uuid = issue.uuid;
         let issue_dir = cache.path().join("issues").join(issue_uuid.to_string());
@@ -2039,19 +1789,15 @@ mod tests {
         assert_eq!(comments.len(), 3);
     }
 
-    // ---- v1 layout: standalone comments dir absent (no read_comment_files called) ----
-
     #[test]
     fn test_hydrate_v1_layout_skips_v2_comment_files() {
         let (db, _dir) = setup_test_db();
         let cache = tempdir().unwrap();
 
-        // layout_version defaults to 1 (no meta/version.json)
         let issue = make_issue(1, "V1 issue");
         let issue_uuid = issue.uuid;
         write_issues_to_cache(cache.path(), &[issue]);
 
-        // Write a comment file anyway — it should be ignored at v1
         let comments_dir = cache
             .path()
             .join("issues")
@@ -2075,10 +1821,8 @@ mod tests {
         write_comment_file(&comments_dir.join(format!("{cu}.json")), &cf).unwrap();
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
-        assert_eq!(stats.comments, 0); // v2 path not entered
+        assert_eq!(stats.comments, 0);
     }
-
-    // ---- time entry with no ended_at ----
 
     #[test]
     fn test_hydrate_time_entry_without_ended_at() {
@@ -2089,16 +1833,13 @@ mod tests {
         issue.time_entries = vec![TimeEntry {
             id: 1,
             started_at: Utc::now(),
-            ended_at: None, // timer still running
+            ended_at: None,
             duration_seconds: None,
         }];
         write_issues_to_cache(cache.path(), &[issue]);
 
         hydrate_to_sqlite(cache.path(), &db).unwrap();
-        // No error means the None-ended_at path was handled correctly
     }
-
-    // ---- HydrationStats default ----
 
     #[test]
     fn test_hydration_stats_default() {
@@ -2109,8 +1850,6 @@ mod tests {
         assert_eq!(stats.relations, 0);
         assert_eq!(stats.milestones, 0);
     }
-
-    // ---- offline issue as parent of another offline issue ----
 
     #[test]
     fn test_hydrate_offline_child_resolves_offline_parent() {
@@ -2130,7 +1869,6 @@ mod tests {
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.issues, 2);
 
-        // Offline parent gets -1, child gets -2
         let loaded_parent = db.get_issue(-1).unwrap();
         let loaded_child = db.get_issue(-2).unwrap();
         assert!(loaded_parent.is_some() || loaded_child.is_some());

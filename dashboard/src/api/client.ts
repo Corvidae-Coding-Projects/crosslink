@@ -1,8 +1,8 @@
-// Fetch wrapper + React Query hooks for the /api/v1/dashboard endpoints.
-//
-// Bearer-token auth is installed globally by `auth/bootstrap.ts` before
-// React mounts (it wraps `globalThis.fetch`), so these helpers can use
-// the bare `fetch` API without re-plumbing headers.
+
+
+
+
+
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -25,9 +25,9 @@ import type {
 
 const API_BASE = "/api/v1/dashboard";
 
-/// Default refetch cadence. Matches the server-side poll loop
-/// (`crosslink/src/dashboard/poll.rs::DEFAULT_TICK = 5s`) so the
-/// frontend's view stays within one tick of the ground truth.
+
+
+
 const REFETCH_MS = 5_000;
 
 export class ApiRequestError extends Error {
@@ -48,8 +48,8 @@ async function apiFetch<T>(path: string): Promise<T> {
     try {
       const body = (await resp.json()) as { error?: string };
       if (body.error) message = body.error;
-    } catch {
-      // Non-JSON error body; fall back to status-only message.
+    } catch (error) {
+      void error;
     }
     throw new ApiRequestError(resp.status, message);
   }
@@ -79,8 +79,8 @@ async function apiWrite<T>(
     try {
       const parsed = (await resp.json()) as { error?: string };
       if (parsed.error) message = parsed.error;
-    } catch {
-      // Non-JSON error body.
+    } catch (error) {
+      void error;
     }
     throw new ApiRequestError(resp.status, message);
   }
@@ -93,9 +93,9 @@ export interface ActionResponse {
   stderr: string;
 }
 
-/// `useQuery` hook for the project-list endpoint. Polls every 5s so
-/// tiles stay current without requiring the WebSocket upgrade
-/// (which lands in P1.5).
+
+
+
 export function useProjects() {
   return useQuery<ProjectListItem[], ApiRequestError>({
     queryKey: ["dashboard", "projects"],
@@ -105,9 +105,9 @@ export function useProjects() {
   });
 }
 
-/// Detail hook. `slug` is `owner/repo` — the wildcard route handles
-/// the embedded slash server-side. `null` slug disables the query
-/// (useful when the route param isn't resolved yet).
+
+
+
 export function useProject(slug: string | null) {
   return useQuery<ProjectDetail, ApiRequestError>({
     queryKey: ["dashboard", "project", slug],
@@ -118,9 +118,9 @@ export function useProject(slug: string | null) {
   });
 }
 
-/// Currently-open alerts across all projects. Primary use case is
-/// the alert rail in the header and the `/alerts` page. WS events
-/// invalidate this cache on every `dashboard_alerts_changed` tick.
+
+
+
 export function useAlerts() {
   return useQuery<AlertItem[], ApiRequestError>({
     queryKey: ["dashboard", "alerts"],
@@ -130,11 +130,11 @@ export function useAlerts() {
   });
 }
 
-/// Shared post-mutation invalidator. Projects list + project detail
-/// + alerts list all get invalidated so every surface that could be
-/// displaying stale state catches up immediately. Without the alerts
-/// invalidation a close-from-the-alerts-page looks like a no-op
-/// until the 5s polling tick refreshes independently (GH #709).
+
+
+
+
+
 function useProjectMutations(slug: string) {
   const client = useQueryClient();
   return (after: () => void = () => undefined) => {
@@ -145,10 +145,10 @@ function useProjectMutations(slug: string) {
   };
 }
 
-/// Close an issue via the dashboard's write surface. Under the hood
-/// this shells out to `crosslink issue close <id>` in the tracked
-/// project's workspace — identity, signing, and hub push all handled
-/// by the user's normal crosslink setup.
+
+
+
+
 export function useCloseIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, number>({
@@ -158,7 +158,7 @@ export function useCloseIssue(slug: string) {
   });
 }
 
-/// Reopen a closed issue.
+
 export function useReopenIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, number>({
@@ -168,9 +168,9 @@ export function useReopenIssue(slug: string) {
   });
 }
 
-/// Post a comment on an issue. `content` goes through to the CLI's
-/// `crosslink issue comment <id> "<content>"` — whitespace-only
-/// content is rejected server-side with a 400.
+
+
+
 export function useCommentIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -186,7 +186,7 @@ export function useCommentIssue(slug: string) {
   });
 }
 
-/// Mark issue `issueId` as blocked by `blockerId`.
+
 export function useBlockIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -202,7 +202,7 @@ export function useBlockIssue(slug: string) {
   });
 }
 
-/// Drop a blocker relationship.
+
 export function useUnblockIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -218,7 +218,7 @@ export function useUnblockIssue(slug: string) {
   });
 }
 
-/// Symmetric link between two issues.
+
 export function useRelateIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -234,7 +234,7 @@ export function useRelateIssue(slug: string) {
   });
 }
 
-/// Add a label to an issue.
+
 export function useLabelIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -250,7 +250,7 @@ export function useLabelIssue(slug: string) {
   });
 }
 
-/// Remove a label from an issue.
+
 export function useUnlabelIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -266,7 +266,7 @@ export function useUnlabelIssue(slug: string) {
   });
 }
 
-/// Create a new milestone. `description` is optional.
+
 export function useCreateMilestone(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -283,7 +283,7 @@ export function useCreateMilestone(slug: string) {
   });
 }
 
-/// Attach issue to milestone.
+
 export function useMilestoneAddIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -299,7 +299,7 @@ export function useMilestoneAddIssue(slug: string) {
   });
 }
 
-/// Detach issue from milestone.
+
 export function useMilestoneRemoveIssue(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -315,7 +315,7 @@ export function useMilestoneRemoveIssue(slug: string) {
   });
 }
 
-/// Close a milestone (sets status to closed; does not delete).
+
 export function useCloseMilestone(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, number>({
@@ -325,10 +325,10 @@ export function useCloseMilestone(slug: string) {
   });
 }
 
-/// Claim a lock on an issue. `branch` is optional context metadata.
-/// Operator-initiated claims are uncommon — normally agents claim
-/// their own locks — but exposing the control lets an operator seed
-/// a lock during triage.
+
+
+
+
 export function useClaimLock(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -342,7 +342,7 @@ export function useClaimLock(slug: string) {
   });
 }
 
-/// Release a lock held by the current driver.
+
 export function useReleaseLock(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, number>({
@@ -352,8 +352,8 @@ export function useReleaseLock(slug: string) {
   });
 }
 
-/// Steal a stale lock from another agent. The CLI enforces the
-/// staleness threshold — this endpoint just passes through.
+
+
 export function useStealLock(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, number>({
@@ -363,8 +363,8 @@ export function useStealLock(slug: string) {
   });
 }
 
-/// Live PTY sessions across all projects. Refetched lazily; the
-/// terminal page renders this list.
+
+
 export function usePtySessions() {
   return useQuery<PtySession[], ApiRequestError>({
     queryKey: ["pty", "sessions"],
@@ -381,8 +381,8 @@ export function usePtySessions() {
   });
 }
 
-/// Spawn a new PTY session on the server. Returns the session id;
-/// the caller then opens `ws://.../ws/pty/<id>` to attach.
+
+
 export function useSpawnPty() {
   const client = useQueryClient();
   return useMutation<PtySession, ApiRequestError, PtySpawnRequest>({
@@ -400,8 +400,8 @@ export function useSpawnPty() {
         try {
           const body = (await resp.json()) as { error?: string };
           if (body.error) message = body.error;
-        } catch {
-          // non-JSON; fall back
+        } catch (error) {
+          void error;
         }
         throw new ApiRequestError(resp.status, message);
       }
@@ -412,8 +412,8 @@ export function useSpawnPty() {
   });
 }
 
-/// Current GitHub integration config — token presence, masked
-/// fingerprint, and default org. Never exposes the raw token.
+
+
 export function useGithubConfig() {
   return useQuery<GithubConfigView, ApiRequestError>({
     queryKey: ["dashboard", "github", "config"],
@@ -422,10 +422,10 @@ export function useGithubConfig() {
   });
 }
 
-/// Update the stored PAT and/or default org.
-/// - `token: ""` deletes the stored secret.
-/// - `default_org: null` clears the org.
-/// - Omitting a field leaves it unchanged.
+
+
+
+
 export function useSetGithubConfig() {
   const client = useQueryClient();
   return useMutation<GithubConfigView, ApiRequestError, GithubConfigUpdate>({
@@ -436,8 +436,8 @@ export function useSetGithubConfig() {
   });
 }
 
-/// Enumerate crosslink-touched repos in `org`. Triggered on demand
-/// (not polled) because every call hits the GitHub REST API.
+
+
 export function useOrgRepos(org: string | null, enabled: boolean) {
   return useQuery<GithubRepoHit[], ApiRequestError>({
     queryKey: ["dashboard", "github", "org-repos", org],
@@ -451,24 +451,24 @@ export function useOrgRepos(org: string | null, enabled: boolean) {
   });
 }
 
-/// Walk an org and clone+track every repo with a `crosslink/hub` branch.
-///
-/// - `cloneRoot` is optional; server default is `$HOME` (so repos
-///   land at `~/<repo>` — flat, next to the user's manual clones).
-/// - When `init` is true, the server also runs `crosslink init` +
-///   `crosslink agent init <agentId>` in each freshly-cloned repo so
-///   dashboard write actions work without manual bootstrap.
-///   `agentId` is required in that case (server 400s otherwise).
+
+
+
+
+
+
+
+
 export function useTrackAllOrg() {
   const client = useQueryClient();
   return useMutation<GithubTrackAllOutcome, ApiRequestError, TrackAllOrgArgs>({
     mutationFn: ({ org, cloneRoot, init, agentId }) =>
-      // Always send a JSON body — even an empty one. The backend uses
-      // axum's `Json<TrackAllBody>` extractor which 400s on an absent
-      // body (400 "Failed to parse the request body") even when every
-      // field is Option-typed. JSON.stringify drops `undefined` values,
-      // so this serializes to `{}` when no flags are supplied,
-      // which `#[serde(default)]` on the backend accepts.
+
+
+
+
+
+
       apiPost<GithubTrackAllOutcome>(
         `/github/orgs/${encodeURIComponent(org)}/track-all`,
         {
@@ -483,11 +483,11 @@ export function useTrackAllOrg() {
   });
 }
 
-/// Run `crosslink integrity sign-backfill --confirm` in the
-/// project's workspace. Triggered from the `signature_invalid`
-/// alert's action panel — re-signs unsigned / invalidly-signed
-/// commits on the hub branch so the alert resolves on the next
-/// poll tick.
+
+
+
+
+
 export function useSignBackfill(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, void>({
@@ -497,9 +497,9 @@ export function useSignBackfill(slug: string) {
   });
 }
 
-/// Retrofit an already-tracked project: run `crosslink init` +
-/// `crosslink agent init` in its workspace so write actions start
-/// working. Idempotent-on-ready at the server level.
+
+
+
 export function useInitProject(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<ActionResponse, ApiRequestError, { agentId: string }>({
@@ -509,10 +509,10 @@ export function useInitProject(slug: string) {
   });
 }
 
-/// Clone an arbitrary git repo URL and register it as a tracked
-/// project. Optional `init` + `agentId` bootstrap the clone so
-/// write actions work right away. Standalone counterpart to the
-/// PAT-gated track-all flow.
+
+
+
+
 export function useCloneRepo() {
   const client = useQueryClient();
   return useMutation<CloneRepoOutcome, ApiRequestError, CloneRepoArgs>({
@@ -530,9 +530,9 @@ export function useCloneRepo() {
   });
 }
 
-/// Send a control request to an agent via the hub branch.
-/// Kinds: `kill` | `pause` | `resume` | `reprioritise`.
-/// See design doc §9 for protocol details.
+
+
+
 export function useAgentRequest(slug: string) {
   const invalidate = useProjectMutations(slug);
   return useMutation<
@@ -555,8 +555,8 @@ export function useAgentRequest(slug: string) {
   });
 }
 
-/// List the configured outbound webhook URLs (plaintext — the user
-/// typed them and edits them here). Empty list on first run.
+
+
 export function useWebhooks() {
   return useQuery<WebhooksView, ApiRequestError>({
     queryKey: ["dashboard", "webhooks"],
@@ -565,9 +565,9 @@ export function useWebhooks() {
   });
 }
 
-/// Replace the full webhook URL list. Server validates each URL
-/// (https + host, or http for loopback) and rejects the batch on any
-/// failure without partial writes.
+
+
+
 export function useSetWebhooks() {
   const client = useQueryClient();
   return useMutation<WebhooksView, ApiRequestError, SetWebhooksBody>({

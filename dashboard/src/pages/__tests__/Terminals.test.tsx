@@ -1,5 +1,5 @@
-// Smoke coverage for the Terminals page. Mocks the API hooks so we
-// can assert spawn-form behaviour without a real PTY broker.
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -41,8 +41,8 @@ vi.mock("@/api/client", async () => {
   };
 });
 
-// xterm.js needs DOM APIs jsdom doesn't provide; bypass the terminal
-// component so the page test stays focused on the spawn / list flows.
+
+
 vi.mock("@/components/PtyTerminal", () => ({
   PtyTerminal: ({ sessionId }: { sessionId: string }) => (
     <div data-testid="terminal-stub">{sessionId}</div>

@@ -1,9 +1,9 @@
-// /settings/github — GitHub integration panel. Lets the operator
-// store a PAT (Phase 4.1 backend does the AES-GCM encryption), set a
-// default org, enumerate crosslink-touched repos, and auto-track
-// every hit in one click.
-//
-// The backend endpoints live in crosslink/src/dashboard/github_api.rs.
+
+
+
+
+
+
 
 import { useState, type FormEvent } from "react";
 
@@ -32,7 +32,7 @@ export function SettingsGithub() {
   const [trackOutcome, setTrackOutcome] =
     useState<GithubTrackAllOutcome | null>(null);
 
-  // Standalone clone-by-URL state (independent of PAT / org).
+
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneSlug, setCloneSlug] = useState("");
   const [cloneInitToggle, setCloneInitToggle] = useState(false);

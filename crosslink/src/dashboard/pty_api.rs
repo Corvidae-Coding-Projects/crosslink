@@ -1,16 +1,3 @@
-//! REST + WebSocket surface for the embedded terminal.
-//!
-//! Two routes land here:
-//! - `POST /api/v1/pty` — spawn a PTY in a tracked project's workspace
-//!   and return a `session_id`.
-//! - `GET  /api/v1/pty/sessions` — list live + recently-exited sessions.
-//! - `WS   /ws/pty/{session_id}` — bidirectional byte stream with the
-//!   running PTY (frames defined in [`super::pty`]).
-//!
-//! The WebSocket handler does the replay-on-connect + broadcast-stream
-//! glue so multiple browser tabs can attach to the same PTY without
-//! racing.
-
 use anyhow::Result;
 use axum::{
     extract::{
@@ -31,8 +18,6 @@ use super::db::DashboardDb;
 use super::pty::{spawn_pty, ClientFrame, PtySessionView, ServerFrame, DEFAULT_MAX_CONCURRENT};
 use crate::server::state::AppState;
 
-/// Build the PTY-broker subrouter. Mounted at `/api/v1` by the server
-/// composite router and at `/ws` for the WebSocket upgrade.
 pub fn rest_router() -> Router<AppState> {
     Router::new()
         .route("/pty", post(spawn_session))
@@ -46,7 +31,7 @@ pub fn ws_router() -> Router<AppState> {
 #[derive(Debug, Deserialize)]
 struct SpawnRequest {
     project_slug: String,
-    /// Command to run. Resolves via PATH if not absolute.
+
     command: String,
     #[serde(default)]
     args: Vec<String>,
@@ -71,7 +56,6 @@ struct SpawnResponse {
     started_at: String,
 }
 
-/// `POST /api/v1/pty` — spawn a new PTY in the project's workspace.
 async fn spawn_session(
     State(state): State<AppState>,
     Json(req): Json<SpawnRequest>,
@@ -115,7 +99,6 @@ async fn spawn_session(
     Ok(Json(resp))
 }
 
-/// `GET /api/v1/pty/sessions` — list live sessions across all projects.
 async fn list_sessions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PtySessionView>>, PtyError> {
@@ -129,8 +112,6 @@ async fn list_sessions(
     Ok(Json(out))
 }
 
-/// `GET /ws/pty/{session_id}` — websocket upgrade, then bidirectional
-/// frame exchange with the live PTY.
 async fn ws_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
@@ -145,7 +126,6 @@ async fn ws_handler(
 async fn handle_socket(mut socket: WebSocket, session: std::sync::Arc<super::pty::PtySession>) {
     let engine = base64::engine::general_purpose::STANDARD;
 
-    // Initial replay so the client gets context when reconnecting.
     let (mut rx, replay) = session.subscribe();
     if !replay.is_empty() {
         let frame = ServerFrame::Stdout {
@@ -158,11 +138,11 @@ async fn handle_socket(mut socket: WebSocket, session: std::sync::Arc<super::pty
 
     loop {
         tokio::select! {
-            // Stdout frames from the PTY → forward to client.
+
             broadcast_msg = rx.recv() => {
                 match broadcast_msg {
                     Ok(bytes) if bytes.is_empty() => {
-                        // Sentinel: child exited, see if we have a code yet.
+
                         let code = session.exit_code.lock().ok().and_then(|g| *g);
                         let frame = ServerFrame::Exit { code };
                         if let Ok(s) = serde_json::to_string(&frame) {
@@ -180,7 +160,7 @@ async fn handle_socket(mut socket: WebSocket, session: std::sync::Arc<super::pty
                         }
                     }
                     Err(RecvError::Lagged(_)) => {
-                        // Client is too slow; resync from the replay buffer.
+
                         let (_new_rx, snapshot) = session.subscribe();
                         let frame = ServerFrame::Stdout { data: engine.encode(&snapshot) };
                         if let Ok(s) = serde_json::to_string(&frame) {
@@ -190,7 +170,7 @@ async fn handle_socket(mut socket: WebSocket, session: std::sync::Arc<super::pty
                     Err(RecvError::Closed) => break,
                 }
             }
-            // Frames from the client → write into the PTY.
+
             client_msg = socket.recv() => {
                 match client_msg {
                     Some(Ok(Message::Text(text))) => {
@@ -209,8 +189,8 @@ async fn handle_socket(mut socket: WebSocket, session: std::sync::Arc<super::pty
                         }
                     }
                     Some(Ok(Message::Binary(bytes))) => {
-                        // Treat raw binary as stdin — saves a base64 round-trip
-                        // for clients that opt into it.
+
+
                         let _ = session.write_stdin(&bytes);
                     }
                     Some(Ok(Message::Close(_)) | Err(_)) | None => break,

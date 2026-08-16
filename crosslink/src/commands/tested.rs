@@ -5,7 +5,6 @@ use std::path::Path;
 pub fn run(crosslink_dir: &Path) -> Result<()> {
     let marker_file = crosslink_dir.join("last_test_run");
 
-    // Create or update the marker file
     fs::write(&marker_file, "").context("Failed to update test marker")?;
 
     println!("✓ Marked tests as run");
@@ -60,7 +59,6 @@ mod tests {
 
     #[test]
     fn test_run_fails_on_readonly_dir() {
-        // Skip on Windows as permissions work differently
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -68,7 +66,6 @@ mod tests {
             let crosslink_dir = dir.path().join(".crosslink");
             std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-            // Make directory read-only
             let mut perms = std::fs::metadata(&crosslink_dir).unwrap().permissions();
             perms.set_mode(0o444);
             std::fs::set_permissions(&crosslink_dir, perms).unwrap();
@@ -76,7 +73,6 @@ mod tests {
             let result = run(&crosslink_dir);
             assert!(result.is_err());
 
-            // Restore permissions for cleanup
             let mut perms = std::fs::metadata(&crosslink_dir).unwrap().permissions();
             perms.set_mode(0o755);
             std::fs::set_permissions(&crosslink_dir, perms).unwrap();
@@ -89,7 +85,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Run multiple times
         for _ in 0..3 {
             let result = run(&crosslink_dir);
             assert!(result.is_ok());

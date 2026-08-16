@@ -1,11 +1,3 @@
-//! Handlers for knowledge page endpoints.
-//!
-//! Implements:
-//! - `GET  /api/v1/knowledge`         — list all knowledge pages
-//! - `POST /api/v1/knowledge`         — create a new knowledge page
-//! - `GET  /api/v1/knowledge/search`  — full-text search across knowledge pages
-//! - `GET  /api/v1/knowledge/:slug`   — read a single knowledge page by slug
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -25,10 +17,6 @@ use crate::{
     },
 };
 
-/// Escape a string for safe embedding inside YAML double-quoted values.
-///
-/// Escapes backslashes, double quotes, and newlines so that user-supplied
-/// input cannot break out of the quoted context.
 fn yaml_escape(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -36,20 +24,11 @@ fn yaml_escape(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Build a `KnowledgeManager` from the app state's crosslink directory.
 fn knowledge_manager(state: &AppState) -> Result<KnowledgeManager, (StatusCode, Json<ApiError>)> {
     KnowledgeManager::new(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to initialize knowledge manager", e))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/knowledge
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/knowledge` — list all knowledge pages with summary metadata.
-///
-/// # Errors
-/// Returns an error if the knowledge manager cannot be initialized or pages cannot be listed.
 pub async fn list_knowledge_pages(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -77,18 +56,6 @@ pub async fn list_knowledge_pages(
     Ok(Json(serde_json::json!({ "items": items, "total": total })))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/knowledge
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/knowledge` — create a new knowledge page.
-///
-/// The request body must contain a `slug`, `title`, `content`, and optional
-/// `tags` and `sources`. The handler constructs YAML frontmatter and writes
-/// the page to the knowledge cache.
-///
-/// # Errors
-/// Returns an error if validation fails or the page cannot be written.
 pub async fn create_knowledge_page(
     State(state): State<AppState>,
     Json(body): Json<CreateKnowledgePageRequest>,
@@ -100,8 +67,6 @@ pub async fn create_knowledge_page(
         return Err(bad_request("title cannot be empty"));
     }
 
-    // Path traversal protection: reject slugs containing directory separators,
-    // parent-directory references, or null bytes.
     if body.slug.contains('/')
         || body.slug.contains('\\')
         || body.slug.contains("..")
@@ -114,7 +79,6 @@ pub async fn create_knowledge_page(
 
     let km = knowledge_manager(&state)?;
 
-    // Ensure the cache is initialized before writing.
     if !km.is_initialized() {
         km.init_cache()
             .map_err(|e| internal_error("Failed to initialize knowledge cache", e))?;
@@ -126,9 +90,6 @@ pub async fn create_knowledge_page(
 
     let now = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
-    // Build YAML frontmatter with proper escaping to prevent YAML injection.
-    // All user-supplied strings are wrapped in double quotes with interior
-    // quotes and backslashes escaped.
     let sources_yaml = if body.sources.is_empty() {
         "[]".to_string()
     } else {
@@ -172,7 +133,6 @@ pub async fn create_knowledge_page(
     km.write_page(&body.slug, &page_content)
         .map_err(|e| internal_error("Failed to write knowledge page", e))?;
 
-    // Commit the new page so it's tracked in git.
     let commit_msg = format!("Add knowledge page: {}", body.slug);
     if let Err(e) = km.commit(&commit_msg) {
         tracing::warn!(
@@ -194,16 +154,6 @@ pub async fn create_knowledge_page(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/knowledge/search
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/knowledge/search?q=<query>` — search knowledge pages by content.
-///
-/// Returns matching snippets with context lines, ranked by term relevance.
-///
-/// # Errors
-/// Returns an error if the query is empty or the search fails.
 pub async fn search_knowledge(
     State(state): State<AppState>,
     Query(params): Query<KnowledgeSearchQuery>,
@@ -218,12 +168,10 @@ pub async fn search_knowledge(
         return Ok(Json(serde_json::json!({ "items": [], "total": 0 })));
     }
 
-    // Use 2 lines of context around each match (same default as CLI).
     let matches = km
         .search_content(&params.q, 2)
         .map_err(|e| internal_error("Knowledge search failed", e))?;
 
-    // Build title map lazily — only if there are matches to enrich.
     let title_map: std::collections::HashMap<String, String> = if matches.is_empty() {
         std::collections::HashMap::new()
     } else {
@@ -251,16 +199,6 @@ pub async fn search_knowledge(
     Ok(Json(serde_json::json!({ "items": items, "total": total })))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/knowledge/:slug
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/knowledge/:slug` — read a single knowledge page by slug.
-///
-/// Returns the full page content along with parsed frontmatter metadata.
-///
-/// # Errors
-/// Returns an error if the page cannot be found or read.
 pub async fn get_knowledge_page(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -312,7 +250,6 @@ pub async fn get_knowledge_page(
         ),
     };
 
-    // Strip frontmatter block from content for the `content` field.
     let content = strip_frontmatter(&raw);
 
     Ok(Json(KnowledgePage {
@@ -327,25 +264,20 @@ pub async fn get_knowledge_page(
     }))
 }
 
-/// Strip the YAML frontmatter block (between `---` delimiters) from raw markdown.
 fn strip_frontmatter(raw: &str) -> String {
     let trimmed = raw.trim_start();
     if !trimmed.starts_with("---") {
         return raw.to_string();
     }
-    // Find the closing `---` after the opening one.
+
     trimmed[3..].find("\n---").map_or_else(
         || raw.to_string(),
         |end| {
-            let after = &trimmed[3 + end + 4..]; // skip past "\n---"
+            let after = &trimmed[3 + end + 4..];
             after.trim_start_matches('\n').to_string()
         },
     )
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -402,14 +334,13 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_knowledge_page() {
         let tmp = tempfile::tempdir().unwrap();
-        // Create a minimal knowledge cache directory (skip git init for tests).
+
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
 
         let state = test_state(tmp.path());
         let app = build_router(state);
 
-        // Create a page
         let create_body = serde_json::json!({
             "slug": "test-page",
             "title": "Test Page",
@@ -439,7 +370,6 @@ mod tests {
         assert_eq!(body["slug"], "test-page");
         assert_eq!(body["title"], "Test Page");
 
-        // Read the page back
         let resp = app
             .clone()
             .oneshot(
@@ -498,7 +428,6 @@ mod tests {
             "content": "First"
         });
 
-        // Create first
         let resp = app
             .clone()
             .oneshot(
@@ -513,7 +442,6 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
 
-        // Create duplicate
         let resp = app
             .oneshot(
                 Request::builder()
@@ -534,7 +462,6 @@ mod tests {
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
 
-        // Write a page directly to the cache for searching.
         let page = "---\ntitle: \"Rust Notes\"\ntags: [rust]\nsources: []\ncontributors: []\ncreated: \"2026-01-01\"\nupdated: \"2026-01-01\"\n---\n\nRust is a systems programming language.\nIt provides memory safety without garbage collection.\n";
         std::fs::write(cache_dir.join("rust-notes.md"), page).unwrap();
 
@@ -586,7 +513,6 @@ mod tests {
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
 
-        // Write two pages directly.
         let page_a = "---\ntitle: \"Alpha\"\ntags: []\nsources: []\ncontributors: []\ncreated: \"2026-01-01\"\nupdated: \"2026-01-01\"\n---\n\nAlpha page.\n";
         let page_b = "---\ntitle: \"Beta\"\ntags: [test]\nsources: []\ncontributors: []\ncreated: \"2026-01-02\"\nupdated: \"2026-01-02\"\n---\n\nBeta page.\n";
         std::fs::write(cache_dir.join("alpha.md"), page_a).unwrap();
@@ -612,7 +538,7 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["total"], 2);
         let items = body["items"].as_array().unwrap();
-        // Pages are sorted by slug.
+
         assert_eq!(items[0]["slug"], "alpha");
         assert_eq!(items[1]["slug"], "beta");
     }
@@ -633,7 +559,6 @@ mod tests {
 
     #[test]
     fn test_strip_frontmatter_unclosed_returns_original() {
-        // If there is no closing `---`, the raw string is returned unchanged.
         let raw = "---\ntitle: Test\ntags: []\nno closing delimiter";
         let stripped = strip_frontmatter(raw);
         assert_eq!(stripped, raw);
@@ -687,12 +612,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_page_when_cache_missing_attempts_init() {
-        // The cache dir does NOT exist; create_knowledge_page tries init_cache
-        // which calls git. In a test environment without a real repo origin the
-        // git worktree add will fail, so we expect 500 (init failed) rather than
-        // 201. This still exercises the `!km.is_initialized()` branch.
         let tmp = tempfile::tempdir().unwrap();
-        // Crosslink dir exists but .knowledge-cache does not.
+
         let crosslink_dir = tmp.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
@@ -715,8 +636,7 @@ mod tests {
             )
             .await
             .unwrap();
-        // init_cache runs git worktree add which fails without a proper remote;
-        // the handler maps that error to 500.
+
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -760,7 +680,6 @@ mod tests {
             .unwrap()
             .contains(&serde_json::json!("rust")));
 
-        // Read back and verify tags appear in frontmatter-parsed response.
         let get_resp = app
             .oneshot(
                 Request::builder()
@@ -784,7 +703,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_page_when_km_not_initialized() {
-        // No .knowledge-cache dir exists — km.is_initialized() is false.
         let tmp = tempfile::tempdir().unwrap();
         let crosslink_dir = tmp.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
@@ -805,7 +723,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_knowledge_when_not_initialized() {
-        // No .knowledge-cache dir exists — returns empty list.
         let tmp = tempfile::tempdir().unwrap();
         let crosslink_dir = tmp.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
@@ -850,7 +767,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_page_with_source_accessed_at() {
-        // Exercise the sources branch that includes accessed_at field.
         let tmp = tempfile::tempdir().unwrap();
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
@@ -887,7 +803,7 @@ mod tests {
             .unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed["slug"], "sourced-page");
-        // Verify the source with accessed_at is reflected.
+
         let sources = parsed["sources"].as_array().unwrap();
         assert!(!sources.is_empty());
         assert_eq!(sources[0]["accessed_at"], "2026-03-01");
@@ -895,7 +811,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_page_without_frontmatter() {
-        // A page with no frontmatter falls back to slug as title.
         let tmp = tempfile::tempdir().unwrap();
         let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
@@ -920,7 +835,7 @@ mod tests {
             .await
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        // title falls back to slug when no frontmatter.
+
         assert_eq!(body["slug"], "raw-page");
         assert_eq!(body["title"], "raw-page");
         assert!(body["content"].as_str().unwrap().contains("raw content"));

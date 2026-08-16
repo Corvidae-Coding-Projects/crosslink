@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::db::Database;
 
-/// Display dispatch success rate metrics grouped by model and label.
 pub fn show_metrics(db: &Database, json: bool) -> Result<()> {
     let metrics = db.get_dispatch_metrics()?;
 

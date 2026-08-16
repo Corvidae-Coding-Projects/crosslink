@@ -1,27 +1,3 @@
-//! PTY broker for the embedded terminal (design doc §10).
-//!
-//! The dashboard hosts interactive `crosslink` commands (`design`,
-//! `kickoff run`, ad-hoc shells) inside an xterm.js terminal. Each
-//! terminal is backed by a real PTY managed by this broker:
-//!
-//! 1. Frontend POSTs `/api/v1/pty { project_slug, command, args? }`
-//!    → server spawns a PTY in the project's workspace and returns
-//!    a `session_id`.
-//! 2. Frontend opens `ws://.../ws/pty/<session_id>` and exchanges
-//!    `{type: "stdin"|"resize"}` / `{type: "stdout"|"exit"}` frames.
-//! 3. WS disconnects don't kill the PTY — there's a configurable
-//!    grace window (default 30 min) so users can reconnect from
-//!    the /terminals page.
-//!
-//! Sessions live in the `pty_sessions` `SQLite` table (audit trail) and
-//! a process-local `SessionRegistry` (live PTY handles + buffered
-//! output). Output is buffered so a reconnecting client can replay
-//! recent history rather than starting blank.
-//!
-//! Security model: same bearer-token auth as REST; bound to
-//! 127.0.0.1 by default. Same-user privileges (no sandboxing) — this
-//! is intentional, the operator is running their own code.
-
 use anyhow::{Context, Result};
 use chrono::Utc;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
@@ -32,75 +8,52 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, Notify};
 use tokio::task::JoinHandle;
 
-/// How many bytes of recent output we keep per session for replay
-/// when a client reconnects. 64 KiB is enough to redraw most TUIs.
 const REPLAY_BUFFER_BYTES: usize = 64 * 1024;
 
-/// How long a PTY survives after the last WS disconnect before being
-/// torn down. Lets users close their tab and resume from another
-/// device without losing in-flight work. Currently advisory — the
-/// reaper that consumes it lands in a follow-up; sessions live until
-/// the registry drops them or the child exits naturally.
 #[allow(dead_code)]
 pub const DEFAULT_GRACE_PERIOD_SECS: u64 = 30 * 60;
 
-/// Maximum concurrent live PTY sessions across the broker. Beyond
-/// this, new spawn requests are rejected with 429.
 pub const DEFAULT_MAX_CONCURRENT: usize = 8;
 
-/// Wire frame from client → server over the PTY WebSocket.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ClientFrame {
-    /// Base64-encoded keystrokes / paste data.
     Stdin { data: String },
-    /// Terminal resize event.
+
     Resize { rows: u16, cols: u16 },
 }
 
-/// Wire frame from server → client.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ServerFrame {
-    /// Base64-encoded raw PTY bytes (terminal escape sequences intact).
     Stdout { data: String },
-    /// Process exited; further `Stdout` frames will not arrive.
+
     Exit { code: Option<i32> },
 }
 
-/// Live state for a single PTY session held in the registry.
 pub struct PtySession {
     pub id: String,
     pub project_slug: String,
     pub command: String,
     pub started_at: String,
-    /// Master/control end of the PTY, retained for resize and lifecycle.
+
     master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
-    /// Persistent PTY input writer. `MasterPty::take_writer` is one-shot and
-    /// dropping the returned handle sends EOF, so request handlers must share
-    /// this handle instead of taking a new writer for each input frame.
+
     writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
-    /// Broadcast channel for stdout bytes — every connected WS gets a
-    /// receiver. Replay buffer is filled from the same producer.
+
     broadcaster: broadcast::Sender<Vec<u8>>,
-    /// Rolling tail of recent stdout for clients reconnecting to an
-    /// already-running session.
+
     replay: Arc<Mutex<VecDeque<u8>>>,
-    /// Set when the child process exits; carries the exit code.
+
     pub exit_code: Arc<Mutex<Option<i32>>>,
-    /// Notified when the child process exits — lets test code (and
-    /// future reaper logic) await termination cleanly. Currently used
-    /// only by tests; flagged so strict CI doesn't trip.
+
     #[allow(dead_code)]
     pub exit_notify: Arc<Notify>,
-    /// Reader thread — keep the handle so drop terminates it cleanly.
+
     reader_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl PtySession {
-    /// Subscribe to the live stdout stream + grab a snapshot of the
-    /// replay buffer. Callers should send the replay first, then the
-    /// live frames, to give the client a coherent view.
     pub fn subscribe(&self) -> (broadcast::Receiver<Vec<u8>>, Vec<u8>) {
         let receiver = self.broadcaster.subscribe();
         let snapshot = self.replay.lock().map_or_else(
@@ -110,11 +63,6 @@ impl PtySession {
         (receiver, snapshot)
     }
 
-    /// Forward stdin bytes to the PTY. Returns an error if its persistent
-    /// input writer has already been closed (process exited).
-    ///
-    /// # Errors
-    /// Returns an error if the master end is unavailable or write fails.
     pub fn write_stdin(&self, data: &[u8]) -> Result<()> {
         let mut guard = self
             .writer
@@ -127,10 +75,6 @@ impl PtySession {
         Ok(())
     }
 
-    /// Resize the terminal. Best-effort — never fatal.
-    ///
-    /// # Errors
-    /// Returns an error only if the master end is gone.
     pub fn resize(&self, rows: u16, cols: u16) -> Result<()> {
         let guard = self
             .master
@@ -161,15 +105,13 @@ impl Drop for PtySession {
         if let Ok(mut g) = self.writer.lock() {
             *g = None;
         }
-        // Dropping the master closes the PTY (kills the child).
+
         if let Ok(mut g) = self.master.lock() {
             *g = None;
         }
     }
 }
 
-/// In-process registry of live PTY sessions. The `Arc<RwLock<…>>` is
-/// stored on `AppState` so axum handlers can look up sessions by id.
 #[derive(Clone, Default)]
 pub struct SessionRegistry {
     inner: Arc<tokio::sync::RwLock<std::collections::HashMap<String, Arc<PtySession>>>>,
@@ -181,47 +123,33 @@ impl SessionRegistry {
         Self::default()
     }
 
-    /// Insert a freshly-spawned session.
     pub async fn insert(&self, session: Arc<PtySession>) {
         self.inner.write().await.insert(session.id.clone(), session);
     }
 
-    /// Look up a session by id.
     pub async fn get(&self, id: &str) -> Option<Arc<PtySession>> {
         self.inner.read().await.get(id).cloned()
     }
 
-    /// Remove a session (drop will tear down the PTY). Currently
-    /// only used by tests + the future reaper task.
     #[allow(dead_code)]
     pub async fn remove(&self, id: &str) -> Option<Arc<PtySession>> {
         self.inner.write().await.remove(id)
     }
 
-    /// Snapshot of currently-live session ids.
     pub async fn list_ids(&self) -> Vec<String> {
         self.inner.read().await.keys().cloned().collect()
     }
 
-    /// Number of live sessions — for capacity checks.
     pub async fn len(&self) -> usize {
         self.inner.read().await.len()
     }
 
-    /// True when no sessions are tracked. Paired with `len` to keep
-    /// clippy's `len_without_is_empty` happy.
     #[allow(dead_code)]
     pub async fn is_empty(&self) -> bool {
         self.inner.read().await.is_empty()
     }
 }
 
-/// Spawn a PTY running `command` (with `args`) in `cwd` and return a
-/// session handle wired into the broadcast pipeline.
-///
-/// # Errors
-/// Returns an error if the PTY pair can't be created or the child
-/// process can't be spawned (missing binary, permission denied, etc.).
 pub fn spawn_pty(
     cwd: &std::path::Path,
     command: &str,
@@ -244,13 +172,12 @@ pub fn spawn_pty(
         cmd.arg(a);
     }
     cmd.cwd(cwd);
-    // Children can detect they're running under the dashboard's PTY
-    // broker (e.g. to skip TTY-detection prompts that don't apply).
+
     cmd.env("CROSSLINK_DASHBOARD", "1");
     cmd.env("TERM", "xterm-256color");
 
     let mut child = pair.slave.spawn_command(cmd).context("spawn pty child")?;
-    drop(pair.slave); // Slave end stays open via the child's fds.
+    drop(pair.slave);
 
     let id = format!("pty-{}", uuid::Uuid::new_v4());
     let started_at = Utc::now().to_rfc3339();
@@ -259,17 +186,13 @@ pub fn spawn_pty(
     let exit_code = Arc::new(Mutex::new(None::<i32>));
     let exit_notify = Arc::new(Notify::new());
 
-    // Take a clone of the master we can read from in the background
-    // thread. portable_pty exposes try_clone_reader for exactly this.
     let mut reader = pair.master.try_clone_reader().context("clone pty reader")?;
     let writer = pair.master.take_writer().context("take pty writer")?;
 
     let tx_for_reader = tx.clone();
     let replay_for_reader = Arc::clone(&replay);
     let (exit_ready_tx, exit_ready_rx) = std::sync::mpsc::sync_channel::<()>(0);
-    // Reader runs on a blocking-friendly worker because portable_pty
-    // gives us a sync Read. Copy each chunk into the replay buffer
-    // and broadcast to subscribers.
+
     let reader_handle = tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
         loop {
@@ -286,12 +209,10 @@ pub fn spawn_pty(
                     replay_guard.push_back(b);
                 }
             }
-            // Best effort: if no subscribers, send returns Err — fine.
+
             let _ = tx_for_reader.send(chunk);
         }
-        // The child waiter closes the master after recording the exit code.
-        // Once that makes the reader reach EOF, wake clients with a sentinel;
-        // ServerFrame::Exit is rendered separately.
+
         let _ = exit_ready_rx.recv();
         let _ = tx_for_reader.send(Vec::new());
     });
@@ -303,11 +224,6 @@ pub fn spawn_pty(
     let exit_code_for_waiter = Arc::clone(&exit_code);
     let exit_notify_for_waiter = Arc::clone(&exit_notify);
 
-    // Wait for the child independently from output EOF. ConPTY keeps its
-    // output pipe open for as long as the pseudoconsole master exists, so
-    // waiting for EOF before calling child.wait() deadlocks exit detection on
-    // Windows. Record the child status first, then close the master so ConPTY
-    // flushes its remaining output and lets the reader deliver the sentinel.
     let waiter_handle = tokio::task::spawn_blocking(move || {
         let code = child.wait().map_or(-1, |status| status.exit_code() as i32);
         if let Ok(mut g) = exit_code_for_waiter.lock() {
@@ -323,7 +239,6 @@ pub fn spawn_pty(
         let _ = exit_ready_tx.send(());
     });
 
-    // Convert both blocking handles to one Tokio JoinHandle for storage.
     let reader_handle: JoinHandle<()> = tokio::spawn(async move {
         let _ = tokio::join!(reader_handle, waiter_handle);
     });
@@ -343,7 +258,6 @@ pub fn spawn_pty(
     }))
 }
 
-/// Snapshot of a session for the `/api/v1/pty/sessions` listing.
 #[derive(Debug, Clone, Serialize)]
 pub struct PtySessionView {
     pub id: String,
@@ -370,9 +284,6 @@ impl From<&PtySession> for PtySessionView {
 mod tests {
     use super::*;
 
-    /// ConPTY asks its terminal frontend for the current cursor position before
-    /// it releases the child process. The browser's xterm frontend answers this
-    /// in production; headless Windows tests must emulate the same response.
     fn answer_windows_cursor_position_query(session: &PtySession) {
         if cfg!(target_os = "windows") {
             session
@@ -381,10 +292,6 @@ mod tests {
         }
     }
 
-    /// Return a native executable that is guaranteed to exist on the current
-    /// test host and exits successfully after writing the current identity.
-    /// It needs no shell or arguments, which keeps the test focused on PTY
-    /// lifecycle behavior across Unix PTYs and Windows ConPTY.
     fn identity_test_command() -> (String, Vec<String>) {
         let command = if cfg!(target_os = "windows") {
             "whoami.exe"
@@ -400,7 +307,6 @@ mod tests {
         let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
         answer_windows_cursor_position_query(&session);
 
-        // Wait up to 5s for exit notification.
         let _ = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             session.exit_notify.notified(),
@@ -425,9 +331,6 @@ mod tests {
         let session = spawn_pty(&std::env::temp_dir(), &command, &args, 24, 80).expect("spawn pty");
         answer_windows_cursor_position_query(&session);
 
-        // ConPTY initialization can take substantially longer than Unix PTY
-        // startup on shared CI runners. Poll for the actual output rather than
-        // coupling the assertion to a fixed scheduling delay.
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let (_rx, snapshot) = session.subscribe();

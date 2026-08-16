@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
-/* CSS custom properties for the dark theme (default). The light
- * theme lives under `.theme-light` — `lib/theme.ts` toggles the class
- * on <html> based on the user's preference. */
+
+
+
 @layer base {
   :root {
     --background: 224 71% 4%;
@@ -66,7 +66,7 @@
   }
 }
 
-/* Map CSS variables to Tailwind v4 theme tokens */
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -111,7 +111,7 @@
   }
 }
 
-/* Scrollbar styling */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

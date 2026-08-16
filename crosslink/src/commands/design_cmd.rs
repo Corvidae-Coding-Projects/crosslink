@@ -1,4 +1,3 @@
-// E-ana tablet — provider-aware foreground design session.
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::time::Duration;
@@ -29,7 +28,6 @@ pub fn run(
 
     let agent = resolve_agent(crosslink_dir)?;
 
-    // 3. Build the prompt arguments line
     let mut args_parts = Vec::new();
 
     if let Some(slug) = continue_slug {
@@ -47,13 +45,10 @@ pub fn run(
 
     let arguments = args_parts.join(" ");
 
-    // The same canonical skill is installed into both provider discovery roots.
     let skill_prompt = include_str!("../../resources/agent/skills/design/SKILL.md");
 
-    // Strip the YAML frontmatter (everything between first --- and second ---)
     let prompt_body = strip_frontmatter(skill_prompt);
 
-    // 5. Build the full prompt with arguments substituted
     let full_prompt = if arguments.is_empty() {
         prompt_body.to_string()
     } else {
@@ -100,13 +95,11 @@ pub fn run(
     Ok(())
 }
 
-/// Strip YAML frontmatter (---\n...\n---) from the beginning of a markdown document.
 fn strip_frontmatter(content: &str) -> &str {
     if !content.starts_with("---") {
         return content;
     }
 
-    // Find the closing --- (skip the opening one)
     content[3..].find("\n---").map_or(content, |end| {
         let after_frontmatter = &content[3 + end + 4..];
         after_frontmatter.trim_start_matches('\n')

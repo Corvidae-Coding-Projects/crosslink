@@ -3,16 +3,6 @@ use anyhow::Result;
 use super::core::{KnowledgeManager, PageInfo, SearchMatch};
 
 impl KnowledgeManager {
-    /// Search knowledge page content using word-level fuzzy matching.
-    ///
-    /// Tokenizes the query into words and matches lines containing any query
-    /// term (case-insensitive). Results are ranked by the number of distinct
-    /// query terms matched within each page — pages matching more terms appear
-    /// first. Within a page, contiguous matching lines are grouped with
-    /// surrounding context.
-    ///
-    /// # Errors
-    /// Returns an error if the cache directory cannot be read.
     pub fn search_content(&self, query: &str, context: usize) -> Result<Vec<SearchMatch>> {
         if !self.cache_dir.exists() {
             return Ok(Vec::new());
@@ -30,7 +20,6 @@ impl KnowledgeManager {
             .collect();
         entries.sort_by_key(std::fs::DirEntry::file_name);
 
-        // Collect (term_match_count, matches) per file for ranking
         let mut scored_results: Vec<(usize, Vec<SearchMatch>)> = Vec::new();
 
         for entry in entries {
@@ -43,12 +32,8 @@ impl KnowledgeManager {
             let page_text = std::fs::read_to_string(&path)?;
             let lines: Vec<&str> = page_text.lines().collect();
 
-            // Lowercase each line once and reuse for both term-hit counting
-            // and per-line matching (avoids redundant lowercasing of the
-            // entire content separately).
             let lines_lower: Vec<String> = lines.iter().map(|l| l.to_lowercase()).collect();
 
-            // Count how many distinct query terms appear anywhere in this page
             let term_hits = terms
                 .iter()
                 .filter(|term| lines_lower.iter().any(|ll| ll.contains(**term)))
@@ -58,7 +43,6 @@ impl KnowledgeManager {
                 continue;
             }
 
-            // Find lines matching any query term
             let matching_indices: Vec<usize> = lines_lower
                 .iter()
                 .enumerate()
@@ -91,7 +75,6 @@ impl KnowledgeManager {
             }
         }
 
-        // Sort by term hit count descending (pages matching more terms first)
         scored_results.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         Ok(scored_results
@@ -100,12 +83,6 @@ impl KnowledgeManager {
             .collect())
     }
 
-    /// Search knowledge pages by source URL domain.
-    ///
-    /// Finds pages that have a source whose URL contains the given domain string.
-    ///
-    /// # Errors
-    /// Returns an error if listing pages fails.
     pub fn search_sources(&self, domain: &str) -> Result<Vec<PageInfo>> {
         let domain_lower = domain.to_lowercase();
 
@@ -124,10 +101,6 @@ impl KnowledgeManager {
     }
 }
 
-/// Group matching line indices into contiguous groups based on context overlap.
-///
-/// Two matches are in the same group if their context windows overlap or are
-/// adjacent (i.e., the distance between them is <= 2 * context).
 pub(super) fn group_matches(indices: &[usize], context: usize) -> Vec<Vec<usize>> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
 

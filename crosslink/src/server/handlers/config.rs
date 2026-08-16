@@ -1,9 +1,3 @@
-//! Handlers for project configuration endpoints.
-//!
-//! Implements:
-//! - `GET /api/v1/config` — read the current hook-config.json
-//! - `PATCH /api/v1/config` — merge-update hook-config.json fields
-
 use axum::{extract::State, http::StatusCode, response::Json};
 
 use crate::server::{
@@ -12,21 +6,6 @@ use crate::server::{
     types::{ApiError, ConfigResponse, UpdateConfigRequest},
 };
 
-/// Extract a `ConfigResponse` from a raw JSON Value.
-///
-/// Field name mapping between `hook-config.json` and the API response:
-///
-/// | hook-config.json key         | API response field           |
-/// |------------------------------|------------------------------|
-/// | `tracking_mode`              | `tracking_mode`              |
-/// | `stale_lock_timeout_minutes` | `stale_lock_timeout_minutes` |
-/// | `tracker_remote`             | `remote`                     |
-/// | `signing_enforcement`        | `signing_enforcement`        |
-/// | `intervention_tracking`      | `intervention_tracking`      |
-/// | `auto_steal_stale_locks`     | `auto_steal_stale_locks`     |
-///
-/// Note: the file uses `tracker_remote` while the API exposes `remote`.
-/// The `PATCH /api/v1/config` request body also uses `remote`.
 fn config_from_value(v: &serde_json::Value) -> ConfigResponse {
     ConfigResponse {
         tracking_mode: v
@@ -59,14 +38,6 @@ fn config_from_value(v: &serde_json::Value) -> ConfigResponse {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/config` — return the current project configuration.
-///
-/// # Errors
-/// Returns an error if the config file cannot be read or parsed.
 pub async fn get_config(
     State(state): State<AppState>,
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ApiError>)> {
@@ -74,7 +45,6 @@ pub async fn get_config(
 
     let result = tokio::task::spawn_blocking(
         move || -> Result<ConfigResponse, (StatusCode, Json<ApiError>)> {
-            // If no config file exists, return sensible defaults
             if !config_path.exists() {
                 return Ok(ConfigResponse {
                     tracking_mode: "normal".to_string(),
@@ -100,18 +70,10 @@ pub async fn get_config(
     result.map(Json)
 }
 
-/// `PATCH /api/v1/config` — merge-update configuration fields.
-///
-/// Only provided (non-null) fields are updated; all others are left unchanged.
-/// The full updated config is written back to `hook-config.json` and returned.
-///
-/// # Errors
-/// Returns an error if validation fails, or the config file cannot be read or written.
 pub async fn update_config(
     State(state): State<AppState>,
     Json(body): Json<UpdateConfigRequest>,
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ApiError>)> {
-    // Validate before entering spawn_blocking (these are pure checks).
     if let Some(ref mode) = body.tracking_mode {
         let valid_modes = ["strict", "normal", "relaxed"];
         if !valid_modes.contains(&mode.as_str()) {
@@ -137,7 +99,6 @@ pub async fn update_config(
 
     let result = tokio::task::spawn_blocking(
         move || -> Result<ConfigResponse, (StatusCode, Json<ApiError>)> {
-            // Read existing config (or start from empty object)
             let mut value: serde_json::Value = if config_path.exists() {
                 let content = std::fs::read_to_string(&config_path)
                     .map_err(|e| internal_error("Failed to read config file", e))?;
@@ -193,11 +154,9 @@ pub async fn update_config(
                 );
             }
 
-            // Write updated config back to disk
             let pretty = serde_json::to_string_pretty(&value)
                 .map_err(|e| internal_error("Serialization failed", e))?;
 
-            // Ensure .crosslink directory exists
             if let Some(parent) = config_path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| internal_error("Failed to create config directory", e))?;
@@ -214,10 +173,6 @@ pub async fn update_config(
 
     result.map(Json)
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -331,7 +286,6 @@ mod tests {
         let body = body_json(resp).await;
         assert_eq!(body["tracking_mode"], "strict");
 
-        // Verify file was written
         let written = std::fs::read_to_string(crosslink_dir.join("hook-config.json")).unwrap();
         let parsed: Value = serde_json::from_str(&written).unwrap();
         assert_eq!(parsed["tracking_mode"], "strict");
@@ -365,7 +319,6 @@ mod tests {
         assert_eq!(body["tracking_mode"], "strict");
         assert_eq!(body["intervention_tracking"], true);
 
-        // Verify that extra_field was preserved in the file
         let written =
             std::fs::read_to_string(dir.path().join(".crosslink/hook-config.json")).unwrap();
         let parsed: Value = serde_json::from_str(&written).unwrap();
@@ -443,7 +396,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // Values should remain unchanged
+
         assert_eq!(body["tracking_mode"], "strict");
         assert_eq!(body["intervention_tracking"], true);
     }
@@ -482,7 +435,6 @@ mod tests {
         assert_eq!(body["intervention_tracking"], true);
         assert_eq!(body["auto_steal_stale_locks"], true);
 
-        // Verify written file has stale_lock_timeout_minutes
         let written =
             std::fs::read_to_string(dir.path().join(".crosslink/hook-config.json")).unwrap();
         let parsed: Value = serde_json::from_str(&written).unwrap();
@@ -502,7 +454,6 @@ mod tests {
 
     #[test]
     fn test_config_from_value_defaults() {
-        // Verify config_from_value returns sensible defaults when fields are missing.
         let empty = serde_json::json!({});
         let cfg = super::config_from_value(&empty);
         assert_eq!(cfg.tracking_mode, "normal");

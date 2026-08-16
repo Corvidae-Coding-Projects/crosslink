@@ -1,48 +1,28 @@
-//! V2 lock protocol: event-based lock claim, release, and steal.
-
 use anyhow::{bail, Context, Result};
 
 use super::core::{SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS};
 
-/// Result of a V2 lock claim attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LockClaimResult {
-    /// Lock successfully claimed.
     Claimed,
-    /// Lock already held by this agent.
+
     AlreadyHeld,
-    /// Another agent won the lock.
+
     Contended { winner_agent_id: String },
 }
 
 impl SharedWriter {
-    /// Claim a lock on an issue using the V2 event-based protocol.
-    ///
-    /// 1. Check if already held by self -> `AlreadyHeld`
-    /// 2. Emit `LockClaimed` event -> append to event log
-    /// 3. Push event log (conflict-free per-agent file)
-    /// 4. Compact with force=true
-    /// 5. Stage + commit + push compaction output (rebase-retry)
-    /// 6. Read materialized lock file
-    /// 7. If winner is self -> Claimed; else -> emit `LockReleased` cleanup -> Contended
-    ///
-    /// # Errors
-    /// Returns an error if event emission, compaction, or push fails, or if confirmation times out.
     pub fn claim_lock_v2(
         &self,
         issue_display_id: i64,
         branch: Option<&str>,
     ) -> Result<LockClaimResult> {
-        // Check if already held
         if let Some(lock) = self.read_lock_v2(issue_display_id)? {
             if lock.agent_id == self.agent.agent_id {
                 return Ok(LockClaimResult::AlreadyHeld);
             }
         }
 
-        // Emit LockClaimed event, then compact+push with timeout guard.
-        // Per design doc section 8: if compaction hasn't completed within 30s,
-        // fail rather than treating a stale result as authoritative.
         let event = crate::events::Event::LockClaimed {
             issue_display_id,
             branch: branch.map(std::string::ToString::to_string),
@@ -59,22 +39,15 @@ impl SharedWriter {
             );
         }
 
-        // V3 claim-confirm (REQ-5): after our claim is appended + pushed, fetch
-        // every OTHER agent's ref, reduce, and re-cache state so the winner is
-        // computed over the full event set (first-claim-wins by OrderingKey).
-        // Without this, we would only see our own ref and always self-confirm.
         if self.is_v3() {
             self.confirm_v3_locks()?;
         }
 
-        // Re-read materialized lock to see who won
         match self.read_lock_v2(issue_display_id)? {
             Some(lock) if lock.agent_id == self.agent.agent_id => Ok(LockClaimResult::Claimed),
             Some(lock) => {
-                // We lost -- clean up by emitting LockReleased
                 let release = crate::events::Event::LockReleased { issue_display_id };
-                // We lost contention — emit release for our stale claim.
-                // If push fails, compaction will resolve it (winner's claim wins).
+
                 if let Err(e) = self.emit_compact_push(
                     release,
                     &format!("release lock on #{issue_display_id} (contention cleanup)"),
@@ -85,54 +58,28 @@ impl SharedWriter {
                     winner_agent_id: lock.agent_id,
                 })
             }
-            None => {
-                // Lock wasn't materialized -- shouldn't happen, but treat as claimed
-                Ok(LockClaimResult::Claimed)
-            }
+            None => Ok(LockClaimResult::Claimed),
         }
     }
 
-    /// Release a lock on an issue using the V2 event-based protocol.
-    ///
-    /// Returns Ok(true) if released, Ok(false) if not held.
-    ///
-    /// # Errors
-    /// Returns an error if reading the lock state or emitting events fails.
     pub fn release_lock_v2(&self, issue_display_id: i64) -> Result<bool> {
-        // Check if we actually hold it
         match self.read_lock_v2(issue_display_id)? {
             Some(lock) if lock.agent_id == self.agent.agent_id => {
-                // We hold it -- release
                 let event = crate::events::Event::LockReleased { issue_display_id };
                 self.emit_compact_push(event, &format!("release lock on #{issue_display_id}"))?;
                 Ok(true)
             }
-            Some(_) => {
-                // Held by someone else -- can't release
-                Ok(false)
-            }
-            None => {
-                // Not locked
-                Ok(false)
-            }
+            Some(_) | None => Ok(false),
         }
     }
 
-    /// Clear a stale agent's lock state: prune events, clear checkpoint,
-    /// and remove the materialized lock file.
-    ///
-    /// Shared implementation used by both `steal_lock_v2` and
-    /// `force_release_lock_v2` to avoid duplicating the cleanup sequence.
     fn clear_stale_lock_state(&self, issue_display_id: i64, stale_agent_id: &str) -> Result<()> {
-        // Prune stale agent's compacted events so they don't replay
         crate::compaction::prune_events(&self.cache_dir, stale_agent_id)?;
 
-        // Clear lock from checkpoint state
         let mut state = crate::checkpoint::read_checkpoint(&self.cache_dir)?;
         state.locks.remove(&issue_display_id);
         crate::checkpoint::write_checkpoint(&self.cache_dir, &state)?;
 
-        // Remove materialized lock file
         let lock_path = self
             .cache_dir
             .join("locks")
@@ -144,13 +91,6 @@ impl SharedWriter {
         Ok(())
     }
 
-    /// Steal a lock from a stale agent using the V2 event-based protocol.
-    ///
-    /// Prunes the stale agent's events, clears checkpoint lock state,
-    /// then claims normally.
-    ///
-    /// # Errors
-    /// Returns an error if clearing stale state or claiming the lock fails.
     pub fn steal_lock_v2(
         &self,
         issue_display_id: i64,
@@ -161,13 +101,6 @@ impl SharedWriter {
         self.claim_lock_v2(issue_display_id, branch)
     }
 
-    /// Force-release a stale lock without re-claiming it.
-    ///
-    /// Used by `integrity locks --repair` to actually free stale locks.
-    /// Unlike `steal_lock_v2`, this does NOT call `claim_lock_v2` afterwards.
-    ///
-    /// # Errors
-    /// Returns an error if clearing stale state or emitting events fails.
     pub fn force_release_lock_v2(
         &self,
         issue_display_id: i64,
@@ -175,7 +108,6 @@ impl SharedWriter {
     ) -> Result<bool> {
         self.clear_stale_lock_state(issue_display_id, stale_agent_id)?;
 
-        // Emit a release event and push
         let event = crate::events::Event::LockReleased { issue_display_id };
         self.emit_compact_push(
             event,
@@ -185,28 +117,11 @@ impl SharedWriter {
         Ok(true)
     }
 
-    /// Read a V2 lock file for a specific issue.
-    ///
-    /// Returns None if the lock file doesn't exist.
-    ///
-    /// # Errors
-    /// Returns an error if the lock file exists but cannot be read or parsed.
     pub fn read_lock_v2(
         &self,
         issue_display_id: i64,
     ) -> Result<Option<crate::issue_file::LockFileV2>> {
-        // V3: locks are pure events resolved by reduction (REQ-5). Read the
-        // winner from the reduced state cached by the preceding commit_v3 (the
-        // claim-confirm read). This mirrors the v2 read-materialized-lock-file
-        // step but over `state.locks` instead of `locks/<id>.json`.
         if self.is_v3() {
-            // GH#8: `last_v3_state` is populated only by a prior commit_v3 /
-            // refresh_v3_state in THIS process. A fresh process (e.g.
-            // `crosslink locks release`) read `None` here and reported "not
-            // locked" while `locks list` (checkpoint read) showed the claim.
-            // Reduce the persisted ref namespace on demand so a cold reader
-            // sees the same state a warm one would (same lazy-refresh idiom
-            // as `load_milestone_by_id`).
             if self.last_v3_state.borrow().is_none() {
                 self.refresh_v3_state()?;
             }

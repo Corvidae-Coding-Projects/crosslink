@@ -15,15 +15,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     outputChannel = vscode.window.createOutputChannel('Crosslink');
     context.subscriptions.push(outputChannel);
 
-    // Create status bar item
+
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'crosslink.daemonStatus';
     context.subscriptions.push(statusBarItem);
 
-    // Store the extension path for later use (e.g. config change handler)
+
     storedExtensionPath = context.extensionPath;
 
-    // Validate binaries are present
+
     const validation = validateBinaries(context.extensionPath);
     if (!validation.valid) {
         outputChannel.appendLine(`Binary validation failed: ${validation.error}`);
@@ -33,13 +33,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
     }
 
-    // Add binary directory to PATH for all terminals and child processes
+
     const binDir = path.join(context.extensionPath, 'bin');
     addToPath(context, binDir);
     outputChannel.appendLine(`Added to PATH: ${binDir}`);
 
-    // Install binary to user's bin directory for shells that bypass VS Code's environment
-    // (e.g., Git Bash spawned by Claude Code or other AI agents)
+
+
     try {
         const installed = await installToUserBin(context.extensionPath, outputChannel);
         if (installed) {
@@ -50,7 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel.appendLine(`Note: Could not install to user bin: ${message}`);
     }
 
-    // Get workspace folder
+
     const workspaceFolder = getWorkspaceFolder();
     if (!workspaceFolder) {
         outputChannel.appendLine('No workspace folder open');
@@ -59,13 +59,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
     }
 
-    // Get configuration
+
     const config = vscode.workspace.getConfiguration('crosslink');
     const overridePath = config.get<string>('binaryPath');
     const autoStart = config.get<boolean>('autoStartDaemon', true);
     const showOutput = config.get<boolean>('showOutputChannel', false);
 
-    // Initialize daemon manager
+
     daemonManager = new DaemonManager({
         extensionPath: context.extensionPath,
         workspaceFolder,
@@ -73,10 +73,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         overrideBinaryPath: overridePath,
     });
 
-    // Register commands
+
     registerCommands(context);
 
-    // Auto-start daemon if configured and .crosslink exists
+
     if (autoStart && daemonManager.hasCrosslinkProject()) {
         try {
             await daemonManager.start();
@@ -93,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         updateStatusBar(false);
     }
 
-    // Watch for configuration changes
+
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('crosslink')) {
@@ -102,7 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         })
     );
 
-    // Check if Python is available for Claude Code hooks
+
     if (workspaceFolder) {
         checkPythonForHooks(workspaceFolder, outputChannel);
     }
@@ -111,8 +111,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
-    // Critical: Stop daemon when extension deactivates
-    // This prevents zombie processes when VS Code closes
+
+
     if (daemonManager) {
         daemonManager.dispose();
         daemonManager = null;
@@ -188,7 +188,7 @@ function registerSessionCommands(reg: RegFn): void {
 }
 
 function registerDaemonCommands(reg: RegFn): void {
-    // ── Daemon commands ──
+
     reg('crosslink.daemonStart', async () => {
         if (!daemonManager) {
             vscode.window.showErrorMessage('No workspace folder open');
@@ -571,7 +571,7 @@ async function executeCrosslinkCommand(args: string[], statusMessage: string): P
                     outputChannel.appendLine(output);
                     outputChannel.show(true);
 
-                    // Show brief output in notification for short responses
+
                     const lines = output.split('\n');
                     if (lines.length <= 3) {
                         vscode.window.showInformationMessage(output);
@@ -591,7 +591,7 @@ function getWorkspaceFolder(): string | undefined {
     if (!folders || folders.length === 0) {
         return undefined;
     }
-    // Use first workspace folder
+
     return folders[0].uri.fsPath;
 }
 
@@ -612,14 +612,14 @@ function handleConfigChange(): void {
     const config = vscode.workspace.getConfiguration('crosslink');
     const newOverridePath = config.get<string>('binaryPath');
 
-    // If binary path changed, we need to restart the daemon
+
     if (daemonManager?.isRunning()) {
         outputChannel.appendLine('Configuration changed, restarting daemon...');
         daemonManager.stop();
 
         const workspaceFolder = getWorkspaceFolder();
         if (workspaceFolder) {
-            // Use the stored extension path rather than looking up by hardcoded extension ID
+
             daemonManager = new DaemonManager({
                 extensionPath: storedExtensionPath,
                 workspaceFolder,
@@ -638,45 +638,45 @@ function handleConfigChange(): void {
     }
 }
 
-/**
- * Adds the crosslink binary directory to PATH for all VS Code terminals and tasks.
- * Uses VS Code's EnvironmentVariableCollection API which persists across sessions.
- * This allows `crosslink` commands to work in terminals and from AI agents.
- */
+
+
+
+
+
 function addToPath(context: vscode.ExtensionContext, binDir: string): void {
     const envCollection = context.environmentVariableCollection;
 
-    // Clear any stale entries first
+
     envCollection.delete('PATH');
 
-    // Prepend our bin directory to PATH
-    // This works cross-platform: Windows uses `;` separator, Unix uses `:`
+
+
     const separator = process.platform === 'win32' ? ';' : ':';
     envCollection.prepend('PATH', binDir + separator);
 
-    // Make the modification persistent across VS Code restarts
+
     envCollection.persistent = true;
 
-    // Also set for Windows Path (case variation)
+
     if (process.platform === 'win32') {
         envCollection.prepend('Path', binDir + separator);
     }
 }
 
-/**
- * Installs crosslink binary to user's personal bin directory.
- * This ensures the binary is available in shells that bypass VS Code's environment,
- * such as Git Bash spawned by Claude Code or other AI coding assistants.
- *
- * Target directories (in order of preference):
- * - Windows: %USERPROFILE%\bin, %USERPROFILE%\.local\bin
- * - Unix: ~/.local/bin, ~/bin
- */
+
+
+
+
+
+
+
+
+
 async function installToUserBin(extensionPath: string, output: vscode.OutputChannel): Promise<boolean> {
     const homeDir = os.homedir();
     const isWindows = process.platform === 'win32';
 
-    // Candidate directories - these are commonly in PATH
+
     const candidates = isWindows
         ? [
             path.join(homeDir, 'bin'),
@@ -687,26 +687,26 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
             path.join(homeDir, 'bin'),
         ];
 
-    // Find and verify source binary
+
     const sourceBinary = resolveBinaryPath(extensionPath);
     verifyBinaryChecksum(sourceBinary);
     const targetName = isWindows ? 'crosslink.exe' : 'crosslink';
 
-    // Try each candidate directory
+
     for (const binDir of candidates) {
-        // Check if directory exists (don't create it - user should have set it up)
+
         if (!fs.existsSync(binDir)) {
             continue;
         }
 
         const targetPath = path.join(binDir, targetName);
 
-        // Check if existing binary is already the same version (by comparing file sizes and checksums)
+
         if (fs.existsSync(targetPath)) {
             try {
                 const sourceStats = fs.statSync(sourceBinary);
                 const targetStats = fs.statSync(targetPath);
-                // Quick check: if file sizes match, compare checksums to avoid unnecessary writes
+
                 if (sourceStats.size === targetStats.size) {
                     const crypto = await import('crypto');
                     const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(sourceBinary)).digest('hex');
@@ -716,17 +716,17 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
                         return true;
                     }
                 }
-            } catch {
-                // If comparison fails, fall through to overwrite
+            } catch (error) {
+                void error;
             }
             output.appendLine(`Updating crosslink at ${targetPath}`);
         }
 
-        // Copy binary to user bin
+
         try {
             fs.copyFileSync(sourceBinary, targetPath);
 
-            // Ensure executable on Unix
+
             if (!isWindows) {
                 fs.chmodSync(targetPath, 0o755);
             }
@@ -735,12 +735,12 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
             return true;
         } catch (err) {
             output.appendLine(`Failed to copy to ${targetPath}: ${err}`);
-            // Try next candidate
+
             continue;
         }
     }
 
-    // No suitable bin directory found - try to create ~/.local/bin as fallback
+
     const fallbackDir = isWindows
         ? path.join(homeDir, 'bin')
         : path.join(homeDir, '.local', 'bin');
@@ -756,7 +756,7 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
 
         output.appendLine(`Installed crosslink to ${targetPath}`);
 
-        // Warn user they may need to add to PATH
+
         const pathHint = isWindows
             ? `Add ${fallbackDir} to your PATH environment variable`
             : `Add 'export PATH="$PATH:${fallbackDir}"' to your ~/.bashrc or ~/.zshrc`;
@@ -773,10 +773,10 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
     }
 }
 
-/**
- * Checks if Python is available when Crosslink agent hooks are configured.
- * Shows a warning if hooks exist but Python cannot be found.
- */
+
+
+
+
 function checkPythonForHooks(workspaceFolder: string, output: vscode.OutputChannel): void {
     const integrationHooksDir = path.join(
         workspaceFolder,
@@ -785,23 +785,23 @@ function checkPythonForHooks(workspaceFolder: string, output: vscode.OutputChann
         'hooks'
     );
     if (!fs.existsSync(integrationHooksDir)) {
-        return; // No hooks directory, nothing to check
+        return;
     }
 
-    // Look for Python files in hooks directory
+
     let hasPythonHooks = false;
     try {
         const files = fs.readdirSync(integrationHooksDir);
         hasPythonHooks = files.some(f => f.endsWith('.py'));
     } catch {
-        return; // Can't read directory, skip check
+        return;
     }
 
     if (!hasPythonHooks) {
-        return; // No Python hooks, nothing to check
+        return;
     }
 
-    // Check if Python is available
+
     const pythonCommands = process.platform === 'win32'
         ? ['python', 'python3', 'py']
         : ['python3', 'python'];
@@ -816,8 +816,8 @@ function checkPythonForHooks(workspaceFolder: string, output: vscode.OutputChann
             pythonFound = true;
             output.appendLine(`Python found: ${cmd}`);
             break;
-        } catch {
-            // Try next command
+        } catch (error) {
+            void error;
         }
     }
 

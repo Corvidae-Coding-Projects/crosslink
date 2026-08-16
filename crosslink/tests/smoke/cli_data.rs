@@ -3,8 +3,6 @@ use std::path::Path;
 
 use super::harness::{assert_stdout_contains, SmokeHarness};
 
-// ==================== Import/Export Tests ====================
-
 #[test]
 fn test_export_empty_db() {
     let h = SmokeHarness::new();
@@ -16,7 +14,7 @@ fn test_export_empty_db() {
         serde_json::from_str(&content).expect("Export is not valid JSON");
     let arr = parsed.as_array().expect("Export should be a JSON array");
     assert_eq!(arr.len(), 0, "Empty DB should export as empty array []");
-    // Verify the output mentions 0 issues (may be on stdout or stderr)
+
     assert!(
         result.stdout.contains("0 issues") || result.stderr.contains("0 issues"),
         "Expected export to mention 0 issues.\nstdout: {}\nstderr: {}",
@@ -29,7 +27,6 @@ fn test_export_empty_db() {
 fn test_export_json_format() {
     let h = SmokeHarness::new();
 
-    // Create a few issues with different properties
     h.run_ok(&["create", "First issue", "-p", "high"]);
     h.run_ok(&["create", "Second issue", "-d", "Has a description"]);
     h.run_ok(&["issue", "label", "1", "bug"]);
@@ -44,14 +41,11 @@ fn test_export_json_format() {
 
     assert_eq!(parsed.len(), 2, "Should export 2 issues");
 
-    // Find the first issue by title (order is not guaranteed, and empty Vec fields
-    // are omitted by skip_serializing_if)
     let first = parsed
         .iter()
         .find(|i| i["title"].as_str() == Some("First issue"))
         .expect("Should find 'First issue' in export");
 
-    // Check required fields are present
     assert!(first.get("uuid").is_some(), "Issue should have uuid field");
     assert!(
         first.get("title").is_some(),
@@ -74,10 +68,8 @@ fn test_export_json_format() {
         "Issue should have updated_at field"
     );
 
-    // Verify specific values
     assert_eq!(first["priority"].as_str().unwrap(), "high");
 
-    // Check labels (present because non-empty)
     let labels = first["labels"]
         .as_array()
         .expect("First issue should have labels field (non-empty)");
@@ -86,7 +78,6 @@ fn test_export_json_format() {
         "First issue should have 'bug' label"
     );
 
-    // Check comments (present because non-empty)
     let comments = first["comments"]
         .as_array()
         .expect("First issue should have comments field (non-empty)");
@@ -95,7 +86,6 @@ fn test_export_json_format() {
         "First issue should have at least one comment"
     );
 
-    // Check second issue — labels/comments may be omitted when empty
     let second = parsed
         .iter()
         .find(|i| i["title"].as_str() == Some("Second issue"))
@@ -156,13 +146,9 @@ fn test_export_markdown_format() {
 fn test_import_boundary_10mb() {
     let h = SmokeHarness::new();
 
-    // Build a JSON array that is just under 10MB (10 * 1024 * 1024 = 10485760 bytes).
-    // Each issue must stay under the 64KB description limit, so we use many issues
-    // with moderate-length descriptions (~2KB each) to reach ~10MB total.
-    // ~10MB / ~2.5KB per issue ~ 4000 issues.
-    let desc = "x".repeat(2000); // 2KB description per issue, well under 64KB limit
+    let desc = "x".repeat(2000);
     let mut issues = String::from("[\n");
-    let target_size: usize = 10 * 1024 * 1024 - 4096; // Just under 10MB
+    let target_size: usize = 10 * 1024 * 1024 - 4096;
     let mut count = 0u32;
 
     loop {
@@ -195,7 +181,6 @@ fn test_import_boundary_10mb() {
             desc
         );
         if issues.len() + entry.len() + 4 > target_size {
-            // Adding this entry would exceed target — add it and stop
             issues.push_str(&entry);
             break;
         }
@@ -204,7 +189,6 @@ fn test_import_boundary_10mb() {
     }
     issues.push_str("\n]");
 
-    // Verify our JSON is under 10MB but substantial
     assert!(
         issues.len() < 10 * 1024 * 1024,
         "Test file should be under 10MB, got {} bytes",
@@ -227,7 +211,6 @@ fn test_import_boundary_10mb() {
 fn test_import_boundary_over() {
     let h = SmokeHarness::new();
 
-    // Create a file just over 10MB
     let over_size = 10 * 1024 * 1024 + 1024;
     let desc_padding = "x".repeat(over_size);
     let import_json = format!(
@@ -267,7 +250,6 @@ fn test_import_boundary_over() {
 fn test_import_malformed_json() {
     let h = SmokeHarness::new();
 
-    // Truncated JSON — valid start but ends abruptly
     let malformed = r#"[{"uuid": "00000000-0000-0000-0000-000000000001", "title": "Trunc"#;
     let import_path = h.temp_dir.path().join("malformed.json");
     fs::write(&import_path, malformed).unwrap();
@@ -286,7 +268,6 @@ fn test_import_malformed_json() {
 fn test_import_legacy_format() {
     let h = SmokeHarness::new();
 
-    // Legacy ExportData envelope format
     let legacy_json = r#"{
   "version": 1,
   "exported_at": "2026-01-01T00:00:00Z",
@@ -326,7 +307,6 @@ fn test_import_legacy_format() {
     let result = h.run_ok(&["import", import_path.to_str().unwrap()]);
     assert_stdout_contains(&result, "legacy");
 
-    // Verify issues were actually imported
     let list_result = h.run_ok(&["list", "-s", "all"]);
     assert!(
         list_result.stdout.contains("Legacy issue one"),
@@ -342,53 +322,45 @@ fn test_import_legacy_format() {
 fn test_import_export_roundtrip() {
     let h = SmokeHarness::new();
 
-    // Create 10 issues with labels and comments
     for i in 1..=10 {
         h.run_ok(&["create", &format!("Roundtrip issue {i}"), "-p", "medium"]);
     }
-    // Add labels to some
+
     h.run_ok(&["issue", "label", "1", "bug"]);
     h.run_ok(&["issue", "label", "2", "feature"]);
     h.run_ok(&["issue", "label", "3", "bug"]);
-    // Add comments to some
+
     h.run_ok(&["issue", "comment", "1", "Comment on issue 1"]);
     h.run_ok(&["issue", "comment", "2", "Comment on issue 2"]);
     h.run_ok(&["issue", "comment", "5", "Comment on issue 5"]);
-    // Close a few
+
     h.run_ok(&["close", "4"]);
     h.run_ok(&["close", "7"]);
 
-    // Export round 1
     let export1_path = h.temp_dir.path().join("export1.json");
     h.run_ok(&["export", "-o", export1_path.to_str().unwrap(), "-f", "json"]);
     let export1 = fs::read_to_string(&export1_path).unwrap();
     let issues1: Vec<serde_json::Value> = serde_json::from_str(&export1).unwrap();
     assert_eq!(issues1.len(), 10);
 
-    // Delete the database and reinitialize
     let db_path = h.db_path();
     fs::remove_file(&db_path).expect("Failed to remove database");
 
-    // Reinitialize (need init again since we deleted the DB)
     h.run_ok(&["init"]);
 
-    // Import
     h.run_ok(&["import", export1_path.to_str().unwrap()]);
 
-    // Export round 2
     let export2_path = h.temp_dir.path().join("export2.json");
     h.run_ok(&["export", "-o", export2_path.to_str().unwrap(), "-f", "json"]);
     let export2 = fs::read_to_string(&export2_path).unwrap();
     let issues2: Vec<serde_json::Value> = serde_json::from_str(&export2).unwrap();
 
-    // Same count
     assert_eq!(
         issues1.len(),
         issues2.len(),
         "Roundtrip should preserve issue count"
     );
 
-    // Verify titles match (order may differ, so collect and sort)
     let mut titles1: Vec<String> = issues1
         .iter()
         .map(|i| i["title"].as_str().unwrap().to_string())
@@ -401,7 +373,6 @@ fn test_import_export_roundtrip() {
     titles2.sort();
     assert_eq!(titles1, titles2, "Roundtrip should preserve issue titles");
 
-    // Verify statuses match
     let mut statuses1: Vec<String> = issues1
         .iter()
         .map(|i| i["status"].as_str().unwrap().to_string())
@@ -417,7 +388,6 @@ fn test_import_export_roundtrip() {
         "Roundtrip should preserve issue statuses"
     );
 
-    // Verify labels are preserved
     let find_by_title = |issues: &[serde_json::Value], title: &str| -> serde_json::Value {
         issues
             .iter()
@@ -443,8 +413,6 @@ fn test_import_export_roundtrip() {
 fn test_import_orphan_blockers() {
     let h = SmokeHarness::new();
 
-    // Import an issue whose blocker UUID doesn't exist in the import set.
-    // The import should handle this gracefully (skip the orphan blocker dependency).
     let import_json = r#"[
   {
     "uuid": "aaaaaaaa-0000-0000-0000-000000000001",
@@ -470,11 +438,9 @@ fn test_import_orphan_blockers() {
     let import_path = h.temp_dir.path().join("orphan_blockers.json");
     fs::write(&import_path, import_json).unwrap();
 
-    // This should succeed — orphan blockers are silently skipped
     let result = h.run_ok(&["import", import_path.to_str().unwrap()]);
     assert_stdout_contains(&result, "imported");
 
-    // Verify the issue was created
     let list_result = h.run_ok(&["list"]);
     assert!(
         list_result.stdout.contains("Issue with orphan blocker"),
@@ -482,28 +448,22 @@ fn test_import_orphan_blockers() {
     );
 }
 
-// ==================== Archive Tests ====================
-
 #[test]
 fn test_archive_lifecycle() {
     let h = SmokeHarness::new();
 
-    // Create and close an issue
     h.run_ok(&["create", "Archive me"]);
     h.run_ok(&["close", "1"]);
 
-    // Archive it
     let result = h.run_ok(&["archive", "add", "1"]);
     assert_stdout_contains(&result, "Archived");
 
-    // List archived — should show our issue
     let list_result = h.run_ok(&["archive", "list"]);
     assert!(
         list_result.stdout.contains("Archive me"),
         "Archived issue should appear in archive list"
     );
 
-    // Should not appear in open or closed lists (archived is a separate status)
     let open_list = h.run_ok(&["list", "-s", "open"]);
     assert!(
         !open_list.stdout.contains("Archive me"),
@@ -515,18 +475,15 @@ fn test_archive_lifecycle() {
         "Archived issue should not appear in closed list"
     );
 
-    // Unarchive it
     let unarchive_result = h.run_ok(&["archive", "remove", "1"]);
     assert_stdout_contains(&unarchive_result, "Unarchived");
 
-    // Should now appear in closed list again
     let closed_list = h.run_ok(&["list", "-s", "closed"]);
     assert!(
         closed_list.stdout.contains("Archive me"),
         "Unarchived issue should appear in closed list"
     );
 
-    // Should not appear in archive list anymore
     let archive_list = h.run_ok(&["archive", "list"]);
     assert!(
         !archive_list.stdout.contains("Archive me"),
@@ -540,7 +497,6 @@ fn test_archive_open_issue_fails() {
 
     h.run_ok(&["create", "Open issue"]);
 
-    // Trying to archive an open issue should fail
     let result = h.run_err(&["archive", "add", "1"]);
     assert!(
         result.stderr.contains("closed")
@@ -555,7 +511,6 @@ fn test_archive_open_issue_fails() {
 fn test_archive_older() {
     let h = SmokeHarness::new();
 
-    // Create and close several issues
     for i in 1..=5 {
         h.run_ok(&["create", &format!("Issue {i}")]);
     }
@@ -563,7 +518,6 @@ fn test_archive_older() {
         h.run_ok(&["close", &i.to_string()]);
     }
 
-    // Archive issues closed more than 0 days ago — should archive all of them
     let result = h.run_ok(&["archive", "older", "0"]);
     assert!(
         result.stdout.contains("Archived") || result.stdout.contains("archived"),
@@ -571,7 +525,6 @@ fn test_archive_older() {
         result.stdout
     );
 
-    // Verify all are archived
     let archive_list = h.run_ok(&["archive", "list"]);
     for i in 1..=5 {
         assert!(
@@ -580,7 +533,6 @@ fn test_archive_older() {
         );
     }
 
-    // Open and closed lists should be empty (all issues are now archived)
     let open_list = h.run_ok(&["list", "-s", "open"]);
     assert!(
         open_list.stdout.contains("No issues found"),
@@ -599,10 +551,8 @@ fn test_archive_older() {
 fn test_unarchive_not_archived() {
     let h = SmokeHarness::new();
 
-    // Create an issue (open, not archived)
     h.run_ok(&["create", "Not archived"]);
 
-    // Try to unarchive it — should fail
     let result = h.run_err(&["archive", "remove", "1"]);
     assert!(
         result.stderr.contains("not found or not archived")
@@ -612,13 +562,10 @@ fn test_unarchive_not_archived() {
     );
 }
 
-// ==================== Knowledge Tests ====================
-
 #[test]
 fn test_knowledge_lifecycle() {
     let h = SmokeHarness::new();
 
-    // Add a knowledge page
     let add_result = h.run_ok(&[
         "knowledge",
         "add",
@@ -630,7 +577,6 @@ fn test_knowledge_lifecycle() {
     ]);
     assert_stdout_contains(&add_result, "Created knowledge page");
 
-    // Show the page
     let show_result = h.run_ok(&["knowledge", "show", "test-page"]);
     assert!(
         show_result.stdout.contains("test content")
@@ -639,7 +585,6 @@ fn test_knowledge_lifecycle() {
         show_result.stdout
     );
 
-    // List pages — should include our page
     let list_result = h.run_ok(&["knowledge", "list"]);
     assert!(
         list_result.stdout.contains("test-page"),
@@ -647,7 +592,6 @@ fn test_knowledge_lifecycle() {
         list_result.stdout
     );
 
-    // Edit the page — append content
     let edit_result = h.run_ok(&[
         "knowledge",
         "edit",
@@ -657,7 +601,6 @@ fn test_knowledge_lifecycle() {
     ]);
     assert_stdout_contains(&edit_result, "Updated knowledge page");
 
-    // Search for content
     let search_result = h.run_ok(&["knowledge", "search", "Rust programming"]);
     assert!(
         search_result.stdout.contains("test-page"),
@@ -665,11 +608,9 @@ fn test_knowledge_lifecycle() {
         search_result.stdout
     );
 
-    // Remove the page
     let remove_result = h.run_ok(&["knowledge", "remove", "test-page"]);
     assert_stdout_contains(&remove_result, "Removed knowledge page");
 
-    // Verify it's gone
     let show_after = h.run(&["knowledge", "show", "test-page"]);
     assert!(!show_after.success, "Showing removed page should fail");
 }
@@ -678,7 +619,6 @@ fn test_knowledge_lifecycle() {
 fn test_knowledge_slug_traversal() {
     let h = SmokeHarness::new();
 
-    // Attempt path traversal via slug — should be rejected or sanitized
     let traversal_slugs = [
         "../../../etc/passwd",
         "..%2f..%2fetc%2fpasswd",
@@ -688,10 +628,8 @@ fn test_knowledge_slug_traversal() {
 
     for slug in &traversal_slugs {
         let result = h.run(&["knowledge", "add", slug, "--content", "malicious content"]);
-        // Should either fail outright or sanitize the slug
+
         if result.success {
-            // If it succeeded, the slug must have been sanitized (no path traversal)
-            // Verify no file was written outside the knowledge cache
             let etc_passwd = Path::new("/etc/passwd");
             let content_before = fs::read_to_string(etc_passwd).unwrap_or_default();
             assert!(
@@ -699,7 +637,6 @@ fn test_knowledge_slug_traversal() {
                 "Path traversal should not write to /etc/passwd"
             );
         }
-        // If it failed, that's the expected behavior for invalid slugs
     }
 }
 
@@ -707,7 +644,6 @@ fn test_knowledge_slug_traversal() {
 fn test_knowledge_edit_append() {
     let h = SmokeHarness::new();
 
-    // Create a page
     h.run_ok(&[
         "knowledge",
         "add",
@@ -716,7 +652,6 @@ fn test_knowledge_edit_append() {
         "Original content.",
     ]);
 
-    // Append to it
     h.run_ok(&[
         "knowledge",
         "edit",
@@ -725,7 +660,6 @@ fn test_knowledge_edit_append() {
         "Appended section.",
     ]);
 
-    // Verify both original and appended content are present
     let show_result = h.run_ok(&["knowledge", "show", "append-test"]);
     assert!(
         show_result.stdout.contains("Original content"),
@@ -743,7 +677,6 @@ fn test_knowledge_edit_append() {
 fn test_knowledge_search_basic() {
     let h = SmokeHarness::new();
 
-    // Create pages with different content
     h.run_ok(&[
         "knowledge",
         "add",
@@ -759,7 +692,6 @@ fn test_knowledge_search_basic() {
         "Beta content about classical physics.",
     ]);
 
-    // Search for a term that only appears in one page
     let result = h.run_ok(&["knowledge", "search", "quantum"]);
     assert!(
         result.stdout.contains("alpha-page"),
@@ -777,7 +709,6 @@ fn test_knowledge_search_basic() {
 fn test_knowledge_search_no_match() {
     let h = SmokeHarness::new();
 
-    // Create a page
     h.run_ok(&[
         "knowledge",
         "add",
@@ -786,7 +717,6 @@ fn test_knowledge_search_no_match() {
         "Some ordinary content.",
     ]);
 
-    // Search for something that doesn't exist
     let result = h.run_ok(&["knowledge", "search", "xyzzy_nonexistent_term_42"]);
     assert!(
         result.stdout.contains("No knowledge pages match")
@@ -801,7 +731,6 @@ fn test_knowledge_search_no_match() {
 fn test_knowledge_import_dir() {
     let h = SmokeHarness::new();
 
-    // Create a temp directory with .md files
     let import_dir = h.temp_dir.path().join("md_import");
     fs::create_dir(&import_dir).unwrap();
 
@@ -821,7 +750,6 @@ fn test_knowledge_import_dir() {
     )
     .unwrap();
 
-    // Import the directory
     let result = h.run_ok(&[
         "knowledge",
         "import",
@@ -830,7 +758,6 @@ fn test_knowledge_import_dir() {
         "imported",
     ]);
 
-    // Should report import results
     assert!(
         result.stdout.contains("Imported")
             || result.stdout.contains("imported")
@@ -839,7 +766,6 @@ fn test_knowledge_import_dir() {
         result.stdout
     );
 
-    // Verify the pages exist
     let list_result = h.run_ok(&["knowledge", "list"]);
     assert!(
         list_result.stdout.contains("first-doc"),
@@ -857,8 +783,6 @@ fn test_knowledge_import_dir() {
 fn test_knowledge_remove_nonexistent() {
     let h = SmokeHarness::new();
 
-    // Ensure the knowledge cache is initialized by adding then removing a page,
-    // or just try to remove a nonexistent page directly
     let result = h.run(&["knowledge", "remove", "does-not-exist"]);
     assert!(
         !result.success,

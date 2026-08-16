@@ -1,5 +1,5 @@
-// Coverage for the /alerts page — specifically the per-row
-// expand/collapse behaviour and the kind-specific action bar.
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -158,7 +158,7 @@ describe("Alerts page", () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    // After expand, action buttons are visible.
+
     expect(
       screen.getByRole("button", { name: /release lock/i }),
     ).toBeInTheDocument();
@@ -293,7 +293,7 @@ describe("Alerts page", () => {
     expect(
       screen.queryByRole("button", { name: /close issue/i }),
     ).not.toBeInTheDocument();
-    // Project link is present in both summary and expanded body.
+
     expect(screen.getAllByRole("link", { name: /open project/i }).length).toBe(
       1,
     );
@@ -327,7 +327,7 @@ describe("Alerts page", () => {
     const toggle = screen.getByRole("button", { name: /toggle stale_lock/i });
     const projectLink = screen.getByRole("link", { name: "owner/repo" });
     fireEvent.click(projectLink);
-    // Link nav doesn't bubble up, so still collapsed.
+
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -384,7 +384,7 @@ describe("Alerts page", () => {
       screen.getByRole("button", { name: /toggle orphan_subissue/i }),
     );
     fireEvent.click(screen.getByRole("button", { name: /^comment$/i }));
-    // Textarea must render — this was the dead-stub bug.
+
     const ta = screen.getByPlaceholderText(/comment text/i);
     fireEvent.change(ta, { target: { value: "wrapping this up" } });
     fireEvent.click(screen.getByRole("button", { name: /post comment/i }));
@@ -416,10 +416,10 @@ describe("Alerts page", () => {
     render_(<Alerts />);
 
     fireEvent.click(screen.getByRole("button", { name: /toggle stale_lock/i }));
-    // Holder visible — appears in both the detail grid and the helper
-    // sentence, so `getAllByText` and assert count > 0.
+
+
     expect(screen.getAllByText("maxine--basel").length).toBeGreaterThan(0);
-    // Semantic hint present.
+
     expect(
       screen.getByText(/take over a stale lock held by another agent/i),
     ).toBeInTheDocument();

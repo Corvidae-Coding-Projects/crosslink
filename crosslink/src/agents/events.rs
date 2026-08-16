@@ -51,8 +51,6 @@ pub struct RuntimeSnapshot {
     pub last_message: Option<String>,
 }
 
-/// Resolve the provider recorded for a kickoff without depending on CLI-only
-/// metadata types. Legacy runs without provider metadata are Claude runs.
 #[must_use]
 pub fn runtime_provider(worktree_dir: &Path) -> AgentProvider {
     std::fs::read_to_string(worktree_dir.join(".kickoff-metadata.json"))
@@ -68,7 +66,6 @@ pub fn runtime_provider(worktree_dir: &Path) -> AgentProvider {
         .unwrap_or(AgentProvider::Claude)
 }
 
-/// Fold raw provider events into the latest shared lifecycle state.
 #[must_use]
 pub fn runtime_snapshot(worktree_dir: &Path) -> RuntimeSnapshot {
     let provider = runtime_provider(worktree_dir);
@@ -136,7 +133,6 @@ fn tool_event_kind(name: Option<&str>) -> RuntimeEventKind {
     }
 }
 
-/// Parse one provider JSONL line into Crosslink's shared runtime event model.
 pub fn parse_jsonl_event(provider: AgentProvider, line: &str) -> serde_json::Result<RuntimeEvent> {
     let raw: serde_json::Value = serde_json::from_str(line)?;
     let event_type = raw.get("type").and_then(serde_json::Value::as_str);

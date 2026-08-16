@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""
-Provider-neutral PreToolUse hook that blocks edits and shell commands unless a crosslink issue
-is being actively worked on. Forces issue creation before code changes.
 
-Also enforces comment discipline when comment_discipline is "required":
-  - git commit requires a --kind plan comment on the active issue
-  - crosslink issue close requires a --kind result comment
-"""
+
+
+
+
+
+
+
 
 import json
 import sys
@@ -15,10 +15,10 @@ import io
 import sqlite3
 import re
 
-# Fix Windows encoding issues
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# Add hooks directory to path for shared module import
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crosslink_config import (
     find_crosslink_binary,
@@ -30,17 +30,17 @@ from crosslink_config import (
 )
 from hook_protocol import claim_event, emit_warning, normalize_input
 
-# Defaults — overridden by .crosslink/hook-config.json if present
+
 DEFAULT_BLOCKED_GIT = [
     "git push",  "git rebase",
     "git reset", "git clean",
 ]
 
-# Agent block list (GH#58): matches the contract the generated KICKOFF.md
-# prompt and the guides state — merge/rebase/cherry-pick, resets, stash/tag/
-# patch, and branch surgery are mechanically blocked; `git commit` is gated
-# on an active issue. Plain `git push` stays allowed because the CI-verify
-# flow instructs the agent to push a draft PR (force-push is always blocked).
+
+
+
+
+
 DEFAULT_AGENT_BLOCKED_GIT = [
     "git push --force", "git push -f",
     "git merge", "git rebase", "git cherry-pick",
@@ -51,8 +51,8 @@ DEFAULT_AGENT_BLOCKED_GIT = [
     "git branch -d", "git branch -D", "git branch -m",
 ]
 
-# Git commands that are blocked UNLESS there is an active crosslink issue.
-# This allows the /commit skill to work while still preventing unsolicited commits.
+
+
 DEFAULT_GATED_GIT = [
     "git commit",
 ]
@@ -65,7 +65,7 @@ DEFAULT_ALLOWED_BASH = [
     "npm test", "npm run", "npx ",
     "tsc", "node ", "python ",
     "ls", "dir", "pwd", "echo",
-    # GitHub CLI and common read-only / infrastructure commands (#522)
+
     "gh ",
     "cat ", "head ", "tail ", "wc ",
     "grep ", "rg ", "find ", "sort ", "uniq ",
@@ -77,18 +77,18 @@ DEFAULT_ALLOWED_BASH = [
 
 
 def load_config(crosslink_dir):
-    """Load hook config from .crosslink/hook-config.json (with .local override), falling back to defaults.
 
-    Returns (tracking_mode, blocked_git, gated_git, allowed_bash, is_agent, comment_discipline).
-    tracking_mode is one of: "strict", "normal", "relaxed".
-      strict  — block Write/Edit/Bash without an active issue
-      normal  — remind (print warning) but don't block
-      relaxed — no issue-tracking enforcement, only git blocks
-    comment_discipline is one of: "required", "encouraged", "off".
-      required  — block git commit without --kind plan, block issue close without --kind result
-      encouraged — warn but don't block
-      off — no comment enforcement
-    """
+
+
+
+
+
+
+
+
+
+
+
     blocked = list(DEFAULT_BLOCKED_GIT)
     gated = list(DEFAULT_GATED_GIT)
     allowed = list(DEFAULT_ALLOWED_BASH)
@@ -99,7 +99,7 @@ def load_config(crosslink_dir):
     config = load_config_merged(crosslink_dir)
     if not config:
         if is_agent:
-            # GH#58: agents get the gated-commit contract even with no config.
+
             return "relaxed", list(DEFAULT_AGENT_BLOCKED_GIT), list(DEFAULT_GATED_GIT), allowed, True, "off"
         return mode, blocked, gated, allowed, False, discipline
 
@@ -114,16 +114,16 @@ def load_config(crosslink_dir):
     if config.get("comment_discipline") in ("required", "encouraged", "off"):
         discipline = config["comment_discipline"]
 
-    # Apply agent overrides when running in an agent worktree
+
     if is_agent:
         overrides = config.get("agent_overrides", {})
         mode = overrides.get("tracking_mode", "relaxed")
         blocked = overrides.get("blocked_git_commands", list(DEFAULT_AGENT_BLOCKED_GIT))
-        # GH#58: default agents to the gated-commit contract the docs and
-        # generated prompt describe; an explicit override still wins.
+
+
         gated = overrides.get("gated_git_commands", list(DEFAULT_GATED_GIT))
         discipline = overrides.get("comment_discipline", "off")
-        # Merge agent lint/test commands into allowed prefixes (#495)
+
         for cmd in overrides.get("agent_lint_commands", []):
             if cmd not in allowed:
                 allowed.append(cmd)
@@ -135,16 +135,16 @@ def load_config(crosslink_dir):
 
 
 def _matches_command_list(command, cmd_list):
-    """Check if a command matches any entry in the list (direct or chained).
 
-    Normalizes git commands to strip global flags (-C, --git-dir, etc.)
-    before matching, preventing bypass via 'git -C /path push'.
-    """
+
+
+
+
     normalized = normalize_git_command(command)
     for entry in cmd_list:
         if normalized.startswith(entry):
             return True
-    # Check chained commands (&&, ;, |) with normalization
+
     for sep in (" && ", " ; ", " | "):
         for part in command.split(sep):
             part = part.strip()
@@ -157,19 +157,19 @@ def _matches_command_list(command, cmd_list):
 
 
 def is_blocked_git(input_data, blocked_list):
-    """Check if a Bash command is a permanently blocked git mutation."""
+
     command = input_data.get("tool_input", {}).get("command", "").strip()
     return _matches_command_list(command, blocked_list)
 
 
 def is_gated_git(input_data, gated_list):
-    """Check if a Bash command is a gated git command (allowed with active issue)."""
+
     command = input_data.get("tool_input", {}).get("command", "").strip()
     return _matches_command_list(command, gated_list)
 
 
 def _is_single_command_allowed(command, allowed_list):
-    """Check if a single (non-chained) command matches any allow-list prefix."""
+
     for prefix in allowed_list:
         if command.startswith(prefix):
             return True
@@ -177,17 +177,17 @@ def _is_single_command_allowed(command, allowed_list):
 
 
 def is_allowed_bash(input_data, allowed_list):
-    """Check if a Bash command is on the allow list (read-only/infra).
 
-    Splits on chain operators (&&, ;, |) and requires EVERY subcommand
-    to match the allow list. A single non-allowed subcommand fails the
-    entire chain, preventing bypass via 'allowed_cmd ; malicious_cmd'.
-    """
+
+
+
+
+
     command = input_data.get("tool_input", {}).get("command", "").strip()
     if not command:
         return False
 
-    # Split on all chain operators to get individual commands
+
     parts = [command]
     for sep in (" && ", " ; ", " | "):
         expanded = []
@@ -195,7 +195,7 @@ def is_allowed_bash(input_data, allowed_list):
             expanded.extend(part.split(sep))
         parts = expanded
 
-    # Every non-empty subcommand must be on the allow list
+
     for part in parts:
         part = part.strip()
         if part and not _is_single_command_allowed(part, allowed_list):
@@ -203,8 +203,17 @@ def is_allowed_bash(input_data, allowed_list):
     return True
 
 
+def is_kickoff_status_edit(event):
+    return (
+        event.tool_kind == "edit"
+        and bool(event.affected_paths)
+        and not event.deleted_paths
+        and all(os.path.basename(path) == ".kickoff-status" for path in event.affected_paths)
+    )
+
+
 def is_provider_memory_path(paths):
-    """Check if edits target a provider's own account-level config directory."""
+
     if not paths:
         return False
     home = os.path.expanduser("~")
@@ -217,10 +226,10 @@ def is_provider_memory_path(paths):
 
 
 def get_active_issue_id(crosslink_dir):
-    """Get the numeric ID of the active work item from session status.
 
-    Returns the issue ID as an integer, or None if no active issue.
-    """
+
+
+
     status = run_crosslink(["session", "status", "--json"], crosslink_dir)
     if not status:
         return None
@@ -235,14 +244,14 @@ def get_active_issue_id(crosslink_dir):
 
 
 def issue_has_comment_kind(crosslink_dir, issue_id, kind):
-    """Check if an issue has at least one comment of the given kind.
 
-    Queries SQLite directly for speed (avoids spawning another process
-    within the hook's 3-second timeout).
-    """
+
+
+
+
     db_path = os.path.join(crosslink_dir, "issues.db")
     if not os.path.exists(db_path):
-        return True  # No database — don't block
+        return True
     try:
         conn = sqlite3.connect(db_path, timeout=1)
         cursor = conn.execute(
@@ -253,21 +262,21 @@ def issue_has_comment_kind(crosslink_dir, issue_id, kind):
         conn.close()
         return count > 0
     except (sqlite3.Error, TypeError):
-        return True  # DB error — don't block
+        return True
 
 
 def is_issue_close_command(input_data):
-    """Check if a Bash command is `crosslink issue close` or `crosslink close`.
 
-    Returns the issue ID string if found, or None.
-    """
+
+
+
     command = input_data.get("tool_input", {}).get("command", "").strip()
-    # Match: crosslink issue close <id> or crosslink close <id>
-    # Also handle: crosslink -q issue close <id>, etc.
+
+
     m = re.search(r'crosslink\s+(?:-[qQ]\s+)?(?:issue\s+)?close\s+(\S+)', command)
     if m:
         issue_arg = m.group(1)
-        # Skip flags like --no-changelog
+
         if issue_arg.startswith('-'):
             return None
         return issue_arg
@@ -275,13 +284,13 @@ def is_issue_close_command(input_data):
 
 
 def check_control_flags(crosslink_dir):
-    """Block tool use when an operator has set the pause / kill flag
-    via the dashboard's agent-request protocol.
 
-    Calls `crosslink agent flags --strict` which exits 2 when blocking
-    flags are set. We re-emit a friendly explanation and exit 2
-    ourselves so the model sees a useful refusal, not a raw exit code.
-    """
+
+
+
+
+
+
     if not crosslink_dir:
         return
     import subprocess
@@ -294,15 +303,15 @@ def check_control_flags(crosslink_dir):
             timeout=3,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        # crosslink not on PATH or hung — fail open (don't block) so
-        # missing tooling never wedges the coding agent.
+
+
         return
     if proc.returncode != 2:
         return
-    # clap also exits 2 for usage errors (e.g. a PATH binary too old to
-    # know `agent flags`, GH#31). Only valid flag-state JSON on stdout is
-    # the flags protocol; anything else is not a pause/kill signal and
-        # must fail open so version skew never wedges the coding agent.
+
+
+
+
     try:
         state = json.loads(proc.stdout.strip())
     except (json.JSONDecodeError, ValueError):
@@ -310,8 +319,8 @@ def check_control_flags(crosslink_dir):
     if not isinstance(state, dict):
         return
     if state.get("kill"):
-        # Blocking messages go to stderr so supported provider hook runners
-        # surface the reason alongside exit status 2.
+
+
         print(
             "AGENT KILL REQUESTED — an operator (dashboard or CLI) has "
             "asked this agent to stop after the current tool use.\n"
@@ -354,27 +363,30 @@ def main():
     if not claim_event("crosslink-work-check", event):
         sys.exit(0)
 
-    # Adapt the normalized event to the mature enforcement helpers below.
+
     tool_name = "Bash" if event.tool_kind == "shell" else "Edit"
     tool_input = {"command": event.command}
     if event.affected_paths:
         tool_input["file_path"] = event.affected_paths[0]
     input_data = {"tool_name": tool_name, "tool_input": tool_input}
 
-    # Operator-driven kill / pause flags from the dashboard's agent-
-    # request protocol take priority over everything else.
+
+
     check_control_flags(find_crosslink_dir())
 
-    # Allow providers to manage account-level memory/config when that directory
-    # is itself the hook working root. Cross-worktree paths were rejected by
-    # normalize_input before this exemption is evaluated.
+
+
+
     if tool_name == "Edit" and is_provider_memory_path(event.affected_paths):
+        sys.exit(0)
+
+    if is_kickoff_status_edit(event):
         sys.exit(0)
 
     crosslink_dir = find_crosslink_dir()
     tracking_mode, blocked_git, gated_git, allowed_bash, is_agent, comment_discipline = load_config(crosslink_dir)
 
-    # PERMANENT BLOCK: git mutation commands are never allowed (all modes)
+
     if tool_name == 'Bash' and is_blocked_git(input_data, blocked_git):
         print(
             "MANDATORY COMPLIANCE — DO NOT ATTEMPT TO WORK AROUND THIS BLOCK.\n\n"
@@ -391,16 +403,16 @@ def main():
             "Read-only git commands (status, diff, log, show, branch) are allowed.\n\n"
             "--- INTERVENTION LOGGING ---\n"
             "Log this blocked action for the audit trail:\n"
-            "  crosslink intervene <issue-id> \"Attempted: <command>\" "
+            "  crosslink issue intervene <issue-id> \"Attempted: <command>\" "
             "--trigger tool_blocked --context \"<what you were trying to accomplish>\"",
             file=sys.stderr,
         )
         sys.exit(2)
 
-    # GATED GIT: commands like `git commit` require an active crosslink issue
+
     if tool_name == 'Bash' and is_gated_git(input_data, gated_git):
         if not crosslink_dir:
-            # No crosslink dir — allow through (no enforcement possible)
+
             sys.exit(0)
         status = run_crosslink(["session", "status"], crosslink_dir)
         if not (status and ("Working on: #" in status or "Working on: L" in status)):
@@ -413,13 +425,13 @@ def main():
                 "  crosslink session work <id>\n\n"
                 "--- INTERVENTION LOGGING ---\n"
                 "If a human redirected you here, log the intervention:\n"
-                "  crosslink intervene <issue-id> \"Redirected to create issue before commit\" "
+                "  crosslink issue intervene <issue-id> \"Redirected to create issue before commit\" "
                 "--trigger redirect --context \"Attempted git commit without active issue\"",
                 file=sys.stderr,
             )
             sys.exit(2)
 
-        # COMMENT DISCIPLINE: git commit requires --kind plan comment (#501)
+
         if comment_discipline in ("required", "encouraged"):
             issue_id = get_active_issue_id(crosslink_dir)
             if issue_id and not issue_has_comment_kind(crosslink_dir, issue_id, "plan"):
@@ -438,15 +450,15 @@ def main():
 
         sys.exit(0)
 
-    # COMMENT DISCIPLINE: crosslink issue close requires --kind result comment (#501)
+
     if tool_name == 'Bash' and crosslink_dir and comment_discipline in ("required", "encouraged"):
         close_target = is_issue_close_command(input_data)
         if close_target:
-            # Resolve the issue ID (could be numeric or L-prefixed)
+
             try:
                 issue_id = int(close_target.lstrip('#'))
             except ValueError:
-                # L-prefixed or other format — try via crosslink show
+
                 show_output = run_crosslink(["issue", "show", close_target, "--json"], crosslink_dir)
                 issue_id = None
                 if show_output:
@@ -469,19 +481,19 @@ def main():
                 else:
                     emit_warning(event, "Reminder: " + msg)
 
-    # Allow read-only / infrastructure Bash commands through
+
     if tool_name == 'Bash' and is_allowed_bash(input_data, allowed_bash):
         sys.exit(0)
 
-    # Relaxed mode: no issue-tracking enforcement
+
     if tracking_mode == "relaxed":
         sys.exit(0)
 
     if not crosslink_dir:
         sys.exit(0)
 
-    # Fast path: check sentinel file written by `crosslink session work` / `quick` (#522).
-    # Avoids spawning a subprocess (~100ms) on every non-allowlisted Bash call.
+
+
     sentinel = os.path.join(crosslink_dir, ".active-issue")
     if os.path.isfile(sentinel):
         try:
@@ -490,19 +502,19 @@ def main():
             if content:
                 sys.exit(0)
         except OSError:
-            pass  # Fall through to subprocess check
+            pass
 
-    # Slow path: sentinel missing or empty — fall back to session status subprocess
+
     status = run_crosslink(["session", "status"], crosslink_dir)
     if not status:
-        # crosslink not available — don't block
+
         sys.exit(0)
 
-    # If already working on an issue, allow
+
     if "Working on: #" in status or "Working on: L" in status:
         sys.exit(0)
 
-    # No active work item — behavior depends on mode
+
     strict_msg = (
         "MANDATORY COMPLIANCE — DO NOT ATTEMPT TO WORK AROUND THIS BLOCK.\n\n"
         "You cannot Write, Edit, or run Bash commands without an active crosslink issue. "
@@ -522,7 +534,7 @@ def main():
         "This is how the project tracks work. Comply, then continue.\n\n"
         "--- INTERVENTION LOGGING ---\n"
         "After creating the issue, log this intervention:\n"
-        "  crosslink intervene <issue-id> \"Blocked: no active issue\" "
+        "  crosslink issue intervene <issue-id> \"Blocked: no active issue\" "
         "--trigger tool_blocked --context \"<what you were about to do>\""
     )
 
@@ -538,7 +550,7 @@ def main():
         print(strict_msg, file=sys.stderr)
         sys.exit(2)
     else:
-        # normal mode: remind but allow
+
         emit_warning(event, normal_msg)
         sys.exit(0)
 

@@ -1,138 +1,33 @@
 ---
-title: "Rules customization"
+title: "Zeroed rule files"
 ---
 
-Rules are injected into agent sessions automatically and shape how agents write code, handle errors, and follow project conventions. Most teams only need to edit `project.md` — the rest works out of the box.
+Crosslink retains `.crosslink/rules/*.md` as active loader paths. Every bundled
+file is zero bytes in this release. The rule hook and provider registrations are
+still present; only the shipped Markdown content has been removed.
 
-Crosslink uses markdown files in `.crosslink/rules/` to define behavioral rules that are injected into AI sessions. You can customize these files to match your project's conventions.
+## Why the paths remain
 
-## Rule files
+Older Crosslink releases installed behavioral and language text at these paths.
+Keeping zero-byte replacements lets `crosslink init --update` remove that content
+while preserving manifest ownership, loader behavior, and predictable upgrades.
 
-| File | Purpose | Injected By |
-|------|---------|-------------|
-| `global.md` | Security, correctness, and style rules | `prompt-guard.py` (every prompt) |
-| `project.md` | Your project-specific rules | `prompt-guard.py` (every prompt) |
-| `tracking-strict.md` | Strict mode enforcement wording | `work-check.py` |
-| `tracking-normal.md` | Normal mode enforcement wording | `work-check.py` |
-| `tracking-relaxed.md` | Relaxed mode enforcement wording | `work-check.py` |
-| `web.md` | RFIP (prompt injection defense) | `pre-web-check.py` |
-| `rust.md`, `python.md`, etc. | Language-specific best practices | `prompt-guard.py` (auto-detected) |
+The filenames cover the former global, project, tracking-mode, web, and
+language-specific surfaces. The loader still recognizes those filenames, so a
+future or local nonempty file is routed through the same established mechanism.
 
-&nbsp;
+## Tracking configuration
 
----
+Set `tracking_mode` in `.crosslink/hook-config.json` to choose `strict`, `normal`,
+or `relaxed` repository checks. Operational enforcement reads configuration
+directly, while the prompt hook continues to resolve the matching Markdown path.
 
-## How rules are loaded
-
-1. **`prompt-guard.py`** detects project languages by scanning for source files
-2. It loads `global.md`, `project.md`, and any relevant language rule files
-3. On the first prompt, full rules are injected; on subsequent prompts, a condensed version is used
-4. **`work-check.py`** loads the tracking mode file matching `hook-config.json`'s `tracking_mode`
-5. **`pre-web-check.py`** loads `web.md` before any web fetch
-
-&nbsp;
-
----
-
-## Customizing `global.md`
-
-This file contains the core behavioral rules. Key sections:
-
-- **Security** — OWASP prevention, input validation, parameterized queries
-- **Correctness** — No stubs, no dead code, complete implementations
-- **Style** — Consistent formatting, meaningful names, appropriate comments
-
-Edit to match your team's standards.
-
-&nbsp;
-
----
-
-## Customizing `project.md`
-
-This is your project-specific rules file. It starts empty. Use it for:
-
-- Architecture conventions ("always use repository pattern for data access")
-- Naming conventions ("prefix all API handlers with `handle_`")
-- Testing requirements ("every public function must have a unit test")
-- Dependency preferences ("use `reqwest` for HTTP, not `hyper` directly")
-
-Example:
-
-```markdown
-## Project Conventions
-
-### Architecture
-- Use the repository pattern for all database access
-- All API endpoints go in `src/api/`
-- Business logic belongs in `src/domain/`, never in API handlers
-
-### Testing
-- Every public function must have at least one unit test
-- Integration tests go in `tests/` and use the `test_db` fixture
-- Mock external APIs, never hit real endpoints in tests
-
-### Dependencies
-- HTTP client: reqwest
-- Serialization: serde + serde_json
-- Error handling: anyhow for applications, thiserror for libraries
-```
-
-&nbsp;
-
----
-
-## Language rules
-
-Language-specific rule files are auto-detected based on source files in the project. Each file contains best practices for that language.
-
-Available language rules:
-
-| File | Language |
-|------|----------|
-| `rust.md` | Rust |
-| `python.md` | Python |
-| `javascript.md` | JavaScript |
-| `typescript.md` | TypeScript |
-| `go.md` | Go |
-| `java.md` | Java |
-| `c.md` | C |
-| `cpp.md` | C++ |
-| `csharp.md` | C# |
-| `ruby.md` | Ruby |
-| `php.md` | PHP |
-| `swift.md` | Swift |
-| `kotlin.md` | Kotlin |
-| `scala.md` | Scala |
-| `zig.md` | Zig |
-| `odin.md` | Odin |
-| `elixir.md` | Elixir |
-| `shell.md` | Shell/Bash |
-
-You can edit these files to add project-specific language conventions, or remove files for languages not used in your project to reduce noise.
-
-&nbsp;
-
----
-
-## Tracking mode rules
-
-Each tracking mode has its own markdown file that defines the enforcement wording. You can customize the tone and instructions per mode:
-
-- `tracking-strict.md` — Forceful, mandatory language
-- `tracking-normal.md` — Gentle reminders
-- `tracking-relaxed.md` — Minimal, informational
-
-&nbsp;
-
----
-
-## Resetting rules
-
-To reset all rules to defaults:
+## Verification
 
 ```bash
-crosslink init --force
+crosslink context check
+crosslink init --update --dry-run
 ```
 
-This regenerates all rule files from the built-in templates.
+`crosslink context check` verifies the rule and hook deployment. `crosslink init
+--update` replaces managed legacy rule content with empty files.

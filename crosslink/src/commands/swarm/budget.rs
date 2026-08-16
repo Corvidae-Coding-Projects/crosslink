@@ -1,6 +1,3 @@
-// Swarm budget: config, estimate, budget-aware launch, harvest costs,
-// multi-window plan.
-
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -12,15 +9,6 @@ use crate::db::Database;
 use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
 
-// ---------------------------------------------------------------------------
-// swarm config (budget)
-// ---------------------------------------------------------------------------
-
-/// Set budget parameters for the swarm.
-///
-/// `effort` / `budget_usd` are the per-dispatch dials every agent this swarm
-/// launches will carry (gh#61). `None` leaves the corresponding provider
-/// setting absent, preserving the provider default.
 pub fn config_budget(
     crosslink_dir: &Path,
     budget_window: &str,
@@ -42,8 +30,6 @@ pub fn config_budget(
         budget_usd: budget_usd.map(ToString::to_string),
     };
 
-    // Dials appear in both the hub commit message and the confirmation line so
-    // the audit trail records what a swarm's agents will be dispatched with.
     let dial_summary = match (effort, budget_usd) {
         (None, None) => String::new(),
         (e, b) => format!(
@@ -72,25 +58,18 @@ pub fn config_budget(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// swarm estimate
-// ---------------------------------------------------------------------------
-
-/// Default per-agent duration estimates when no historical data exists.
 pub(super) fn default_agent_duration(model: &str) -> u64 {
     match model {
-        "advanced" | "opus" => 5400,   // 90 minutes
-        "standard" | "sonnet" => 2700, // 45 minutes
-        _ => 3600,                     // 60 minutes fallback
+        "advanced" | "opus" => 5400,
+        "standard" | "sonnet" => 2700,
+        _ => 3600,
     }
 }
 
-/// Overhead per agent for merging (seconds).
-pub(super) const MERGE_OVERHEAD_PER_AGENT_S: u64 = 300; // 5 minutes
-/// Overhead for running the gate (seconds).
-pub(super) const GATE_OVERHEAD_S: u64 = 600; // 10 minutes
+pub(super) const MERGE_OVERHEAD_PER_AGENT_S: u64 = 300;
 
-/// Estimate wall-clock cost for a phase.
+pub(super) const GATE_OVERHEAD_S: u64 = 600;
+
 pub(super) fn estimate_phase_cost(
     phase: &PhaseDefinition,
     cost_log: &CostLog,
@@ -102,7 +81,7 @@ pub(super) fn estimate_phase_cost(
 
     for agent in &phase.agents {
         if agent.status != AgentStatus::Planned {
-            continue; // already running/done
+            continue;
         }
 
         let duration =
@@ -118,7 +97,6 @@ pub(super) fn estimate_phase_cost(
     (total, agent_estimates)
 }
 
-/// Compute a budget recommendation.
 pub(super) fn budget_recommendation(
     phase_cost: u64,
     remaining_budget: u64,
@@ -137,14 +115,12 @@ pub(super) fn budget_recommendation(
     }
 
     if phase_cost > remaining_budget {
-        // How many agents can we afford?
         let per_agent = if agent_count > 0 {
             (phase_cost - overhead) / agent_count as u64
         } else {
             0
         };
-        // Guard: if per-agent cost is zero (phase_cost == overhead), we can't
-        // compute a meaningful split. Default to running with 1 agent.
+
         if per_agent == 0 {
             return BudgetRecommendation::Split {
                 recommended_count: 1,
@@ -164,7 +140,6 @@ pub(super) fn budget_recommendation(
     }
 }
 
-/// Estimate cost for a phase and display the breakdown.
 pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -238,11 +213,6 @@ pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Budget-aware launch wrapper
-// ---------------------------------------------------------------------------
-
-/// Launch with budget awareness: estimate first, warn/block if over budget.
 pub fn launch_budget_aware(
     crosslink_dir: &Path,
     db: &Database,
@@ -294,15 +264,9 @@ pub fn launch_budget_aware(
         BudgetRecommendation::Proceed => {}
     }
 
-    // Delegate to the regular launch
     launch(crosslink_dir, db, writer, phase_slug, quiet)
 }
 
-// ---------------------------------------------------------------------------
-// Cost log harvesting
-// ---------------------------------------------------------------------------
-
-/// Scan completed agent worktrees and update the cost log with observations.
 pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -355,7 +319,6 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
             continue;
         }
 
-        // Extract total duration from phases
         let duration_s = report.phases.as_ref().map_or(0, |p| {
             [
                 p.exploration.as_ref(),
@@ -383,7 +346,7 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
 
         let obs = CostObservation {
             agent_id,
-            model: "standard".to_string(), // default; reports don't track model
+            model: "standard".to_string(),
             duration_s,
             files_changed,
             lines_added,
@@ -393,7 +356,6 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
         new_observations += 1;
     }
 
-    // Recompute model estimates from observations
     recompute_model_estimates(&mut cost_log);
 
     let history_path = ctx.history_path();
@@ -422,7 +384,6 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Recompute median and p90 estimates per model from observations.
 pub(super) fn recompute_model_estimates(cost_log: &mut CostLog) {
     let mut by_model: std::collections::HashMap<String, Vec<u64>> =
         std::collections::HashMap::new();
@@ -438,7 +399,7 @@ pub(super) fn recompute_model_estimates(cost_log: &mut CostLog) {
     for (model, mut durations) in by_model {
         durations.sort_unstable();
         let len = durations.len();
-        // Correct median for even-length arrays: average the two middle values.
+
         let median = if len % 2 == 0 && len >= 2 {
             u64::midpoint(durations[len / 2 - 1], durations[len / 2])
         } else {
@@ -457,13 +418,8 @@ pub(super) fn recompute_model_estimates(cost_log: &mut CostLog) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// swarm plan (multi-window)
-// ---------------------------------------------------------------------------
-
-/// Bin-pack phases into budget windows and return the allocation plan.
 pub(super) fn pack_windows(
-    phases: &[(String, u64, usize)], // (name, estimate_s, agent_count)
+    phases: &[(String, u64, usize)],
     window_s: u64,
 ) -> Vec<WindowAllocation> {
     let mut windows: Vec<WindowAllocation> = Vec::new();
@@ -485,7 +441,6 @@ pub(super) fn pack_windows(
         };
 
         if fit == WindowFit::Overflow && !current.phases.is_empty() {
-            // Close current window
             current.buffer_s = window_s.saturating_sub(current.total_estimate_s);
             current.stop_point = format!(
                 "after {} gate → checkpoint",
@@ -520,7 +475,6 @@ pub(super) fn pack_windows(
         });
     }
 
-    // Close last window
     if !current.phases.is_empty() {
         current.buffer_s = window_s.saturating_sub(current.total_estimate_s);
         current.stop_point = format!(
@@ -533,7 +487,6 @@ pub(super) fn pack_windows(
     windows
 }
 
-/// Plan a multi-phase build across budget windows.
 pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -555,7 +508,6 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
 
     let cost_log: CostLog = read_hub_json(&sync, &ctx.history_path()).unwrap_or_default();
 
-    // Estimate each phase
     let mut phase_estimates: Vec<(String, u64, usize)> = Vec::new();
     for phase_name in &swarm_plan.phases {
         let phase_file = ctx.phase_path(phase_name);
@@ -586,7 +538,6 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
     let windows = pack_windows(&phase_estimates, window_s);
     let total_estimate: u64 = phase_estimates.iter().map(|(_, e, _)| e).sum();
 
-    // Display
     println!("Swarm: {}", swarm_plan.title);
     println!(
         "Estimated total cost: ~{} budget window{}",
@@ -621,7 +572,6 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
         println!();
     }
 
-    // Natural safe stops
     println!("Natural safe stops:");
     let total_phases = phase_estimates.len();
     for (i, (name, _, _)) in phase_estimates.iter().enumerate() {
@@ -650,7 +600,6 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Show the window plan (recomputes from current swarm state).
 pub fn plan_show(crosslink_dir: &Path) -> Result<()> {
     plan(crosslink_dir, None)
 }

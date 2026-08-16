@@ -5,7 +5,6 @@ use std::process::Command;
 
 use super::{Signal, SignalKind, Source, SourceKind};
 
-/// Configuration for the maintenance sweep source.
 pub struct MaintenanceSweepConfig {
     pub lint_enabled: bool,
     pub test_coverage_enabled: bool,
@@ -22,11 +21,6 @@ impl Default for MaintenanceSweepConfig {
     }
 }
 
-/// Runs local maintenance commands and emits signals when quality drifts.
-///
-/// Checks:
-/// - Lint warnings above threshold (`cargo clippy` / `npm run lint`)
-/// - Test failures (`cargo test` / `npm test`)
 pub struct MaintenanceSweepSource {
     config: MaintenanceSweepConfig,
     repo_root: std::path::PathBuf,
@@ -40,14 +34,13 @@ impl MaintenanceSweepSource {
         }
     }
 
-    /// Count lint warnings from `cargo clippy`.
     fn check_clippy_warnings(&self) -> Option<Signal> {
         let Ok(output) = Command::new("cargo")
             .args(["clippy", "--message-format=short", "--quiet"])
             .current_dir(&self.repo_root)
             .output()
         else {
-            return None; // cargo not available
+            return None;
         };
 
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -78,7 +71,6 @@ impl MaintenanceSweepSource {
         }
     }
 
-    /// Run `cargo test` and check for failures.
     fn check_test_failures(&self) -> Option<Signal> {
         let Ok(output) = Command::new("cargo")
             .args(["test", "--no-fail-fast", "--quiet"])

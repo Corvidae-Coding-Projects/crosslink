@@ -4,7 +4,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-/// Agent protocol selected independently from the executable path.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentProvider {
@@ -84,10 +83,7 @@ impl ProviderOptions {
             AgentProvider::Codex => Self {
                 models: ProviderModels::default(),
                 sandbox: "workspace-write".to_string(),
-                // Codex deliberately protects Git metadata even when the
-                // worktree itself is writable. Automatic review permits the
-                // narrowly elevated git add/commit operations required by the
-                // kickoff contract without disabling the host sandbox.
+
                 approval: "auto-review".to_string(),
             },
             AgentProvider::Custom => Self {
@@ -104,12 +100,11 @@ pub struct ResolvedAgent {
     pub provider: AgentProvider,
     pub binary: PathBuf,
     pub options: ProviderOptions,
-    /// True when provider semantics were inferred from a legacy binary-only config.
+
     pub legacy_inferred: bool,
 }
 
 impl ResolvedAgent {
-    /// Resolve semantic model tiers while allowing an explicit provider model.
     #[must_use]
     pub fn resolve_model(&self, requested: Option<&str>) -> Option<String> {
         match requested.map(str::trim).filter(|value| !value.is_empty()) {
@@ -133,20 +128,16 @@ fn read_json(path: &Path) -> Result<Option<serde_json::Value>> {
 }
 
 fn agent_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    let nested = value
-        .get("agent")
-        .and_then(|agent| agent.get(key))
+    let dotted = value
+        .get(format!("agent.{key}"))
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    // `crosslink config` exposes nested settings as dotted keys. Older
-    // versions wrote that spelling literally at the top level, so accept it
-    // as an equivalent representation while keeping the nested JSON shape
-    // canonical for hand-authored configuration.
-    nested.or_else(|| {
+    dotted.or_else(|| {
         value
-            .get(format!("agent.{key}"))
+            .get("agent")
+            .and_then(|agent| agent.get(key))
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -205,7 +196,6 @@ fn overlay_options(
     }
 }
 
-/// Resolve agent settings with local > shared > legacy inference > Claude precedence.
 pub fn resolve_agent(crosslink_dir: &Path) -> Result<ResolvedAgent> {
     let team = read_json(&crosslink_dir.join("hook-config.json"))?.unwrap_or_default();
     let local = read_json(&crosslink_dir.join("hook-config.local.json"))?;
@@ -253,8 +243,8 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn write(dir: &Path, name: &str, value: serde_json::Value) {
-        std::fs::write(dir.join(name), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+    fn write(dir: &Path, name: &str, value: &serde_json::Value) {
+        std::fs::write(dir.join(name), serde_json::to_vec_pretty(value).unwrap()).unwrap();
     }
 
     #[test]
@@ -285,7 +275,7 @@ mod tests {
         write(
             dir.path(),
             "hook-config.json",
-            serde_json::json!({"agent":{"provider":"codex"}}),
+            &serde_json::json!({"agent":{"provider":"codex"}}),
         );
 
         let resolved = resolve_agent(dir.path()).unwrap();
@@ -300,12 +290,12 @@ mod tests {
         write(
             dir.path(),
             "hook-config.json",
-            serde_json::json!({"agent":{"provider":"claude","binary":"team-wrapper"}}),
+            &serde_json::json!({"agent":{"provider":"claude","binary":"team-wrapper"}}),
         );
         write(
             dir.path(),
             "hook-config.local.json",
-            serde_json::json!({"agent":{"provider":"codex","binary":"/opt/codex-wrapper"}}),
+            &serde_json::json!({"agent":{"provider":"codex","binary":"/opt/codex-wrapper"}}),
         );
         let resolved = resolve_agent(dir.path()).unwrap();
         assert_eq!(resolved.provider, AgentProvider::Codex);
@@ -318,18 +308,35 @@ mod tests {
         write(
             dir.path(),
             "hook-config.json",
-            serde_json::json!({"agent":{"provider":"claude"}}),
+            &serde_json::json!({"agent":{"provider":"claude"}}),
         );
         write(
             dir.path(),
             "hook-config.local.json",
-            serde_json::json!({"agent.provider":"codex"}),
+            &serde_json::json!({"agent.provider":"codex"}),
         );
 
         let resolved = resolve_agent(dir.path()).unwrap();
         assert_eq!(resolved.provider, AgentProvider::Codex);
         assert_eq!(resolved.binary, PathBuf::from("codex"));
         assert!(!resolved.legacy_inferred);
+    }
+
+    #[test]
+    fn dotted_team_provider_overrides_legacy_nested_default() {
+        let dir = tempdir().unwrap();
+        write(
+            dir.path(),
+            "hook-config.json",
+            &serde_json::json!({
+                "agent": {"provider": "claude"},
+                "agent.provider": "codex"
+            }),
+        );
+
+        let resolved = resolve_agent(dir.path()).unwrap();
+        assert_eq!(resolved.provider, AgentProvider::Codex);
+        assert_eq!(resolved.binary, PathBuf::from("codex"));
     }
 
     #[test]
@@ -343,7 +350,7 @@ mod tests {
             write(
                 dir.path(),
                 "hook-config.json",
-                serde_json::json!({"agent":{"binary":binary}}),
+                &serde_json::json!({"agent":{"binary":binary}}),
             );
             let resolved = resolve_agent(dir.path()).unwrap();
             assert_eq!(resolved.provider, expected);
@@ -357,7 +364,7 @@ mod tests {
         write(
             dir.path(),
             "hook-config.json",
-            serde_json::json!({"agent":{"provider":"custom"}}),
+            &serde_json::json!({"agent":{"provider":"custom"}}),
         );
         let error = resolve_agent(dir.path()).unwrap_err().to_string();
         assert!(error.contains("agent.binary"));
@@ -369,12 +376,12 @@ mod tests {
         write(
             dir.path(),
             "hook-config.json",
-            serde_json::json!({"agent":{"provider":"codex","providers":{"codex":{"default_model":"gpt-team","sandbox":"read-only"}}}}),
+            &serde_json::json!({"agent":{"provider":"codex","providers":{"codex":{"default_model":"gpt-team","sandbox":"read-only"}}}}),
         );
         write(
             dir.path(),
             "hook-config.local.json",
-            serde_json::json!({"agent":{"providers":{"codex":{"default_model":"gpt-local","approval":"on-request"}}}}),
+            &serde_json::json!({"agent":{"providers":{"codex":{"default_model":"gpt-local","approval":"on-request"}}}}),
         );
         let resolved = resolve_agent(dir.path()).unwrap();
         assert_eq!(

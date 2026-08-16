@@ -7,12 +7,10 @@ use crate::db::Database;
 use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
 
-/// Controls how much output a close operation produces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
-    /// Print status messages to stdout.
     Normal,
-    /// Suppress non-essential output (used by close-all and batch operations).
+
     Quiet,
 }
 
@@ -59,7 +57,7 @@ fn close_inner(
     output: OutputMode,
 ) -> Result<()> {
     let quiet = output == OutputMode::Quiet;
-    // Get issue details before closing
+
     let issue = db.get_issue(id)?;
     let Some(issue) = issue else {
         bail!("Issue {} not found", format_issue_id(id));
@@ -79,21 +77,16 @@ fn close_inner(
         bail!("Issue {} not found", format_issue_id(id));
     }
 
-    // Clear session active work item if this was the active issue
-    // Prevents the cascade where closing the active issue leaves the session
-    // without a work item, causing work-check hook to block all tool calls (#399)
     let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
         .ok()
         .flatten()
         .map(|a| a.agent_id);
     if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
         if session.active_issue_id == Some(id) {
-            // INTENTIONAL: clearing stale session issue is best-effort — prevents work-check hook from blocking
             let _ = db.clear_session_issue(session.id);
         }
     }
 
-    // Auto-release lock in multi-agent mode
     match crate::lock_check::try_release_lock(crosslink_dir, id) {
         Ok(true) if !quiet => {
             println!("Released lock on issue {}", format_issue_id(id));
@@ -102,7 +95,6 @@ fn close_inner(
         Err(e) => tracing::warn!("Could not release lock on {}: {}", format_issue_id(id), e),
     }
 
-    // Update changelog if requested
     if update_changelog {
         update_changelog_for_issue(crosslink_dir, &issue.title, id, &labels, quiet);
     }
@@ -110,12 +102,6 @@ fn close_inner(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// CHANGELOG manipulation helpers (extracted from close_inner for #443)
-// ---------------------------------------------------------------------------
-
-/// Update the project CHANGELOG.md with an entry for a closed issue.
-/// Creates CHANGELOG.md if it doesn't exist. Best-effort: logs warnings on failure.
 fn update_changelog_for_issue(
     crosslink_dir: &Path,
     title: &str,
@@ -126,7 +112,6 @@ fn update_changelog_for_issue(
     let project_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
     let changelog_path = project_root.join("CHANGELOG.md");
 
-    // Create CHANGELOG.md if it doesn't exist
     if !changelog_path.exists() {
         if let Err(e) = create_changelog(&changelog_path) {
             tracing::warn!("Could not create CHANGELOG.md: {}", e);
@@ -178,7 +163,7 @@ fn determine_changelog_category(labels: &[String]) -> String {
             _ => {}
         }
     }
-    "Changed".to_string() // Default category
+    "Changed".to_string()
 }
 
 fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
@@ -187,7 +172,6 @@ fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
 
     let mut result = String::new();
     if content.contains(&heading) {
-        // Insert after the heading
         let mut found = false;
         for line in content.lines() {
             result.push_str(line);
@@ -198,7 +182,6 @@ fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
             }
         }
     } else {
-        // Add new section after first ## heading (usually ## [Unreleased])
         let mut added = false;
         for line in content.lines() {
             result.push_str(line);
@@ -211,7 +194,6 @@ fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
             }
         }
         if !added {
-            // No ## heading found, append at end
             result.push('\n');
             let _ = writeln!(result, "{heading}");
             result.push_str(entry);
@@ -274,8 +256,6 @@ mod tests {
         (db, dir)
     }
 
-    // ==================== Close Tests ====================
-
     #[test]
     fn test_close_existing_issue() {
         let (db, dir) = setup_test_db();
@@ -312,12 +292,9 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
         db.close_issue(issue_id).unwrap();
 
-        // Closing again should be fine (idempotent at db level)
         let result = close(&db, None, issue_id, false, &crosslink_dir);
         assert!(result.is_ok());
     }
-
-    // ==================== Reopen Tests ====================
 
     #[test]
     fn test_reopen_closed_issue() {
@@ -349,15 +326,12 @@ mod tests {
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        // Reopening an open issue - succeeds (idempotent operation)
         let result = reopen(&db, None, issue_id);
         assert!(result.is_ok());
 
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "open");
     }
-
-    // ==================== Changelog Category Tests ====================
 
     #[test]
     fn test_determine_changelog_category_bug() {
@@ -420,7 +394,6 @@ mod tests {
 
     #[test]
     fn test_determine_changelog_category_first_match_wins() {
-        // Bug comes before feature, so Fixed should win
         assert_eq!(
             determine_changelog_category(&["bug".to_string(), "feature".to_string()]),
             "Fixed"
@@ -436,8 +409,6 @@ mod tests {
         );
     }
 
-    // ==================== Close/Reopen Cycle Tests ====================
-
     #[test]
     fn test_close_reopen_cycle() {
         let (db, dir) = setup_test_db();
@@ -446,23 +417,18 @@ mod tests {
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        // Close
         close(&db, None, issue_id, false, &crosslink_dir).unwrap();
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "closed");
 
-        // Reopen
         reopen(&db, None, issue_id).unwrap();
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "open");
 
-        // Close again
         close(&db, None, issue_id, false, &crosslink_dir).unwrap();
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "closed");
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

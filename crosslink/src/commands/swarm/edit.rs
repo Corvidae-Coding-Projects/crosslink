@@ -1,16 +1,12 @@
-// Swarm plan editing commands: move, merge, split, remove, reorder, rename.
-
 use anyhow::{bail, Result};
 use std::path::Path;
 
 use super::io::*;
 use super::types::*;
 
-/// Move an agent from one phase to another.
 pub fn move_agent(crosslink_dir: &Path, agent_slug: &str, to_phase: &str) -> Result<()> {
     let (sync, plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
-    // Find and remove agent from source phase
     let mut found_agent: Option<AgentEntry> = None;
     let mut source_phase_name = String::new();
     for (_path, phase) in &mut phases {
@@ -24,7 +20,6 @@ pub fn move_agent(crosslink_dir: &Path, agent_slug: &str, to_phase: &str) -> Res
     let agent = found_agent
         .ok_or_else(|| anyhow::anyhow!("Agent '{agent_slug}' not found in any phase"))?;
 
-    // Find target phase and add agent
     let target = phases
         .iter_mut()
         .find(|(_, p)| p.name == to_phase)
@@ -41,7 +36,6 @@ pub fn move_agent(crosslink_dir: &Path, agent_slug: &str, to_phase: &str) -> Res
     Ok(())
 }
 
-/// Merge two phases into one (keeps the first phase's name).
 pub fn merge_phases(crosslink_dir: &Path, phase_a: &str, phase_b: &str) -> Result<()> {
     let (sync, mut plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
@@ -54,16 +48,13 @@ pub fn merge_phases(crosslink_dir: &Path, phase_a: &str, phase_b: &str) -> Resul
         .position(|(_, p)| p.name == phase_b)
         .ok_or_else(|| anyhow::anyhow!("Phase '{phase_b}' not found"))?;
 
-    // Move agents from B into A
     let agents_b: Vec<AgentEntry> = phases[idx_b].1.agents.clone();
     phases[idx_a].1.agents.extend(agents_b);
 
-    // Remove phase B from plan and phases list
     let removed_path = phases[idx_b].0.clone();
     phases.remove(idx_b);
     plan.phases.retain(|p| p != phase_b);
 
-    // INTENTIONAL: old phase file deletion is best-effort — git commit below will track the removal
     let cache_file = sync.cache_path().join(&removed_path);
     let _ = std::fs::remove_file(&cache_file);
 
@@ -77,7 +68,6 @@ pub fn merge_phases(crosslink_dir: &Path, phase_a: &str, phase_b: &str) -> Resul
     Ok(())
 }
 
-/// Split a phase after a specific agent, creating a new phase.
 pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) -> Result<()> {
     let (sync, mut plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
@@ -99,7 +89,6 @@ pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) ->
         bail!("Agent '{after_agent}' is the last agent in '{phase_name}' — nothing to split off");
     }
 
-    // Split agents
     let ctx = resolve_swarm(&sync)?;
     let new_agents: Vec<AgentEntry> = phases[idx].1.agents.drain(split_pos + 1..).collect();
     let new_name = format!("{phase_name} (split)");
@@ -114,11 +103,9 @@ pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) ->
         checkpoint: None,
     };
 
-    // Insert new phase right after the split phase
     let insert_at = idx + 1;
     phases.insert(insert_at, (new_path, new_phase));
 
-    // Update plan phase list
     let plan_idx = plan
         .phases
         .iter()
@@ -136,7 +123,6 @@ pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) ->
     Ok(())
 }
 
-/// Remove an agent from the swarm plan.
 pub fn remove_agent(crosslink_dir: &Path, agent_slug: &str) -> Result<()> {
     let (sync, plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
@@ -165,7 +151,6 @@ pub fn remove_agent(crosslink_dir: &Path, agent_slug: &str) -> Result<()> {
     Ok(())
 }
 
-/// Reorder a phase to a new position (1-based).
 pub fn reorder_phase(crosslink_dir: &Path, phase_name: &str, position: usize) -> Result<()> {
     let (sync, mut plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
@@ -187,7 +172,6 @@ pub fn reorder_phase(crosslink_dir: &Path, phase_name: &str, position: usize) ->
     let entry = phases.remove(current_idx);
     phases.insert(target_idx, entry);
 
-    // Update plan phase order to match
     plan.phases = phases.iter().map(|(_, p)| p.name.clone()).collect();
 
     save_plan_and_phases(
@@ -200,7 +184,6 @@ pub fn reorder_phase(crosslink_dir: &Path, phase_name: &str, position: usize) ->
     Ok(())
 }
 
-/// Rename a phase.
 pub fn rename_phase(crosslink_dir: &Path, old_name: &str, new_name: &str) -> Result<()> {
     let (sync, mut plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
@@ -209,10 +192,8 @@ pub fn rename_phase(crosslink_dir: &Path, old_name: &str, new_name: &str) -> Res
         .position(|(_, p)| p.name == old_name)
         .ok_or_else(|| anyhow::anyhow!("Phase '{old_name}' not found"))?;
 
-    // Update the phase name
     phases[idx].1.name = new_name.to_string();
 
-    // Update depends_on references in other phases
     for (_path, phase) in &mut phases {
         for dep in &mut phase.depends_on {
             if dep == old_name {
@@ -221,17 +202,14 @@ pub fn rename_phase(crosslink_dir: &Path, old_name: &str, new_name: &str) -> Res
         }
     }
 
-    // Write new phase file, remove old one
     let ctx = resolve_swarm(&sync)?;
     let old_path = phases[idx].0.clone();
     let new_path = ctx.phase_path(new_name);
     phases[idx].0 = new_path;
 
-    // INTENTIONAL: old phase file deletion is best-effort — git commit below will track the removal
     let old_cache_file = sync.cache_path().join(&old_path);
     let _ = std::fs::remove_file(&old_cache_file);
 
-    // Update plan phase list
     for p in &mut plan.phases {
         if p == old_name {
             *p = new_name.to_string();

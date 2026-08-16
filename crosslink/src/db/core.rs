@@ -4,23 +4,15 @@ use std::path::Path;
 
 pub const SCHEMA_VERSION: i32 = 18;
 
-/// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
 
-/// Valid values for issue status.
 pub const VALID_STATUSES: &[&str] = &["open", "closed", "archived"];
 
-/// Maximum lengths for string inputs.
 pub const MAX_TITLE_LEN: usize = 512;
 pub const MAX_LABEL_LEN: usize = 128;
-pub const MAX_DESCRIPTION_LEN: usize = 64 * 1024; // 64KB
-pub const MAX_COMMENT_LEN: usize = 1024 * 1024; // 1MB
+pub const MAX_DESCRIPTION_LEN: usize = 64 * 1024;
+pub const MAX_COMMENT_LEN: usize = 1024 * 1024;
 
-/// Validate that a status value is known, returning an error if not.
-///
-/// # Errors
-///
-/// Returns an error if the status is not one of the valid values.
 pub fn validate_status(status: &str) -> Result<()> {
     if VALID_STATUSES.contains(&status) {
         Ok(())
@@ -33,11 +25,6 @@ pub fn validate_status(status: &str) -> Result<()> {
     }
 }
 
-/// Validate that a priority value is known, returning an error if not.
-///
-/// # Errors
-///
-/// Returns an error if the priority is not one of the valid values.
 pub fn validate_priority(priority: &str) -> Result<()> {
     if VALID_PRIORITIES.contains(&priority) {
         Ok(())
@@ -55,10 +42,6 @@ pub struct Database {
 }
 
 impl Database {
-    /// Open a database at the given path, initializing the schema if needed.
-    ///
-    /// # Errors
-    /// Returns an error if the database cannot be opened or schema initialization fails.
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).context("Failed to open database")?;
         let db = Self { conn };
@@ -66,13 +49,6 @@ impl Database {
         Ok(db)
     }
 
-    /// Execute a closure within a database transaction.
-    /// If the closure returns Ok, the transaction is committed.
-    /// If the closure returns Err or the closure panics, the transaction is
-    /// rolled back automatically via rusqlite's RAII `Transaction` type.
-    ///
-    /// # Errors
-    /// Returns an error if the transaction cannot be started, committed, or if the closure fails.
     pub fn transaction<T, F>(&self, f: F) -> Result<T>
     where
         F: FnOnce() -> Result<T>,
@@ -83,14 +59,6 @@ impl Database {
         Ok(result)
     }
 
-    /// Toggle `SQLite` foreign key enforcement.
-    ///
-    /// Must be called outside a transaction (`PRAGMA foreign_keys` is a
-    /// no-op inside one). Used by hydration to prevent `ON DELETE` cascades
-    /// during bulk clear/reinsert (#461).
-    ///
-    /// # Errors
-    /// Returns an error if the pragma execution fails.
     pub fn set_foreign_keys(&self, enabled: bool) -> Result<()> {
         let value = if enabled { "ON" } else { "OFF" };
         self.conn
@@ -98,8 +66,6 @@ impl Database {
         Ok(())
     }
 
-    /// Run a migration statement, logging unexpected errors.
-    /// Expected errors (duplicate column, table already exists) are logged at debug level.
     fn migrate(&self, sql: &str) {
         if let Err(e) = self.conn.execute(sql, []) {
             let msg = e.to_string();
@@ -115,8 +81,6 @@ impl Database {
         }
     }
 
-    /// Run a batch migration statement, logging unexpected errors.
-    /// Expected errors (duplicate column, table already exists) are logged at debug level.
     fn migrate_batch(&self, sql: &str) {
         if let Err(e) = self.conn.execute_batch(sql) {
             let msg = e.to_string();
@@ -129,7 +93,6 @@ impl Database {
     }
 
     fn init_schema(&self) -> Result<()> {
-        // Check if we need to initialize
         let version: i32 = self
             .conn
             .query_row(
@@ -152,7 +115,6 @@ impl Database {
                 .execute(&format!("PRAGMA user_version = {SCHEMA_VERSION}"), [])?;
         }
 
-        // Enable foreign keys
         self.conn.execute("PRAGMA foreign_keys = ON", [])?;
 
         Ok(())
@@ -271,13 +233,10 @@ impl Database {
     }
 
     fn run_migrations(&self, version: i32) {
-        // Migration: add parent_id column if upgrading from v1
         self.migrate(
             "ALTER TABLE issues ADD COLUMN parent_id INTEGER REFERENCES issues(id) ON DELETE CASCADE",
         );
 
-        // Migration v7: Recreate sessions table with ON DELETE SET NULL for active_issue_id
-        // This ensures deleting an issue clears the session reference instead of failing
         if version < 7 {
             self.migrate_batch(
                 r"
@@ -298,17 +257,14 @@ impl Database {
             );
         }
 
-        // Migration v8: Add last_action column to sessions table
         if version < 8 {
             self.migrate("ALTER TABLE sessions ADD COLUMN last_action TEXT");
         }
 
-        // Migration v9: Add agent_id column to sessions table
         if version < 9 {
             self.migrate("ALTER TABLE sessions ADD COLUMN agent_id TEXT");
         }
 
-        // Migration v10: Add uuid columns for shared issue coordination
         if version < 10 {
             self.migrate("ALTER TABLE issues ADD COLUMN uuid TEXT");
             self.migrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_uuid ON issues(uuid)");
@@ -321,18 +277,15 @@ impl Database {
             );
         }
 
-        // Migration v11: Add kind column to comments for typed audit trail
         if version < 11 {
             self.migrate("ALTER TABLE comments ADD COLUMN kind TEXT DEFAULT 'note'");
         }
 
-        // Migration v12: Add trigger_type and intervention_context for driver intervention tracking
         if version < 12 {
             self.migrate("ALTER TABLE comments ADD COLUMN trigger_type TEXT");
             self.migrate("ALTER TABLE comments ADD COLUMN intervention_context TEXT");
         }
 
-        // Migration v13: Add driver_key_fingerprint to comments for audit trail
         if version < 13 {
             let _ = self.conn.execute(
                 "ALTER TABLE comments ADD COLUMN driver_key_fingerprint TEXT",
@@ -340,15 +293,10 @@ impl Database {
             );
         }
 
-        // Migration v14: Drop leftover sessions_new table from a bug where
-        // user_version was always read as 0 (wrong column name in the query),
-        // causing the v7 migration to re-run on every open and leave behind
-        // a stale sessions_new table.
         if version < 14 {
             self.migrate("DROP TABLE IF EXISTS sessions_new");
         }
 
-        // Migration v15: Token usage tracking table for web dashboard
         if version < 15 {
             self.migrate_batch(
                 r"
@@ -372,7 +320,6 @@ impl Database {
             );
         }
 
-        // Migration v16: Sentinel autonomous maintenance tables
         if version < 16 {
             self.migrate_batch(
                 r"
@@ -422,17 +369,11 @@ impl Database {
             );
         }
 
-        // Migration v17: Issue scheduling fields (GH #361).
-        // scheduled_at: when the issue becomes actionable (crosslink next filters
-        // future-scheduled issues). due_at: hard deadline (crosslink next boosts
-        // overdue issues by +100 and warns when <= 1 day out).
         if version < 17 {
             self.migrate("ALTER TABLE issues ADD COLUMN scheduled_at TEXT");
             self.migrate("ALTER TABLE issues ADD COLUMN due_at TEXT");
         }
 
-        // Migration v18: provider-aware account-session usage. Legacy rows are
-        // Claude because that was the only first-class provider before v18.
         if version < 18 {
             self.migrate(
                 "ALTER TABLE token_usage ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'",
@@ -446,10 +387,6 @@ impl Database {
         }
     }
 
-    /// Get the current schema version (PRAGMA `user_version`).
-    ///
-    /// # Errors
-    /// Returns an error if the pragma query fails.
     pub fn get_schema_version(&self) -> Result<i32> {
         let version: i32 = self
             .conn

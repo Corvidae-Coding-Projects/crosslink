@@ -82,7 +82,6 @@ fn build_tree_node(db: &Database, issue: &Issue, status_filter: Option<&str>) ->
 }
 
 pub fn run(db: &Database, status_filter: Option<&str>, json: bool) -> Result<()> {
-    // Get all top-level issues (no parent)
     let all_issues = db.list_issues(status_filter, None, None)?;
     let top_level: Vec<_> = all_issues
         .into_iter()
@@ -108,7 +107,6 @@ pub fn run(db: &Database, status_filter: Option<&str>, json: bool) -> Result<()>
         print_tree_recursive(db, issue.id, 1, status_filter)?;
     }
 
-    // Legend
     println!();
     println!("Legend: [ ] open, [x] closed");
 

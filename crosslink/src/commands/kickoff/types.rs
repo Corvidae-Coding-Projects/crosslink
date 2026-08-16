@@ -1,47 +1,30 @@
-// E-ana tablet — kickoff types: shared data structures
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
-/// Default container image for agent execution.
-///
-/// Consolidated here to avoid duplicating the string literal across kickoff,
-/// swarm, and CLI default values.
 pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest";
 
-/// Provider-neutral reasoning-effort levels accepted by kickoff (gh#61).
-///
-/// Single source of truth for the clap `PossibleValuesParser` on
-/// `kickoff run` / `kickoff plan` and for any non-clap caller that needs
-/// to validate a configured level (e.g. swarm config). Keeping the list
-/// here means the CLI's fail-closed value error and the dispatch path can
-/// never drift apart.
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
-/// Container runtime for agent execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerMode {
-    /// Run as a local process in a tmux session with the selected provider.
     None,
-    /// Run inside a Docker container.
+
     Docker,
-    /// Run inside a Podman container.
+
     Podman,
 }
 
-/// Post-implementation verification level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyLevel {
-    /// Local tests and self-review checklist only.
     Local,
-    /// Push branch, open draft PR, wait for CI.
+
     Ci,
-    /// CI plus structured adversarial self-review.
+
     Thorough,
 }
 
-/// A single acceptance criterion extracted from a design document.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Criterion {
     pub id: String,
@@ -50,7 +33,6 @@ pub struct Criterion {
     pub criterion_type: String,
 }
 
-/// Machine-readable acceptance criteria file (`.kickoff-criteria.json`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CriteriaFile {
     pub source_doc: String,
@@ -58,42 +40,26 @@ pub struct CriteriaFile {
     pub criteria: Vec<Criterion>,
 }
 
-/// Metadata written at agent launch (`.kickoff-metadata.json`).
-///
-/// Records the timeout and start time so that `status` / `list` can detect
-/// agents that have exceeded their time budget, plus the dispatch dials the
-/// agent was launched with (gh#61) so the run record answers "what reasoning
-/// effort / spend ceiling / model did this dispatch actually get?".
-///
-/// The dial fields are optional and `skip_serializing_if = "Option::is_none"`:
-/// a metadata file written before this field set existed still deserializes,
-/// and a launch that passes no dials produces the same JSON it always did.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KickoffMetadata {
-    /// ISO-8601 UTC timestamp of when the agent was launched.
     pub started_at: String,
-    /// Timeout in seconds (matches `--timeout` flag).
+
     pub timeout_secs: u64,
-    /// Runtime provider selected independently from its executable path.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
-    /// Resolved model the agent was dispatched with (matches `--model`).
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Reasoning effort the agent was dispatched with (matches `--effort`).
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// Per-session spend ceiling in USD (matches `--budget-usd`).
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_usd: Option<String>,
 }
 
 impl KickoffMetadata {
-    /// Build the launch record for a dispatch, capturing its dials.
-    ///
-    /// Keeps the `.kickoff-metadata.json` shape derived from exactly one place
-    /// so the run-record oracle and the launch path cannot disagree about what
-    /// a dispatch was given (gh#61, REQ-3).
     pub fn for_launch(opts: &KickoffOpts, started_at: String) -> Self {
         Self {
             started_at,
@@ -106,23 +72,13 @@ impl KickoffMetadata {
     }
 }
 
-/// Breadcrumb written at launch when `--doc <path>` is supplied
-/// (`.kickoff-doc.json`).
-///
-/// Carries the worktree-relative path and the SHA-256 of the canonical
-/// content as captured at launch time. Consumed by post-run validation in
-/// `monitor::report` / `monitor::status` to detect whether the agent
-/// rewrote the design doc it was supposed to treat as read-only input.
-/// See GH#580.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KickoffDocBreadcrumb {
-    /// Path of the protected design doc, relative to the worktree root.
     pub rel_path: String,
-    /// `sha256:<hex>` of the design doc's content at launch time.
+
     pub doc_hash: String,
 }
 
-/// Options for `crosslink kickoff run`.
 pub struct KickoffOpts<'a> {
     pub description: &'a str,
     pub issue: Option<i64>,
@@ -137,31 +93,19 @@ pub struct KickoffOpts<'a> {
     pub design_doc: Option<&'a super::super::design_doc::DesignDoc>,
     pub doc_path: Option<&'a str>,
     pub skip_permissions: bool,
-    /// Compatibility `--permission-mode <mode>` override (GH#603). When set,
-    /// overrides `skip_permissions`'s `--dangerously-skip-permissions`
-    /// with the finer-grained mode (acceptEdits/auto/bypassPermissions/
-    /// default/dontAsk/plan). CLI marks the flags as mutually exclusive.
+
     pub permission_mode: Option<&'a str>,
-    /// Optional provider reasoning effort (gh#61). One of [`EFFORT_LEVELS`];
-    /// the CLI validates the value fail-closed. `None` reproduces today's
-    /// invocation with no `--effort` token.
+
     pub effort: Option<&'a str>,
-    /// Optional provider monetary budget (gh#61). Unsupported providers reject
-    /// this capability rather than silently ignoring it.
+
     pub budget_usd: Option<&'a str>,
-    /// Optional prompt template path (gh#62, REQ-6). When set (via `--template`
-    /// or a per-phase swarm template), it takes precedence over the
-    /// `agent.kickoff_template` config; its body is interpolated with the D2
-    /// placeholder set rather than replacing the built prompt wholesale.
-    /// `None` falls back to the config setting, then the built-in prompt.
+
     pub template: Option<&'a Path>,
-    /// Legacy caller snapshot retained for source compatibility. Launches
-    /// resolve `agent.provider` and its executable from configuration.
+
     #[allow(dead_code)]
     pub agent_binary: String,
 }
 
-/// A single criterion verdict in the validation report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CriterionVerdict {
     pub id: String,
@@ -169,7 +113,6 @@ pub struct CriterionVerdict {
     pub evidence: String,
 }
 
-/// Summary counts in the validation report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReportSummary {
     pub total: usize,
@@ -180,7 +123,6 @@ pub struct ReportSummary {
     pub needs_clarification: usize,
 }
 
-/// Timing and metrics for a single phase of agent work.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PhaseTiming {
     pub duration_s: u64,
@@ -208,7 +150,6 @@ pub struct PhaseTiming {
     pub issues_fixed: Option<u64>,
 }
 
-/// Phase-level timing breakdown for a kickoff run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PhaseTimings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,18 +166,12 @@ pub struct PhaseTimings {
     pub review: Option<PhaseTiming>,
 }
 
-/// The `.kickoff-report.json` file contents.
-///
-/// Phase 3 fields (`validated_at`, `criteria`, `summary`) are always required.
-/// Phase 4 fields are optional with serde defaults for backward compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KickoffReport {
-    // Phase 3 fields (backward compat — always present)
     pub validated_at: String,
     pub criteria: Vec<CriterionVerdict>,
     pub summary: ReportSummary,
 
-    // Phase 4 fields (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_version: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -259,65 +194,53 @@ pub struct KickoffReport {
     pub files_changed: Option<Vec<String>>,
 }
 
-/// Output format for the kickoff report command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportFormat {
-    /// Human-readable table with symbols.
     Table,
-    /// Raw JSON output.
+
     Json,
-    /// PR-ready markdown format.
+
     Markdown,
 }
 
-/// Options for `crosslink kickoff plan`.
 pub struct PlanOpts<'a> {
     pub doc: &'a super::super::design_doc::DesignDoc,
-    /// Path to the original design doc file (for pipeline state tracking).
+
     pub doc_path: Option<&'a std::path::Path>,
     pub model: &'a str,
     pub timeout: Duration,
     pub dry_run: bool,
     pub issue: Option<i64>,
     pub quiet: bool,
-    /// Compatibility no-prompt override. Default `false` keeps plan mode
-    /// read-only and fail-closed (gh#66).
+
     pub skip_permissions: bool,
-    /// Pass `--permission-mode <mode>`. Mutually exclusive with
-    /// `skip_permissions`; does not itself clear the trust dialog.
+
     pub permission_mode: Option<&'a str>,
-    /// Optional provider reasoning effort. See [`KickoffOpts::effort`].
+
     pub effort: Option<&'a str>,
-    /// Optional provider monetary budget (gh#61). See
-    /// [`KickoffOpts::budget_usd`].
+
     pub budget_usd: Option<&'a str>,
-    /// Optional prompt template path (gh#62, REQ-6). See
-    /// [`KickoffOpts::template`]; for plan mode the `{{branch}}`,
-    /// `{{description}}`, and `{{allowed_tools}}` placeholders render empty.
+
     pub template: Option<&'a Path>,
-    /// Legacy caller snapshot retained for source compatibility.
+
     #[allow(dead_code)]
     pub agent_binary: String,
 }
 
-/// Detect project conventions from the repo root.
 pub(crate) struct ProjectConventions {
     pub(crate) test_command: Option<String>,
     pub(crate) lint_commands: Vec<String>,
     pub(crate) allowed_tools: Vec<String>,
 }
 
-/// Result of a successful pre-flight check.
 pub(crate) struct PreflightResult {
-    /// The resolved timeout command (`timeout` or `gtimeout`).
     pub timeout_cmd: &'static str,
-    /// Optional sandbox wrapper command from hook-config.json `sandbox.command`.
+
     pub sandbox_command: Option<String>,
-    /// Fully resolved provider configuration used by every launch boundary.
+
     pub agent: crate::agents::ResolvedAgent,
 }
 
-/// Detected platform for generating targeted install instructions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Platform {
     MacOS,
@@ -325,7 +248,6 @@ pub(crate) enum Platform {
     Windows,
 }
 
-/// Known Linux distribution families.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LinuxDistro {
     Debian,
@@ -335,17 +257,15 @@ pub(crate) enum LinuxDistro {
     Other,
 }
 
-/// Watchdog configuration for detecting and nudging idle agents.
 pub(super) struct WatchdogConfig {
-    /// Whether the watchdog is enabled (default: true)
     pub enabled: bool,
-    /// Seconds of heartbeat staleness before nudging (default: 300)
+
     pub staleness_secs: u64,
-    /// Maximum number of nudges before giving up (default: 5)
+
     pub max_nudges: u32,
-    /// Seconds between watchdog checks (default: 120)
+
     pub check_interval_secs: u64,
-    /// Grace period before watchdog starts checking (default: 300)
+
     pub grace_period_secs: u64,
 }
 
@@ -361,7 +281,6 @@ impl Default for WatchdogConfig {
     }
 }
 
-/// Information about a discovered kickoff agent.
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct AgentInfo {
     pub id: String,
@@ -372,18 +291,15 @@ pub(super) struct AgentInfo {
     pub docker: Option<String>,
 }
 
-/// Classification of an agent for cleanup purposes.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(super) enum CleanupClass {
-    /// Agent confirmed done — safe to remove.
     Done,
-    /// Agent appears stale (no tmux/container, no DONE sentinel).
+
     Stale,
-    /// Agent is still active — do not touch.
+
     Active,
 }
 
-/// Result of a single agent cleanup action.
 #[derive(Debug, Serialize)]
 pub(super) struct CleanupResult {
     pub id: String,
@@ -394,7 +310,6 @@ pub(super) struct CleanupResult {
     pub error: Option<String>,
 }
 
-/// Parse a container mode string into the enum.
 pub fn parse_container_mode(s: &str) -> Result<ContainerMode> {
     match s.to_lowercase().as_str() {
         "none" | "local" => Ok(ContainerMode::None),
@@ -404,7 +319,6 @@ pub fn parse_container_mode(s: &str) -> Result<ContainerMode> {
     }
 }
 
-/// Parse a verification level string into the enum.
 pub fn parse_verify_level(s: &str) -> Result<VerifyLevel> {
     match s.to_lowercase().as_str() {
         "local" => Ok(VerifyLevel::Local),
@@ -414,7 +328,6 @@ pub fn parse_verify_level(s: &str) -> Result<VerifyLevel> {
     }
 }
 
-/// Parse a human-readable duration string (e.g. "1h", "30m", "90s") into Duration.
 pub fn parse_duration(s: &str) -> Result<Duration> {
     let s = s.trim();
     if s.is_empty() {
@@ -446,10 +359,6 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     Ok(Duration::from_secs(secs))
 }
 
-/// Check if an agent has exceeded its timeout based on `.kickoff-metadata.json`.
-///
-/// Returns `true` if the metadata file exists, contains a valid start time and
-/// timeout, and the elapsed wall-clock time exceeds the configured timeout.
 pub(super) fn is_timed_out(wt_path: &Path) -> bool {
     let meta_path = wt_path.join(".kickoff-metadata.json");
     let Ok(content) = std::fs::read_to_string(&meta_path) else {

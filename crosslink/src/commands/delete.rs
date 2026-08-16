@@ -6,7 +6,6 @@ use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
 
 pub fn run(db: &Database, writer: Option<&SharedWriter>, id: i64, force: bool) -> Result<()> {
-    // Check if issue exists first
     let Some(issue) = db.get_issue(id)? else {
         bail!("Issue {} not found", format_issue_id(id));
     };
@@ -40,7 +39,6 @@ pub fn run(db: &Database, writer: Option<&SharedWriter>, id: i64, force: bool) -
     Ok(())
 }
 
-/// Internal function for testing without stdin interaction
 #[cfg(test)]
 pub fn run_force(db: &Database, id: i64) -> Result<()> {
     run(db, None, id, true)
@@ -59,8 +57,6 @@ mod tests {
         (db, dir)
     }
 
-    // ==================== Unit Tests ====================
-
     #[test]
     fn test_delete_existing_issue_force() {
         let (db, _dir) = setup_test_db();
@@ -69,7 +65,6 @@ mod tests {
         let result = run_force(&db, issue_id);
         assert!(result.is_ok());
 
-        // Verify issue is deleted
         let issue = db.get_issue(issue_id).unwrap();
         assert!(issue.is_none());
     }
@@ -92,7 +87,6 @@ mod tests {
 
         run_force(&db, issue_id).unwrap();
 
-        // Labels should be gone
         let labels = db.get_labels(issue_id).unwrap();
         assert!(labels.is_empty());
     }
@@ -106,7 +100,6 @@ mod tests {
 
         run_force(&db, issue_id).unwrap();
 
-        // Comments should be gone
         let comments = db.get_comments(issue_id).unwrap();
         assert!(comments.is_empty());
     }
@@ -124,7 +117,6 @@ mod tests {
 
         run_force(&db, parent_id).unwrap();
 
-        // All children should be deleted
         assert!(db.get_issue(child1).unwrap().is_none());
         assert!(db.get_issue(child2).unwrap().is_none());
     }
@@ -136,10 +128,8 @@ mod tests {
         let blocked = db.create_issue("Blocked", None, "medium").unwrap();
         db.add_dependency(blocked, blocker).unwrap();
 
-        // Delete the blocker
         run_force(&db, blocker).unwrap();
 
-        // The blocked issue should no longer have this blocker
         let blockers = db.get_blockers(blocked).unwrap();
         assert!(!blockers.contains(&blocker));
     }
@@ -151,10 +141,8 @@ mod tests {
         let issue2 = db.create_issue("Issue 2", None, "medium").unwrap();
         db.add_relation(issue1, issue2).unwrap();
 
-        // Delete issue1
         run_force(&db, issue1).unwrap();
 
-        // issue2 should no longer have this relation
         let related = db.get_related_issues(issue2).unwrap();
         assert!(related.is_empty());
     }
@@ -206,9 +194,8 @@ mod tests {
         let result = run_force(&db, issue_id);
         assert!(result.is_ok());
 
-        // Milestone should still exist
         assert!(db.get_milestone(milestone_id).unwrap().is_some());
-        // But issue should be removed from it
+
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert!(issues.is_empty());
     }
@@ -223,13 +210,10 @@ mod tests {
         run_force(&db, id1).unwrap();
         run_force(&db, id2).unwrap();
 
-        // Only id3 should remain
         let issues = db.list_issues(None, None, None).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].id, id3);
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

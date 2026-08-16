@@ -17,11 +17,11 @@ fuzz_target!(|query: String| {
         Err(_) => return,
     };
 
-    // Create some test data
+
     let _ = db.create_issue("Test issue one", Some("Description here"), "medium");
     let _ = db.create_issue("Another test", None, "high");
     let _ = db.create_issue("Third issue", Some("More content"), "low");
 
-    // Fuzz search - should never panic, even with malicious SQL
+
     let _ = db.search_issues(&query);
 });

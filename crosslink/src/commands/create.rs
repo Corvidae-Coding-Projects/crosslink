@@ -8,7 +8,6 @@ use crate::utils::format_issue_id;
 
 const VALID_PRIORITIES: [&str; 4] = ["low", "medium", "high", "critical"];
 
-/// Built-in issue templates
 pub struct Template {
     pub name: &'static str,
     pub priority: &'static str,
@@ -75,29 +74,15 @@ pub fn validate_priority(priority: &str) -> bool {
     VALID_PRIORITIES.contains(&priority)
 }
 
-/// A single content-requirement rule for an issue description, parsed from the
-/// `template_required_fields` config map (gh#658).
-///
-/// `pattern` is the sole matcher: the description must match it for the rule to
-/// be satisfied. When the regex defines a capture group, group 1 is treated as
-/// "the field's content"; otherwise the whole match is. `min_chars` is the
-/// minimum number of characters required in that matched content.
 #[derive(Debug)]
 pub struct RequiredFieldRule {
-    /// Human-readable field name, used in error messages.
     pub field: String,
-    /// Regex the description must match.
+
     pub pattern: Regex,
-    /// Minimum number of characters required in the matched field content.
+
     pub min_chars: usize,
 }
 
-/// Parse the `template_required_fields` map for `template_name`.
-///
-/// Every regex in the *entire* map is compiled here, not just the requested
-/// template's, so a malformed pattern anywhere fails loudly at config-read time
-/// rather than only when an issue happens to use that template (gh#658 —
-/// "regex should compile-check at config load").
 fn parse_required_fields(
     config: &serde_json::Value,
     template_name: &str,
@@ -124,7 +109,6 @@ fn parse_required_fields(
     Ok(requested)
 }
 
-/// Parse and validate a single rule object, compiling its regex.
 fn parse_one_rule(tmpl: &str, idx: usize, entry: &serde_json::Value) -> Result<RequiredFieldRule> {
     let obj = entry.as_object().ok_or_else(|| {
         anyhow::anyhow!("template_required_fields.{tmpl}[{idx}] must be an object")
@@ -164,8 +148,6 @@ fn parse_one_rule(tmpl: &str, idx: usize, entry: &serde_json::Value) -> Result<R
     })
 }
 
-/// Load the required-field rules for `template_name` from the layered hook config
-/// (team + local override), compiling and validating all patterns (gh#658).
 pub fn load_required_fields(
     crosslink_dir: &std::path::Path,
     template_name: &str,
@@ -174,11 +156,6 @@ pub fn load_required_fields(
     parse_required_fields(&resolved.merged, template_name)
 }
 
-/// Validate a description against a template's required-field rules.
-///
-/// Returns the first violation as an error. Callers bypass this entirely when
-/// `--force` is set, when no template is given, or when there is no crosslink
-/// directory to read config from.
 pub fn validate_required_fields(
     rules: &[RequiredFieldRule],
     description: Option<&str>,
@@ -193,8 +170,7 @@ pub fn validate_required_fields(
                 rule.pattern.as_str()
             );
         };
-        // Capture group 1 is "the field's content" when present; otherwise the
-        // whole match. min_chars measures that content (gh#658).
+
         let content = caps
             .get(1)
             .or_else(|| caps.get(0))
@@ -213,7 +189,6 @@ pub fn validate_required_fields(
     Ok(())
 }
 
-/// Enforce `template_required_fields` for a create/subissue call, unless bypassed.
 fn enforce_required_fields(
     opts: &CreateOpts<'_>,
     template: Option<&str>,
@@ -229,16 +204,12 @@ fn enforce_required_fields(
     validate_required_fields(&rules, description)
 }
 
-/// Result of resolving a template against user-supplied fields.
 struct AppliedTemplate {
     priority: String,
     description: Option<String>,
     label: Option<&'static str>,
 }
 
-/// Resolve a template (if any) into the effective priority, description, and
-/// label. Shared by `run` and `run_subissue` so subissues honour `-t` too
-/// (gh#658). With no template, the user's values pass through unchanged.
 fn apply_template(
     template: Option<&str>,
     priority: &str,
@@ -260,18 +231,12 @@ fn apply_template(
         )
     })?;
 
-    // Template priority is the default; user can override with any non-default value.
-    // NOTE: This uses the CLI default ("medium") as a sentinel to detect "user didn't
-    // specify priority". An explicit `--priority medium` is indistinguishable from the
-    // default and will be overridden by the template's priority. To fix this fully,
-    // the CLI would need `Option<String>` for priority (#449).
     let priority = if priority == "medium" {
         tmpl.priority
     } else {
         priority
     };
 
-    // Combine template description prefix with user description.
     let desc = match (tmpl.description_prefix, description) {
         (Some(prefix), Some(user_desc)) => Some(format!("{prefix}\n\n{user_desc}")),
         (Some(prefix), None) => Some(prefix.to_string()),
@@ -285,10 +250,6 @@ fn apply_template(
     })
 }
 
-/// Options shared by create and subissue commands.
-/// Auto-claim lock in multi-agent mode and set the session work item.
-/// Returns Ok(()) on success or propagates errors from lock enforcement.
-/// Releases the lock if session update fails (avoids orphaned locks).
 fn auto_claim_and_set_work(
     db: &Database,
     id: i64,
@@ -335,7 +296,7 @@ fn auto_claim_and_set_work(
             }
             return Err(e);
         }
-        // Write sentinel file for fast hook checks (#522)
+
         if let Some(dir) = crosslink_dir {
             crate::commands::session::write_active_issue_sentinel(dir, id);
         }
@@ -353,11 +314,11 @@ pub struct CreateOpts<'a> {
     pub labels: &'a [String],
     pub work: bool,
     pub quiet: bool,
-    /// If set, lock enforcement is checked when --work is used.
+
     pub crosslink_dir: Option<&'a std::path::Path>,
-    /// Skip compaction after creation (batch mode — display ID assigned on next compaction).
+
     pub defer_id: bool,
-    /// Bypass `template_required_fields` content validation (gh#658).
+
     pub force: bool,
 }
 
@@ -373,8 +334,6 @@ pub fn run(
     due_at: Option<chrono::DateTime<chrono::Utc>>,
     opts: &CreateOpts<'_>,
 ) -> Result<()> {
-    // REQ-11 sanity: if both are set and scheduled is after due, warn but proceed.
-    // AC-13 — warning goes to stderr so it doesn't contaminate --quiet output on stdout.
     if let (Some(s), Some(d)) = (scheduled_at, due_at) {
         if s > d {
             eprintln!(
@@ -385,8 +344,6 @@ pub fn run(
         }
     }
 
-    // Apply template if specified, then enforce any required-field content rules
-    // before the issue is created (gh#658).
     let AppliedTemplate {
         priority: final_priority,
         description: final_description,
@@ -413,39 +370,30 @@ pub fn run(
             due_at,
         )?;
 
-        // Auto-add label from template
         if let Some(lbl) = template_label {
             w.add_label(db, id, lbl)?;
         }
 
-        // Add user-specified labels
         for lbl in opts.labels {
             w.add_label(db, id, lbl)?;
         }
 
         id
     } else {
-        // Non-writer path: scheduling fields require the shared-writer path
-        // because direct-db creation doesn't plumb them into IssueFile JSON
-        // (which is the source of truth for hydration). Fail loudly rather
-        // than silently dropping the dates.
         if scheduled_at.is_some() || due_at.is_some() {
             bail!(
                 "Scheduling dates require the shared-writer path. \
                  Run `crosslink agent init <id>` first to enable it."
             );
         }
-        // Wrap create + labels in a transaction so a label failure
-        // doesn't leave an issue without its labels.
+
         db.transaction(|| {
             let id = db.create_issue(title, final_description.as_deref(), &final_priority)?;
 
-            // Auto-add label from template
             if let Some(lbl) = template_label {
                 db.add_label(id, lbl)?;
             }
 
-            // Add user-specified labels
             for lbl in opts.labels {
                 db.add_label(id, lbl)?;
             }
@@ -468,7 +416,6 @@ pub fn run(
         }
     }
 
-    // Set as active session work item
     if opts.work {
         auto_claim_and_set_work(db, id, title, opts.crosslink_dir, opts.quiet)?;
     }
@@ -487,8 +434,6 @@ pub fn run_subissue(
     template: Option<&str>,
     opts: &CreateOpts<'_>,
 ) -> Result<()> {
-    // Apply template (subissues honour -t too — gh#658) then enforce required
-    // fields before the subissue is created.
     let AppliedTemplate {
         priority: final_priority,
         description: final_description,
@@ -505,7 +450,6 @@ pub fn run_subissue(
         );
     }
 
-    // Verify parent exists
     let parent = db.get_issue(parent_id)?;
     if parent.is_none() {
         bail!("Parent issue {} not found", format_issue_id(parent_id));
@@ -520,20 +464,16 @@ pub fn run_subissue(
             &final_priority,
         )?;
 
-        // Auto-add label from template
         if let Some(lbl) = template_label {
             w.add_label(db, id, lbl)?;
         }
 
-        // Add user-specified labels
         for lbl in opts.labels {
             w.add_label(db, id, lbl)?;
         }
 
         id
     } else {
-        // Wrap create + labels in a transaction so a label failure
-        // doesn't leave a subissue without its labels.
         db.transaction(|| {
             let id = db.create_subissue(
                 parent_id,
@@ -542,12 +482,10 @@ pub fn run_subissue(
                 &final_priority,
             )?;
 
-            // Auto-add label from template
             if let Some(lbl) = template_label {
                 db.add_label(id, lbl)?;
             }
 
-            // Add user-specified labels
             for lbl in opts.labels {
                 db.add_label(id, lbl)?;
             }
@@ -566,7 +504,6 @@ pub fn run_subissue(
         );
     }
 
-    // Set as active session work item
     if opts.work {
         auto_claim_and_set_work(db, id, title, opts.crosslink_dir, opts.quiet)?;
     }
@@ -578,8 +515,6 @@ pub fn run_subissue(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    // ==================== Unit Tests ====================
 
     #[test]
     fn test_validate_priority_valid() {
@@ -593,7 +528,7 @@ mod tests {
     fn test_validate_priority_invalid() {
         assert!(!validate_priority(""));
         assert!(!validate_priority("urgent"));
-        assert!(!validate_priority("LOW")); // Case sensitive
+        assert!(!validate_priority("LOW"));
         assert!(!validate_priority("MEDIUM"));
         assert!(!validate_priority("High"));
         assert!(!validate_priority("CRITICAL"));
@@ -604,7 +539,6 @@ mod tests {
 
     #[test]
     fn test_validate_priority_malicious() {
-        // Security: ensure no injection vectors
         assert!(!validate_priority("'; DROP TABLE issues; --"));
         assert!(!validate_priority("high\0medium"));
         assert!(!validate_priority("medium; DELETE FROM issues"));
@@ -626,7 +560,7 @@ mod tests {
     fn test_get_template_not_found() {
         assert!(get_template("nonexistent").is_none());
         assert!(get_template("").is_none());
-        assert!(get_template("Bug").is_none()); // Case sensitive
+        assert!(get_template("Bug").is_none());
         assert!(get_template("BUG").is_none());
     }
 
@@ -645,7 +579,6 @@ mod tests {
 
     #[test]
     fn test_template_fields() {
-        // Verify all templates have required fields
         for template in TEMPLATES {
             assert!(!template.name.is_empty());
             assert!(validate_priority(template.priority));
@@ -670,8 +603,6 @@ mod tests {
         assert!(prefix.contains("Acceptance criteria"));
     }
 
-    // ==================== Property-Based Tests ====================
-
     proptest! {
         #[test]
         fn prop_invalid_priorities_never_validate(
@@ -692,8 +623,6 @@ mod tests {
             prop_assert!(get_template(&name).is_none());
         }
     }
-
-    // ==================== Integration Tests (#450) ====================
 
     fn setup_test_db() -> (crate::db::Database, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -844,8 +773,6 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("Invalid priority"));
     }
 
-    // ==================== template_required_fields (gh#658) ====================
-
     fn rule(field: &str, pattern: &str, min_chars: usize) -> RequiredFieldRule {
         RequiredFieldRule {
             field: field.to_string(),
@@ -856,7 +783,6 @@ mod tests {
 
     #[test]
     fn test_validate_required_fields_no_rules_is_ok() {
-        // No rules -> any description (or none) passes.
         assert!(validate_required_fields(&[], None).is_ok());
         assert!(validate_required_fields(&[], Some("anything")).is_ok());
     }
@@ -872,14 +798,13 @@ mod tests {
 
     #[test]
     fn test_validate_required_fields_min_chars_measures_capture_group() {
-        // Capture group 1 is the measured content, not the whole description.
         let rules = vec![rule("Rationale", r"(?is)rationale:\s*(.+)", 20)];
-        // Whole description is long, but the captured rationale is short -> fails.
+
         let err = validate_required_fields(&rules, Some("Rationale: tiny"))
             .unwrap_err()
             .to_string();
         assert!(err.contains("too short"), "{err}");
-        // A long enough captured rationale passes.
+
         assert!(validate_required_fields(
             &rules,
             Some("Rationale: this explanation is comfortably over twenty characters long")
@@ -889,7 +814,6 @@ mod tests {
 
     #[test]
     fn test_validate_required_fields_min_chars_measures_full_match_without_group() {
-        // No capture group -> the whole match is the measured content.
         let rules = vec![rule("Body", r"(?s).+", 10)];
         assert!(validate_required_fields(&rules, Some("short")).is_err());
         assert!(validate_required_fields(&rules, Some("this is long enough")).is_ok());
@@ -911,10 +835,10 @@ mod tests {
         assert_eq!(research.len(), 1);
         assert_eq!(research[0].field, "Rationale");
         assert_eq!(research[0].min_chars, 200);
-        // min_chars defaults to 0 when omitted.
+
         let audit = parse_required_fields(&config, "audit").unwrap();
         assert_eq!(audit[0].min_chars, 0);
-        // Unknown template -> no rules.
+
         assert!(parse_required_fields(&config, "feature")
             .unwrap()
             .is_empty());
@@ -922,8 +846,6 @@ mod tests {
 
     #[test]
     fn test_parse_required_fields_bad_regex_fails_at_load() {
-        // A malformed regex anywhere in the map fails, even when querying a
-        // different template (compile-check at config load).
         let config = serde_json::json!({
             "template_required_fields": {
                 "research": [ { "field": "Bad", "pattern": "(unclosed" } ]
@@ -947,8 +869,6 @@ mod tests {
             .to_string();
         assert!(err.contains("missing string key 'pattern'"), "{err}");
     }
-
-    // --- Integration tests driving run()/run_subissue() through real config files ---
 
     fn write_team_config(dir: &std::path::Path, json: &str) {
         std::fs::write(dir.join("hook-config.json"), json).unwrap();
@@ -1012,7 +932,7 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("missing required field 'Rationale'"), "{err}");
-        // Nothing was created.
+
         assert_eq!(db.list_issues(Some("all"), None, None).unwrap().len(), 0);
     }
 
@@ -1041,7 +961,7 @@ mod tests {
     fn test_create_research_force_override_succeeds() {
         let (db, dir) = setup_test_db();
         write_team_config(dir.path(), RESEARCH_RULE);
-        let opts = validating_opts(dir.path(), true); // --force
+        let opts = validating_opts(dir.path(), true);
         run(
             &db,
             None,
@@ -1061,14 +981,14 @@ mod tests {
     fn test_create_research_local_config_override_relaxes_check() {
         let (db, dir) = setup_test_db();
         write_team_config(dir.path(), RESEARCH_RULE);
-        // Local override replaces the map entirely, removing the research rule.
+
         std::fs::write(
             dir.path().join("hook-config.local.json"),
             r#"{ "template_required_fields": {} }"#,
         )
         .unwrap();
         let opts = validating_opts(dir.path(), false);
-        // No description, but the local override relaxed the requirement.
+
         run(
             &db,
             None,
@@ -1087,7 +1007,7 @@ mod tests {
     #[test]
     fn test_create_feature_succeeds_without_required_fields() {
         let (db, dir) = setup_test_db();
-        write_team_config(dir.path(), RESEARCH_RULE); // only 'research' is constrained
+        write_team_config(dir.path(), RESEARCH_RULE);
         let opts = validating_opts(dir.path(), false);
         run(
             &db,
@@ -1106,14 +1026,11 @@ mod tests {
 
     #[test]
     fn test_subissue_enforces_template_required_fields() {
-        // gh#658: subissues now carry their own -t template (previously an
-        // oversight) and enforce the same content rules.
         let (db, dir) = setup_test_db();
         write_team_config(dir.path(), RESEARCH_RULE);
         let parent_id = db.create_issue("Parent", None, "high").unwrap();
         let opts = validating_opts(dir.path(), false);
 
-        // Insufficient content -> rejected.
         let err = run_subissue(
             &db,
             None,
@@ -1129,7 +1046,6 @@ mod tests {
         assert!(err.contains("too short"), "{err}");
         assert!(db.get_subissues(parent_id).unwrap().is_empty());
 
-        // Sufficient content -> created.
         run_subissue(
             &db,
             None,
@@ -1146,8 +1062,6 @@ mod tests {
 
     #[test]
     fn test_quick_command_enforces_template_required_fields() {
-        // `quick` routes through run() with work=true; validation fires before
-        // the work/lock path, so a missing field is rejected up front.
         let (db, dir) = setup_test_db();
         write_team_config(dir.path(), RESEARCH_RULE);
         let opts = CreateOpts {

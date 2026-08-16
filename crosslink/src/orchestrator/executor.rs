@@ -1,19 +1,3 @@
-//! DAG execution engine — manages the lifecycle of an orchestrated plan.
-//!
-//! [`OrchestratorExecutor`] drives plan execution:
-//! 1. Creates crosslink issues for each stage
-//! 2. Sets up parent/child relationships (phase → stages)
-//! 3. Sets up blocking dependencies between stages
-//! 4. Creates milestones for each phase
-//! 5. For each ready stage: launches an agent via `kickoff run`
-//! 6. Monitors agent heartbeats and `.kickoff-status` for completion
-//! 7. When a stage completes: advances the DAG and launches newly-unblocked stages
-//! 8. When all stages in a phase complete: checks the phase gate
-//! 9. Supports pause/resume — stops launching new stages but lets running ones finish
-//!
-//! Execution state is persisted to `.crosslink/orchestrator/execution.json` so it
-//! survives process restarts.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -29,81 +13,60 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::orchestrator::models::ORCHESTRATOR_DIR;
-/// Filename for the persisted execution state.
+
 const EXECUTION_FILE: &str = "execution.json";
-/// Filename for the active plan.
+
 const PLAN_FILE: &str = "plan.json";
 
-/// Persisted execution state — serialized to disk and loaded on resume.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionSnapshot {
-    /// ID of the plan being executed.
     pub plan_id: String,
-    /// Overall execution state.
+
     pub state: ExecutionState,
-    /// The full DAG with current node statuses.
+
     pub dag: Dag,
-    /// Phase milestones: `phase_id` → `milestone_id`.
+
     pub phase_milestones: HashMap<String, i64>,
-    /// Phase parent issues: `phase_id` → `issue_id` (parent issue for stage subissues).
+
     pub phase_issues: HashMap<String, i64>,
-    /// When execution started.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<DateTime<Utc>>,
-    /// When execution completed (if terminal).
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
-    /// The ID of the phase currently executing.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_phase_id: Option<String>,
 }
 
-/// The orchestrator execution engine.
-///
-/// Holds references to the database, the `.crosslink` directory (for file I/O),
-/// and an optional WebSocket broadcast sender for real-time event push.
 pub struct OrchestratorExecutor {
-    /// Path to the `.crosslink` directory.
     crosslink_dir: PathBuf,
-    /// Current execution snapshot (loaded from disk or created fresh).
+
     snapshot: ExecutionSnapshot,
 }
 
 impl OrchestratorExecutor {
-    /// Directory where orchestrator state files are stored.
     fn state_dir(crosslink_dir: &Path) -> PathBuf {
         crosslink_dir.join(ORCHESTRATOR_DIR)
     }
 
-    /// Path to the execution state file.
     fn execution_path(crosslink_dir: &Path) -> PathBuf {
         Self::state_dir(crosslink_dir).join(EXECUTION_FILE)
     }
 
-    /// Path to the plan file.
     fn plan_path(crosslink_dir: &Path) -> PathBuf {
         Self::state_dir(crosslink_dir).join(PLAN_FILE)
     }
 
-    /// Initialize a new execution from a decomposed plan.
-    ///
-    /// This builds the DAG from the plan's phases and stages, creates crosslink
-    /// issues and milestones for each, and persists the initial state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if creating issues, milestones, or the DAG fails,
-    /// or if persisting the initial state fails.
     pub fn init(crosslink_dir: &Path, db: &Database, plan: &OrchestratorPlan) -> Result<Self> {
         let state_dir = Self::state_dir(crosslink_dir);
         std::fs::create_dir_all(&state_dir)
             .context("Failed to create orchestrator state directory")?;
 
-        // Save the plan for reference.
         let plan_json = serde_json::to_string_pretty(plan)?;
         std::fs::write(Self::plan_path(crosslink_dir), plan_json)?;
 
-        // Build DAG nodes from all stages across all phases.
         let mut dag_nodes = Vec::new();
         for phase in &plan.phases {
             for stage in &phase.stages {
@@ -121,12 +84,10 @@ impl OrchestratorExecutor {
 
         let dag = Dag::from_nodes(&dag_nodes).context("Failed to build execution DAG from plan")?;
 
-        // Create milestones and parent issues for each phase.
         let mut phase_milestones = HashMap::new();
         let mut phase_issues = HashMap::new();
 
         for phase in &plan.phases {
-            // Create a milestone for the phase.
             let milestone_id = db
                 .create_milestone(
                     &format!("[Orchestrator] {}", phase.title),
@@ -135,7 +96,6 @@ impl OrchestratorExecutor {
                 .context("Failed to create phase milestone")?;
             phase_milestones.insert(phase.id.clone(), milestone_id);
 
-            // Create a parent issue for the phase.
             let phase_issue_id = db
                 .create_issue(
                     &format!("[Phase] {}", phase.title),
@@ -152,7 +112,6 @@ impl OrchestratorExecutor {
             phase_issues.insert(phase.id.clone(), phase_issue_id);
         }
 
-        // Create sub-issues for each stage and set up dependencies.
         let mut dag = dag;
         Self::create_stage_issues_and_deps(db, plan, &phase_issues, &phase_milestones, &mut dag)?;
 
@@ -176,8 +135,6 @@ impl OrchestratorExecutor {
         Ok(executor)
     }
 
-    /// Create sub-issues for each stage, assign them to milestones, and set
-    /// up blocking dependencies in the database.
     fn create_stage_issues_and_deps(
         db: &Database,
         plan: &OrchestratorPlan,
@@ -238,11 +195,6 @@ impl OrchestratorExecutor {
         Ok(())
     }
 
-    /// Load a previously persisted execution state from disk.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the execution state file cannot be read or parsed.
     pub fn load(crosslink_dir: &Path) -> Result<Self> {
         let path = Self::execution_path(crosslink_dir);
         let content = std::fs::read_to_string(&path)
@@ -256,17 +208,11 @@ impl OrchestratorExecutor {
         })
     }
 
-    /// Check whether an execution state file exists.
     #[must_use]
     pub fn exists(crosslink_dir: &Path) -> bool {
         Self::execution_path(crosslink_dir).exists()
     }
 
-    /// Load the plan from disk.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the plan file cannot be read or parsed.
     pub fn load_plan(crosslink_dir: &Path) -> Result<OrchestratorPlan> {
         let path = Self::plan_path(crosslink_dir);
         let content = std::fs::read_to_string(&path)
@@ -275,7 +221,6 @@ impl OrchestratorExecutor {
             .with_context(|| format!("Failed to parse {}", path.display()))
     }
 
-    /// Persist the current execution state to disk.
     fn persist(&self) -> Result<()> {
         let state_dir = Self::state_dir(&self.crosslink_dir);
         std::fs::create_dir_all(&state_dir)?;
@@ -284,25 +229,21 @@ impl OrchestratorExecutor {
         Ok(())
     }
 
-    /// Get the current execution state.
     #[must_use]
     pub const fn state(&self) -> &ExecutionState {
         &self.snapshot.state
     }
 
-    /// Get a reference to the DAG.
     #[must_use]
     pub const fn dag(&self) -> &Dag {
         &self.snapshot.dag
     }
 
-    /// Get the plan ID.
     #[must_use]
     pub fn plan_id(&self) -> &str {
         &self.snapshot.plan_id
     }
 
-    /// Build an [`ExecutionStatus`] response for the API.
     #[must_use]
     pub fn status(&self) -> ExecutionStatus {
         ExecutionStatus {
@@ -317,12 +258,6 @@ impl OrchestratorExecutor {
         }
     }
 
-    /// Start execution. Changes state from Idle to Running and returns the list
-    /// of stage IDs that are immediately ready to launch.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the current state does not allow starting, or if persisting fails.
     pub fn start(&mut self) -> Result<Vec<String>> {
         match self.snapshot.state {
             ExecutionState::Idle | ExecutionState::Paused => {}
@@ -334,7 +269,6 @@ impl OrchestratorExecutor {
             self.snapshot.started_at = Some(Utc::now());
         }
 
-        // Determine current phase from topological order.
         if self.snapshot.current_phase_id.is_none() {
             if let Ok(topo) = self.snapshot.dag.topological_sort() {
                 if let Some(first_id) = topo.first() {
@@ -350,11 +284,6 @@ impl OrchestratorExecutor {
         Ok(ready)
     }
 
-    /// Pause execution. Running stages continue but no new ones are launched.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the current state is not `Running`, or if persisting fails.
     pub fn pause(&mut self) -> Result<()> {
         if self.snapshot.state != ExecutionState::Running {
             bail!("Cannot pause — current state is {:?}", self.snapshot.state);
@@ -364,11 +293,6 @@ impl OrchestratorExecutor {
         Ok(())
     }
 
-    /// Resume a paused execution. Returns the list of stages ready to launch.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the current state is not `Paused`, or if persisting fails.
     pub fn resume(&mut self) -> Result<Vec<String>> {
         if self.snapshot.state != ExecutionState::Paused {
             bail!("Cannot resume — current state is {:?}", self.snapshot.state);
@@ -379,10 +303,6 @@ impl OrchestratorExecutor {
         Ok(ready)
     }
 
-    /// Build a `WsExecutionProgressEvent` for the given stage and status (#481).
-    ///
-    /// Centralizes event construction so executor methods don't couple directly
-    /// to the WebSocket event shape.
     fn build_progress_event(
         &self,
         stage_id: &str,
@@ -399,9 +319,6 @@ impl OrchestratorExecutor {
         }
     }
 
-    /// Verify that execution is in a state that allows stage mutations.
-    ///
-    /// Returns an error if the execution is not Running (#486).
     fn require_running_state(&self, action: &str) -> Result<()> {
         if self.snapshot.state != ExecutionState::Running {
             bail!(
@@ -413,13 +330,6 @@ impl OrchestratorExecutor {
         Ok(())
     }
 
-    /// Record that a stage has been launched with the given agent ID.
-    ///
-    /// Returns an event to broadcast over WebSocket.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the execution is not running, the stage is not found, or persisting fails.
     pub fn mark_stage_running(
         &mut self,
         stage_id: &str,
@@ -428,7 +338,6 @@ impl OrchestratorExecutor {
         self.require_running_state("mark stage running")?;
         self.snapshot.dag.mark_running(stage_id, agent_id)?;
 
-        // Update current phase if needed.
         if let Some(node) = self.snapshot.dag.get(stage_id) {
             self.snapshot.current_phase_id = Some(node.phase_id.clone());
         }
@@ -438,13 +347,6 @@ impl OrchestratorExecutor {
         Ok(self.build_progress_event(stage_id, StageStatus::Running))
     }
 
-    /// Record that a stage has completed successfully.
-    ///
-    /// Returns: (`newly_unblocked_stage_ids`, `ws_event`, `is_execution_complete`)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the execution is not running, the stage transition is invalid, or persisting fails.
     pub fn mark_stage_done(
         &mut self,
         stage_id: &str,
@@ -458,7 +360,6 @@ impl OrchestratorExecutor {
             .map(|n| n.phase_id.clone())
             .unwrap_or_default();
 
-        // Close the stage's crosslink issue.
         if let Some(issue_id) = self.snapshot.dag.get(stage_id).and_then(|n| n.issue_id) {
             if let Err(e) = db.close_issue(issue_id) {
                 tracing::warn!("could not close stage issue #{issue_id}: {e}");
@@ -467,7 +368,6 @@ impl OrchestratorExecutor {
 
         let newly_ready = self.snapshot.dag.mark_done(stage_id)?;
 
-        // Check if the phase is complete (all stages in this phase are done).
         let phase_complete = self.check_phase_complete(&phase_id);
         if phase_complete {
             if let Some(&milestone_id) = self.snapshot.phase_milestones.get(&phase_id) {
@@ -482,7 +382,6 @@ impl OrchestratorExecutor {
             }
         }
 
-        // Check if the entire execution is complete.
         let execution_complete = self.snapshot.dag.is_complete();
         if execution_complete {
             self.snapshot.state = if self.snapshot.dag.has_failures() {
@@ -500,13 +399,6 @@ impl OrchestratorExecutor {
         Ok((newly_ready, event, execution_complete))
     }
 
-    /// Record that a stage has failed.
-    ///
-    /// Returns a WebSocket event and whether the entire execution is now complete.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the execution is not running, the stage transition is invalid, or persisting fails.
     pub fn mark_stage_failed(
         &mut self,
         stage_id: &str,
@@ -515,7 +407,6 @@ impl OrchestratorExecutor {
 
         self.snapshot.dag.mark_failed(stage_id)?;
 
-        // Check if the entire execution is now complete.
         let execution_complete = self.snapshot.dag.is_complete();
         if execution_complete {
             self.snapshot.state = ExecutionState::Failed;
@@ -529,17 +420,10 @@ impl OrchestratorExecutor {
         Ok((event, execution_complete))
     }
 
-    /// Skip a stage (e.g. after a failure, to unblock downstream stages).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the stage transition is invalid or persisting fails.
     pub fn skip_stage(
         &mut self,
         stage_id: &str,
     ) -> Result<(Vec<String>, WsExecutionProgressEvent)> {
-        // Use mark_skipped_and_unblock which shares the same unblocking logic
-        // as mark_done via find_newly_unblocked (#483).
         let newly_ready = self.snapshot.dag.mark_skipped_and_unblock(stage_id)?;
 
         self.persist()?;
@@ -549,12 +433,6 @@ impl OrchestratorExecutor {
         Ok((newly_ready, event))
     }
 
-    /// Retry a failed stage by resetting it to pending.
-    /// Returns the stage ID if it's immediately ready to launch.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the stage is not found, is not in `Failed` state, or persisting fails.
     pub fn retry_stage(&mut self, stage_id: &str) -> Result<Option<String>> {
         let node = self
             .snapshot
@@ -573,7 +451,6 @@ impl OrchestratorExecutor {
         node.status = StageStatus::Pending;
         node.agent_id = None;
 
-        // If execution was Failed due to this stage, reset to Running.
         if self.snapshot.state == ExecutionState::Failed {
             self.snapshot.state = ExecutionState::Running;
             self.snapshot.completed_at = None;
@@ -581,7 +458,6 @@ impl OrchestratorExecutor {
 
         self.persist()?;
 
-        // Check if it's immediately ready.
         let ready = self.snapshot.dag.ready_nodes();
         if ready.contains(&stage_id.to_string()) {
             Ok(Some(stage_id.to_string()))
@@ -590,12 +466,6 @@ impl OrchestratorExecutor {
         }
     }
 
-    /// Check the status of running agents by reading `.kickoff-status` files
-    /// from their worktrees.
-    ///
-    /// Returns a list of (`stage_id`, `completion_status`) for stages whose agents
-    /// have written a status file. The `completion_status` is the content of the file
-    /// (e.g. "DONE", "`CI_FAILED`").
     #[must_use]
     pub fn poll_agent_status(&self, repo_root: &Path) -> Vec<(String, String)> {
         let mut completed = Vec::new();
@@ -603,8 +473,6 @@ impl OrchestratorExecutor {
         for stage_id in self.snapshot.dag.running_nodes() {
             if let Some(node) = self.snapshot.dag.get(&stage_id) {
                 if let Some(ref agent_id) = node.agent_id {
-                    // The agent's worktree is at <repo_root>/.worktrees/<slug>
-                    // The agent_id has the format "parent--slug", extract the slug part.
                     let slug = agent_id.rsplit("--").next().unwrap_or(agent_id);
                     let worktree = repo_root.join(".worktrees").join(slug);
                     let sentinel = std::fs::read_to_string(worktree.join(".kickoff-status"))
@@ -635,19 +503,13 @@ impl OrchestratorExecutor {
         completed
     }
 
-    /// Broadcast a WebSocket event through the given sender (#493/#494).
-    ///
-    /// Import is scoped to the method body since it is the only consumer of
-    /// `tokio::sync::broadcast` in this module.
     pub fn broadcast_event(
         tx: &tokio::sync::broadcast::Sender<WsEvent>,
         event: WsExecutionProgressEvent,
     ) {
-        // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
         let _ = tx.send(WsEvent::ExecutionProgress(event));
     }
 
-    /// Check whether all stages in a given phase are in a terminal state.
     fn check_phase_complete(&self, phase_id: &str) -> bool {
         let by_phase = self.snapshot.dag.stages_by_phase();
         by_phase.get(phase_id).is_none_or(|stage_ids| {
@@ -662,14 +524,12 @@ impl OrchestratorExecutor {
         })
     }
 
-    /// Get a snapshot of the current execution state (for serialization/API).
     #[must_use]
     pub const fn snapshot(&self) -> &ExecutionSnapshot {
         &self.snapshot
     }
 }
 
-/// Build a description string for a stage issue from the orchestrator stage definition.
 fn build_stage_description(stage: &OrchestratorStage) -> String {
     use std::fmt::Write;
     let mut desc = stage.description.clone();
@@ -784,26 +644,20 @@ mod tests {
 
         let executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
 
-        // State file should exist.
         assert!(OrchestratorExecutor::execution_path(&crosslink_dir).exists());
         assert!(OrchestratorExecutor::plan_path(&crosslink_dir).exists());
 
-        // DAG should have 4 nodes.
         assert_eq!(executor.dag().len(), 4);
 
-        // State should be idle.
         assert_eq!(executor.state(), &ExecutionState::Idle);
 
-        // Phase milestones should be created.
         assert_eq!(executor.snapshot().phase_milestones.len(), 2);
         assert_eq!(executor.snapshot().phase_issues.len(), 2);
 
-        // Issues should exist in the database.
         let issues = db.list_issues(Some("open"), None, None).unwrap();
-        // 2 phase parent issues + 4 stage subissues = 6
+
         assert_eq!(issues.len(), 6);
 
-        // Check that stage issues have the "orchestrator" label.
         for issue in &issues {
             let labels = db.get_labels(issue.id).unwrap();
             assert!(
@@ -824,13 +678,11 @@ mod tests {
 
         let executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
 
-        // p2-backend depends on p1-server
         let p2_backend_issue = executor.dag().get("p2-backend").unwrap().issue_id.unwrap();
         let blockers = db.get_blockers(p2_backend_issue).unwrap();
         let p1_server_issue = executor.dag().get("p1-server").unwrap().issue_id.unwrap();
         assert!(blockers.contains(&p1_server_issue));
 
-        // p2-frontend depends on p1-frontend and p2-backend
         let p2_frontend_issue = executor.dag().get("p2-frontend").unwrap().issue_id.unwrap();
         let blockers = db.get_blockers(p2_frontend_issue).unwrap();
         assert_eq!(blockers.len(), 2);
@@ -849,7 +701,6 @@ mod tests {
         let ready = executor.start().unwrap();
         assert_eq!(executor.state(), &ExecutionState::Running);
 
-        // p1-server and p1-frontend have no deps, so they're ready.
         assert_eq!(ready.len(), 2);
         assert!(ready.contains(&"p1-server".to_string()));
         assert!(ready.contains(&"p1-frontend".to_string()));
@@ -866,18 +717,15 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // Mark p1-server running.
         let event = executor.mark_stage_running("p1-server", "agent-1").unwrap();
         assert_eq!(event.status, StageStatus::Running);
         assert_eq!(event.agent_id, Some("agent-1".to_string()));
 
-        // Mark p1-server done → p2-backend should become ready.
         let (newly_ready, event, complete) = executor.mark_stage_done("p1-server", &db).unwrap();
         assert_eq!(event.status, StageStatus::Done);
         assert!(newly_ready.contains(&"p2-backend".to_string()));
         assert!(!complete);
 
-        // p2-frontend is NOT ready yet (needs p1-frontend and p2-backend).
         assert!(!newly_ready.contains(&"p2-frontend".to_string()));
     }
 
@@ -892,7 +740,6 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // Phase 1: launch and complete both stages.
         executor.mark_stage_running("p1-server", "agent-1").unwrap();
         executor
             .mark_stage_running("p1-frontend", "agent-2")
@@ -901,7 +748,6 @@ mod tests {
         let (_, _, _) = executor.mark_stage_done("p1-server", &db).unwrap();
         let (_, _, _) = executor.mark_stage_done("p1-frontend", &db).unwrap();
 
-        // Phase 2: p2-backend is ready now.
         executor
             .mark_stage_running("p2-backend", "agent-3")
             .unwrap();
@@ -935,7 +781,7 @@ mod tests {
 
         let ready = executor.resume().unwrap();
         assert_eq!(executor.state(), &ExecutionState::Running);
-        assert_eq!(ready.len(), 2); // p1-server and p1-frontend still ready
+        assert_eq!(ready.len(), 2);
     }
 
     #[test]
@@ -954,7 +800,6 @@ mod tests {
         assert_eq!(event.status, StageStatus::Failed);
         assert!(executor.dag().has_failures());
 
-        // Retry the failed stage.
         let ready = executor.retry_stage("p1-server").unwrap();
         assert_eq!(ready, Some("p1-server".to_string()));
         assert_eq!(
@@ -974,11 +819,9 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // Skip p1-server → p2-backend should eventually be unblockable
         let (newly_ready, event) = executor.skip_stage("p1-server").unwrap();
         assert_eq!(event.status, StageStatus::Skipped);
 
-        // p2-backend depends only on p1-server, so it should now be ready
         assert!(newly_ready.contains(&"p2-backend".to_string()));
     }
 
@@ -994,7 +837,6 @@ mod tests {
         executor.start().unwrap();
         executor.mark_stage_running("p1-server", "agent-1").unwrap();
 
-        // Reload from disk.
         let reloaded = OrchestratorExecutor::load(&crosslink_dir).unwrap();
         assert_eq!(reloaded.state(), &ExecutionState::Running);
         assert_eq!(reloaded.dag().len(), 4);
@@ -1041,7 +883,6 @@ mod tests {
             .mark_stage_running("p1-server", "driver--rust-axum-server")
             .unwrap();
 
-        // Simulate the agent writing .kickoff-status
         let worktree = tmp.path().join(".worktrees").join("rust-axum-server");
         std::fs::create_dir_all(&worktree).unwrap();
         std::fs::write(worktree.join(".kickoff-status"), "DONE").unwrap();
@@ -1059,7 +900,6 @@ mod tests {
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         let db = make_test_db(&tmp);
 
-        // Simple plan with two independent stages
         let plan = OrchestratorPlan {
             id: "fail-plan".to_string(),
             document_slug: "fail-doc".to_string(),
@@ -1185,10 +1025,10 @@ mod tests {
 
         let desc = build_stage_description(&stage);
         assert!(desc.contains("Just a description"));
-        // Should NOT contain Tasks or Dependencies sections
+
         assert!(!desc.contains("## Tasks"));
         assert!(!desc.contains("## Dependencies"));
-        // Should always contain Estimates
+
         assert!(desc.contains("## Estimates"));
         assert!(desc.contains("1.0 agent-hours"));
         assert!(desc.contains("Suggested agents: 1"));
@@ -1252,7 +1092,6 @@ mod tests {
 
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
 
-        // Should fail when idle
         let result = executor.pause();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Cannot pause"));
@@ -1269,7 +1108,6 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // Should fail when running (not paused)
         let result = executor.resume();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Cannot resume"));
@@ -1302,7 +1140,6 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // p1-server is pending, not failed
         let result = executor.retry_stage("p1-server");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("must be Failed"));
@@ -1315,7 +1152,6 @@ mod tests {
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         let db = make_test_db(&tmp);
 
-        // Simple single-stage plan
         let plan = OrchestratorPlan {
             id: "retry-test".to_string(),
             document_slug: "doc".to_string(),
@@ -1344,7 +1180,6 @@ mod tests {
         executor.mark_stage_running("s1", "agent-1").unwrap();
         let (_, execution_complete) = executor.mark_stage_failed("s1").unwrap();
 
-        // The single stage failed, so the execution is now complete.
         assert!(execution_complete);
         assert_eq!(executor.state(), &ExecutionState::Failed);
 
@@ -1354,7 +1189,7 @@ mod tests {
             executor.dag().get("s1").unwrap().status,
             StageStatus::Pending
         );
-        // Agent should be cleared
+
         assert!(executor.dag().get("s1").unwrap().agent_id.is_none());
     }
 
@@ -1369,12 +1204,8 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // Fail p2-backend (which depends on p1-server)
-        // First we need to mark it running to fail it. But it's blocked.
-        // Mark it failed directly via dag manipulation.
         let (_, _) = executor.mark_stage_failed("p2-backend").unwrap();
 
-        // Retry it - should return None since p1-server is still pending
         let ready = executor.retry_stage("p2-backend").unwrap();
         assert_eq!(ready, None);
     }
@@ -1437,7 +1268,6 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // No stages marked as running
         let completions = executor.poll_agent_status(tmp.path());
         assert!(completions.is_empty());
     }
@@ -1456,7 +1286,6 @@ mod tests {
             .mark_stage_running("p1-server", "driver--rust-server")
             .unwrap();
 
-        // Worktree dir exists but no .kickoff-status file
         let worktree = tmp.path().join(".worktrees").join("rust-server");
         std::fs::create_dir_all(&worktree).unwrap();
 
@@ -1478,7 +1307,6 @@ mod tests {
             .mark_stage_running("p1-server", "driver--rust-server")
             .unwrap();
 
-        // Worktree dir with empty .kickoff-status
         let worktree = tmp.path().join(".worktrees").join("rust-server");
         std::fs::create_dir_all(&worktree).unwrap();
         std::fs::write(worktree.join(".kickoff-status"), "").unwrap();
@@ -1497,7 +1325,7 @@ mod tests {
 
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
-        // Agent ID without "--" separator
+
         executor
             .mark_stage_running("p1-server", "simple-agent")
             .unwrap();
@@ -1536,7 +1364,6 @@ mod tests {
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         let db = make_test_db(&tmp);
 
-        // Plan with a leaf stage (no dependents)
         let plan = OrchestratorPlan {
             id: "skip-test".to_string(),
             document_slug: "doc".to_string(),
@@ -1580,7 +1407,6 @@ mod tests {
         executor.start().unwrap();
         executor.pause().unwrap();
 
-        // start() should also work from Paused state
         let ready = executor.start().unwrap();
         assert_eq!(executor.state(), &ExecutionState::Running);
         assert_eq!(ready.len(), 2);
@@ -1609,16 +1435,12 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
 
-        // Complete phase 1 by running one and skipping the other
         executor.mark_stage_running("p1-server", "agent-1").unwrap();
         executor.mark_stage_done("p1-server", &db).unwrap();
         executor.skip_stage("p1-frontend").unwrap();
 
-        // Phase 1 should be complete now (both stages terminal)
-        // Verify via the status - phase milestones should reflect this
-        // (internal check_phase_complete is called by mark_stage_done)
         let status = executor.status();
-        // Progress should be 50% (2 of 4 stages done)
+
         assert!((status.progress_percent - 50.0).abs() < f64::EPSILON);
     }
 }

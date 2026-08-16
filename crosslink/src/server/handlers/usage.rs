@@ -1,10 +1,3 @@
-//! Handlers for token usage tracking endpoints.
-//!
-//! Implements:
-//! - `GET  /api/v1/usage`         — list token usage records with optional filters
-//! - `POST /api/v1/usage`         — record a new token usage entry
-//! - `GET  /api/v1/usage/summary` — aggregated usage grouped by agent and model
-
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -20,18 +13,6 @@ use crate::server::{
     },
 };
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/usage` — list token usage records.
-///
-/// Supports optional query parameters: `agent_id`, `session_id`, `model`,
-/// `from`, `to` (ISO 8601 timestamps), and `limit`.
-///
-/// # Errors
-///
-/// Returns an error if the database query fails.
 pub async fn list_usage(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageListQuery>,
@@ -55,14 +36,6 @@ pub async fn list_usage(
     Ok(Json(TokenUsageListResponse { items, total }))
 }
 
-/// `POST /api/v1/usage` — record a new token usage entry.
-///
-/// Body: `CreateTokenUsageRequest` JSON.
-/// Returns the created `TokenUsage` record.
-///
-/// # Errors
-///
-/// Returns an error if inserting or retrieving the token usage record fails.
 pub async fn create_usage(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenUsageRequest>,
@@ -99,13 +72,6 @@ pub async fn create_usage(
     Ok((StatusCode::CREATED, Json(usage)))
 }
 
-/// `GET /api/v1/usage/summary` — aggregated usage grouped by agent and model.
-///
-/// Supports optional query parameters: `agent_id`, `from`, `to`.
-///
-/// # Errors
-///
-/// Returns an error if the database aggregation query fails.
 pub async fn usage_summary(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageSummaryQuery>,
@@ -133,10 +99,6 @@ pub async fn usage_summary(
         total_cost,
     }))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -189,7 +151,6 @@ mod tests {
     async fn test_create_and_list_usage() {
         let (app, _dir) = test_app();
 
-        // Create a usage record
         let create_resp = app
             .clone()
             .oneshot(
@@ -218,7 +179,6 @@ mod tests {
         assert_eq!(created["output_tokens"], 500);
         assert_eq!(created["model"], "claude-sonnet-4-20250514");
 
-        // List and verify
         let list_resp = app
             .oneshot(
                 Request::builder()
@@ -292,7 +252,6 @@ mod tests {
     async fn test_list_usage_with_agent_filter() {
         let (app, _dir) = test_app();
 
-        // Create two records for different agents
         for agent in &["agent-a", "agent-b"] {
             app.clone()
                 .oneshot(
@@ -315,7 +274,6 @@ mod tests {
                 .unwrap();
         }
 
-        // Filter by agent-a
         let resp = app
             .oneshot(
                 Request::builder()
@@ -357,7 +315,6 @@ mod tests {
     async fn test_usage_summary_aggregation() {
         let (app, _dir) = test_app();
 
-        // Create multiple records for same agent + model
         for _ in 0..3 {
             app.clone()
                 .oneshot(
@@ -462,7 +419,6 @@ mod tests {
     async fn test_list_usage_with_model_filter() {
         let (app, _dir) = test_app();
 
-        // Create records for two different models.
         for model in &["claude-sonnet-4-20250514", "claude-opus-4-20250514"] {
             app.clone()
                 .oneshot(
@@ -485,7 +441,6 @@ mod tests {
                 .unwrap();
         }
 
-        // Filter by sonnet model only.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -506,7 +461,6 @@ mod tests {
     async fn test_usage_summary_with_agent_filter() {
         let (app, _dir) = test_app();
 
-        // Create records for two agents.
         for agent in &["alpha-agent", "beta-agent"] {
             app.clone()
                 .oneshot(
@@ -530,7 +484,6 @@ mod tests {
                 .unwrap();
         }
 
-        // Summary filtered to alpha-agent only.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -552,7 +505,6 @@ mod tests {
     async fn test_list_usage_with_limit() {
         let (app, _dir) = test_app();
 
-        // Create three records.
         for _ in 0..3 {
             app.clone()
                 .oneshot(
@@ -575,7 +527,6 @@ mod tests {
                 .unwrap();
         }
 
-        // Limit to 2.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -603,7 +554,6 @@ mod tests {
     async fn test_usage_summary_total_cost() {
         let (app, _dir) = test_app();
 
-        // Create two records with known costs.
         for cost in &[0.002_f64, 0.003_f64] {
             app.clone()
                 .oneshot(
@@ -639,7 +589,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // total_cost should be ~0.005.
+
         let total_cost = body["total_cost"].as_f64().unwrap();
         assert!((total_cost - 0.005).abs() < 1e-9);
     }

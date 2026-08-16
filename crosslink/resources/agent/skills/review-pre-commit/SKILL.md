@@ -1,128 +1,16 @@
 ---
 name: review-pre-commit
-description: Use as a pre-commit quality gate — review the working diff for stub patterns (TODO/FIXME/`unimplemented!()`/`todo!()`), debug leftovers (`dbg!`, stray `console.log`/`println!`, commented-out code), then run the project's lint, format, and test suites and verify the active crosslink issue is documented. Prints a PASS/FAIL checklist and hands off to `commit`. Trigger when the user says "review my changes", "/review", "ready to commit?", or asks for a final pass before committing.
+description: "Apply a final evidence-based gate to the selected working diff before it is committed."
 ---
 
-# Review — pre-commit quality gate
+# Pre-commit review
 
-You are about to commit. Run through this structured review to catch issues before they land.
+1. Inspect `git status --short`, the full unstaged diff, the staged diff, and untracked files.
+2. Confirm every selected change belongs to the requested work and no user-owned change is being absorbed.
+3. Trace changed logic for correctness, failure handling, compatibility, and security.
+4. Search changed paths for unfinished branches, placeholder returns, disabled tests, debug output, hardcoded credentials, and accidental generated artifacts.
+5. Run check-only formatting and linting, then the smallest complete test and build set for the affected surface.
+6. Verify generated assets against their canonical inputs.
+7. Inspect Crosslink session and issue state when tracking is active; record missing result evidence before committing.
 
-## 1. Review full diff
-
-```bash
-git diff HEAD
-```
-
-Read through every change. Look for:
-
-- Correctness: does the logic do what it should?
-- Edge cases: are boundary conditions handled?
-- Security: any injection, hardcoded secrets, or unsafe patterns?
-
-## 2. Scan for stub patterns
-
-Search the diff for patterns that indicate incomplete work:
-
-- `TODO`, `FIXME`, `HACK`, `XXX`
-- `pass` (Python), `unimplemented!()` / `todo!()` (Rust)
-- `throw new Error("not implemented")`
-- Empty function bodies or placeholder returns
-- `...` as implementation
-
-If found: fix them now. Do not commit stubs.
-
-## 3. Check for debug leftovers
-
-Search for debug code that shouldn't be committed:
-
-- `dbg!()` (Rust)
-- `console.log` used for debugging (not logging)
-- `print(` / `println!` used for debugging
-- Commented-out code blocks (more than 2 consecutive commented lines)
-
-If found: remove them.
-
-## 4. Run lint and format checks
-
-Detect the project's toolchain and run the appropriate checks:
-
-**Rust** (if `Cargo.toml` exists):
-
-```bash
-cargo clippy -- -D warnings
-cargo fmt --check
-```
-
-**Node/TypeScript** (if `package.json` exists):
-
-```bash
-npx eslint . 2>/dev/null || npm run lint 2>/dev/null
-```
-
-**Python** (if `pyproject.toml` or `requirements.txt` exists):
-
-```bash
-ruff check . 2>/dev/null || uv run ruff check . 2>/dev/null
-```
-
-**Go** (if `go.mod` exists):
-
-```bash
-go vet ./...
-gofmt -l .
-```
-
-**Elixir** (if `mix.exs` exists):
-
-```bash
-mix format --check-formatted
-mix credo --strict
-```
-
-Fix any issues found before proceeding.
-
-## 5. Run test suite
-
-Run the project's test suite:
-
-- Rust: `cargo test`
-- Node: `npm test`
-- Python: `uv run pytest` or `pytest`
-- Go: `go test ./...`
-- Elixir: `mix test --seed 0`
-
-All tests must pass before committing.
-
-## 6. Verify crosslink issue documentation
-
-Check that the active crosslink issue has appropriate documentation:
-
-```bash
-crosslink session status
-```
-
-If working on an issue, verify it has a plan comment and will get a result comment:
-
-```bash
-crosslink issue show <issue-id>
-```
-
-## 7. Print checklist
-
-Print a pass/fail summary:
-
-```
-Review checklist:
-  [PASS] No stub patterns
-  [PASS] No debug leftovers
-  [PASS] Lint clean
-  [PASS] Format clean
-  [PASS] Tests pass
-  [PASS] Issue documented
-
-Ready to commit. Proceeding to commit skill.
-```
-
-If any items fail, fix them first, then re-run the failed checks.
-
-Once all checks pass, hand off to the `commit` skill.
+Print a checklist with diff review, formatting, lint, tests, build, generated assets, security scan, and tracking state. Mark each item `pass`, `fail`, or `not applicable` with evidence. A failure blocks the commit until fixed or explicitly accepted by the user.

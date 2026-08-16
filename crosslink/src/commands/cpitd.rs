@@ -1,8 +1,3 @@
-//! Code clone detection via cpitd (Copy Paste Is The Devil).
-//!
-//! Shells out to the `cpitd` Python tool, parses its JSON output,
-//! and creates crosslink issues for detected code clones.
-
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::process::Command;
@@ -28,21 +23,11 @@ pub fn run(command: CpitdCommands, db: &Database, quiet: bool) -> Result<()> {
 }
 use crate::utils::format_issue_id;
 
-// ---------------------------------------------------------------------------
-// cpitd JSON output types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize)]
 struct CpitdOutput {
     #[serde(default)]
     clone_reports: Vec<CpitdCloneReport>,
-    /// `total_pairs` is the field name in cpitd ≤ 0.2.x; cpitd 0.3.0
-    /// renamed it to `total_groups` to reflect the move from "pairs of
-    /// files" to "N-way clone groups". Accept either via `serde(alias)`
-    /// so the empty-output path doesn't fail to parse. The full schema
-    /// migration for non-empty `clone_reports` (new `locations` model
-    /// vs. old `file_a`/`file_b`/`groups`) is a separate concern —
-    /// this annotation just unblocks the "no clones found" path.
+
     #[serde(default, alias = "total_groups")]
     total_pairs: usize,
 }
@@ -63,14 +48,6 @@ struct CpitdCloneGroup {
     token_count: usize,
 }
 
-// ---------------------------------------------------------------------------
-// Installation detection
-// ---------------------------------------------------------------------------
-
-/// Whether the `cpitd` binary is resolvable on PATH.
-///
-/// Exposed so non-CLI callers (e.g. the sentinel cpitd source) can gate on
-/// the binary's presence and degrade gracefully when it's absent.
 pub fn cpitd_available() -> bool {
     find_cpitd()
 }
@@ -93,10 +70,6 @@ fn suggest_install() -> Result<()> {
          Or visit: https://github.com/scythia-marrow/cpitd"
     )
 }
-
-// ---------------------------------------------------------------------------
-// Running cpitd
-// ---------------------------------------------------------------------------
 
 fn run_cpitd(paths: &[String], min_tokens: u32, ignore_patterns: &[String]) -> Result<CpitdOutput> {
     let mut cmd = Command::new("cpitd");
@@ -123,7 +96,6 @@ fn run_cpitd(paths: &[String], min_tokens: u32, ignore_patterns: &[String]) -> R
     if stdout.trim().is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.trim().is_empty() {
-            // cpitd exited 0 with no output means no clones in some edge cases
             return Ok(CpitdOutput {
                 clone_reports: vec![],
                 total_pairs: 0,
@@ -134,10 +106,6 @@ fn run_cpitd(paths: &[String], min_tokens: u32, ignore_patterns: &[String]) -> R
 
     serde_json::from_str(&stdout).context("Failed to parse cpitd JSON output")
 }
-
-// ---------------------------------------------------------------------------
-// Deduplication
-// ---------------------------------------------------------------------------
 
 fn dedup_marker(file_a: &str, file_b: &str) -> String {
     let (a, b) = if file_a <= file_b {
@@ -160,10 +128,6 @@ fn find_existing_clone_issue(db: &Database, file_a: &str, file_b: &str) -> Resul
     }
     Ok(None)
 }
-
-// ---------------------------------------------------------------------------
-// Issue creation
-// ---------------------------------------------------------------------------
 
 fn shorten_path(path: &str) -> &str {
     std::path::Path::new(path)
@@ -232,36 +196,19 @@ fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) {
     for ids in file_to_issues.values() {
         for i in 0..ids.len() {
             for j in (i + 1)..ids.len() {
-                // INTENTIONAL: relation may already exist — duplicate insert is harmless
                 let _ = db.add_relation(ids[i], ids[j]);
             }
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public commands
-// ---------------------------------------------------------------------------
-
-/// Outcome of a clone scan: the crosslink issue ids that were created or
-/// updated. `created` holds `(id, file_a, file_b)` so callers can relate or
-/// surface newly-filed clones; `updated` holds ids that already existed and
-/// got a rescan comment.
 #[derive(Debug, Default)]
 pub struct ScanOutcome {
-    /// Newly created clone issues: `(issue_id, file_a, file_b)`.
     pub created: Vec<(i64, String, String)>,
-    /// Existing clone issues that were re-confirmed and commented on.
+
     pub updated: Vec<i64>,
 }
 
-/// Core scan-and-file-issues logic, usable as a library function.
-///
-/// Shells to `cpitd`, parses its JSON, and files/updates crosslink clone
-/// issues, returning the created/updated issue ids. Emits no progress output
-/// (the CLI wrapper handles user-facing prints). The caller must ensure the
-/// `cpitd` binary is present (see [`cpitd_available`]); if it is absent this
-/// returns an error from the underlying command.
 pub fn scan_and_file(
     db: &Database,
     paths: &[String],
@@ -346,8 +293,6 @@ pub fn scan(
 
     if !quiet {
         for (id, _, _) in &outcome.created {
-            // Title already printed by create_clone_issue when not quiet; but
-            // scan_and_file runs quiet, so surface the created ids here.
             println!("  Created issue {}", format_issue_id(*id));
         }
         for id in &outcome.updated {
@@ -397,10 +342,6 @@ pub fn clear(db: &Database) -> Result<()> {
     println!("Closed {count} cpitd clone issue(s).");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

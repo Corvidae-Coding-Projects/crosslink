@@ -8,7 +8,7 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-  <!-- no background rect — page bg shows through -->
+
   <text x="390.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Swarm orchestration</text>
   <text x="390.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">multi-agent phased builds from a design document</text>
   <rect x="25" y="120" width="90" height="100" rx="18" fill="#FFB6C6" opacity="0.3"/>

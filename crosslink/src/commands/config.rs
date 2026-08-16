@@ -18,17 +18,13 @@ use ratatui::{
     Frame, TerminalOptions, Viewport,
 };
 
-// Re-export shared registry types so existing importers (tui, etc.) continue to work.
 use crate::commands::config_registry::WalkthroughCore;
 pub(crate) use crate::commands::config_registry::HOOK_CONFIG_JSON;
 pub use crate::commands::config_registry::{
-    find_registry_key, type_label, ConfigGroup, ConfigType, PRESET_SOLO, PRESET_TEAM, REGISTRY,
+    find_registry_key, type_label, value_at_path, ConfigGroup, ConfigType, PRESET_SOLO,
+    PRESET_TEAM, REGISTRY,
 };
 use crate::ConfigCommands;
-
-// ---------------------------------------------------------------------------
-// Provenance-aware layered config loading (REQ-2)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -54,12 +50,137 @@ pub struct ResolvedConfig {
     pub local: Option<serde_json::Value>,
 }
 
+fn set_value_at_path(
+    root: &mut serde_json::Value,
+    path: &str,
+    value: serde_json::Value,
+) -> Result<()> {
+    let segments: Vec<&str> = path.split('.').collect();
+    if segments.iter().any(|segment| segment.is_empty()) {
+        bail!("Invalid config key: {path}");
+    }
+    if segments.len() > 1 {
+        if let Some(object) = root.as_object_mut() {
+            object.remove(path);
+        }
+    }
+    let (last, parents) = segments
+        .split_last()
+        .ok_or_else(|| anyhow::anyhow!("Invalid config key: {path}"))?;
+    let mut current = root;
+    for segment in parents {
+        let object = current
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("Config path {path} crosses a non-object value"))?;
+        current = object
+            .entry((*segment).to_string())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    }
+    let object = current
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("Config path {path} crosses a non-object value"))?;
+    object.insert((*last).to_string(), value);
+    Ok(())
+}
+
+fn value_at_path_mut<'a>(
+    value: &'a mut serde_json::Value,
+    path: &str,
+) -> Option<&'a mut serde_json::Value> {
+    let mut current = value;
+    for segment in path.split('.') {
+        current = current.as_object_mut()?.get_mut(segment)?;
+    }
+    Some(current)
+}
+
+fn normalize_layer(value: &mut serde_json::Value) -> Result<()> {
+    let dotted_keys: Vec<String> = value
+        .as_object()
+        .into_iter()
+        .flat_map(|object| object.keys())
+        .filter(|key| key.contains('.') && find_registry_key(key).is_some())
+        .cloned()
+        .collect();
+    for key in dotted_keys {
+        let dotted_value = value
+            .as_object_mut()
+            .and_then(|object| object.remove(&key))
+            .ok_or_else(|| anyhow::anyhow!("Config key disappeared while normalizing: {key}"))?;
+        set_value_at_path(value, &key, dotted_value)?;
+    }
+    Ok(())
+}
+
+fn deep_merge(target: &mut serde_json::Value, overlay: &serde_json::Value, path: &str) {
+    if !path.is_empty()
+        && find_registry_key(path).is_some_and(|entry| matches!(entry.config_type, ConfigType::Map))
+    {
+        *target = overlay.clone();
+        return;
+    }
+    if let (Some(target), Some(overlay)) = (target.as_object_mut(), overlay.as_object()) {
+        for (key, value) in overlay {
+            let child_path = if path.is_empty() {
+                key.clone()
+            } else {
+                format!("{path}.{key}")
+            };
+            if let Some(existing) = target.get_mut(key) {
+                deep_merge(existing, value, &child_path);
+            } else {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    } else {
+        *target = overlay.clone();
+    }
+}
+
+fn merge_layer(target: &mut serde_json::Value, layer: &serde_json::Value, apply_additions: bool) {
+    let mut regular = layer.clone();
+    let additions: Vec<(String, serde_json::Value)> = if apply_additions {
+        regular
+            .as_object_mut()
+            .map(|object| {
+                let mut additions = Vec::new();
+                object.retain(|key, value| {
+                    if key.starts_with('+') {
+                        additions.push((key.clone(), value.clone()));
+                        false
+                    } else {
+                        true
+                    }
+                });
+                additions
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    deep_merge(target, &regular, "");
+    for (key, value) in additions {
+        let path = key.trim_start_matches('+');
+        if let (Some(existing), Some(extension)) =
+            (value_at_path_mut(target, path), value.as_array())
+        {
+            if let Some(existing) = existing.as_array_mut() {
+                for item in extension {
+                    if !existing.contains(item) {
+                        existing.push(item.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn read_config_layered(crosslink_dir: &Path) -> Result<ResolvedConfig> {
     let defaults = read_defaults()?;
     let team_path = crosslink_dir.join("hook-config.json");
     let local_path = crosslink_dir.join("hook-config.local.json");
 
-    let team: serde_json::Value = if team_path.exists() {
+    let mut team: serde_json::Value = if team_path.exists() {
         let content =
             fs::read_to_string(&team_path).context("Failed to read .crosslink/hook-config.json")?;
         serde_json::from_str(&content).context("Failed to parse hook-config.json")?
@@ -67,7 +188,9 @@ pub fn read_config_layered(crosslink_dir: &Path) -> Result<ResolvedConfig> {
         defaults.clone()
     };
 
-    let local: Option<serde_json::Value> = if local_path.exists() {
+    normalize_layer(&mut team)?;
+
+    let mut local: Option<serde_json::Value> = if local_path.exists() {
         let content = fs::read_to_string(&local_path)
             .context("Failed to read .crosslink/hook-config.local.json")?;
         Some(serde_json::from_str(&content).context("Failed to parse hook-config.local.json")?)
@@ -75,50 +198,32 @@ pub fn read_config_layered(crosslink_dir: &Path) -> Result<ResolvedConfig> {
         None
     };
 
+    if let Some(local) = &mut local {
+        normalize_layer(local)?;
+    }
+
     let mut merged = defaults.clone();
     let mut provenance: HashMap<String, Source> = HashMap::new();
 
-    // Initialize all keys to Default
     for entry in REGISTRY {
         provenance.insert(entry.key.to_string(), Source::Default);
     }
 
-    // Overlay team config
-    if let Some(team_obj) = team.as_object() {
-        if let Some(merged_obj) = merged.as_object_mut() {
-            for (k, v) in team_obj {
-                if defaults.get(k) != Some(v) {
-                    provenance.insert(k.clone(), Source::Team);
-                }
-                merged_obj.insert(k.clone(), v.clone());
+    merge_layer(&mut merged, &team, false);
+    for entry in REGISTRY {
+        if let Some(team_value) = value_at_path(&team, entry.key) {
+            if Some(team_value) != value_at_path(&defaults, entry.key) {
+                provenance.insert(entry.key.to_string(), Source::Team);
             }
         }
     }
 
-    // Overlay local config
     if let Some(ref local_val) = local {
-        if let Some(local_obj) = local_val.as_object() {
-            if let Some(merged_obj) = merged.as_object_mut() {
-                for (k, v) in local_obj {
-                    // Handle +key extend semantics for arrays
-                    if let Some(base_key) = k.strip_prefix('+') {
-                        if let Some(existing) = merged_obj.get_mut(base_key) {
-                            if let (Some(existing_arr), Some(extend_arr)) =
-                                (existing.as_array_mut(), v.as_array())
-                            {
-                                for item in extend_arr {
-                                    if !existing_arr.contains(item) {
-                                        existing_arr.push(item.clone());
-                                    }
-                                }
-                            }
-                        }
-                        provenance.insert(base_key.to_string(), Source::Local);
-                    } else {
-                        merged_obj.insert(k.clone(), v.clone());
-                        provenance.insert(k.clone(), Source::Local);
-                    }
-                }
+        merge_layer(&mut merged, local_val, true);
+        for entry in REGISTRY {
+            let additive = format!("+{}", entry.key);
+            if value_at_path(local_val, entry.key).is_some() || local_val.get(additive).is_some() {
+                provenance.insert(entry.key.to_string(), Source::Local);
             }
         }
     }
@@ -131,21 +236,20 @@ pub fn read_config_layered(crosslink_dir: &Path) -> Result<ResolvedConfig> {
     })
 }
 
-/// Backward-compatible: read merged config (team + local).
 fn read_config(crosslink_dir: &Path) -> Result<serde_json::Value> {
     let resolved = read_config_layered(crosslink_dir)?;
     Ok(resolved.merged)
 }
 
-/// Read only the team config file.
 fn read_team_config(crosslink_dir: &Path) -> Result<serde_json::Value> {
     let path = crosslink_dir.join("hook-config.json");
     let content =
         fs::read_to_string(&path).context("Failed to read .crosslink/hook-config.json")?;
-    serde_json::from_str(&content).context("Failed to parse hook-config.json")
+    let mut value = serde_json::from_str(&content).context("Failed to parse hook-config.json")?;
+    normalize_layer(&mut value)?;
+    Ok(value)
 }
 
-/// Read only the local config file.
 fn read_local_config(crosslink_dir: &Path) -> Result<Option<serde_json::Value>> {
     let path = crosslink_dir.join("hook-config.local.json");
     if !path.exists() {
@@ -153,7 +257,9 @@ fn read_local_config(crosslink_dir: &Path) -> Result<Option<serde_json::Value>> 
     }
     let content =
         fs::read_to_string(&path).context("Failed to read .crosslink/hook-config.local.json")?;
-    let val = serde_json::from_str(&content).context("Failed to parse hook-config.local.json")?;
+    let mut val =
+        serde_json::from_str(&content).context("Failed to parse hook-config.local.json")?;
+    normalize_layer(&mut val)?;
     Ok(Some(val))
 }
 
@@ -213,15 +319,11 @@ fn apply_preset(crosslink_dir: &Path, preset: &[(&str, &str)]) -> Result<()> {
             },
             _ => serde_json::Value::String(value.to_string()),
         };
-        config[*key] = json_val;
+        set_value_at_path(&mut config, key, json_val)?;
     }
     write_config(crosslink_dir, &config)?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Subcommand dispatch
-// ---------------------------------------------------------------------------
 
 pub fn run(command: ConfigCommands, crosslink_dir: &Path) -> Result<()> {
     match command {
@@ -247,8 +349,6 @@ pub fn run(command: ConfigCommands, crosslink_dir: &Path) -> Result<()> {
     }
 }
 
-/// Entry point for bare `crosslink config` (no subcommand).
-/// TTY → interactive walkthrough. Non-TTY → show.
 pub fn run_bare(crosslink_dir: &Path, preset: Option<&str>) -> Result<()> {
     if let Some(name) = preset {
         match name {
@@ -274,16 +374,12 @@ pub fn run_bare(crosslink_dir: &Path, preset: Option<&str>) -> Result<()> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// show — print all config with provenance annotations (REQ-7)
-// ---------------------------------------------------------------------------
-
 fn show(crosslink_dir: &Path) -> Result<()> {
     let resolved = read_config_layered(crosslink_dir)?;
     let defaults = read_defaults()?;
 
     for entry in REGISTRY {
-        let current = resolved.merged.get(entry.key);
+        let current = value_at_path(&resolved.merged, entry.key);
         let source = resolved
             .provenance
             .get(entry.key)
@@ -291,9 +387,12 @@ fn show(crosslink_dir: &Path) -> Result<()> {
             .unwrap_or(Source::Default);
         let current_display = current.map_or_else(|| "(unset)".into(), format_value);
 
-        // Check if local overrides team
-        let team_val = resolved.team.get(entry.key);
-        let local_val = resolved.local.as_ref().and_then(|l| l.get(entry.key));
+        let team_val = value_at_path(&resolved.team, entry.key);
+        let additive = format!("+{}", entry.key);
+        let local_val = resolved
+            .local
+            .as_ref()
+            .and_then(|local| value_at_path(local, entry.key).or_else(|| local.get(&additive)));
         let has_override = source == Source::Local && team_val.is_some() && local_val.is_some();
 
         if matches!(entry.config_type, ConfigType::StringArray) {
@@ -333,16 +432,13 @@ fn show(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // Show any unknown keys from local config
     if let Some(ref local_val) = resolved.local {
         if let Some(local_obj) = local_val.as_object() {
             for k in local_obj.keys() {
                 let base_key = k.strip_prefix('+').unwrap_or(k);
                 if find_registry_key(base_key).is_none()
                     && !defaults.as_object().is_some_and(|d| d.contains_key(k))
-                {
-                    // Unknown key from local config, skip silently
-                }
+                {}
             }
         }
     }
@@ -350,33 +446,14 @@ fn show(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// get — print a single value
-// ---------------------------------------------------------------------------
-
 fn get(crosslink_dir: &Path, key: &str) -> Result<()> {
-    let entry = find_registry_key(key);
-    if entry.is_none() {
+    if find_registry_key(key).is_none() {
         bail!("Unknown config key: \"{key}\". Run `crosslink config list` to see available keys.");
     }
 
     let config = read_config(crosslink_dir)?;
 
-    if let Some(dot_pos) = key.find('.') {
-        if let Some(e) = entry {
-            if matches!(e.config_type, ConfigType::Map) {
-                let namespace = &key[..dot_pos];
-                let subkey = &key[dot_pos + 1..];
-                match config.get(namespace).and_then(|v| v.get(subkey)) {
-                    Some(v) => println!("{}", format_value(v)),
-                    None => println!("(unset)"),
-                }
-                return Ok(());
-            }
-        }
-    }
-
-    match config.get(key) {
+    match value_at_path(&config, key) {
         Some(serde_json::Value::Array(arr)) => {
             for item in arr {
                 if let Some(s) = item.as_str() {
@@ -394,10 +471,6 @@ fn get(crosslink_dir: &Path, key: &str) -> Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// set — validate and write a config value (with --local support, REQ-2)
-// ---------------------------------------------------------------------------
 
 fn set(
     crosslink_dir: &Path,
@@ -430,8 +503,8 @@ fn set(
             let val = value
                 .ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <true|false>"))?;
             match val {
-                "true" => config[key] = serde_json::Value::Bool(true),
-                "false" => config[key] = serde_json::Value::Bool(false),
+                "true" => set_value_at_path(&mut config, key, serde_json::Value::Bool(true))?,
+                "false" => set_value_at_path(&mut config, key, serde_json::Value::Bool(false))?,
                 _ => {
                     bail!("Invalid value for {key}: expected \"true\" or \"false\", got \"{val}\"")
                 }
@@ -449,14 +522,14 @@ fn set(
                     valid.join(", ")
                 );
             }
-            config[key] = serde_json::Value::String(val.to_string());
+            set_value_at_path(&mut config, key, serde_json::Value::String(val.to_string()))?;
             write_config_scoped(crosslink_dir, &config, scope)?;
             println!("{key} = {val}");
         }
         ConfigType::String => {
             let val = value
                 .ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <value>"))?;
-            config[key] = serde_json::Value::String(val.to_string());
+            set_value_at_path(&mut config, key, serde_json::Value::String(val.to_string()))?;
             write_config_scoped(crosslink_dir, &config, scope)?;
             println!("{key} = {val}");
         }
@@ -468,7 +541,7 @@ fn set(
                     "Invalid value for {key}: expected a non-negative integer, got \"{val}\""
                 )
             })?;
-            config[key] = serde_json::Value::String(val.to_string());
+            set_value_at_path(&mut config, key, serde_json::Value::String(val.to_string()))?;
             write_config_scoped(crosslink_dir, &config, scope)?;
             println!("{key} = {val}");
         }
@@ -481,20 +554,7 @@ fn set(
                 }
                 let val = value
                     .ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <value>"))?;
-                let map = config
-                    .as_object_mut()
-                    .ok_or_else(|| anyhow::anyhow!("Config is not a JSON object"))?;
-                let ns_obj = map
-                    .entry(namespace)
-                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-                if let Some(obj) = ns_obj.as_object_mut() {
-                    obj.insert(
-                        subkey.to_string(),
-                        serde_json::Value::String(val.to_string()),
-                    );
-                } else {
-                    bail!("{namespace} is not a map in config");
-                }
+                set_value_at_path(&mut config, key, serde_json::Value::String(val.to_string()))?;
                 write_config_scoped(crosslink_dir, &config, scope)?;
                 println!("{key} = {val}");
             } else {
@@ -503,7 +563,7 @@ fn set(
         }
         ConfigType::StringArray => {
             if let Some(item) = add {
-                let arr = config.get_mut(key).and_then(|v| v.as_array_mut());
+                let arr = value_at_path_mut(&mut config, key).and_then(|v| v.as_array_mut());
                 if let Some(arr) = arr {
                     let already = arr.iter().any(|v| v.as_str() == Some(item));
                     if already {
@@ -514,15 +574,17 @@ fn set(
                         println!("Added \"{item}\" to {key}");
                     }
                 } else {
-                    // For local config, the array might not exist yet — create it
-                    config[key] =
-                        serde_json::Value::Array(vec![serde_json::Value::String(item.to_string())]);
+                    set_value_at_path(
+                        &mut config,
+                        key,
+                        serde_json::Value::Array(vec![serde_json::Value::String(item.to_string())]),
+                    )?;
                     write_config_scoped(crosslink_dir, &config, scope)?;
                     println!("Added \"{item}\" to {key}");
                 }
             } else if let Some(item) = remove {
-                let arr = config[key]
-                    .as_array_mut()
+                let arr = value_at_path_mut(&mut config, key)
+                    .and_then(serde_json::Value::as_array_mut)
                     .ok_or_else(|| anyhow::anyhow!("{key} is not an array in config"))?;
                 let before = arr.len();
                 arr.retain(|v| v.as_str() != Some(item));
@@ -537,7 +599,7 @@ fn set(
                     .split(',')
                     .map(|s| serde_json::Value::String(s.trim().to_string()))
                     .collect();
-                config[key] = serde_json::Value::Array(items);
+                set_value_at_path(&mut config, key, serde_json::Value::Array(items))?;
                 write_config_scoped(crosslink_dir, &config, scope)?;
                 println!("Set {key} to {val}");
             } else {
@@ -550,10 +612,6 @@ fn set(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// list — print all keys with types, groups, and descriptions
-// ---------------------------------------------------------------------------
-
 fn list() -> Result<()> {
     let defaults = read_defaults()?;
 
@@ -562,7 +620,7 @@ fn list() -> Result<()> {
     println!("{sep}");
 
     for entry in REGISTRY {
-        let default_str = defaults.get(entry.key).map_or_else(
+        let default_str = value_at_path(&defaults, entry.key).map_or_else(
             || "(none)".into(),
             |v| match v {
                 serde_json::Value::Array(a) => format!("[{} items]", a.len()),
@@ -585,10 +643,6 @@ fn list() -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// reset — restore defaults (all or single key)
-// ---------------------------------------------------------------------------
-
 fn reset(crosslink_dir: &Path, key: Option<&str>) -> Result<()> {
     let defaults = read_defaults()?;
 
@@ -598,11 +652,10 @@ fn reset(crosslink_dir: &Path, key: Option<&str>) -> Result<()> {
                 "Unknown config key: \"{key}\". Run `crosslink config list` to see available keys."
             );
         }
-        let default_val = defaults
-            .get(key)
+        let default_val = value_at_path(&defaults, key)
             .ok_or_else(|| anyhow::anyhow!("No default found for {key}"))?;
         let mut config = read_team_config(crosslink_dir)?;
-        config[key] = default_val.clone();
+        set_value_at_path(&mut config, key, default_val.clone())?;
         write_config(crosslink_dir, &config)?;
         println!("Reset {key} to default: {}", format_value(default_val));
     } else {
@@ -612,20 +665,20 @@ fn reset(crosslink_dir: &Path, key: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// diff — compare current vs defaults with provenance (REQ-7)
-// ---------------------------------------------------------------------------
-
 fn diff(crosslink_dir: &Path) -> Result<()> {
     let resolved = read_config_layered(crosslink_dir)?;
     let defaults = read_defaults()?;
     let mut any_diff = false;
 
     for entry in REGISTRY {
-        let current = resolved.merged.get(entry.key);
-        let default = defaults.get(entry.key);
-        let team_val = resolved.team.get(entry.key);
-        let local_val = resolved.local.as_ref().and_then(|l| l.get(entry.key));
+        let current = value_at_path(&resolved.merged, entry.key);
+        let default = value_at_path(&defaults, entry.key);
+        let team_val = value_at_path(&resolved.team, entry.key);
+        let additive = format!("+{}", entry.key);
+        let local_val = resolved
+            .local
+            .as_ref()
+            .and_then(|local| value_at_path(local, entry.key).or_else(|| local.get(&additive)));
 
         if current != default || local_val.is_some() {
             any_diff = true;
@@ -672,11 +725,6 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Interactive config walkthrough (REQ-3)
-// ---------------------------------------------------------------------------
-
-/// Config walkthrough — thin wrapper around shared `WalkthroughCore` (no extra screens).
 type WalkthroughApp = WalkthroughCore;
 
 fn new_walkthrough_app(current_config: &serde_json::Value) -> WalkthroughApp {
@@ -704,7 +752,6 @@ fn draw_config_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    // Progress indicator
     let total = app.total_screens();
     let progress_spans: Vec<Span> = (0..total)
         .map(|i| match i.cmp(&app.screen) {
@@ -739,13 +786,13 @@ fn draw_preset_screen(
     progress_spans: Vec<Span>,
 ) {
     let chunks = Layout::vertical([
-        Constraint::Length(1), // progress
-        Constraint::Length(1), // spacer
-        Constraint::Length(1), // title
-        Constraint::Length(1), // description
-        Constraint::Length(1), // spacer
-        Constraint::Min(3),    // options
-        Constraint::Length(1), // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(3),
+        Constraint::Length(1),
     ])
     .split(area);
 
@@ -821,13 +868,13 @@ fn draw_group_screen(
     let keys = &app.group_keys[group_idx];
 
     let chunks = Layout::vertical([
-        Constraint::Length(1),                  // progress
-        Constraint::Length(1),                  // spacer
-        Constraint::Length(1),                  // group title
-        Constraint::Length(1),                  // spacer
-        Constraint::Min(keys.len() as u16 + 1), // key list
-        Constraint::Length(2),                  // description pane
-        Constraint::Length(1),                  // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(keys.len() as u16 + 1),
+        Constraint::Length(2),
+        Constraint::Length(1),
     ])
     .split(area);
 
@@ -843,7 +890,6 @@ fn draw_group_screen(
         chunks[2],
     );
 
-    // Key list with current values
     let items: Vec<ListItem> = keys
         .iter()
         .enumerate()
@@ -887,7 +933,6 @@ fn draw_group_screen(
     let mut state = ListState::default().with_selected(Some(app.group_cursor));
     frame.render_stateful_widget(list, chunks[4], &mut state);
 
-    // Description pane for focused key
     if app.group_cursor < keys.len() {
         let reg_idx = keys[app.group_cursor];
         let entry = &REGISTRY[reg_idx];
@@ -932,12 +977,12 @@ fn draw_confirm_screen(
     let total_keys: usize = app.group_keys.iter().map(Vec::len).sum();
 
     let chunks = Layout::vertical([
-        Constraint::Length(1), // progress
-        Constraint::Length(1), // spacer
-        Constraint::Length(1), // title
-        Constraint::Length(1), // spacer
-        Constraint::Min(total_keys as u16 + app.group_names.len() as u16 + 2), // summary
-        Constraint::Length(1), // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(total_keys as u16 + app.group_names.len() as u16 + 2),
+        Constraint::Length(1),
     ])
     .split(area);
 
@@ -1030,7 +1075,6 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                         app.cycle_value();
                     }
                     KeyCode::Left if !app.is_preset_screen() && !app.is_confirm_screen() => {
-                        // Cycle backwards
                         if let Some(gi) = app.current_group_idx() {
                             if app.group_cursor < app.group_keys[gi].len() {
                                 let reg_idx = app.group_keys[gi][app.group_cursor];
@@ -1048,8 +1092,6 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                     }
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         if !app.is_preset_screen() && !app.is_confirm_screen() {
-                            // On group screens, Enter cycles value then moves to next key,
-                            // or advances screen if at last key
                             if let Some(gi) = app.current_group_idx() {
                                 if app.group_cursor + 1 < app.group_keys[gi].len() {
                                     app.group_cursor += 1;
@@ -1065,16 +1107,14 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                             break;
                         }
                     }
-                    KeyCode::Tab
-                        // Tab advances screen without cycling
-                        if !app.is_confirm_screen() => {
-                            if app.is_preset_screen() {
-                                app.confirm();
-                            } else {
-                                app.screen += 1;
-                                app.group_cursor = 0;
-                            }
+                    KeyCode::Tab if !app.is_confirm_screen() => {
+                        if app.is_preset_screen() {
+                            app.confirm();
+                        } else {
+                            app.screen += 1;
+                            app.group_cursor = 0;
                         }
+                    }
                     KeyCode::Backspace => app.go_back(),
                     KeyCode::Esc | KeyCode::Char('q') => {
                         app.cancelled = true;
@@ -1087,7 +1127,6 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
         Ok(())
     })();
 
-    // Clear inline viewport
     {
         let area = terminal.get_frame().area();
         let backend = terminal.backend_mut();
@@ -1111,23 +1150,16 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
         bail!("Config walkthrough cancelled");
     }
 
-    // Apply choices to team config
     let choices = app.build_config();
     let mut config = read_team_config(crosslink_dir)?;
-    if let Some(obj) = config.as_object_mut() {
-        for (k, v) in &choices {
-            obj.insert(k.clone(), v.clone());
-        }
+    for (key, value) in choices {
+        set_value_at_path(&mut config, &key, value)?;
     }
     write_config(crosslink_dir, &config)?;
     println!("Configuration saved.");
     show(crosslink_dir)?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Shell alias detection (REQ-11)
-// ---------------------------------------------------------------------------
 
 pub fn detect_alias_status() -> (bool, String) {
     let shell = std::env::var("SHELL").unwrap_or_default();
@@ -1158,5 +1190,90 @@ pub fn detect_alias_status() -> (bool, String) {
             (installed, config_file)
         }
         Err(_) => (false, config_file),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn configured_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("hook-config.json"), HOOK_CONFIG_JSON).unwrap();
+        dir
+    }
+
+    #[test]
+    fn set_provider_updates_nested_agent_object() {
+        let dir = configured_dir();
+        set(
+            dir.path(),
+            "agent.provider",
+            Some("codex"),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("hook-config.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            value_at_path(&value, "agent.provider"),
+            Some(&serde_json::json!("codex"))
+        );
+        assert!(value.get("agent.provider").is_none());
+        assert!(value_at_path(&value, "agent.providers.codex").is_some());
+    }
+
+    #[test]
+    fn local_nested_override_preserves_provider_options() {
+        let dir = configured_dir();
+        fs::write(
+            dir.path().join("hook-config.local.json"),
+            r#"{"agent":{"provider":"codex"}}"#,
+        )
+        .unwrap();
+
+        let resolved = read_config_layered(dir.path()).unwrap();
+        assert_eq!(
+            value_at_path(&resolved.merged, "agent.provider"),
+            Some(&serde_json::json!("codex"))
+        );
+        assert!(value_at_path(&resolved.merged, "agent.providers.claude").is_some());
+        assert!(value_at_path(&resolved.merged, "agent.providers.codex").is_some());
+        assert_eq!(
+            resolved.provenance.get("agent.provider"),
+            Some(&Source::Local)
+        );
+    }
+
+    #[test]
+    fn set_provider_migrates_flat_dotted_output() {
+        let dir = configured_dir();
+        let path = dir.path().join("hook-config.json");
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        value["agent.provider"] = serde_json::json!("codex");
+        fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        set(
+            dir.path(),
+            "agent.provider",
+            Some("codex"),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let migrated: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            value_at_path(&migrated, "agent.provider"),
+            Some(&serde_json::json!("codex"))
+        );
+        assert!(migrated.get("agent.provider").is_none());
     }
 }

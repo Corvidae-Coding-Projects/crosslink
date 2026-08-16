@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff monitor: status, logs, stop, list commands
 use anyhow::{bail, Context, Result};
 use std::fmt::Write;
 use std::path::Path;
@@ -97,26 +96,21 @@ fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, agent_id: &st
 use super::helpers::*;
 use super::types::*;
 
-/// `crosslink kickoff status <agent>`
 pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
-    // Check for .kickoff-status in any matching worktree
     let root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
 
-    // Try to find the worktree by agent ID or branch slug
     let slug = agent
         .strip_prefix("feature/")
         .or_else(|| agent.strip_prefix("feat-"))
         .unwrap_or(agent);
 
-    // Also try splitting on -- (agent IDs are parent--slug)
     let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
 
     let worktree_dir = root.join(".worktrees").join(wt_slug);
 
     if !worktree_dir.exists() {
-        // Try scanning all worktrees
         let worktrees_dir = root.join(".worktrees");
         if worktrees_dir.is_dir() {
             println!("Available worktrees:");
@@ -147,7 +141,6 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
 
     record_runtime_usage(crosslink_dir, &worktree_dir, agent);
 
-    // Check .kickoff-status and normalized provider events.
     let status_file = worktree_dir.join(".kickoff-status");
     let mut agent_status = if status_file.exists() {
         std::fs::read_to_string(&status_file)
@@ -166,14 +159,10 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         }
     }
 
-    // Check if the agent has exceeded its timeout
     if agent_status.contains("running") && is_timed_out(&worktree_dir) {
         agent_status = "timed-out".to_string();
     }
 
-    // Positive-completion hook (GH#614): when this status read positively sees a
-    // terminal sentinel, reconcile the matching pipeline run row now rather than
-    // waiting for the next display pass. Keyed on the worktree path.
     let normalized = normalize_status(&agent_status);
     let pipeline_status = if normalized == "done" {
         Some("completed")
@@ -200,7 +189,6 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         );
     }
 
-    // Show timeout metadata if available
     if let Some(meta) = read_timeout_metadata(&worktree_dir) {
         let hours = meta.timeout_secs / 3600;
         let mins = (meta.timeout_secs % 3600) / 60;
@@ -212,7 +200,6 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         println!("Started:   {}", meta.started_at);
     }
 
-    // Check tmux session
     let session_name = tmux_session_name(wt_slug);
     if tmux_session_exists(&session_name) {
         println!("tmux:      active ({session_name})");
@@ -220,10 +207,9 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         println!("tmux:      no active session");
     }
 
-    // Check heartbeat on hub if available
     if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
         let cache = sync.cache_path();
-        // Try both agent ID formats
+
         for candidate in &[agent.to_string(), format!("driver--{wt_slug}")] {
             let heartbeat_path = cache.join("agents").join(candidate).join("heartbeat.json");
             if heartbeat_path.exists() {
@@ -239,19 +225,11 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         }
     }
 
-    // Surface design-doc integrity. If `--doc` was used at launch we recorded
-    // a SHA-256 in `.kickoff-doc.json`; comparing it to the on-disk file
-    // catches the case where the agent rewrote the canonical input. GH#580.
     print_doc_integrity(&worktree_dir);
 
     Ok(())
 }
 
-/// Print a one-line summary of design-doc integrity status.
-///
-/// Silent when `--doc` wasn't used (no `.kickoff-doc.json` breadcrumb).
-/// Otherwise prints a Doc-integrity line — green-ish for match, an explicit
-/// warning header for mismatch or missing-doc cases.
 fn print_doc_integrity(worktree_dir: &Path) {
     match verify_protected_doc(worktree_dir) {
         DocIntegrity::NotProtected => {}
@@ -273,9 +251,6 @@ fn print_doc_integrity(worktree_dir: &Path) {
     }
 }
 
-/// Discover all kickoff agents by scanning worktrees, tmux sessions, and Docker containers.
-///
-/// Shared discovery logic used by both `list` and `cleanup`.
 pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
     let root = crosslink_dir
         .parent()
@@ -285,7 +260,6 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
 
     let mut agents: Vec<AgentInfo> = Vec::new();
 
-    // --- Source 1: Worktree scan ---
     if worktrees_dir.is_dir() {
         for entry in std::fs::read_dir(&worktrees_dir)? {
             let entry = entry?;
@@ -295,7 +269,6 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
             let dir_name = entry.file_name().to_string_lossy().to_string();
             let wt_path = entry.path();
 
-            // Read .kickoff-status sentinel
             let status_file = wt_path.join(".kickoff-status");
             let mut agent_status = if status_file.exists() {
                 let raw = std::fs::read_to_string(&status_file)
@@ -318,12 +291,8 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
                 }
             }
 
-            // Try to read issue from .kickoff-criteria.json or agent config
             let issue = read_agent_issue(&wt_path, crosslink_dir);
 
-            // Derive agent ID from agent config if available
-            // Check tmux session — prefer stored name (may include collision suffix),
-            // fall back to derived name for backward compatibility (#507).
             let session_name = std::fs::read_to_string(wt_path.join(".kickoff-session"))
                 .ok()
                 .map(|s| s.trim().to_string())
@@ -331,11 +300,9 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
                 .unwrap_or_else(|| tmux_session_name(&dir_name));
             let tmux_active = tmux_session_exists(&session_name);
 
-            // Reconcile status: check timeout, then tmux liveness
             let final_status = if agent_status == "running" && is_timed_out(&wt_path) {
                 "timed-out".to_string()
             } else if agent_status == "running" && !tmux_active {
-                // Check if there's a docker container instead (handled below as overlay)
                 "stopped".to_string()
             } else {
                 agent_status
@@ -356,7 +323,6 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
         }
     }
 
-    // --- Source 2: Docker containers ---
     if command_available("docker") {
         if let Ok(output) = Command::new("docker")
             .args([
@@ -378,26 +344,22 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
                         let container_status_raw = parts[1];
                         let task_label = parts.get(2).unwrap_or(&"");
 
-                        // Try to match to an existing worktree agent
                         let matched = agents.iter_mut().find(|a| {
                             if task_label.is_empty() {
-                                // Match by container name containing the agent slug
                                 let slug = a.id.rsplit("--").next().unwrap_or(&a.id);
                                 container_name.contains(slug)
                             } else {
-                                // Match by task label containing the worktree dir name
                                 a.worktree.contains(task_label)
                             }
                         });
 
                         if let Some(agent) = matched {
                             agent.docker = Some(container_name.to_string());
-                            // If container is running, override status
+
                             if container_status_raw.starts_with("Up") && agent.status == "stopped" {
                                 agent.status = "running".to_string();
                             }
                         } else {
-                            // Docker-only agent (no worktree found)
                             let docker_status = if container_status_raw.starts_with("Up") {
                                 "running"
                             } else if container_status_raw.contains("Exited (0)") {
@@ -427,13 +389,9 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
     Ok(agents)
 }
 
-/// `crosslink kickoff list`
-///
-/// Enumerate all kickoff agents by scanning worktrees, tmux sessions, and Docker containers.
 pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) -> Result<()> {
     let agents = discover_agents(crosslink_dir)?;
 
-    // --- Filter by status ---
     let filtered: Vec<&AgentInfo> = if status_filter == "all" {
         agents.iter().collect()
     } else {
@@ -443,7 +401,6 @@ pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) 
             .collect()
     };
 
-    // --- Output ---
     if quiet {
         for agent in &filtered {
             println!("{}", agent.id);
@@ -461,7 +418,6 @@ pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) 
         return Ok(());
     }
 
-    // Table output
     println!(
         "{:<36} {:<8} {:<10} {:<24} WORKTREE",
         "ID", "ISSUE", "STATUS", "SESSION"
@@ -472,13 +428,12 @@ pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) 
         let worktree_display = if agent.worktree.is_empty() {
             "-"
         } else {
-            // Show just the leaf directory name for brevity
             std::path::Path::new(&agent.worktree)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(&agent.worktree)
         };
-        // Append docker indicator if present
+
         let status_display = if agent.docker.is_some() {
             format!("{} \u{1f433}", agent.status)
         } else {
@@ -497,16 +452,12 @@ pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) 
     Ok(())
 }
 
-/// `crosslink kickoff logs <agent>`
 pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
-    // Read the agent's event log from the hub branch
     if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
-        // INTENTIONAL: init and fetch are best-effort — logs display works with stale data
         let _ = sync.init_cache();
         let _ = sync.fetch();
         let cache = sync.cache_path();
 
-        // Find agent directory
         let slug = agent.rsplit("--").next().unwrap_or(agent);
         let agents_dir = cache.join("agents");
 
@@ -519,14 +470,12 @@ pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
                     found = true;
                     println!("Agent: {name}");
 
-                    // Show heartbeat
                     let hb_path = entry.path().join("heartbeat.json");
                     if hb_path.exists() {
                         let content = std::fs::read_to_string(&hb_path)?;
                         println!("Heartbeat: {}", content.trim());
                     }
 
-                    // Show event log (if CBOR events exist)
                     let events_path = entry.path().join("events.log");
                     if events_path.exists() {
                         let metadata = std::fs::metadata(&events_path)?;
@@ -555,7 +504,6 @@ pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
         bail!("Could not access hub branch. Run 'crosslink sync' first.");
     }
 
-    // Also check local worktree for recent git log
     let root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
@@ -593,7 +541,6 @@ pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink kickoff stop <agent>`
 pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
     let slug = agent
         .strip_prefix("feature/")
@@ -601,7 +548,6 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
         .unwrap_or(agent);
     let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
 
-    // Try to stop tmux session (local mode)
     let session_name = tmux_session_name(wt_slug);
     if tmux_session_exists(&session_name) {
         let signal = if force { "kill-session" } else { "send-keys" };
@@ -618,7 +564,6 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
                 tracing::warn!("failed to kill session: {}", stderr.trim());
             }
         } else {
-            // Send Ctrl-C gracefully
             let output = Command::new("tmux")
                 .args(["send-keys", "-t", &session_name, "C-c", ""])
                 .output()
@@ -628,11 +573,10 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
                 println!("Use --force to kill immediately.");
             }
         }
-        let _ = signal; // consumed in branch logic above
+        let _ = signal;
         return Ok(());
     }
 
-    // Try to stop container (docker/podman)
     let container_name = format!("crosslink-agent-{agent}");
     for runtime in &["docker", "podman"] {
         if command_available(runtime) {
@@ -655,7 +599,6 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
     );
 }
 
-/// Format a phase timing line with optional metrics.
 pub(super) fn format_phase_line(name: &str, timing: &PhaseTiming) -> String {
     let dur = format_duration(timing.duration_s);
     let mut detail = String::new();
@@ -697,7 +640,6 @@ pub(super) fn format_phase_line(name: &str, timing: &PhaseTiming) -> String {
     }
 }
 
-/// Format a kickoff report as a human-readable table.
 pub(crate) fn format_report_table(report: &KickoffReport) -> String {
     let mut out = String::new();
     out.push_str("Kickoff Report");
@@ -706,7 +648,6 @@ pub(crate) fn format_report_table(report: &KickoffReport) -> String {
     }
     out.push('\n');
 
-    // Metadata line
     let mut meta = Vec::new();
     if let Some(id) = report.issue_id {
         meta.push(format!("Issue: #{id}"));
@@ -736,7 +677,6 @@ pub(crate) fn format_report_table(report: &KickoffReport) -> String {
     }
     out.push('\n');
 
-    // Phase timing
     if let Some(ref phases) = report.phases {
         out.push_str("Phase Timing:\n");
         let phase_list: &[(&str, &Option<PhaseTiming>)] = &[
@@ -755,7 +695,6 @@ pub(crate) fn format_report_table(report: &KickoffReport) -> String {
         out.push('\n');
     }
 
-    // Criteria
     if !report.criteria.is_empty() {
         out.push_str("Acceptance Criteria:\n");
         for c in &report.criteria {
@@ -784,7 +723,6 @@ pub(crate) fn format_report_table(report: &KickoffReport) -> String {
         out.push('\n');
     }
 
-    // Files and commits
     if let Some(ref files) = report.files_changed {
         if !files.is_empty() {
             let _ = writeln!(out, "\nFiles changed: {}", files.join(", "));
@@ -799,12 +737,10 @@ pub(crate) fn format_report_table(report: &KickoffReport) -> String {
     out
 }
 
-/// Format a kickoff report as PR-ready markdown.
 pub(crate) fn format_report_markdown(report: &KickoffReport) -> String {
     let mut out = String::new();
     out.push_str("## Kickoff Report\n\n");
 
-    // Metadata
     if let Some(ref id) = report.agent_id {
         let _ = writeln!(out, "**Agent**: {id}");
     }
@@ -816,7 +752,6 @@ pub(crate) fn format_report_markdown(report: &KickoffReport) -> String {
     }
     out.push('\n');
 
-    // Criteria table
     if !report.criteria.is_empty() {
         out.push_str("| ID | Verdict | Evidence |\n");
         out.push_str("|---|---|---|\n");
@@ -844,7 +779,6 @@ pub(crate) fn format_report_markdown(report: &KickoffReport) -> String {
     out
 }
 
-/// Format an aggregated summary of all agent reports.
 pub(crate) fn format_report_all_table(reports: &[(&str, KickoffReport)]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "Agent Kickoff Summary ({} agents)\n", reports.len());
@@ -865,7 +799,6 @@ pub(crate) fn format_report_all_table(reports: &[(&str, KickoffReport)]) -> Stri
             _ => {}
         }
 
-        // Tests
         let tests = r.phases.as_ref().map_or_else(
             || "-".to_string(),
             |phases| {
@@ -880,14 +813,12 @@ pub(crate) fn format_report_all_table(reports: &[(&str, KickoffReport)]) -> Stri
             },
         );
 
-        // Criteria
         let criteria_str = if r.summary.total > 0 {
             format!("{}/{} pass", r.summary.pass, r.summary.total)
         } else {
             "-".to_string()
         };
 
-        // Duration
         let duration = r.phases.as_ref().map_or_else(
             || "-".to_string(),
             |phases| {
@@ -920,7 +851,6 @@ pub(crate) fn format_report_all_table(reports: &[(&str, KickoffReport)]) -> Stri
     out
 }
 
-/// Display the spec validation report for a kickoff agent.
 pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result<()> {
     let root = crosslink_dir
         .parent()
@@ -975,7 +905,7 @@ pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result
             for w in validate_kickoff_report(&r) {
                 tracing::warn!("{}", w);
             }
-            // Surface design-doc integrity (GH#580) alongside report warnings.
+
             if let DocIntegrity::Mismatch {
                 rel_path,
                 expected,
@@ -998,7 +928,6 @@ pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result
     Ok(())
 }
 
-/// Display aggregated reports from all agent worktrees.
 pub fn report_all(crosslink_dir: &Path, format: ReportFormat) -> Result<()> {
     let root = crosslink_dir
         .parent()

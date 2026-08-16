@@ -409,7 +409,7 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 
 | Command | Description |
 |---------|-------------|
-| `crosslink context measure` | Measure context injection sizes and token overhead |
+| `crosslink context measure` | Measure installed hook, skill, reference, and compatibility assets |
 | `crosslink context measure -v` | Verbose measurement with hook config details |
 | `crosslink context check` | Verify all expected crosslink files are deployed |
 

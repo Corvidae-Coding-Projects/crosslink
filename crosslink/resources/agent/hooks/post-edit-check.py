@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""
-Provider-neutral post-edit hook that detects stubs, runs linters, and reminds
-about tests after any edit, including Codex apply_patch operations.
-"""
+
+
+
+
 
 import json
 import sys
@@ -12,12 +12,12 @@ import subprocess
 import glob
 import time
 
-# Add hooks directory to path for shared module import
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crosslink_config import find_crosslink_dir, is_agent_context
 from hook_protocol import claim_event, emit_context, normalize_input
 
-# Stub patterns to detect (compiled regex for performance)
+
 STUB_PATTERNS = [
     (r'\bTODO\b', 'TODO comment'),
     (r'\bFIXME\b', 'FIXME comment'),
@@ -40,7 +40,7 @@ COMPILED_PATTERNS = [(re.compile(p, re.IGNORECASE | re.MULTILINE), desc) for p, 
 
 
 def check_for_stubs(file_path):
-    """Check file for stub patterns. Returns list of (line_num, pattern_desc, line_content)."""
+
     if not os.path.exists(file_path):
         return []
 
@@ -63,9 +63,9 @@ def check_for_stubs(file_path):
 
 
 def find_project_root(file_path, marker_files):
-    """Walk up from file_path looking for project root markers."""
+
     current = os.path.dirname(os.path.abspath(file_path))
-    for _ in range(10):  # Max 10 levels up
+    for _ in range(10):
         for marker in marker_files:
             if os.path.exists(os.path.join(current, marker)):
                 return current
@@ -77,13 +77,13 @@ def find_project_root(file_path, marker_files):
 
 
 def run_linter(file_path, max_errors=10):
-    """Run appropriate linter and return first N errors."""
+
     ext = os.path.splitext(file_path)[1].lower()
     errors = []
 
     try:
         if ext == '.rs':
-            # Rust: run cargo clippy from project root
+
             project_root = find_project_root(file_path, ['Cargo.toml'])
             if project_root:
                 result = subprocess.run(
@@ -101,7 +101,7 @@ def run_linter(file_path, max_errors=10):
                                 break
 
         elif ext == '.py':
-            # Python: try flake8, fall back to py_compile
+
             try:
                 result = subprocess.run(
                     ['flake8', '--max-line-length=120', file_path],
@@ -115,7 +115,7 @@ def run_linter(file_path, max_errors=10):
                         if len(errors) >= max_errors:
                             break
             except FileNotFoundError:
-                # flake8 not installed, try py_compile
+
                 result = subprocess.run(
                     ['python', '-m', 'py_compile', file_path],
                     capture_output=True,
@@ -126,7 +126,7 @@ def run_linter(file_path, max_errors=10):
                     errors.append(result.stderr.strip()[:200])
 
         elif ext in ('.js', '.ts', '.tsx', '.jsx'):
-            # JavaScript/TypeScript: try eslint
+
             project_root = find_project_root(file_path, ['package.json', '.eslintrc', '.eslintrc.js', '.eslintrc.json'])
             if project_root:
                 try:
@@ -146,7 +146,7 @@ def run_linter(file_path, max_errors=10):
                     pass
 
         elif ext == '.go':
-            # Go: run go vet
+
             project_root = find_project_root(file_path, ['go.mod'])
             if project_root:
                 result = subprocess.run(
@@ -164,7 +164,7 @@ def run_linter(file_path, max_errors=10):
                                 break
 
         elif ext in ('.sh', '.bash'):
-            # Shell: run shellcheck
+
             try:
                 result = subprocess.run(
                     ['shellcheck', '-f', 'gcc', file_path],
@@ -178,13 +178,13 @@ def run_linter(file_path, max_errors=10):
                         if len(errors) >= max_errors:
                             break
             except FileNotFoundError:
-                pass  # shellcheck not installed
+                pass
 
         elif ext in ('.ex', '.exs', '.heex'):
-            # Elixir: run mix format --check-formatted, then mix credo --strict if available
+
             project_root = find_project_root(file_path, ['mix.exs'])
             if project_root:
-                # mix format --check-formatted on the specific file
+
                 result = subprocess.run(
                     ['mix', 'format', '--check-formatted', file_path],
                     cwd=project_root,
@@ -199,7 +199,7 @@ def run_linter(file_path, max_errors=10):
                             if len(errors) >= max_errors:
                                 break
 
-                # Run mix credo --strict only if credo is in deps
+
                 if len(errors) < max_errors:
                     mix_exs_path = os.path.join(project_root, 'mix.exs')
                     has_credo = False
@@ -228,22 +228,22 @@ def run_linter(file_path, max_errors=10):
     except subprocess.TimeoutExpired:
         errors.append("(linter timed out)")
     except (OSError, Exception) as e:
-        pass  # Linter not available, skip silently
+        pass
 
     return errors
 
 
 def is_test_file(file_path):
-    """Check if file is a test file."""
+
     basename = os.path.basename(file_path).lower()
     dirname = os.path.dirname(file_path).lower()
 
-    # Common test file patterns
+
     test_patterns = [
         'test_', '_test.', '.test.', 'spec.', '_spec.',
         'tests.', 'testing.', 'mock.', '_mock.', '_test.exs'
     ]
-    # Common test directories
+
     test_dirs = ['test', 'tests', '__tests__', 'spec', 'specs', 'testing']
 
     for pattern in test_patterns:
@@ -258,7 +258,7 @@ def is_test_file(file_path):
 
 
 def find_test_files(file_path, project_root):
-    """Find test files related to source file."""
+
     if not project_root:
         return []
 
@@ -266,11 +266,11 @@ def find_test_files(file_path, project_root):
     basename = os.path.basename(file_path)
     name_without_ext = os.path.splitext(basename)[0]
 
-    # Patterns to look for
+
     test_patterns = []
 
     if ext == '.rs':
-        # Rust: look for mod tests in same file, or tests/ directory
+
         test_patterns = [
             os.path.join(project_root, 'tests', '**', f'*{name_without_ext}*'),
             os.path.join(project_root, '**', 'tests', f'*{name_without_ext}*'),
@@ -309,13 +309,13 @@ def find_test_files(file_path, project_root):
     for pattern in test_patterns:
         found.extend(glob.glob(pattern, recursive=True))
 
-    return list(set(found))[:5]  # Limit to 5
+    return list(set(found))[:5]
 
 
 def get_test_reminder(file_path, project_root):
-    """Check if tests should be run and return reminder message."""
+
     if is_test_file(file_path):
-        return None  # Editing a test file, no reminder needed
+        return None
 
     ext = os.path.splitext(file_path)[1]
     code_extensions = ('.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.sh', '.bash', '.ex', '.exs', '.heex')
@@ -323,7 +323,7 @@ def get_test_reminder(file_path, project_root):
     if ext not in code_extensions:
         return None
 
-    # Check for marker file
+
     marker_dir = project_root or os.path.dirname(file_path)
     marker_file = os.path.join(marker_dir, '.crosslink', 'last_test_run')
 
@@ -337,16 +337,16 @@ def get_test_reminder(file_path, project_root):
         except OSError:
             code_modified_after_tests = True
     else:
-        # No marker = tests haven't been run
+
         code_modified_after_tests = True
 
     if not code_modified_after_tests:
         return None
 
-    # Find test files
+
     test_files = find_test_files(file_path, project_root)
 
-    # Generate test command based on project type
+
     test_cmd = None
     if ext == '.rs' and project_root:
         if os.path.exists(os.path.join(project_root, 'Cargo.toml')):
@@ -362,7 +362,7 @@ def get_test_reminder(file_path, project_root):
     elif ext == '.go' and project_root:
         test_cmd = 'go test ./...'
     elif ext in ('.sh', '.bash') and project_root:
-        # Check for bats test framework
+
         bats_dir = os.path.join(project_root, 'test')
         if os.path.isdir(bats_dir) and any(f.endswith('.bats') for f in os.listdir(bats_dir)):
             test_cmd = 'bats test/'

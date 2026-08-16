@@ -1,6 +1,6 @@
-// Coverage for the authenticated-download helper. We swap
-// `globalThis.fetch` for a mock that returns a blob response, and
-// spy on the DOM anchor machinery to assert the filename + URL hop.
+
+
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 

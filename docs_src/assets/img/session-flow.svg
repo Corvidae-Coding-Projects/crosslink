@@ -8,7 +8,7 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-  <!-- no background rect — page bg shows through -->
+
   <text x="260.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Session lifecycle</text>
   <text x="260.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">persistent memory across conversations</text>
   <line x1="260.0" y1="80" x2="260.0" y2="510" stroke="rgba(0,0,0,0.06)" stroke-width="3" stroke-linecap="round"/>

@@ -1,17 +1,17 @@
 const kQueryArg = "q";
 const kResultsArg = "show-results";
 
-// If items don't provide a URL, then both the navigator and the onSelect
-// function aren't called (and therefore, the default implementation is used)
-//
-// We're using this sentinel URL to signal to those handlers that this
-// item is a more item (along with the type) and can be handled appropriately
+
+
+
+
+
 const kItemTypeMoreHref = "0767FDFD-0422-4E5A-BC8A-3BE11E5BBA05";
 
-// Capture search params and clean ?q= from URL at module load time, before
-// any DOMContentLoaded handlers run. quarto-nav.js resolves all <a> hrefs
-// against window.location during DOMContentLoaded — if ?q= is still present,
-// every link on the page gets the query param baked into its href.
+
+
+
+
 const currentUrl = new URL(window.location);
 const kQuery = currentUrl.searchParams.get(kQueryArg);
 if (kQuery) {
@@ -21,8 +21,8 @@ if (kQuery) {
 }
 
 window.document.addEventListener("DOMContentLoaded", function (_event) {
-  // Ensure that search is available on this page. If it isn't,
-  // should return early and not do anything
+
+
   var searchEl = window.document.getElementById("quarto-search");
   if (!searchEl) return;
 
@@ -39,35 +39,35 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     language = quartoSearchOptions.language;
   }
 
-  // note the search mode
+
   if (quartoSearchOptions.type === "overlay") {
     searchEl.classList.add("type-overlay");
   } else {
     searchEl.classList.add("type-textbox");
   }
 
-  // Used to determine highlighting behavior for this page
-  // A `q` query param is expected when the user follows a search
-  // to this page
+
+
+
   const query = kQuery;
   const showSearchResults = currentUrl.searchParams.get(kResultsArg);
   const mainEl = window.document.querySelector("main");
 
-  // highlight matches on the page
+
   if (query && mainEl) {
     highlight(query, mainEl);
 
-    // Activate tabs on pageshow — after tabsets.js restores localStorage state.
-    // tabsets.js registers its pageshow handler during module execution (before
-    // DOMContentLoaded). By registering ours during DOMContentLoaded, listener
-    // ordering guarantees we run after tabsets.js — so search activation wins.
+
+
+
+
     window.addEventListener("pageshow", function (event) {
       if (!event.persisted) {
         for (const mark of mainEl.querySelectorAll("mark")) {
           openAllTabsetsContainingEl(mark);
         }
-        // Only scroll to first match when there's no hash fragment.
-        // With a hash, the browser already scrolled to the target section.
+
+
         if (!currentUrl.hash) {
           requestAnimationFrame(() => scrollToFirstVisibleMatch(mainEl));
         }
@@ -75,8 +75,8 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }, { once: true });
   }
 
-  // function to clear highlighting on the page when the search query changes
-  // (e.g. if the user edits the query or clears it)
+
+
   let highlighting = true;
   const resetHighlighting = (searchTerm) => {
     if (mainEl && highlighting && query && searchTerm !== query) {
@@ -85,14 +85,14 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }
   };
 
-  // Responsively switch to overlay mode if the search is present on the navbar
-  // Note that switching the sidebar to overlay mode requires more coordinate (not just
-  // the media query since we generate different HTML for sidebar overlays than we do
-  // for sidebar input UI)
+
+
+
+
   const detachedMediaQuery =
     quartoSearchOptions.type === "overlay" ? "all" : "(max-width: 991px)";
 
-  // If configured, include the analytics client to send insights
+
   const plugins = configurePlugins(quartoSearchOptions);
 
   let lastState = null;
@@ -121,12 +121,12 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
       return item.href;
     },
     onStateChange({ state }) {
-      // If this is a file URL, note that
 
-      // Perhaps reset highlighting
+
+
       resetHighlighting(state.query);
 
-      // If the panel just opened, ensure the panel is positioned properly
+
       if (state.isOpen) {
         if (lastState && !lastState.isOpen) {
           setTimeout(() => {
@@ -135,7 +135,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
         }
       }
 
-      // Perhaps show the copy link
+
       showCopyLink(state.query, quartoSearchOptions);
 
       lastState = state;
@@ -145,10 +145,10 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
         try {
           const items = source.getItems();
 
-          // Validate the items
+
           validateItems(items);
 
-          // group the items by document
+
           const groupedItems = new Map();
           items.forEach((item) => {
             const hrefParts = item.href.split("#");
@@ -159,9 +159,9 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             if (!items) {
               groupedItems.set(baseHref, [item]);
             } else {
-              // If the href for this item matches the document
-              // exactly, place this item first as it is the item that represents
-              // the document itself
+
+
+
               if (isDocumentItem) {
                 items.unshift(item);
               } else {
@@ -225,7 +225,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             },
           };
         } catch (error) {
-          // Some form of error occurred
+
           return {
             ...source,
             getItems() {
@@ -285,7 +285,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             if (item.type === kItemTypeMore) {
               toggleExpanded(item, state, setContext, setActiveItemId, refresh);
 
-              // Toggle more
+
               setIsOpen(true);
             }
           },
@@ -298,7 +298,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
             if (quartoSearchOptions.algolia) {
               return algoliaSearch(query, limit, quartoSearchOptions.algolia);
             } else {
-              // Fuse search options
+
               const fuseSearchOptions = {
                 isCaseSensitive: false,
                 shouldSort: true,
@@ -325,7 +325,7 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
               );
             },
             header({ items, createElement }) {
-              // count the documents
+
               const count = items.filter((item) => {
                 return item.type === kItemTypeDoc;
               }).length;
@@ -419,8 +419,8 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     }
   });
 
-  // Remove the labeleledby attribute since it is pointing
-  // to a non-existent label
+
+
   if (quartoSearchOptions.type === "overlay") {
     const inputEl = window.document.querySelector(
       "#quarto-search .aa-Autocomplete"
@@ -443,13 +443,13 @@ window.document.addEventListener("DOMContentLoaded", function (_event) {
     };
   }
 
-  // If the main document scrolls dismiss the search results
-  // (otherwise, since they're floating in the document they can scroll with the document)
+
+
   window.document.body.onscroll = throttle(() => {
-    // Only do this if we're not detached
-    // Bug #7117
-    // This will happen when the keyboard is shown on ios (resulting in a scroll)
-    // which then closed the search UI
+
+
+
+
     if (!window.matchMedia(detachedMediaQuery).matches) {
       setIsOpen(false);
     }
@@ -473,18 +473,18 @@ function configurePlugins(quartoSearchOptions) {
     const apiKey = algoliaOptions["search-only-api-key"];
     const appId = algoliaOptions["application-id"];
 
-    // Aloglia insights may not be loaded because they require cookie consent
-    // Use deferred loading so events will start being recorded when/if consent
-    // is granted.
+
+
+
     const algoliaInsightsDeferredPlugin = deferredLoadPlugin(() => {
       if (
         window.aa &&
         window["@algolia/autocomplete-plugin-algolia-insights"]
       ) {
-        // Check if cookie consent is enabled from search options
+
         const cookieConsentEnabled = algoliaOptions["cookie-consent-enabled"] || false;
 
-        // Generate random session token only when cookies are disabled
+
         const userToken = cookieConsentEnabled ? undefined : Array.from(Array(20), () =>
           Math.floor(Math.random() * 36).toString(36)
         ).join("");
@@ -498,19 +498,19 @@ function configurePlugins(quartoSearchOptions) {
 
         const { createAlgoliaInsightsPlugin } =
           window["@algolia/autocomplete-plugin-algolia-insights"];
-        // Register the insights client
+
         const algoliaInsightsPlugin = createAlgoliaInsightsPlugin({
           insightsClient: window.aa,
           onItemsChange({ insights, insightsEvents }) {
             const events = insightsEvents.flatMap((event) => {
-              // This API limits the number of items per event to 20
+
               const chunkSize = 20;
               const itemChunks = [];
               const eventItems = event.items;
               for (let i = 0; i < eventItems.length; i += chunkSize) {
                 itemChunks.push(eventItems.slice(i, i + chunkSize));
               }
-              // Split the items into multiple events that can be sent
+
               const events = itemChunks.map((items) => {
                 return {
                   ...event,
@@ -529,17 +529,17 @@ function configurePlugins(quartoSearchOptions) {
       }
     });
 
-    // Add the plugin
+
     autocompletePlugins.push(algoliaInsightsDeferredPlugin);
     return autocompletePlugins;
   }
 }
 
-// For plugins that may not load immediately, create a wrapper
-// plugin and forward events and plugin data once the plugin
-// is initialized. This is useful for cases like cookie consent
-// which may prevent the analytics insights event plugin from initializing
-// immediately.
+
+
+
+
+
 function deferredLoadPlugin(createPlugin) {
   let plugin = undefined;
   let subscribeObj = undefined;
@@ -593,7 +593,7 @@ function deferredLoadPlugin(createPlugin) {
 }
 
 function validateItems(items) {
-  // Validate the first item
+
   if (items.length > 0) {
     const item = items[0];
     const missingFields = [];
@@ -631,7 +631,7 @@ let lastQuery = null;
 function showCopyLink(query, options) {
   const language = options.language;
   lastQuery = query;
-  // Insert share icon
+
   const inputSuffixEl = window.document.body.querySelector(
     ".aa-Form .aa-InputWrapperSuffix"
   );
@@ -668,13 +668,13 @@ function showCopyLink(query, options) {
         },
       });
       clipboard.on("success", function (e) {
-        // Focus the input
 
-        // button target
+
+
         const button = e.trigger;
         const icon = button.querySelector("i.bi");
 
-        // flash "checked"
+
         icon.classList.add(checkIcon);
         icon.classList.remove(linkIcon);
         setTimeout(function () {
@@ -684,7 +684,7 @@ function showCopyLink(query, options) {
       });
     }
 
-    // If there is a query, show the link icon
+
     if (copyButtonEl) {
       if (lastQuery && options["copy-button"]) {
         copyButtonEl.style.display = "flex";
@@ -695,12 +695,12 @@ function showCopyLink(query, options) {
   }
 }
 
-/* Search Index Handling */
-// create the index
+
+
 var fuseIndex = undefined;
 var shownWarning = false;
 
-// fuse index options
+
 const kFuseIndexOptions = {
   keys: [
     { name: "title", weight: 20 },
@@ -712,7 +712,7 @@ const kFuseIndexOptions = {
 };
 
 async function readSearchData() {
-  // Initialize the search index on demand
+
   if (fuseIndex === undefined) {
     if (window.location.protocol === "file:" && !shownWarning) {
       window.alert(
@@ -723,7 +723,7 @@ async function readSearchData() {
     }
     const fuse = new window.Fuse([], kFuseIndexOptions);
 
-    // fetch the main search.json
+
     const response = await fetch(offsetURL("search.json"));
     if (response.status == 200) {
       return response.json().then(function (searchDocs) {
@@ -758,7 +758,7 @@ function focusSearchInput() {
   }, 50);
 }
 
-/* Panels */
+
 const kItemTypeDoc = "document";
 const kItemTypeMore = "document-more";
 const kItemTypeItem = "document-item";
@@ -917,8 +917,8 @@ function createMoreCard(
     {
       class: "search-result-more search-item",
       onClick: (e) => {
-        // Handle expanding the sections by adding the expanded
-        // section to the list of expanded sections
+
+
         toggleExpanded(item, state, setContext, setActiveItemId, refresh);
         e.stopPropagation();
       },
@@ -1013,8 +1013,8 @@ function positionPanel(pos) {
   }
 }
 
-/* Highlighting */
-// highlighting functions
+
+
 function highlightMatch(query, text) {
   if (text) {
     const start = text.toLowerCase().indexOf(query.toLowerCase());
@@ -1051,13 +1051,13 @@ function highlightMatch(query, text) {
 function clipStart(text, pos) {
   const clipStart = pos - 50;
   if (clipStart < 0) {
-    // This will just return the start of the string
+
     return {
       position: 0,
       prefix: "",
     };
   } else {
-    // We're clipping before the start of the string, walk backwards to the first space.
+
     const spacePos = findSpace(text, pos, -1);
     return {
       position: spacePos.position,
@@ -1101,7 +1101,7 @@ function findSpace(text, start, step) {
   };
 }
 
-// removes highlighting as implemented by the mark tag
+
 function clearHighlight(searchterm, el) {
   const childNodes = el.childNodes;
   for (let i = childNodes.length - 1; i >= 0; i--) {
@@ -1119,7 +1119,7 @@ function clearHighlight(searchterm, el) {
   }
 }
 
-/** Get all html nodes under the given `root` that don't have children. */
+
 function getLeafNodes(root) {
   let leaves = [];
 
@@ -1134,13 +1134,13 @@ function getLeafNodes(root) {
   traverse(root);
   return leaves;
 }
-/** create and return `<mark>${txt}</mark>` */
+
 const markEl = txt => {
   const el = document.createElement("mark");
   el.appendChild(document.createTextNode(txt));
   return el
 }
-/** get all ancestors of an element matching the given css selector */
+
 const matchAncestors = (el, selector) => {
   let ancestors = [];
   while (el) {
@@ -1151,17 +1151,17 @@ const matchAncestors = (el, selector) => {
 };
 
 const isWhitespace = s => s.trim().length === 0
-// =================
-// MATCHING CODE
-// =================
+
+
+
 const initMatch = () => ({
   i: 0,
   lohisByNode: new Map()
 })
-/**
- * keeps track of the start (lo) and end (hi) index of the match per node (leaf)
- * note: mutates the contents of `matchContext`
- */
+
+
+
+
 const advanceMatch = (leaf, leafi, matchContext) => {
   matchContext.i++
 
@@ -1169,46 +1169,46 @@ const advanceMatch = (leaf, leafi, matchContext) => {
 
   matchContext.lohisByNode.set(leaf, { lo: curLoHi?.lo ?? leafi, hi: leafi })
 }
-/**
- * Finds all non-overlapping matches for a search string in the document.
- * The search string may be split between multiple consecutive leaf nodes.
- *
- * Whitespace in the search string must be present in the document to match, but
- * there may be addititional whitespace in the document that is ignored.
- *
- * e.g. searching for `dogs rock` would match `dogs  \n <span> rock</span>`,
- * and would contribute the match
- * `{ i:9, els: new Map([[textNode, {lo:0, hi:8}],[spanNode,{lo:0,hi:5}]]) }`
- *
- * @returns {Map<HTMLElement,{lo:number,hi:number}>[]}
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 function searchMatches(inSearch, el) {
-  // searchText has all sequences of whitespace replaced by a single space
+
   const searchText = inSearch.toLowerCase().replace(/\s+/g, ' ')
   const leafNodes = getLeafNodes(el)
 
-  /** @type {Map<HTMLElement,{lo:number,hi:number}>[]} */
+
   const matches = []
-  /** @type {{i:number; els:Map<HTMLElement,{lo:number,hi:number}>}[]} */
+
   let curMatchContext = initMatch()
 
   for (const leaf of leafNodes) {
     const leafStr = leaf.textContent.toLowerCase()
-    // for each character in this leaf's text:
+
     for (let leafi = 0; leafi < leafStr.length; leafi++) {
 
       if (isWhitespace(leafStr[leafi])) {
-        // if there is at least one whitespace in the document
-        // we advance over a search text whitespace.
+
+
         if (isWhitespace(searchText[curMatchContext.i])) advanceMatch(leaf, leafi, curMatchContext)
-        // all sequences of whitespace are otherwise ignored.
+
       } else {
         if (searchText[curMatchContext.i] === leafStr[leafi]) {
           advanceMatch(leaf, leafi, curMatchContext)
         } else {
           curMatchContext = initMatch()
-          // if current character in the document did not match at i in the search text,
-          // reset the search and see if that character matches at 0 in the search text.
+
+
           if (searchText[curMatchContext.i] === leafStr[leafi]) advanceMatch(leaf, leafi, curMatchContext)
         }
       }
@@ -1224,13 +1224,13 @@ function searchMatches(inSearch, el) {
   return matches
 }
 
-/**
- * e.g. `markMatches(myTextNode, [[0,5],[12,15]])` would wrap the
- * character sequences in myTextNode from 0-5 and 12-15 in marks.
- * Its important to mark all sequences in a text node at once
- * because this function replaces the entire text node; so any
- * other references to that text node will no longer be in the DOM.
- */
+
+
+
+
+
+
+
 function markMatches(node, lohis) {
   const text = node.nodeValue
 
@@ -1253,9 +1253,9 @@ function markMatches(node, lohis) {
   return parent
 }
 
-// Activate ancestor tabs so a search match inside an inactive pane becomes visible.
-// When multiple panes in the same tabset contain matches, avoid switching away from
-// the currently active pane — the user already sees a match there.
+
+
+
 function openAllTabsetsContainingEl(el) {
   for (const pane of matchAncestors(el, '.tab-pane')) {
     const tabContent = pane.closest('.tab-content');
@@ -1279,28 +1279,28 @@ function scrollToFirstVisibleMatch(mainEl) {
   }
 }
 
-/**
- * e.g.
- * ```js
- * const m = new Map()
- *
- * arrayMapPush(m, 'dog', 'Max')
- * console.log(m) // Map { dog->['Max'] }
- *
- * arrayMapPush(m, 'dog', 'Samba')
- * arrayMapPush(m, 'cat', 'Scruffle')
- * console.log(m) // Map { dog->['Max', 'Samba'], cat->['Scruffle'] }
- * ```
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
 const arrayMapPush = (map, key, item) => {
   if (!map.has(key)) map.set(key, [])
   map.set(key, [...map.get(key), item])
 }
 
-// copy&paste any string from a quarto page and
-// this should find that string in the page and highlight it.
-// exception: text that starts outside/inside a tabset and ends
-// inside/outside that tabset.
+
+
+
+
 function highlight(searchStr, el) {
   const matches = searchMatches(searchStr, el);
 
@@ -1316,14 +1316,14 @@ function highlight(searchStr, el) {
   }
 }
 
-/* Link Handling */
-// get the offset from this page for a given site root relative url
+
+
 function offsetURL(url) {
   var offset = getMeta("quarto:offset");
   return offset ? offset + url : url;
 }
 
-// read a meta tag value
+
 function getMeta(metaName) {
   var metas = window.document.getElementsByTagName("meta");
   for (let i = 0; i < metas.length; i++) {
@@ -1401,23 +1401,23 @@ const kFuseMaxWait = 125;
 
 async function fuseSearch(query, fuse, fuseOptions) {
   let index = fuse;
-  // Fuse.js using the Bitap algorithm for text matching which runs in
-  // O(nm) time (no matter the structure of the text). In our case this
-  // means that long search terms mixed with large index gets very slow
-  //
-  // This injects a subIndex that will be used once the terms get long enough
-  // Usually making this subindex is cheap since there will typically be
-  // a subset of results matching the existing query
+
+
+
+
+
+
+
   if (subSearchFuse !== undefined && query.startsWith(subSearchTerm)) {
-    // Use the existing subSearchFuse
+
     index = subSearchFuse;
   } else if (subSearchFuse !== undefined) {
-    // The term changed, discard the existing fuse
+
     subSearchFuse = undefined;
     subSearchTerm = undefined;
   }
 
-  // Search using the active fuse
+
   const then = performance.now();
   const resultsRaw = await index.search(query, fuseOptions);
   const now = performance.now();
@@ -1440,8 +1440,8 @@ async function fuseSearch(query, fuse, fuseOptions) {
     };
   });
 
-  // If we don't have a subfuse and the query is long enough, go ahead
-  // and create a subfuse to use for subsequent queries
+
+
   if (
     now - then > kFuseMaxWait &&
     subSearchFuse === undefined &&

@@ -1,19 +1,15 @@
-// E-ana tablet — kickoff helpers: pure utility functions
 use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
 
 use super::types::*;
 
-/// Maximum slug length: 64 (`agent_id` limit) - 4 (repo) - 1 (-) - 4 (agent) - 1 (-) = 54.
 pub(crate) const MAX_SLUG_LEN: usize = 54;
 
-/// Slugify a feature description into a branch-safe name.
 pub(crate) fn slugify(description: &str) -> String {
     slugify_with_max(description, MAX_SLUG_LEN)
 }
 
-/// Slugify with a custom max length.
 fn slugify_with_max(description: &str, max_len: usize) -> String {
     let slug: String = description
         .to_lowercase()
@@ -21,7 +17,6 @@ fn slugify_with_max(description: &str, max_len: usize) -> String {
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect();
 
-    // Collapse multiple hyphens and trim
     let mut result = String::new();
     let mut prev_hyphen = false;
     for c in slug.chars() {
@@ -36,10 +31,8 @@ fn slugify_with_max(description: &str, max_len: usize) -> String {
         }
     }
 
-    // Trim trailing hyphens and truncate
     let trimmed = result.trim_end_matches('-');
     if trimmed.len() > max_len {
-        // Cut at the last hyphen before max_len chars to avoid mid-word
         trimmed[..max_len].rfind('-').map_or_else(
             || trimmed[..max_len].to_string(),
             |pos| trimmed[..pos].to_string(),
@@ -49,9 +42,6 @@ fn slugify_with_max(description: &str, max_len: usize) -> String {
     }
 }
 
-/// Parse an optional `AC-N:` prefix from a criterion string.
-///
-/// Returns `(id, remaining_text)`. If no prefix found, id is empty.
 pub(super) fn parse_criterion_id(text: &str) -> (String, String) {
     let trimmed = text.trim();
     let upper = trimmed.to_uppercase();
@@ -68,10 +58,6 @@ pub(super) fn parse_criterion_id(text: &str) -> (String, String) {
     (String::new(), trimmed.to_string())
 }
 
-/// Extract acceptance criteria from a parsed design doc into a structured format.
-///
-/// Criteria with `AC-N:` prefixes keep their explicit IDs; others get
-/// sequential IDs assigned, skipping any numbers already claimed by explicit IDs.
 pub(crate) fn extract_criteria(
     doc: &super::super::design_doc::DesignDoc,
     source_filename: &str,
@@ -119,12 +105,6 @@ pub(crate) fn extract_criteria(
     }
 }
 
-/// Subdirectories skipped by [`has_manifest`] when scanning one level deep.
-///
-/// These contain vendored / build / cache artifacts whose manifests should
-/// never light up toolchain support for the parent project (e.g. a stray
-/// `Cargo.toml` deep inside `node_modules/` is not signal). The list also
-/// includes infra dotdirs so we don't pull in `.crosslink/`'s own config.
 const SKIP_SCAN_DIRS: &[&str] = &[
     "node_modules",
     "target",
@@ -151,14 +131,6 @@ const SKIP_SCAN_DIRS: &[&str] = &[
     ".rustup",
 ];
 
-/// Return `true` when `repo_root` contains `filename` at the root or exactly
-/// one directory level deep (skipping hidden and vendored/build dirs).
-///
-/// Catches the common monorepo layout where the canonical build manifest
-/// lives in a named subdirectory -- e.g. `crosslink/Cargo.toml` here, or
-/// `<repo>/santana-core/Cargo.toml` in santana. Without this, kickoff
-/// agents in such repos see no Rust/Python/etc. tools in `--allowedTools`
-/// and end up sandbox-denied for `cargo`, `uv`, etc. See GH#584.
 fn has_manifest(repo_root: &Path, filename: &str) -> bool {
     if repo_root.join(filename).is_file() {
         return true;
@@ -174,8 +146,7 @@ fn has_manifest(repo_root: &Path, filename: &str) -> bool {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        // Skip hidden dirs except the few explicitly listed in SKIP_SCAN_DIRS
-        // (those are listed so future readers see why they're excluded).
+
         if name.starts_with('.') {
             continue;
         }
@@ -189,14 +160,6 @@ fn has_manifest(repo_root: &Path, filename: &str) -> bool {
     false
 }
 
-/// Read additional `--allowedTools` patterns from
-/// `hook-config.json`'s `kickoff.allowed_tools` array.
-///
-/// Returns an empty vector when the file is missing, unparseable, or has no
-/// such key. Project owners use this to extend the kickoff agent's tool
-/// surface beyond what convention detection picks up automatically -- e.g.
-/// when the project's manifests live two or more levels deep, or when the
-/// agent needs a tool the auto-detect doesn't know about. See GH#584.
 pub(crate) fn read_kickoff_allowed_tools(crosslink_dir: &Path) -> Vec<String> {
     let config_path = crosslink_dir.join("hook-config.json");
     let Ok(content) = std::fs::read_to_string(&config_path) else {
@@ -217,7 +180,6 @@ pub(crate) fn read_kickoff_allowed_tools(crosslink_dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Detect project conventions from the repo root.
 pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     let mut conv = ProjectConventions {
         test_command: None,
@@ -225,7 +187,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         allowed_tools: Vec::new(),
     };
 
-    // Rust
     if has_manifest(repo_root, "Cargo.toml") {
         conv.test_command = Some("cargo test".to_string());
         conv.lint_commands
@@ -234,7 +195,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(cargo *)".to_string());
     }
 
-    // Node/TypeScript
     if has_manifest(repo_root, "package.json") {
         if conv.test_command.is_none() {
             conv.test_command = Some("npm test".to_string());
@@ -243,7 +203,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(npx *)".to_string());
     }
 
-    // Python
     if has_manifest(repo_root, "pyproject.toml") || has_manifest(repo_root, "requirements.txt") {
         if conv.test_command.is_none() {
             conv.test_command = Some("uv run pytest".to_string());
@@ -254,7 +213,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(pytest *)".to_string());
     }
 
-    // Go
     if has_manifest(repo_root, "go.mod") {
         if conv.test_command.is_none() {
             conv.test_command = Some("go test ./...".to_string());
@@ -263,17 +221,14 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(go *)".to_string());
     }
 
-    // Just
     if has_manifest(repo_root, "justfile") || has_manifest(repo_root, "Justfile") {
         conv.allowed_tools.push("Bash(just *)".to_string());
     }
 
-    // Make
     if has_manifest(repo_root, "Makefile") || has_manifest(repo_root, "makefile") {
         conv.allowed_tools.push("Bash(make *)".to_string());
     }
 
-    // Shell: detect via .shellcheckrc or .sh files in root/scripts/bin
     let has_shell = repo_root.join(".shellcheckrc").is_file()
         || ["", "scripts", "bin"].iter().any(|sub| {
             let dir = if sub.is_empty() {
@@ -298,7 +253,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(bats *)".to_string());
     }
 
-    // Elixir
     if repo_root.join("mix.exs").is_file() {
         if conv.test_command.is_none() {
             conv.test_command = Some("mix test".to_string());
@@ -325,7 +279,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
             .push("Bash(mix phx.routes *)".to_string());
         conv.allowed_tools.push("Bash(mix dialyzer *)".to_string());
 
-        // Credo (check if it's a dep)
         if let Ok(content) = std::fs::read_to_string(repo_root.join("mix.exs")) {
             if content.contains(":credo") {
                 conv.lint_commands.push("mix credo --strict".to_string());
@@ -335,9 +288,7 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
                 conv.lint_commands.push("mix sobelow --config".to_string());
                 conv.allowed_tools.push("Bash(mix sobelow *)".to_string());
             }
-            // Tidewave MCP tools (if :tidewave is a dep and a local dev server is running)
-            // NOTE: subagent support for starting mix phx.server is TBD — for now
-            // these tools are available but require a running dev server
+
             if content.contains(":tidewave") {
                 conv.allowed_tools
                     .push("mcp__tidewave__get_logs".to_string());
@@ -366,7 +317,6 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     conv
 }
 
-/// Format the verification level as a display string.
 pub(crate) const fn verify_level_name(level: &VerifyLevel) -> &'static str {
     match level {
         VerifyLevel::Local => "local",
@@ -375,7 +325,6 @@ pub(crate) const fn verify_level_name(level: &VerifyLevel) -> &'static str {
     }
 }
 
-/// Check a kickoff report for missing recommended fields.
 pub(crate) fn validate_kickoff_report(report: &KickoffReport) -> Vec<String> {
     let mut warnings = Vec::new();
     if report.schema_version.is_none() {
@@ -393,13 +342,10 @@ pub(crate) fn validate_kickoff_report(report: &KickoffReport) -> Vec<String> {
     warnings
 }
 
-/// Compute which patterns need adding to a git exclude file.
-///
-/// Given the existing exclude file content, returns only the patterns
-/// from `KICKOFF_EXCLUDE_PATTERNS` that are not already present.
 pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &[
     "KICKOFF.md",
     ".kickoff-status",
+    ".kickoff-session",
     ".kickoff-slug",
     ".kickoff-metadata.json",
     ".kickoff-doc.json",
@@ -417,35 +363,26 @@ pub(crate) fn missing_exclude_patterns(existing_content: &str) -> Vec<&'static s
         .collect()
 }
 
-/// Outcome of comparing the on-disk design doc against the launch-time hash.
-///
-/// Returned by [`verify_protected_doc`]; consumed by `monitor::report` /
-/// `monitor::status` so they can warn loudly when the agent rewrote the
-/// canonical input it was given via `--doc`. See GH#580.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DocIntegrity {
-    /// No `.kickoff-doc.json` breadcrumb — `--doc` wasn't used. Nothing to check.
     NotProtected,
-    /// SHA-256 of the current file matches the recorded launch-time hash.
-    Match { rel_path: String },
-    /// The current file's SHA-256 differs from the recorded hash. The agent
-    /// — or some other writer — modified the canonical design doc.
+
+    Match {
+        rel_path: String,
+    },
+
     Mismatch {
         rel_path: String,
         expected: String,
         actual: String,
     },
-    /// The breadcrumb exists but the on-disk doc has gone missing or could
-    /// not be read. Indicates an outright deletion or rename.
-    Missing { rel_path: String, reason: String },
+
+    Missing {
+        rel_path: String,
+        reason: String,
+    },
 }
 
-/// Compare the worktree's design doc against the hash recorded at launch.
-///
-/// Reads `.kickoff-doc.json` (written by `kickoff run` when `--doc` was used),
-/// re-hashes the file it points at, and returns a structured verdict. Any I/O
-/// or parse failure short of "breadcrumb missing entirely" surfaces as
-/// `DocIntegrity::Missing` so callers can render a clear message.
 pub(crate) fn verify_protected_doc(worktree_dir: &Path) -> DocIntegrity {
     let breadcrumb_path = worktree_dir.join(".kickoff-doc.json");
     let Ok(raw) = std::fs::read_to_string(&breadcrumb_path) else {
@@ -486,10 +423,6 @@ pub(crate) fn verify_protected_doc(worktree_dir: &Path) -> DocIntegrity {
     }
 }
 
-/// Derive a tmux session name from a compact name (or legacy slug).
-///
-/// New format: uses the compact name directly (already ≤64 chars).
-/// Legacy format: `feat-{slug}` capped at 50 chars.
 pub(crate) fn tmux_session_name(name: &str) -> String {
     let sanitized: String = name
         .chars()
@@ -502,7 +435,6 @@ pub(crate) fn tmux_session_name(name: &str) -> String {
     }
 }
 
-/// Check if a tmux session with the given name already exists.
 pub(super) fn tmux_session_exists(name: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", name])
@@ -510,7 +442,6 @@ pub(super) fn tmux_session_exists(name: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-/// Check if a command is available on PATH.
 pub(crate) fn command_available(cmd: &str) -> bool {
     #[cfg(target_os = "windows")]
     let lookup = Command::new("where.exe").arg(cmd).output();
@@ -520,7 +451,6 @@ pub(crate) fn command_available(cmd: &str) -> bool {
     lookup.is_ok_and(|o| o.status.success())
 }
 
-/// Detect the current platform and Linux distribution (if applicable).
 pub(super) fn detect_platform() -> Platform {
     if cfg!(target_os = "macos") {
         Platform::MacOS
@@ -531,7 +461,6 @@ pub(super) fn detect_platform() -> Platform {
     }
 }
 
-/// Detect the Linux distribution by reading /etc/os-release.
 pub(super) fn detect_linux_distro() -> LinuxDistro {
     let content = match std::fs::read_to_string("/etc/os-release") {
         Ok(c) => c.to_lowercase(),
@@ -563,7 +492,6 @@ pub(super) fn detect_linux_distro() -> LinuxDistro {
     }
 }
 
-/// Build a platform-specific install hint for a given command.
 pub(super) fn install_hint(cmd: &str, platform: &Platform) -> String {
     match cmd {
         "timeout" | "gtimeout" => match platform {
@@ -748,7 +676,6 @@ pub(super) fn install_hint(cmd: &str, platform: &Platform) -> String {
     }
 }
 
-/// Format seconds as a human-readable duration string.
 pub(crate) fn format_duration(secs: u64) -> String {
     if secs >= 3600 {
         let h = secs / 3600;
@@ -771,7 +698,6 @@ pub(crate) fn format_duration(secs: u64) -> String {
     }
 }
 
-/// Truncate a string to `max` characters (char-boundary safe).
 pub(super) fn truncate_str(s: &str, max: usize) -> String {
     if s.chars().count() > max {
         s.chars().take(max).collect()
@@ -780,7 +706,6 @@ pub(super) fn truncate_str(s: &str, max: usize) -> String {
     }
 }
 
-/// Normalize raw status file content to a canonical status string.
 pub(super) fn normalize_status(raw: &str) -> String {
     let lower = raw.to_lowercase();
     if lower == "done" {
@@ -788,9 +713,6 @@ pub(super) fn normalize_status(raw: &str) -> String {
     } else if lower.contains("fail") || lower.contains("error") {
         "failed".to_string()
     } else if lower.contains("timeout") || lower.contains("timed") {
-        // gh#60: the launch command writes a TIMEOUT sentinel when the
-        // timeout wrapper kills the agent; classify it like the wall-clock
-        // derived "timed-out" value.
         "timed-out".to_string()
     } else if lower.contains("running") || raw.is_empty() {
         "running".to_string()
@@ -799,14 +721,12 @@ pub(super) fn normalize_status(raw: &str) -> String {
     }
 }
 
-/// Read the timeout metadata for display purposes.
 pub(super) fn read_timeout_metadata(wt_path: &Path) -> Option<KickoffMetadata> {
     let meta_path = wt_path.join(".kickoff-metadata.json");
     let content = std::fs::read_to_string(&meta_path).ok()?;
     serde_json::from_str(&content).ok()
 }
 
-/// Read the agent ID from the worktree's .crosslink/agent.json.
 pub(super) fn read_agent_id(wt_path: &Path, _crosslink_dir: &Path) -> Option<String> {
     let agent_json = wt_path.join(".crosslink").join("agent.json");
     if agent_json.exists() {
@@ -822,21 +742,18 @@ pub(super) fn read_agent_id(wt_path: &Path, _crosslink_dir: &Path) -> Option<Str
     None
 }
 
-/// Try to read the associated issue from kickoff metadata.
 pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<String> {
-    // Try .kickoff-criteria.json first (has issue ID from kickoff)
     let criteria_path = wt_path.join(".kickoff-criteria.json");
     if criteria_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&criteria_path) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                // The criteria file might have issue_id in extracted metadata
                 if let Some(id) = val.get("issue_id").and_then(serde_json::Value::as_i64) {
                     return Some(crate::utils::format_issue_id(id));
                 }
             }
         }
     }
-    // Try .crosslink/agent.json
+
     let agent_json = wt_path.join(".crosslink").join("agent.json");
     if agent_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&agent_json) {
@@ -850,7 +767,6 @@ pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<
     None
 }
 
-/// Generate a small random numeric suffix (no external crate needed).
 pub(super) fn rand_suffix() -> u32 {
     use std::time::SystemTime;
     let seed = SystemTime::now()
@@ -860,10 +776,6 @@ pub(super) fn rand_suffix() -> u32 {
     seed % 10000
 }
 
-/// Generate a 4-character hex suffix for worktree directory uniqueness.
-///
-/// Combines nanosecond timestamp with process ID to avoid collisions
-/// when two processes start in the same nanosecond window.
 pub(super) fn rand_hex_suffix() -> String {
     use std::time::SystemTime;
     let nanos = SystemTime::now()
@@ -875,13 +787,11 @@ pub(super) fn rand_hex_suffix() -> String {
     format!("{:04x}", mixed & 0xFFFF)
 }
 
-/// Classify an agent for cleanup purposes.
 pub(super) fn classify_agent(agent: &AgentInfo) -> CleanupClass {
     match agent.status.as_str() {
-        // "done" and "failed" agents are safe to clean up (terminal states)
         "done" | "failed" => CleanupClass::Done,
         "running" => CleanupClass::Active,
-        // "stopped", "timed-out", and anything else — potentially stale
+
         _ => CleanupClass::Stale,
     }
 }

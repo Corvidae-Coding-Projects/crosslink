@@ -147,11 +147,11 @@ Modify `src/sync/mod.rs` to wrap the existing
 
 ## Open Questions
 
-<!-- OPEN: Q1 -->
+
 ### Q1: Metrics and observability
 Should retry counts be exposed via the existing
 metrics in `src/telemetry/mod.rs`?
-<!-- /OPEN -->
+
 
 ## Out of Scope
 - Circuit breaker pattern (separate feature)
@@ -184,7 +184,7 @@ Design doc validation:
 
 > "Yes, add metrics. And also handle partial batch failures."
 
-You can edit the document directly in your editor, resolve open questions by removing the `<!-- OPEN -->` markers, or tell your agent to continue iterating.
+You can edit the document directly in your editor, resolve open questions by removing the `             ` markers, or tell your agent to continue iterating.
 :::
 ::: {.column width="5%"}
 →
@@ -205,7 +205,7 @@ Each iteration strengthens the document:
 - Resolved questions become concrete requirements
 - New scope additions get new acceptance criteria
 - Architecture references are updated if new files are involved
-- New ambiguities surface as `<!-- OPEN -->` blocks
+- New ambiguities surface as `             ` blocks
 
 &nbsp;
 

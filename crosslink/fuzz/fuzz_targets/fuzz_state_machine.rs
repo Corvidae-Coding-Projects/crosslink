@@ -8,21 +8,21 @@ use crosslink::db::Database;
 
 #[derive(Arbitrary, Debug, Clone)]
 enum StateOp {
-    // Issue lifecycle
+
     CreateIssue { title: String, priority: String },
     CloseIssue { idx: usize },
     ReopenIssue { idx: usize },
     ArchiveIssue { idx: usize },
     UnarchiveIssue { idx: usize },
     DeleteIssue { idx: usize },
-    // Session lifecycle
+
     StartSession,
     EndSession { notes: Option<String> },
     SetSessionIssue { idx: usize },
-    // Timer lifecycle
+
     StartTimer { idx: usize },
     StopTimer { idx: usize },
-    // Queries (should never panic)
+
     GetCurrentSession,
     GetActiveTimer,
     ListIssues,
@@ -135,7 +135,7 @@ fuzz_target!(|input: StateMachineInput| {
         }
     }
 
-    // Final consistency checks - should never panic
+
     let _ = db.get_current_session_for_agent(None);
     let _ = db.get_active_timer();
     let _ = db.list_issues(None, None, None);

@@ -1,7 +1,7 @@
-// /terminals — list of live + recently-exited PTY sessions, with a
-// spawn form and an attach pane backed by xterm.js. Replaces the
-// previous "drop to a real terminal" friction for design / kickoff
-// sessions launched from the dashboard.
+
+
+
+
 
 import { useState } from "react";
 

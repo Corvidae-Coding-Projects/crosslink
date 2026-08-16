@@ -192,17 +192,10 @@ fn auth_logout(provider: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
-// GHCR-namespaced image name so this command composes with `crosslink kickoff
-// run --container docker|podman` (which defaults to the same registry path).
-// Built images, lookup paths, and snapshot tags all live under this name.
 const IMAGE_NAME: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent";
-// Default tag when starting a container or checking staleness — matches
-// kickoff's `--image` default so a `docker pull` of the published image
-// satisfies both code paths.
+
 const IMAGE_TAG: &str = "latest";
-// Default tag emitted by `crosslink container build`. Distinct from
-// IMAGE_TAG so a local rebuild doesn't shadow a pulled `:latest` —
-// matches the `:local` convention used by the `just build-image` recipe.
+
 const BUILD_DEFAULT_TAG: &str = "local";
 const CONTAINER_PREFIX: &str = "crosslink-task-";
 const LABEL_AGENT: &str = "crosslink-agent=true";
@@ -210,11 +203,6 @@ const LABEL_AGENT: &str = "crosslink-agent=true";
 const DOCKERFILE: &str = include_str!("../../resources/container/Dockerfile");
 const ENTRYPOINT: &str = include_str!("../../resources/container/entrypoint.sh");
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Check if Docker is available and the daemon is running.
 pub fn docker_available() -> bool {
     Command::new("docker")
         .args(["info"])
@@ -224,21 +212,18 @@ pub fn docker_available() -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// Find the crosslink binary path for copying into the build context.
 fn find_crosslink_binary() -> Result<PathBuf> {
     std::env::current_exe().context("Could not determine crosslink binary path")
 }
 
-/// Compute a SHA-256 hash of a file (first 16 hex chars for brevity).
 fn file_hash(path: &Path) -> Result<String> {
     use std::io::Read;
     let mut file = std::fs::File::open(path)?;
-    // Read first 64KB — enough to detect changes without hashing a 50MB debug binary
+
     let mut buf = vec![0u8; 65536];
     let n = file.read(&mut buf)?;
     buf.truncate(n);
 
-    // Simple FNV-1a hash (no external dep needed)
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for &byte in &buf {
         hash ^= u64::from(byte);
@@ -247,7 +232,6 @@ fn file_hash(path: &Path) -> Result<String> {
     Ok(format!("{hash:016x}"))
 }
 
-/// Resolve the main repo root (handles worktrees).
 fn resolve_repo_root() -> Result<PathBuf> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -260,7 +244,6 @@ fn resolve_repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-/// Resolve the git common dir (shared .git for worktrees).
 fn resolve_git_common_dir() -> Result<PathBuf> {
     let output = Command::new("git")
         .args(["rev-parse", "--git-common-dir"])
@@ -271,7 +254,7 @@ fn resolve_git_common_dir() -> Result<PathBuf> {
     }
     let path_str = String::from_utf8(output.stdout)?.trim().to_string();
     let path = PathBuf::from(&path_str);
-    // git returns relative paths sometimes
+
     if path.is_absolute() {
         Ok(path)
     } else {
@@ -280,9 +263,7 @@ fn resolve_git_common_dir() -> Result<PathBuf> {
     }
 }
 
-/// Detect host memory in GB.
 fn detect_host_memory_gb() -> Option<u64> {
-    // Linux: /proc/meminfo
     if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
         for line in content.lines() {
             if line.starts_with("MemTotal:") {
@@ -295,7 +276,7 @@ fn detect_host_memory_gb() -> Option<u64> {
             }
         }
     }
-    // macOS: sysctl
+
     let output = Command::new("sysctl")
         .args(["-n", "hw.memsize"])
         .output()
@@ -308,7 +289,6 @@ fn detect_host_memory_gb() -> Option<u64> {
     None
 }
 
-/// Compute container memory limit: host RAM minus 2GB reserve, minimum 4GB.
 fn compute_memory_limit(config_override: Option<&str>) -> String {
     if let Some(val) = config_override {
         if val != "auto" {
@@ -316,7 +296,7 @@ fn compute_memory_limit(config_override: Option<&str>) -> String {
         }
     }
     detect_host_memory_gb().map_or_else(
-        || "8g".to_string(), // safe default
+        || "8g".to_string(),
         |host_gb| {
             let container_gb = if host_gb > 6 {
                 host_gb - 2
@@ -328,7 +308,6 @@ fn compute_memory_limit(config_override: Option<&str>) -> String {
     )
 }
 
-/// Get the image hash label if present.
 fn get_image_hash() -> Option<String> {
     let output = Command::new("docker")
         .args([
@@ -348,7 +327,6 @@ fn get_image_hash() -> Option<String> {
     None
 }
 
-/// Check if the image is stale compared to the running binary.
 fn check_staleness() {
     let Ok(binary_hash) = find_crosslink_binary().and_then(|p| file_hash(&p)) else {
         return;
@@ -363,20 +341,13 @@ fn check_staleness() {
     }
 }
 
-/// RAII guard to clean up a temp build directory on drop.
 struct BuildDirCleanup(PathBuf);
 impl Drop for BuildDirCleanup {
     fn drop(&mut self) {
-        // INTENTIONAL: temp dir cleanup in Drop is best-effort — OS will reclaim it eventually
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-/// Build the crosslink agent container image.
 pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available. Install Docker and ensure the daemon is running.");
@@ -385,14 +356,12 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     let tag = tag.unwrap_or(BUILD_DEFAULT_TAG);
     let image = format!("{IMAGE_NAME}:{tag}");
 
-    // Create temp build context
     let build_path =
         std::env::temp_dir().join(format!("crosslink-container-build-{}", std::process::id()));
     std::fs::create_dir_all(&build_path).context("Failed to create temp build directory")?;
-    // Clean up on exit (best-effort)
+
     let _cleanup = BuildDirCleanup(build_path.clone());
 
-    // Write Dockerfile
     let dockerfile_content = if let Some(path) = dockerfile {
         std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read custom Dockerfile: {path}"))?
@@ -401,16 +370,8 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     };
     std::fs::write(build_path.join("Dockerfile"), &dockerfile_content)?;
 
-    // Write entrypoint
     std::fs::write(build_path.join("entrypoint.sh"), ENTRYPOINT)?;
 
-    // The Dockerfile COPYs `crosslink-${TARGETARCH}`, and the staged binary
-    // must be a Linux binary to run in the agent image. `crosslink container
-    // build` packages the *installed* binary (it has no source tree to
-    // cross-compile from), so it can only produce a runnable image on a Linux
-    // host of a supported arch. For cross-arch or non-Linux hosts, the CI
-    // workflow (.github/workflows/container-image.yml) and `just build-image`
-    // cross-compile a static musl binary instead.
     let docker_arch = match std::env::consts::ARCH {
         "x86_64" => "amd64",
         "aarch64" => "arm64",
@@ -429,21 +390,18 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
         );
     }
 
-    // Copy crosslink binary under the arch-suffixed name the Dockerfile expects.
     let binary = find_crosslink_binary()?;
     let staged_binary = format!("crosslink-{docker_arch}");
     std::fs::copy(&binary, build_path.join(&staged_binary))
         .context("Failed to copy crosslink binary to build context")?;
 
-    // Compute binary hash for staleness detection
     let binary_hash = file_hash(&binary).unwrap_or_else(|_| "unknown".to_string());
 
     println!("Building container image: {image}");
 
     let mut cmd = Command::new("docker");
     cmd.args(["build", "-t", &image]);
-    // Pin TARGETARCH so plain `docker build` (not buildx) resolves the COPY to
-    // the arch-suffixed binary we staged, instead of the Dockerfile default.
+
     cmd.args(["--build-arg", &format!("TARGETARCH={docker_arch}")]);
     cmd.args(["--label", LABEL_AGENT]);
     cmd.args(["--label", &format!("crosslink-binary-hash={binary_hash}")]);
@@ -463,7 +421,6 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     Ok(())
 }
 
-/// Start a task container for a worktree.
 pub fn start(
     worktree_path: &Path,
     name: Option<&str>,
@@ -480,7 +437,6 @@ pub fn start(
     let worktree_abs = std::fs::canonicalize(worktree_path)
         .with_context(|| format!("Worktree not found: {}", worktree_path.display()))?;
 
-    // Derive container name from worktree directory name
     let worktree_slug = worktree_abs
         .file_name()
         .and_then(|n| n.to_str())
@@ -490,12 +446,10 @@ pub fn start(
         ToString::to_string,
     );
 
-    // Resolve paths
     let git_common_dir = resolve_git_common_dir()?;
     let repo_root = resolve_repo_root()?;
     let hub_cache = repo_root.join(".crosslink").join(".hub-cache");
 
-    // Read the prompt file
     let prompt_path = prompt_file.map_or_else(|| worktree_abs.join("KICKOFF.md"), PathBuf::from);
     if !prompt_path.exists() {
         bail!(
@@ -519,8 +473,7 @@ pub fn start(
         options: resolved.options.clone(),
         legacy_inferred: resolved.legacy_inferred,
     };
-    // Validate provider capabilities and credential scope before creating git
-    // fixup files or starting a container.
+
     let credentials = credential_volume(resolved.provider)?;
     let container_workspace = PathBuf::from(format!("/workspaces/{worktree_slug}"));
     let container_prompt = prompt_abs.strip_prefix(&worktree_abs).map_or_else(
@@ -551,10 +504,8 @@ pub fn start(
     )?;
     let agent_command = render_shell_command(&invocation, "timeout");
 
-    // Compute resource limits
     let memory_limit = compute_memory_limit(memory);
 
-    // Derive agent ID
     let agent_id = format!("container--{worktree_slug}");
 
     let image = format!("{IMAGE_NAME}:{IMAGE_TAG}");
@@ -575,7 +526,6 @@ pub fn start(
     }
     cmd.args(["--memory", &memory_limit]);
 
-    // Mount worktree read-write
     cmd.args([
         "-v",
         &format!("{}:/workspaces/{}", worktree_abs.display(), worktree_slug),
@@ -588,33 +538,22 @@ pub fn start(
         ]);
     }
 
-    // Mount .git common dir (shared git objects)
     cmd.args(["-v", &format!("{}:/repo/.git:rw", git_common_dir.display())]);
 
-    // --- Worktree git fixup ---
-    // A git worktree's `.git` file and the corresponding `gitdir` back-pointer
-    // contain absolute host paths. Inside the container these paths don't exist.
-    // We create temp files with container-side paths and bind-mount them *over*
-    // the originals so the host files stay untouched.
     let dot_git_path = worktree_abs.join(".git");
     if dot_git_path.is_file() {
-        // Store fixup files in the worktree's .crosslink/ dir so they persist
-        // for the lifetime of the container (bind mounts need the source files alive).
         let fixup_dir = worktree_abs.join(".crosslink").join("container-git-fixup");
         std::fs::create_dir_all(&fixup_dir).context("Failed to create git fixup dir")?;
 
         let container_workspace = format!("/workspaces/{worktree_slug}");
         let container_gitdir = format!("/repo/.git/worktrees/{worktree_slug}");
 
-        // Override the worktree's .git file → point to container-side gitdir
         let override_dot_git = fixup_dir.join("dot-git");
         std::fs::write(&override_dot_git, format!("gitdir: {container_gitdir}\n"))?;
 
-        // Override the gitdir back-pointer → point to container-side worktree
         let override_gitdir = fixup_dir.join("gitdir");
         std::fs::write(&override_gitdir, format!("{container_workspace}/.git\n"))?;
 
-        // Mount overrides (shadows originals inside container only)
         cmd.args([
             "-v",
             &format!(
@@ -633,7 +572,6 @@ pub fn start(
         ]);
     }
 
-    // Mount hub cache if it exists
     if hub_cache.exists() {
         cmd.args([
             "-v",
@@ -646,15 +584,12 @@ pub fn start(
         &format!("{credentials}:/home/agent/.{}", resolved.provider),
     ]);
 
-    // Environment
     cmd.args(["-e", &format!("AGENT_ID={agent_id}")]);
     cmd.args([
         "-e",
         &format!("CROSSLINK_AGENT_PROVIDER={}", resolved.provider),
     ]);
 
-    // Pass host UID/GID so the entrypoint can remap the agent user to match,
-    // avoiding permission issues with bind-mounted files.
     if let Ok(uid_output) = Command::new("id").arg("-u").output() {
         if uid_output.status.success() {
             let uid = String::from_utf8_lossy(&uid_output.stdout)
@@ -672,7 +607,6 @@ pub fn start(
         }
     }
 
-    // Image and provider-adapted command.
     cmd.arg(&image);
     let workspace_arg = crate::utils::shell_escape_arg(&container_workspace.to_string_lossy());
     let runtime_dir = crate::utils::shell_escape_arg(
@@ -718,7 +652,6 @@ pub fn start(
         &container_id[..12.min(container_id.len())]
     );
 
-    // Write container ID to worktree for tracking
     let id_file = worktree_abs.join(".crosslink").join("container-id");
     if let Some(parent) = id_file.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -735,7 +668,6 @@ pub fn start(
     Ok(())
 }
 
-/// List running crosslink task containers.
 pub fn ps() -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
@@ -766,7 +698,6 @@ pub fn ps() -> Result<()> {
     Ok(())
 }
 
-/// Stream logs from a container.
 pub fn logs(name: &str, follow: bool, tail: Option<u32>) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
@@ -788,7 +719,6 @@ pub fn logs(name: &str, follow: bool, tail: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-/// Stop a running container.
 pub fn stop(name: &str) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
@@ -807,7 +737,6 @@ pub fn stop(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Remove a stopped container.
 pub fn rm(name: &str) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
@@ -826,14 +755,13 @@ pub fn rm(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Stop and remove a container.
 pub fn kill(name: &str) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
     }
 
     println!("Stopping and removing container: {name}");
-    // INTENTIONAL: stop may fail if container is already stopped — rm -f below handles that
+
     let _ = Command::new("docker").args(["stop", name]).status();
     let status = Command::new("docker")
         .args(["rm", "-f", name])
@@ -847,7 +775,6 @@ pub fn kill(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Drop into a shell inside a running container.
 pub fn shell(name: &str) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
@@ -864,7 +791,6 @@ pub fn shell(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Snapshot a running container as a cached image.
 pub fn snapshot(name: &str, tag: Option<&str>) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
@@ -891,10 +817,6 @@ pub fn snapshot(name: &str, tag: Option<&str>) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// The container subcommands MUST address the same registry-qualified
-    /// image name as `crosslink kickoff run --container docker|podman`.
-    /// Regressing `IMAGE_NAME` back to the bare `crosslink-agent` form
-    /// silently un-composes the two code paths and re-opens GH#576.
     #[test]
     fn image_name_is_ghcr_namespaced() {
         assert_eq!(
@@ -912,8 +834,6 @@ mod tests {
         );
     }
 
-    /// `build()` must default to a tag distinct from the lookup tag so a
-    /// local rebuild doesn't shadow a `docker pull`ed `:latest`.
     #[test]
     fn build_default_tag_is_distinct_from_lookup_tag() {
         assert_eq!(BUILD_DEFAULT_TAG, "local");

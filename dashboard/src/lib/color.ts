@@ -1,11 +1,11 @@
-/**
- * HSL ↔ Hex color conversion utilities.
- *
- * The CSS variables use space-separated HSL format: "224 71% 4%"
- * Color inputs use hex format: "#0a1628"
- */
 
-/** Parse "224 71% 4%" → { h: 224, s: 71, l: 4 } */
+
+
+
+
+
+
+
 export function parseHsl(hsl: string): { h: number; s: number; l: number } {
   const parts = hsl
     .trim()
@@ -14,18 +14,18 @@ export function parseHsl(hsl: string): { h: number; s: number; l: number } {
   return { h: parts[0] ?? 0, s: parts[1] ?? 0, l: parts[2] ?? 0 };
 }
 
-/** Format { h, s, l } → "224 71% 4%" */
+
 export function formatHsl(h: number, s: number, l: number): string {
   return `${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%`;
 }
 
-/** Convert HSL string "224 71% 4%" → hex "#0a1628" */
+
 export function hslToHex(hsl: string): string {
   const { h, s, l } = parseHsl(hsl);
   return hslValuesToHex(h, s, l);
 }
 
-/** Convert HSL values to hex */
+
 function hslValuesToHex(h: number, s: number, l: number): string {
   const sNorm = s / 100;
   const lNorm = l / 100;
@@ -58,7 +58,7 @@ function hslValuesToHex(h: number, s: number, l: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-/** Convert hex "#0a1628" → HSL string "224 71% 4%" */
+
 export function hexToHsl(hex: string): string {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!result) return "0 0% 0%";

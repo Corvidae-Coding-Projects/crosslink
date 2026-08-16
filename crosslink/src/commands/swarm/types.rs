@@ -1,15 +1,8 @@
-// Swarm data model types.
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::sync::SyncManager;
 
-// ---------------------------------------------------------------------------
-// Data model
-// ---------------------------------------------------------------------------
-
-/// Top-level swarm plan, stored at `swarm/plan.json` on the hub branch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SwarmPlan {
     pub schema_version: u32,
@@ -20,7 +13,6 @@ pub struct SwarmPlan {
     pub phases: Vec<String>,
 }
 
-/// Definition of a single phase, stored at `swarm/phases/<name>.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PhaseDefinition {
     pub name: String,
@@ -54,7 +46,6 @@ impl std::fmt::Display for PhaseStatus {
     }
 }
 
-/// An agent within a phase.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentEntry {
     pub slug: String,
@@ -94,7 +85,6 @@ impl std::fmt::Display for AgentStatus {
     }
 }
 
-/// Gate result recorded after all phase agents complete.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GateResult {
     pub status: String,
@@ -106,7 +96,6 @@ pub struct GateResult {
     pub ran_at: Option<String>,
 }
 
-/// Checkpoint snapshot after a phase (or partial phase) completes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Checkpoint {
     pub phase: String,
@@ -128,26 +117,18 @@ pub struct TestResult {
     pub failed: u64,
 }
 
-/// Budget configuration stored at `swarm/budget.json` on the hub branch.
-///
-/// Doubles as swarm's dispatch configuration: `model` is both the model cost
-/// estimates are computed against and the model agents are launched with, and
-/// the optional dials are threaded into every dispatched agent (gh#61).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BudgetConfig {
     pub budget_window_s: u64,
     pub model: String,
-    /// Reasoning effort for dispatched agents. The selected provider adapter
-    /// renders it or returns a capability error. `None` preserves its default.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// Per-agent spend ceiling in USD. Provider capability validation occurs
-    /// before dispatch; Codex account sessions reject this unsupported limit.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_usd: Option<String>,
 }
 
-/// Default: 5-hour window, semantic standard model tier, no dials.
 impl Default for BudgetConfig {
     fn default() -> Self {
         Self {
@@ -159,7 +140,6 @@ impl Default for BudgetConfig {
     }
 }
 
-/// Historical cost log stored at `swarm/history/cost-log.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CostLog {
     #[serde(default)]
@@ -168,7 +148,6 @@ pub struct CostLog {
     pub model_estimates: std::collections::HashMap<String, ModelEstimate>,
 }
 
-/// A single historical observation from a completed agent run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CostObservation {
     pub agent_id: String,
@@ -180,14 +159,12 @@ pub struct CostObservation {
     pub lines_added: Option<u64>,
 }
 
-/// Aggregate duration estimates for a model.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelEstimate {
     pub median_duration_s: u64,
     pub p90_duration_s: u64,
 }
 
-/// Budget estimation result for a phase.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BudgetRecommendation {
     Proceed,
@@ -196,7 +173,6 @@ pub enum BudgetRecommendation {
     Block { reason: String },
 }
 
-/// A budget window in a multi-window plan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowAllocation {
     pub window_index: usize,
@@ -206,7 +182,6 @@ pub struct WindowAllocation {
     pub stop_point: String,
 }
 
-/// A phase allocated to a window, with its estimated cost.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowPhase {
     pub name: String,
@@ -215,7 +190,6 @@ pub struct WindowPhase {
     pub fit: WindowFit,
 }
 
-/// How well a phase fits in the remaining window budget.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WindowFit {
@@ -224,20 +198,14 @@ pub enum WindowFit {
     Overflow,
 }
 
-// ---------------------------------------------------------------------------
-// Merge orchestration data model
-// ---------------------------------------------------------------------------
-
-/// Top-level merge plan, stored at `swarm/merge-plan.json` on the hub branch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MergePlan {
     pub target_branch: String,
     pub agents: Vec<MergeSource>,
     pub conflicts: Vec<FileConflict>,
-    pub merge_order: Vec<String>, // agent slugs in application order
+    pub merge_order: Vec<String>,
 }
 
-/// A single agent's worktree as a merge source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MergeSource {
     pub agent_slug: String,
@@ -246,7 +214,6 @@ pub struct MergeSource {
     pub commit_count: usize,
 }
 
-/// A file conflict between multiple agents.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileConflict {
     pub file: String,
@@ -254,23 +221,16 @@ pub struct FileConflict {
     pub conflict_type: ConflictType,
 }
 
-/// Classification of a file conflict.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConflictType {
-    /// Multiple agents modified the same file but different regions
     NonOverlapping,
-    /// Multiple agents modified overlapping regions
+
     Overlapping,
-    /// One agent created, another modified
+
     CreateModify,
 }
 
-// ---------------------------------------------------------------------------
-// Multi-swarm context
-// ---------------------------------------------------------------------------
-
-/// Pointer to the active swarm, stored at `swarm/active.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ActiveSwarmRef {
     pub uuid: String,
@@ -278,10 +238,6 @@ pub(super) struct ActiveSwarmRef {
     pub created_at: String,
 }
 
-/// Resolved swarm context -- holds the base path for the active swarm.
-///
-/// For legacy layouts (single `swarm/plan.json`), base is `"swarm"`.
-/// For multi-swarm layouts, base is `"swarm/{uuid}"`.
 pub(super) struct SwarmContext {
     pub base: String,
     pub is_legacy: bool,
@@ -313,11 +269,6 @@ impl SwarmContext {
     }
 }
 
-/// Resolve the active swarm context.
-///
-/// 1. `swarm/active.json` -> multi-swarm, base = `swarm/{uuid}`
-/// 2. `swarm/plan.json` -> legacy, base = `swarm`
-/// 3. Neither -> error
 pub(super) fn resolve_swarm(sync: &SyncManager) -> anyhow::Result<SwarmContext> {
     use super::io::read_hub_json;
     use anyhow::bail;
@@ -343,7 +294,6 @@ pub(super) fn resolve_swarm(sync: &SyncManager) -> anyhow::Result<SwarmContext> 
     bail!("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")
 }
 
-/// Create a new swarm slot with a UUID, writing the active pointer.
 pub(super) fn create_swarm_slot(sync: &SyncManager, title: &str) -> anyhow::Result<SwarmContext> {
     use super::io::write_hub_json;
 
@@ -368,7 +318,6 @@ pub(super) fn create_swarm_slot(sync: &SyncManager, title: &str) -> anyhow::Resu
     })
 }
 
-/// Resolved runtime status of an agent, combining phase definition + worktree state.
 #[derive(Serialize)]
 pub(super) struct ResolvedAgent {
     pub slug: String,
@@ -376,22 +325,16 @@ pub(super) struct ResolvedAgent {
     pub issue_id: Option<i64>,
     pub defined_status: AgentStatus,
     pub live_status: String,
-    /// The actual branch name (e.g. `feature/<compact_name>`), if set.
+
     pub branch: Option<String>,
 }
 
-/// Slugify a phase name for use as a filename.
 pub fn slugify_phase(name: &str) -> String {
     name.to_lowercase()
         .replace(' ', "-")
         .replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "")
 }
 
-// ---------------------------------------------------------------------------
-// Review data model
-// ---------------------------------------------------------------------------
-
-/// The overall review plan stored at `swarm/review-plan.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewPlan {
     pub mandate: String,
@@ -403,7 +346,6 @@ pub struct ReviewPlan {
     pub doc_output: Option<PathBuf>,
 }
 
-/// Assignment of a partition to a review agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewAgentAssignment {
     pub agent_slug: String,
@@ -411,11 +353,6 @@ pub struct ReviewAgentAssignment {
     pub files: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Fix data model
-// ---------------------------------------------------------------------------
-
-/// Plan for parallel fix execution, stored at `swarm/fix-plan.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FixPlan {
     pub schema_version: u32,
@@ -423,7 +360,6 @@ pub struct FixPlan {
     pub issues: Vec<FixTarget>,
 }
 
-/// A single issue targeted for an agent fix.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FixTarget {
     pub issue_number: u64,
@@ -434,5 +370,4 @@ pub struct FixTarget {
     pub status: AgentStatus,
 }
 
-/// An issue fetched from GitHub with its number, title, body, and labels.
 pub(super) type LabeledIssue = (u64, String, String, Vec<String>);

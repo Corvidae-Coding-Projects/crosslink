@@ -1,18 +1,18 @@
-// Full alerts page. Shows every currently-open alert across all
-// tracked projects, grouped by severity then ordered by opened_at.
-// Each row expands on click to reveal kind-specific actions:
-//   stale_lock / silent_agent → lock controls (release / steal)
-//   silent_agent              → agent control requests (pause / resume / kill)
-//   overdue_issue             → issue actions (close / comment)
-//   orphan_subissue           → issue actions (close)
-//   unreachable_project       → link into project detail
-//   ci_failure / signature_invalid → show commit SHA + project link
-//
-// The `subject_ref` field on each alert encodes the entity the alert
-// is about (e.g. `lock:42`, `agent:jus4`, `issue:17`, `commit:abc…`,
-// `project:owner/repo`) — we parse it to decide which action set to
-// show. See crosslink/src/dashboard/alerts.rs for the authoritative
-// list of subject_ref shapes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { useCallback, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
@@ -109,15 +109,15 @@ export function Alerts() {
   );
 }
 
-/// Parsed `subject_ref` — `{ kind: "lock", id: "42" }` etc.
+
 export interface SubjectRef {
   kind: string;
   id: string;
 }
 
-/// Parse a `<kind>:<id>` style `subject_ref`. Colons inside the id
-/// (e.g. `commit:abc:def`) are preserved on the id side. Returns null
-/// if the input isn't colon-delimited.
+
+
+
 export function parseSubjectRef(raw: string | null): SubjectRef | null {
   if (!raw) return null;
   const idx = raw.indexOf(":");
@@ -129,19 +129,19 @@ function AlertCard({ alert }: { alert: AlertItem }) {
   const [expanded, setExpanded] = useState(false);
   const severity = alert.severity;
   const subject = parseSubjectRef(alert.subject_ref);
-  // Look up the parent project's write-capability from the shared
-  // projects cache. Defaults to `"ready"` when the cache hasn't
-  // populated yet (user opened /alerts as their first page) — the
-  // 5s poll will hydrate it shortly after.
+
+
+
+
   const { data: projects } = useProjects();
   const projectCap: WriteCapability =
     projects?.find((p) => p.slug === alert.project_slug)?.write_capability ??
     "ready";
 
-  // For lock-subject alerts, we fetch the project detail on expand
-  // so we can show "held by <agent>" and let the user pick Release
-  // vs Steal with eyes open. React Query caches this — no duplicate
-  // fetch if another card on the same slug already opened it.
+
+
+
+
   const needsLockHolder =
     expanded && subject?.kind === "lock";
   const { data: projectDetail } = useProject(
@@ -182,7 +182,7 @@ function AlertCard({ alert }: { alert: AlertItem }) {
           >
             {alert.kind.replace(/_/g, " ")}
           </span>
-          {/* stopPropagation so the link doesn't also toggle */}
+          {                                                     }
           <Link
             to={`/project/${alert.project_slug}`}
             onClick={(e) => e.stopPropagation()}
@@ -290,10 +290,10 @@ function AlertExpanded({
   );
 }
 
-/// Shown in place of `AlertActions` when the project's workspace
-/// isn't ready for writes. Explains why the action buttons are
-/// hidden and links to the project-detail page where the operator
-/// can kick off the Initialize flow.
+
+
+
+
 function NotReadyNotice({
   slug,
   capability,
@@ -334,8 +334,8 @@ function AlertActions({
   subject: SubjectRef | null;
   lockEntry: LockEntry | undefined;
 }) {
-  // Each hook is a React rule-of-hooks mandate — call them all here,
-  // decide which buttons to render based on the parsed subject.
+
+
   const closeIssue = useCloseIssue(slug);
   const commentIssue = useCommentIssue(slug);
   const releaseLock = useReleaseLock(slug);
@@ -353,11 +353,11 @@ function AlertActions({
     agentRequest.error?.message ||
     signBackfill.error?.message;
 
-  // Confirmation banner: the alert row stays visible until the next
-  // poll tick re-reads the hub (≤5s); without this the user can't
-  // tell their click registered. Shown for any mutation's isSuccess
-  // state; cleared on the next poll refresh when the alert row
-  // unmounts.
+
+
+
+
+
   const successMessage =
     (closeIssue.isSuccess && "Issue closed — alert clears on the next poll tick.") ||
     (releaseLock.isSuccess && "Lock released — alert clears on the next poll tick.") ||
@@ -366,13 +366,13 @@ function AlertActions({
     (agentRequest.isSuccess && "Agent request sent — alert clears on the next poll tick.") ||
     (signBackfill.isSuccess && "Sign-backfill complete — alert clears on the next poll tick.") ||
     null;
-  // Note: `kind` is consumed implicitly via the useProjectMutations
-  // invalidation chain; kept as a prop so future per-kind affordances
-  // (e.g. "dismiss without closing" for orphan_subissue) can branch
-  // on it.
+
+
+
+
   void kind;
 
-  // Subject-less alert → show a project-scoped shortcut only.
+
   if (!subject) {
     return (
       <div className="flex items-center gap-2">
@@ -392,10 +392,10 @@ function AlertActions({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Lock-subject hint: `release` requires the caller to be the
-          holder; `steal` always works. We surface the holder (from
-          the project-detail cache) and a short semantics reminder
-          so the operator doesn't learn this via a 500-stderr dump. */}
+      {
+
+
+                                                                      }
       {subject.kind === "lock" && (
         <p className="text-xs text-muted-foreground">
           {lockEntry ? (
@@ -412,7 +412,7 @@ function AlertActions({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Lock subject → release / steal */}
+        {                                    }
         {subject.kind === "lock" && issueId != null && (
           <>
             <button
@@ -434,7 +434,7 @@ function AlertActions({
           </>
         )}
 
-        {/* Signature-invalid → sign-backfill */}
+        {                                       }
         {kind === "signature_invalid" && (
           <button
             type="button"
@@ -447,7 +447,7 @@ function AlertActions({
           </button>
         )}
 
-        {/* Issue subject → close + comment */}
+        {                                     }
         {subject.kind === "issue" && issueId != null && (
           <>
             <button
@@ -468,7 +468,7 @@ function AlertActions({
           </>
         )}
 
-        {/* Agent subject → pause / resume / kill */}
+        {                                           }
         {subject.kind === "agent" && (
           <>
             <button
@@ -512,9 +512,9 @@ function AlertActions({
         </Link>
       </div>
 
-      {/* Comment drawer — applies to any issue-subject alert (overdue
-          or orphan), since commenting on the subissue is a reasonable
-          follow-up in either case. */}
+      {
+
+                                      }
       {subject.kind === "issue" && commentOpen && issueId != null && (
         <form
           className="mt-1 flex flex-col gap-2"
@@ -563,11 +563,11 @@ function AlertActions({
   );
 }
 
-/// Turn the `id` piece of a subject_ref into a numeric display_id, if
-/// it looks like one. For `lock:42` this returns 42; for
-/// `issue:bd1f…` (local-only UUID) it returns null — the CLI write
-/// surface currently only accepts numeric IDs, so we hide the action
-/// buttons until the issue has been pushed and gained a display_id.
+
+
+
+
+
 function toIssueId(id: string): number | null {
   const trimmed = id.startsWith("#") ? id.slice(1) : id;
   const parsed = Number(trimmed);

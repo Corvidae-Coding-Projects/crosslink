@@ -1,37 +1,3 @@
-//! `crosslink migrate hub-v3` — one-shot conversion of a v2 hub into the v3
-//! per-agent-ref layout (`.design/hub-v3-per-agent-refs.md`, REQ-9).
-//!
-//! # Flow (Phase A — `migrate hub-v3`)
-//!
-//! 1. Preflight: init + fetch the hub cache, hold the hub write lock for the
-//!    whole migration, refuse cleanly on no-cache / already-migrated / pending
-//!    offline promotions.
-//! 2. Force a compaction so v2 state is fully reduced and the watermark embedded.
-//! 3. Build the GENESIS [`CheckpointState`] FROM THE FILES (authoritative
-//!    materialized state) — independent of the event reducer.
-//! 4. Record pre-existing tips of every v3 hub branch (for rollback),
-//!    seed per-agent refs from each v2 `events.log`, commit the genesis
-//!    checkpoint, and write the meta marker.
-//! 5. AC-6 verification gate: reduce a fresh [`RefHubSource`] and compare it
-//!    field-complete against the files + invariants.
-//! 6. On any failure: roll back every v3 hub branch to its recorded
-//!    pre-migration tip (the v2 branch is never touched).
-//! 7. On success: push all created/updated refs and print the cutover next step.
-//!
-//! # Flow (Phase B — `migrate hub-v3 --finalize --yes-delete-v2`)
-//!
-//! Re-verifies, then deletes the legacy `crosslink/hub` branch local + remote
-//! and stamps `HubMeta.finalized_at`. This is the only hard stop for already
-//! deployed v2 binaries.
-//!
-//! # Deterministic UUIDs
-//!
-//! V1 inline comments and time entries carry an `i64` id but no uuid. The
-//! genesis builder derives a stable uuid via
-//! `Uuid::from_bytes(sha256(canonical)[0..16])` where `canonical` is
-//! `"crosslink-hub-v3:<kind>:<issue_uuid>:<i64-id>"`. The scheme is stable
-//! across re-runs (no randomness) and disjoint across kinds.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -55,19 +21,8 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
-/// Legacy v2 hub branch name (matches `hub_v3::V2_HUB_BRANCH`).
 const V2_HUB_BRANCH: &str = "refs/heads/crosslink/hub";
 
-// ── Public entry points ──────────────────────────────────────────────
-
-/// `crosslink migrate hub-v3 [--finalize --yes-delete-v2]`.
-///
-/// Dispatches to Phase A (migrate) or Phase B (finalize) based on `finalize`.
-///
-/// # Errors
-///
-/// Returns an error if preflight refuses, a git plumbing step fails, or the
-/// AC-6 verification gate fails (after a rollback).
 pub fn hub_v3(
     crosslink_dir: &Path,
     finalize: bool,
@@ -86,8 +41,6 @@ pub fn hub_v3(
     sync.init_cache()?;
     sync.fetch()?;
 
-    // Hold the hub write lock for the whole migration: it mutates ref state and
-    // must serialize against every other hub read-modify-write (REQ-8).
     let hub_lock = sync.acquire_lock()?;
 
     let cache_dir = sync.cache_path().to_path_buf();
@@ -102,36 +55,18 @@ pub fn hub_v3(
     }
 }
 
-// ── `migrate hub-branches` — visible-branch rename (#767) ────────────
-
-/// One OLD→NEW ref rename pair for the hub-branches migration.
 struct RenamePair {
-    /// Old hidden ref, e.g. `refs/crosslink/checkpoint`.
     old: String,
-    /// New visible branch, e.g. `refs/heads/crosslink/checkpoint`.
+
     new: String,
 }
 
-/// Adopt an already-migrated remote hub (#774).
-///
-/// Reached when the LOCAL hub is still v2 but the REMOTE was migrated to v3 by
-/// another machine (the "machine that slept through the migration" path).
-/// Migrating here would mint a conflicting genesis from stale local state;
-/// instead, fetch the remote's v3 branches into the local namespace, verify
-/// detection now reports V3, and hydrate `SQLite` from the adopted state. The
-/// local `crosslink/hub` v2 branch is left untouched as the same read-only
-/// escape hatch the migrating machine kept.
 fn adopt_remote_v3(
     crosslink_dir: &Path,
     cache_dir: &Path,
     remote: &str,
     adopt_stale: bool,
 ) -> Result<()> {
-    // Divergence guard (Corvidae-Coding-Projects/crosslink#653): before switching this
-    // machine to the remote v3 hub, compare the remote v3 genesis against the
-    // live crosslink/hub (v2) tip. If a v2-only binary kept writing after the
-    // original migration, the remote v3 hub is STALE — adopting it would hide
-    // every issue created/edited after the genesis. Refuse unless --adopt-stale.
     match read_remote_genesis_commit(cache_dir, remote)? {
         Some(genesis_commit) => {
             if let Some(div) = compute_v2_divergence(cache_dir, &genesis_commit)? {
@@ -148,8 +83,6 @@ fn adopt_remote_v3(
             }
         }
         None => {
-            // Could not read the remote v3 genesis (no hub.json / unreachable
-            // meta). Cannot measure divergence — proceed with adoption but say so.
             tracing::warn!(
                 "adopt: could not read the remote v3 genesis commit; \
                  skipping the v2-divergence guard"
@@ -175,8 +108,6 @@ fn adopt_remote_v3(
         print_hub_meta(&meta);
     }
 
-    // Hydrate SQLite from the adopted state so the local DB reflects the hub
-    // immediately (same reduction path `crosslink sync` uses in v3 mode).
     let db = crate::db::Database::open(&crosslink_dir.join("issues.db"))
         .context("opening issues.db for post-adoption hydration")?;
     let source = crate::hub_source::RefHubSource::new(cache_dir)?;
@@ -189,11 +120,6 @@ fn adopt_remote_v3(
         stats.issues, stats.comments
     );
 
-    // Honesty guard: adopting an EMPTY hub while the local v2 cache holds
-    // real issues means the remote's v3 genesis did not come from this
-    // project's data (e.g. a fresh machine bootstrapped against a remote
-    // that did not advertise the v2 branch). The local v2 data is NOT lost
-    // (frozen branch), but it was not migrated either — say so loudly.
     if stats.issues == 0 {
         let v2_issue_count = read_all_issue_files(&cache_dir.join("issues")).map_or(0, |v| v.len());
         if v2_issue_count > 0 {
@@ -212,8 +138,6 @@ fn adopt_remote_v3(
     Ok(())
 }
 
-/// Map an old hidden hub ref to its new visible-branch name, or `None` if the
-/// ref is not a hub ref this migration owns (so siblings are never renamed).
 fn old_to_new_ref(old: &str) -> Option<String> {
     if old == hub_v3::OLD_CHECKPOINT_REF {
         Some(hub_v3::CHECKPOINT_REF.to_string())
@@ -225,28 +149,6 @@ fn old_to_new_ref(old: &str) -> Option<String> {
     }
 }
 
-/// `crosslink migrate hub-branches` — move the v3 hub refs to visible branches.
-///
-/// Idempotent, one-shot per machine (#767, correcting OQ-1). For every old hidden
-/// ref present locally or on the remote (`refs/crosslink/agents/*`,
-/// `refs/crosslink/checkpoint`, `refs/crosslink/meta`):
-///
-/// 1. Create the matching `refs/heads/crosslink/*` branch at the same SHA —
-///    locally via `update-ref`, remotely via `git push <remote> <sha>:<new>`.
-/// 2. Delete the old ref locally (`update-ref -d`) and remotely
-///    (`git push <remote> :<old>`).
-///
-/// After the rename, one [`hub_v3::compact_v3`] is run so the browsable state
-/// tree (#767 part 2) materializes on the now-visible checkpoint branch.
-///
-/// Skips cleanly when no old refs exist (already migrated / fresh hub) and
-/// reports per-ref actions.
-///
-/// # Errors
-///
-/// Returns an error only if the hub cache cannot be initialized or a git
-/// plumbing step fails fatally; per-ref remote-push problems are reported, not
-/// propagated (re-run is the retry mechanism).
 pub fn hub_branches(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
@@ -256,7 +158,6 @@ pub fn hub_branches(crosslink_dir: &Path) -> Result<()> {
     let remote = sync.remote().to_string();
     let has_remote = sync.remote_exists();
 
-    // Collect the OLD-namespace refs present locally and (if reachable) remotely.
     let mut old_refs: BTreeSet<String> = BTreeSet::new();
     for r in for_each_ref(&cache_dir, "refs/crosslink/*")? {
         if old_to_new_ref(&r).is_some() {
@@ -283,7 +184,7 @@ pub fn hub_branches(crosslink_dir: &Path) -> Result<()> {
             "no old-namespace hub refs found — the hub is already on visible \
              branches (or is fresh). Nothing to rename."
         );
-        // Still materialize the browse tree if a v3 hub is present and lacks it.
+
         maybe_compact_after_rename(crosslink_dir, &cache_dir, &remote, has_remote, &hub_lock);
         return Ok(());
     }
@@ -309,17 +210,12 @@ pub fn hub_branches(crosslink_dir: &Path) -> Result<()> {
         rename_one_ref(&cache_dir, &remote, has_remote, pair, &remote_old)?;
     }
 
-    // Materialize the browse tree on the now-visible checkpoint branch.
     maybe_compact_after_rename(crosslink_dir, &cache_dir, &remote, has_remote, &hub_lock);
 
     print_hub_branches_summary(&cache_dir, &remote, has_remote);
     Ok(())
 }
 
-/// Rename a single ref: create the new branch at the old SHA (local + remote),
-/// then delete the old ref (local + remote). CAS-guards the local create against
-/// the old SHA and the remote create against the expected old remote SHA where
-/// the plumbing supports it.
 fn rename_one_ref(
     cache_dir: &Path,
     remote: &str,
@@ -330,15 +226,11 @@ fn rename_one_ref(
     let local_sha = git_rev_parse(cache_dir, &pair.old)?;
     let remote_sha = remote_old.get(&pair.old).cloned();
 
-    // The authoritative SHA to place at the new ref: prefer the local tip (the
-    // single-writer ref), fall back to the remote tip if only the remote has it.
     let sha = local_sha.clone().or_else(|| remote_sha.clone());
     let Some(sha) = sha else {
-        // Ref vanished between listing and now — nothing to do.
         return Ok(());
     };
 
-    // 1. Local create (idempotent — update-ref to the same sha is a no-op).
     if local_sha.is_some() {
         let existing_new = git_rev_parse(cache_dir, &pair.new)?;
         if existing_new.as_deref() != Some(sha.as_str()) {
@@ -347,10 +239,7 @@ fn rename_one_ref(
         println!("  local  {} -> {}", pair.old, pair.new);
     }
 
-    // 2. Remote create + old-ref delete (when a remote is configured).
     if has_remote {
-        // Create the new branch at the SHA. A plain push is the create; if the
-        // remote already holds it at this SHA the push is a no-op.
         let create_spec = format!("{sha}:{}", pair.new);
         match run_git(cache_dir, &["push", remote, &create_spec]) {
             Ok(_) => println!("  remote {} -> {} (created)", pair.old, pair.new),
@@ -360,17 +249,12 @@ fn rename_one_ref(
                     "  remote {} -> {}: SKIPPED (push failed: {e})",
                     pair.old, pair.new
                 );
-                // Do not delete the old remote ref if the new one did not land.
-                // Local rename already happened; a re-run retries the remote.
             }
         }
 
-        // Delete the old remote ref, CAS-guarded against its expected old SHA so
-        // a concurrently-advanced ref is not silently dropped.
         if let Some(old_remote_sha) = &remote_sha {
             let delete_spec = format!(":{}", pair.old);
-            // CAS-guard the delete against the expected old remote SHA so a
-            // concurrently-advanced ref is never silently dropped.
+
             let lease = format!("--force-with-lease={}:{old_remote_sha}", pair.old);
             let args = ["push", &lease, remote, &delete_spec];
             match run_git(cache_dir, &args) {
@@ -383,7 +267,6 @@ fn rename_one_ref(
         }
     }
 
-    // 3. Delete the old LOCAL ref last, only after the new local ref exists.
     if local_sha.is_some() && git_rev_parse(cache_dir, &pair.new)?.is_some() {
         git_delete_ref(cache_dir, &pair.old)?;
     }
@@ -391,9 +274,6 @@ fn rename_one_ref(
     Ok(())
 }
 
-/// Run one [`hub_v3::compact_v3`] so the browse tree materializes on the visible
-/// checkpoint branch. Only when the hub is v3; non-fatal on failure (the rename
-/// already succeeded; a later `crosslink compact` retries the tree).
 fn maybe_compact_after_rename(
     crosslink_dir: &Path,
     cache_dir: &Path,
@@ -420,7 +300,6 @@ fn maybe_compact_after_rename(
     }
 }
 
-/// `git ls-remote <remote> refs/crosslink/*` → map of OLD-namespace refname → sha.
 fn ls_remote_old_namespace(repo_dir: &Path, remote: &str) -> Result<BTreeMap<String, String>> {
     let output = Command::new("git")
         .current_dir(repo_dir)
@@ -441,7 +320,6 @@ fn ls_remote_old_namespace(repo_dir: &Path, remote: &str) -> Result<BTreeMap<Str
     Ok(map)
 }
 
-/// Print the closing summary + the GitHub web-UI hint.
 fn print_hub_branches_summary(cache_dir: &Path, remote: &str, has_remote: bool) {
     println!("\nDone. The hub now lives on visible branches under crosslink/* .");
     if has_remote {
@@ -453,8 +331,6 @@ fn print_hub_branches_summary(cache_dir: &Path, remote: &str, has_remote: bool) 
     }
 }
 
-/// Best-effort `https://github.com/<owner>/<repo>/branches` URL from the remote
-/// URL. Returns `None` for non-GitHub or unparseable remotes.
 fn github_branches_url(cache_dir: &Path, remote: &str) -> Option<String> {
     let output = Command::new("git")
         .current_dir(cache_dir)
@@ -465,7 +341,7 @@ fn github_branches_url(cache_dir: &Path, remote: &str) -> Option<String> {
         return None;
     }
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    // git@github.com:owner/repo.git  OR  https://github.com/owner/repo(.git)
+
     let slug = url
         .strip_prefix("git@github.com:")
         .or_else(|| url.strip_prefix("https://github.com/"))?
@@ -474,8 +350,6 @@ fn github_branches_url(cache_dir: &Path, remote: &str) -> Option<String> {
     Some(format!("https://github.com/{slug}/branches"))
 }
 
-// ── Phase A: migrate ─────────────────────────────────────────────────
-
 fn migrate_phase_a(
     crosslink_dir: &Path,
     cache_dir: &Path,
@@ -483,7 +357,6 @@ fn migrate_phase_a(
     hub_lock: &crate::sync::HubWriteLock,
     adopt_stale: bool,
 ) -> Result<()> {
-    // Preflight: refuse when there is no hub cache to migrate.
     if !cache_dir.exists() {
         bail!(
             "no hub cache at {} — nothing to migrate (run `crosslink sync` first, \
@@ -492,8 +365,6 @@ fn migrate_phase_a(
         );
     }
 
-    // Idempotent no-op: already migrated. Re-attempt pushing any refs the remote
-    // lacks (re-run is the retry mechanism), then print the marker and exit Ok.
     match hub_v3::detect_hub_version(cache_dir)? {
         HubVersion::V3 { .. } => {
             println!("hub already migrated to v3 — no migration performed.");
@@ -511,49 +382,25 @@ fn migrate_phase_a(
                 cache_dir.display()
             );
         }
-        HubVersion::V2Only => {
-            // The LOCAL hub is v2 — but if the REMOTE has already been
-            // migrated by another machine, running a second migration here
-            // would mint a conflicting genesis from this machine's stale
-            // pre-migration state (#774, the machine-that-slept-through-the-
-            // migration path). Consult the remote and ADOPT instead.
-            match hub_v3::detect_remote_hub_version(cache_dir, remote) {
-                Ok(HubVersion::V3 { .. }) => {
-                    return adopt_remote_v3(crosslink_dir, cache_dir, remote, adopt_stale);
-                }
-                Ok(_) => {
-                    // Remote is v2 or absent — this machine performs the
-                    // first migration as usual.
-                }
-                Err(e) => {
-                    bail!(
-                        "cannot determine the remote hub version ({e}). Refusing to migrate \
+        HubVersion::V2Only => match hub_v3::detect_remote_hub_version(cache_dir, remote) {
+            Ok(HubVersion::V3 { .. }) => {
+                return adopt_remote_v3(crosslink_dir, cache_dir, remote, adopt_stale);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                bail!(
+                    "cannot determine the remote hub version ({e}). Refusing to migrate \
                          blind: if another machine already migrated, a second migration here \
                          would mint a conflicting genesis from stale local state. Retry when \
                          the remote '{remote}' is reachable."
-                    );
-                }
+                );
             }
-        }
+        },
     }
 
     build_and_publish_v3(crosslink_dir, cache_dir, remote, hub_lock, false)
 }
 
-/// Build the v3 genesis from the CURRENT v2 files, seed the v3 refs, run the
-/// AC-6 verification gate, and publish to the remote — the shared core of both
-/// the first migration (`migrate_phase_a`) and the re-migrate recovery path
-/// (`remigrate_from_v2_path`).
-///
-/// `force_push` selects how the published refs supersede the remote:
-/// - `false` (first migration): fast-forward pushes; the remote has no v3 hub
-///   yet, so there is nothing to overwrite.
-/// - `true` (re-migrate): the remote already hosts a STALE v3 hub whose history
-///   the regenerated genesis does NOT descend from, so every ref is force-pushed
-///   to supersede it (Corvidae-Coding-Projects/crosslink#653).
-///
-/// On any seeding or verification failure the v3 hub branches are rolled back to
-/// their pre-run tips; the `crosslink/hub` v2 branch is never touched.
 fn build_and_publish_v3(
     crosslink_dir: &Path,
     cache_dir: &Path,
@@ -564,12 +411,6 @@ fn build_and_publish_v3(
     let agent_id = crate::identity::AgentConfig::load(crosslink_dir)?
         .map_or_else(|| "hub-v3-migrate".to_string(), |a| a.agent_id);
 
-    // Refuse only when pending offline issues are PROMOTABLE by the current
-    // agent — `crosslink sync` will claim their real ids (offline promotion
-    // filters on created_by == self). Offline issues created by OTHER
-    // identities (dead kickoff agents, anonymous writers) have no live
-    // promotion path in any session; the genesis builder mints deterministic
-    // ids for those instead of blocking the migration forever.
     let pending = find_pending_offline(cache_dir)?;
     let promotable: Vec<&IssueFile> = pending
         .iter()
@@ -589,7 +430,6 @@ fn build_and_publish_v3(
         );
     }
 
-    // Force a compaction so v2 state is fully reduced and the watermark embedded.
     if let Some(result) = compaction::compact(cache_dir, &agent_id, true, hub_lock)
         .context("forced pre-migration compaction failed")?
     {
@@ -612,12 +452,8 @@ fn build_and_publish_v3(
         }
     }
 
-    // Build the authoritative genesis state from the files.
     let genesis = build_genesis_from_files(cache_dir)?;
 
-    // Report ids minted for orphaned offline relics (created by identities
-    // with no live promotion path). The v2 branch keeps their None ids — the
-    // escape-hatch divergence is limited to exactly these issues.
     for orphan in &pending {
         if let Some(id) = genesis.display_id_map.get(&orphan.uuid) {
             println!(
@@ -627,15 +463,11 @@ fn build_and_publish_v3(
         }
     }
 
-    // Record the v2 hub tip for provenance and rollback awareness.
     let v2_tip = git_rev_parse(cache_dir, V2_HUB_BRANCH)?
         .ok_or_else(|| anyhow::anyhow!("crosslink/hub branch vanished mid-migration"))?;
 
-    // Snapshot every v3 hub branch tip for rollback (these are the only refs
-    // the migration touches; the v2 branch is never modified).
     let pre_tips = snapshot_crosslink_refs(cache_dir)?;
 
-    // Seed agent refs + checkpoint + meta. Any failure here triggers rollback.
     let seed_result = seed_v3_refs(cache_dir, &genesis, &v2_tip);
     let seeded = match seed_result {
         Ok(s) => s,
@@ -645,7 +477,6 @@ fn build_and_publish_v3(
         }
     };
 
-    // AC-6 verification gate against the freshly written refs.
     let report = match verify_against_files(cache_dir, &genesis) {
         Ok(r) => r,
         Err(e) => {
@@ -657,8 +488,6 @@ fn build_and_publish_v3(
         }
     };
 
-    // Local migration is complete and verified. Push refs (failures are
-    // reported per-ref but do NOT roll back local state — re-run retries pushes).
     let push_summary = push_v3_refs(cache_dir, remote, &seeded, force_push);
 
     print_phase_a_summary(&seeded, &genesis, &report, &push_summary);
@@ -666,16 +495,6 @@ fn build_and_publish_v3(
     Ok(())
 }
 
-// ── Re-migrate from the current v2 tip (Corvidae-Coding-Projects/crosslink#653) ───
-
-/// `crosslink migrate hub-v3 --remigrate-from-v2`.
-///
-/// Recovery path for a STALE remote v3 hub: a v2-only binary kept writing the
-/// `crosslink/hub` branch after an earlier migration, so the remote v3 hub is
-/// frozen behind the live v2 state. This regenerates the v3 genesis from the
-/// CURRENT `crosslink/hub` tip and force-pushes it, superseding the stale v3
-/// refs — the discoverable alternative to hand-deleting `crosslink/agents/*` /
-/// `crosslink/checkpoint` / `crosslink/meta` and re-migrating.
 fn remigrate_from_v2_path(
     crosslink_dir: &Path,
     cache_dir: &Path,
@@ -689,8 +508,6 @@ fn remigrate_from_v2_path(
         );
     }
 
-    // The v2 branch is the source of truth for a re-migrate; without it there is
-    // nothing to regenerate from (e.g. a finalized hub that already deleted it).
     if git_rev_parse(cache_dir, V2_HUB_BRANCH)?.is_none() {
         bail!(
             "refusing to re-migrate: no crosslink/hub (v2) branch exists at {}. \
@@ -700,7 +517,6 @@ fn remigrate_from_v2_path(
         );
     }
 
-    // Report what is being superseded, when an existing v3 hub is present.
     match hub_v3::detect_hub_version(cache_dir)? {
         HubVersion::V3 { .. } => {
             println!("re-migrating v3 from the current crosslink/hub (v2) tip.");
@@ -710,7 +526,6 @@ fn remigrate_from_v2_path(
             }
         }
         HubVersion::V2Only => {
-            // No local v3 yet — behaves like a first migration from current v2.
             println!("re-migrating v3 from the current crosslink/hub (v2) tip.");
         }
         HubVersion::Absent => {
@@ -725,24 +540,12 @@ fn remigrate_from_v2_path(
     build_and_publish_v3(crosslink_dir, cache_dir, remote, hub_lock, true)
 }
 
-// ── Genesis construction ─────────────────────────────────────────────
-
-/// Per-issue layout location, used to find inline vs. separate comments.
 struct IssueLayout {
-    /// Inline comments (V1 flat layout) carried on the `IssueFile`.
     inline_comments: Vec<crate::issue_file::CommentEntry>,
-    /// Directory holding separate comment files (V2 layout), if it exists.
+
     comments_dir: Option<PathBuf>,
 }
 
-/// Build the genesis [`CheckpointState`] from the materialized files.
-///
-/// This is the authoritative materialized state, independent of the event
-/// reducer. It reads every issue file (both layouts), comment files / inline
-/// comments, time entries, milestones, and counters, plus the freshly compacted
-/// checkpoint's lock state, and embeds a watermark equal to the max
-/// [`OrderingKey`] across ALL v2 agent logs so v3 readers apply nothing
-/// pre-genesis.
 fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     let issues_dir = cache_dir.join("issues");
     let issue_files = read_all_issue_files(&issues_dir)?;
@@ -752,8 +555,6 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     let mut max_display_id: i64 = 0;
     let mut max_comment_id: i64 = 0;
 
-    // Detect duplicate display_id claims across issue files — corrupt v2 state
-    // must be repaired (via integrity), not silently remapped.
     let mut display_id_owner: BTreeMap<i64, Uuid> = BTreeMap::new();
 
     for issue in &issue_files {
@@ -799,7 +600,6 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
         issues.insert(issue.uuid, compact);
     }
 
-    // Milestones from meta/milestones/{uuid}.json.
     let milestones_dir = cache_dir.join("meta").join("milestones");
     let milestone_files = read_all_milestone_files(&milestones_dir)?;
     let mut milestones: BTreeMap<Uuid, CompactMilestone> = BTreeMap::new();
@@ -820,22 +620,13 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
         );
     }
 
-    // Locks from the freshly compacted checkpoint (lock state is event-authoritative).
     let locks = crate::checkpoint::read_checkpoint(cache_dir)?.locks;
 
-    // Counters: max(counters.json values, on-disk maxima + 1).
     let counters = read_counters(&cache_dir.join("meta").join("counters.json"))?;
     let mut next_display_id = counters.next_display_id.max(max_display_id + 1);
     let next_comment_id = counters.next_comment_id.max(max_comment_id + 1);
     let next_milestone_id = counters.next_milestone_id.max(max_milestone_id + 1);
 
-    // Orphaned offline issues: files still carrying display_id None at this
-    // point were created by identities with no live promotion path (the
-    // preflight refuses when the CURRENT agent could promote via sync).
-    // Mint deterministic genesis ids — sorted by (created_at, uuid) — above
-    // every existing claim, so the genesis display_id_map is total. The v2
-    // branch's files keep their None ids (escape-hatch divergence is limited
-    // to these relics and is reported by the caller).
     let mut orphan_keys: Vec<(chrono::DateTime<chrono::Utc>, Uuid)> = issues
         .values()
         .filter(|i| i.display_id.is_none())
@@ -851,10 +642,6 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
         }
     }
 
-    // Watermark: max OrderingKey across ALL v2 agent logs, so the v3 read path
-    // applies nothing pre-genesis. When no events exist anywhere, synthesize a
-    // genesis-moment sentinel so the watermark is ALWAYS Some — a None watermark
-    // would make reduce() RESET the genesis state to default (see compaction::reduce).
     let watermark =
         max_event_ordering_key(cache_dir)?.unwrap_or_else(hub_v3::genesis_sentinel_watermark);
 
@@ -874,8 +661,6 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     })
 }
 
-/// Resolve the comment layout for an issue: inline (V1) plus an optional
-/// separate comments directory (V2 `issues/{uuid}/comments/`).
 fn issue_layout(issues_dir: &Path, issue: &IssueFile) -> IssueLayout {
     let v2_comments = issues_dir.join(issue.uuid.to_string()).join("comments");
     let comments_dir = if v2_comments.is_dir() {
@@ -889,11 +674,6 @@ fn issue_layout(issues_dir: &Path, issue: &IssueFile) -> IssueLayout {
     }
 }
 
-/// Build the comment map for an issue and return `(map, max_comment_display_id)`.
-///
-/// V2 comment files carry their own uuid (used directly). V1 inline comments
-/// lack a uuid — a deterministic uuid is derived from the issue uuid + the
-/// comment's i64 id via [`derive_uuid`].
 fn build_comments(
     issue_uuid: Uuid,
     issue: &IssueFile,
@@ -902,7 +682,6 @@ fn build_comments(
     let mut map: BTreeMap<Uuid, CompactComment> = BTreeMap::new();
     let mut max_id: i64 = 0;
 
-    // V2 separate comment files (uuid-keyed natively).
     if let Some(dir) = &layout.comments_dir {
         for cf in read_comment_files(dir)? {
             map.insert(
@@ -923,8 +702,7 @@ fn build_comments(
         }
     }
 
-    // V1 inline comments (derive deterministic uuids from issue uuid + i64 id).
-    let _ = issue; // inline comments already captured on the layout
+    let _ = issue;
     for ce in &layout.inline_comments {
         max_id = max_id.max(ce.id);
         let cuuid = derive_uuid("comment", issue_uuid, ce.id);
@@ -945,8 +723,6 @@ fn build_comments(
     Ok((map, max_id))
 }
 
-/// Build the time-entry map for an issue. V1 inline time entries carry an i64
-/// id but no uuid — a deterministic uuid is derived from the issue uuid + id.
 fn build_time_entries(issue_uuid: Uuid, issue: &IssueFile) -> BTreeMap<Uuid, CompactTimeEntry> {
     let mut map: BTreeMap<Uuid, CompactTimeEntry> = BTreeMap::new();
     for te in &issue.time_entries {
@@ -961,10 +737,6 @@ fn build_time_entries(issue_uuid: Uuid, issue: &IssueFile) -> BTreeMap<Uuid, Com
     map
 }
 
-/// Derive a deterministic uuid for an inline (uuid-less) V1 sub-entity.
-///
-/// `Uuid::from_bytes(sha256("crosslink-hub-v3:<kind>:<issue_uuid>:<id>")[0..16])`.
-/// No randomness, so the same inputs always yield the same uuid across re-runs.
 fn derive_uuid(kind: &str, issue_uuid: Uuid, id: i64) -> Uuid {
     let canonical = format!("crosslink-hub-v3:{kind}:{issue_uuid}:{id}");
     let digest = Sha256::digest(canonical.as_bytes());
@@ -973,9 +745,6 @@ fn derive_uuid(kind: &str, issue_uuid: Uuid, id: i64) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
-/// Compute the maximum [`OrderingKey`] across every v2 agent event log.
-///
-/// Returns `None` when no agent log contains any event.
 fn max_event_ordering_key(cache_dir: &Path) -> Result<Option<OrderingKey>> {
     let agents_dir = cache_dir.join("agents");
     let mut max_key: Option<OrderingKey> = None;
@@ -1005,27 +774,18 @@ fn max_event_ordering_key(cache_dir: &Path) -> Result<Option<OrderingKey>> {
     Ok(max_key)
 }
 
-// ── Ref seeding ──────────────────────────────────────────────────────
-
-/// Summary of what `seed_v3_refs` created/updated, used for push + reporting.
 struct SeededRefs {
-    /// Agent IDs whose per-agent ref was seeded.
     agents: Vec<String>,
-    /// Whether the checkpoint ref was written.
+
     checkpoint_written: bool,
-    /// Whether the meta ref was written.
+
     meta_written: bool,
 }
 
-/// Seed per-agent refs from v2 event logs, commit the genesis checkpoint, and
-/// write the meta marker. The v2 branch is never touched.
 fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Result<SeededRefs> {
-    // 1. Per-agent refs from each v2 agents/<id>/events.log (byte-superset by the
-    //    dual-write parity invariant; child-commit over any existing shadow tip).
     let agents_dir = cache_dir.join("agents");
     let mut agents = Vec::new();
-    // GH#45: record each seeded tip so finalize can verify the seed is still
-    // an ancestor of every ref instead of demanding the hub was never used.
+
     let mut seed_agent_tips = std::collections::BTreeMap::new();
     if agents_dir.exists() {
         for entry in std::fs::read_dir(&agents_dir)
@@ -1060,7 +820,6 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
     }
     agents.sort();
 
-    // 2. Genesis checkpoint state.json onto CHECKPOINT_REF.
     let state_bytes = serde_json::to_vec_pretty(genesis)
         .context("failed to serialize genesis checkpoint state")?;
     let genesis_checkpoint_commit = hub_v3::commit_blob_to_ref(
@@ -1072,7 +831,6 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
     )
     .context("failed to commit genesis checkpoint")?;
 
-    // 3. META_REF: hub.json + allowed_signers (when present).
     let meta = HubMeta {
         hub_version: 3,
         migrated_from_commit: v2_tip.to_string(),
@@ -1107,9 +865,6 @@ fn seed_v3_refs(cache_dir: &Path, genesis: &CheckpointState, v2_tip: &str) -> Re
     })
 }
 
-// ── AC-6 verification gate ───────────────────────────────────────────
-
-/// Per-category counts checked by the verification gate.
 struct VerifyReport {
     issues: usize,
     comments: usize,
@@ -1117,21 +872,13 @@ struct VerifyReport {
     locks: usize,
 }
 
-/// AC-6 gate: reduce a fresh [`RefHubSource`] over the new refs and compare it
-/// field-complete against the genesis (rebuilt independently from the files),
-/// AND assert the file-level invariants directly to avoid symmetric-bug
-/// blindness.
 fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<VerifyReport> {
-    // Independent re-read of the files (a second genesis build).
     let rebuilt = build_genesis_from_files(cache_dir)?;
 
-    // reduce(RefHubSource) must yield the genesis state unchanged (the watermark
-    // covers every seeded event, so nothing is re-applied).
     let source = RefHubSource::new(cache_dir)?;
     let outcome = compaction::reduce(&source)?;
     let reduced = &outcome.state;
 
-    // 1. Whole-state field-complete equality, both directions.
     let genesis_val = serde_json::to_value(genesis).context("serialize genesis")?;
     let rebuilt_val = serde_json::to_value(&rebuilt).context("serialize rebuilt genesis")?;
     let reduced_val = serde_json::to_value(reduced).context("serialize reduced state")?;
@@ -1145,11 +892,9 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
         );
     }
 
-    // 2. Direct invariants against the files (not symmetric with the builder).
     let issues_dir = cache_dir.join("issues");
     let issue_files = read_all_issue_files(&issues_dir)?;
 
-    // Issue count equality.
     if issue_files.len() != reduced.issues.len() {
         bail!(
             "verification failed: issue count mismatch (files {}, reduced {})",
@@ -1161,7 +906,6 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
     let mut comment_total = 0usize;
     let mut display_ids_seen: BTreeSet<i64> = BTreeSet::new();
     for issue in &issue_files {
-        // Every issue file uuid is present in the reduced state.
         let Some(reduced_issue) = reduced.issues.get(&issue.uuid) else {
             bail!(
                 "verification failed: issue {} present on disk but missing from reduced state",
@@ -1169,7 +913,6 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
             );
         };
 
-        // Per-issue serde_json equality of CompactIssue against the genesis.
         let g = genesis
             .issues
             .get(&issue.uuid)
@@ -1181,14 +924,12 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
             );
         }
 
-        // Display-id uniqueness across issue files.
         if let Some(did) = issue.display_id {
             if !display_ids_seen.insert(did) {
                 bail!("verification failed: duplicate display_id #{did} across issue files");
             }
         }
 
-        // Comment count per issue matches the comment files / inline comments.
         let layout = issue_layout(&issues_dir, issue);
         let on_disk_comments = count_disk_comments(issue, &layout)?;
         if on_disk_comments != reduced_issue.comments.len() {
@@ -1202,7 +943,6 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
         comment_total += on_disk_comments;
     }
 
-    // Milestone count matches the milestone files.
     let milestones_dir = cache_dir.join("meta").join("milestones");
     let milestone_files = read_all_milestone_files(&milestones_dir)?;
     if milestone_files.len() != reduced.milestones.len() {
@@ -1213,7 +953,6 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
         );
     }
 
-    // next_* >= on-disk maxima.
     let counters = read_counters(&cache_dir.join("meta").join("counters.json"))?;
     if reduced.next_display_id < counters.next_display_id
         || reduced.next_milestone_id < counters.next_milestone_id
@@ -1222,7 +961,6 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
         bail!("verification failed: next_* counters regressed below counters.json");
     }
 
-    // Locks equal the compacted checkpoint's locks.
     let compacted = crate::checkpoint::read_checkpoint(cache_dir)?;
     if serde_json::to_value(&compacted.locks)? != serde_json::to_value(&reduced.locks)? {
         bail!("verification failed: lock state differs from the compacted checkpoint");
@@ -1236,8 +974,6 @@ fn verify_against_files(cache_dir: &Path, genesis: &CheckpointState) -> Result<V
     })
 }
 
-/// Count the comments on disk for an issue (V2 files + V1 inline, de-duplicated
-/// the same way the genesis builder does so the counts line up).
 fn count_disk_comments(issue: &IssueFile, layout: &IssueLayout) -> Result<usize> {
     let mut keys: BTreeSet<Uuid> = BTreeSet::new();
     if let Some(dir) = &layout.comments_dir {
@@ -1251,32 +987,23 @@ fn count_disk_comments(issue: &IssueFile, layout: &IssueLayout) -> Result<usize>
     Ok(keys.len())
 }
 
-// ── Ref snapshot / rollback ──────────────────────────────────────────
-
-/// Snapshot of a v3 hub branch's tip before migration.
 struct RefTip {
     name: String,
-    /// `Some(sha)` if the ref existed before migration; `None` if it did not.
+
     old_sha: Option<String>,
 }
 
-/// Record the current tip of every v3 hub branch. The set is the union
-/// of refs that exist now and the refs the migration is about to write, so that
-/// a ref created by the migration but absent before is rolled back by deletion.
 fn snapshot_crosslink_refs(cache_dir: &Path) -> Result<Vec<RefTip>> {
     let mut names: BTreeSet<String> = BTreeSet::new();
     for r in for_each_ref(cache_dir, "refs/heads/crosslink/*")? {
-        // Only the v3 hub refs (checkpoint, meta, agents/*); never the frozen v2
-        // `crosslink/hub` branch or the `crosslink/hub-v3-host` worktree host,
-        // which share the prefix but are not hub state (#767).
         if hub_v3::is_v3_hub_ref(&r) {
             names.insert(r);
         }
     }
-    // The refs the migration writes (so a newly-created one rolls back to absent).
+
     names.insert(CHECKPOINT_REF.to_string());
     names.insert(META_REF.to_string());
-    // Per-agent refs the migration may create.
+
     let agents_dir = cache_dir.join("agents");
     if agents_dir.exists() {
         for entry in std::fs::read_dir(&agents_dir)?.flatten() {
@@ -1298,19 +1025,14 @@ fn snapshot_crosslink_refs(cache_dir: &Path) -> Result<Vec<RefTip>> {
     Ok(tips)
 }
 
-/// Restore every recorded ref to its pre-migration tip: refs that existed are
-/// reset to their old sha, refs that did not exist are deleted. The v2 branch
-/// is never in this set, so it is never touched.
 fn rollback_refs(cache_dir: &Path, tips: &[RefTip]) -> Result<()> {
     for tip in tips {
         let current = git_rev_parse(cache_dir, &tip.name)?;
         match (&tip.old_sha, &current) {
             (Some(old), _) => {
-                // Restore to the old value (idempotent if already there).
                 git_update_ref(cache_dir, &tip.name, old)?;
             }
             (None, Some(_)) => {
-                // Did not exist before — delete what the migration created.
                 git_delete_ref(cache_dir, &tip.name)?;
             }
             (None, None) => {}
@@ -1319,22 +1041,11 @@ fn rollback_refs(cache_dir: &Path, tips: &[RefTip]) -> Result<()> {
     Ok(())
 }
 
-// ── Push ─────────────────────────────────────────────────────────────
-
-/// Per-ref push results, for reporting.
 struct PushSummary {
     pushed: Vec<String>,
     failed: Vec<(String, String)>,
 }
 
-/// Push every created/updated ref. Agent + meta refs use a plain fast-forward
-/// push; the checkpoint ref uses `--force-with-lease` (REQ-7). Failures are
-/// collected, not propagated (re-run is the retry mechanism).
-///
-/// When `force` is set (the `--remigrate-from-v2` recovery path), every ref is
-/// force-pushed instead: the regenerated genesis does NOT descend from the
-/// stale remote v3 hub it supersedes, so fast-forward pushes would all be
-/// rejected as non-fast-forward (Corvidae-Coding-Projects/crosslink#653).
 fn push_v3_refs(cache_dir: &Path, remote: &str, seeded: &SeededRefs, force: bool) -> PushSummary {
     let mut summary = PushSummary {
         pushed: Vec::new(),
@@ -1355,8 +1066,6 @@ fn push_v3_refs(cache_dir: &Path, remote: &str, seeded: &SeededRefs, force: bool
         Err(e) => summary.failed.push((name, e.to_string())),
     };
 
-    // The checkpoint ref always supersedes via force (force-with-lease normally,
-    // unconditional force on re-migrate where the lease baseline is stale too).
     for agent_id in &seeded.agents {
         if let Ok(name) = agent_ref_name(agent_id) {
             let outcome = if force {
@@ -1387,8 +1096,6 @@ fn push_v3_refs(cache_dir: &Path, remote: &str, seeded: &SeededRefs, force: bool
     summary
 }
 
-/// On the already-migrated re-run path, push any v3 ref the remote lacks. This
-/// makes re-run the retry mechanism for an interrupted remote propagation.
 fn retry_push_missing_refs(cache_dir: &Path, remote: &str) -> Result<()> {
     let local_refs: Vec<String> = for_each_ref(cache_dir, "refs/heads/crosslink/*")?
         .into_iter()
@@ -1428,15 +1135,7 @@ fn retry_push_missing_refs(cache_dir: &Path, remote: &str) -> Result<()> {
     Ok(())
 }
 
-// ── Phase B: finalize ────────────────────────────────────────────────
-
-/// `git merge-base --is-ancestor` — true when `ancestor_sha` is an ancestor of
-/// (or equal to) `descendant_rev`. Exit 1 means "not an ancestor"; other
-/// failures (unknown revision, plumbing errors) propagate.
 fn git_is_ancestor(repo_dir: &Path, ancestor_sha: &str, descendant_rev: &str) -> Result<bool> {
-    // Direct invocation, NOT run_git: exit 1 is the meaningful "not an
-    // ancestor" answer here, while run_git treats every nonzero exit as an
-    // error.
     let out = Command::new("git")
         .current_dir(repo_dir)
         .args(["merge-base", "--is-ancestor", ancestor_sha, descendant_rev])
@@ -1454,29 +1153,6 @@ fn git_is_ancestor(repo_dir: &Path, ancestor_sha: &str, descendant_rev: &str) ->
     }
 }
 
-/// Finalize-time verification (GH#45).
-///
-/// The migration-time gate ([`verify_against_files`]) demands
-/// `reduce(current refs) == genesis` — an invariant only true in the instant
-/// after seeding. Reused at finalize it meant ANY legitimate post-migration
-/// hub use (a single lock release; even the dispatcher's own v3 fetch, which
-/// advances the checkpoint ref) permanently blocked the cutover with a
-/// misleading "v2 and v3 no longer agree". Finalize instead verifies the two
-/// properties that actually gate safe v2 deletion:
-///
-/// 1. **v2 is still frozen**: the v2 worktree files reproduce the genesis
-///    persisted at migration (the `state.json` blob at
-///    `HubMeta.genesis_checkpoint_commit` — content-addressed and durable,
-///    unlike the moving checkpoint ref).
-/// 2. **The seed is intact**: every tip recorded at seeding is still an
-///    ancestor of its ref (ancestry, not byte-prefix, so compaction and
-///    REQ-11 pruning never false-fail), and reducing AT the seeded tips
-///    reproduces the genesis exactly. Events above the watermark are
-///    expected and irrelevant.
-///
-/// Hubs migrated before the seed metadata existed fall back to the old
-/// strict check; when that fails the error steers to `--remigrate-from-v2`,
-/// which re-seeds and records the metadata.
 fn verify_finalize(cache_dir: &Path) -> Result<()> {
     let meta = read_hub_meta(cache_dir)?
         .ok_or_else(|| anyhow::anyhow!("v3 meta marker missing during finalize"))?;
@@ -1484,9 +1160,6 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
     let (Some(genesis_ckpt), Some(seed_tips)) =
         (meta.genesis_checkpoint_commit, meta.seed_agent_tips)
     else {
-        // Pre-GH#45 migration: no persisted seed metadata, so the strict
-        // full check is the only verification available. It passes iff the
-        // hub was never used since migration.
         let genesis = build_genesis_from_files(cache_dir)?;
         return verify_against_files(cache_dir, &genesis)
             .map(|_| ())
@@ -1498,7 +1171,6 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
             );
     };
 
-    // The persisted genesis: content-addressed at the seeded checkpoint commit.
     let spec = format!("{genesis_ckpt}:state.json");
     let bytes = git_cat_file_blob_optional(cache_dir, &spec)?.ok_or_else(|| {
         anyhow::anyhow!(
@@ -1510,7 +1182,6 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
         .context("refusing to finalize: persisted genesis state.json does not parse")?;
     let genesis_val = serde_json::to_value(&genesis).context("serialize persisted genesis")?;
 
-    // (1) v2 frozen: the files still reproduce the seeded genesis.
     let rebuilt = build_genesis_from_files(cache_dir)?;
     if serde_json::to_value(&rebuilt).context("serialize rebuilt genesis")? != genesis_val {
         bail!(
@@ -1521,7 +1192,6 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
         );
     }
 
-    // (2) seed intact: every recorded tip is still an ancestor of its ref.
     if !git_is_ancestor(cache_dir, &genesis_ckpt, CHECKPOINT_REF)? {
         bail!(
             "refusing to finalize: the seeded genesis checkpoint {genesis_ckpt} is no longer \
@@ -1540,7 +1210,6 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
         }
     }
 
-    // (3) bounded AC-6: reduce AT the seeded tips must reproduce the genesis.
     let meta_sha = crate::hub_v3::git_rev_parse_optional(cache_dir, META_REF)?;
     let source = RefHubSource::at_tips(
         cache_dir,
@@ -1578,7 +1247,6 @@ fn finalize_migration(
         );
     }
 
-    // Precondition: must already be v3.
     match hub_v3::detect_hub_version(cache_dir)? {
         HubVersion::V3 { v2_branch_present } => {
             if !v2_branch_present {
@@ -1594,12 +1262,6 @@ fn finalize_migration(
         }
     }
 
-    // Divergence guard (Corvidae-Coding-Projects/crosslink#653): deleting crosslink/hub is
-    // the point of no return — it removes the only complete copy of the v2
-    // state. Refuse if the live v2 branch has advanced past the v3 genesis, so
-    // a stale adopt can never escalate to REAL data loss. (This is the explicit,
-    // clearly-messaged check; the AC-6 re-verify below would also fail, but with
-    // a generic "v2 and v3 no longer agree" error.)
     if let Some(genesis_commit) = read_hub_meta(cache_dir)?.map(|m| m.migrated_from_commit) {
         if let Some(div) = compute_v2_divergence(cache_dir, &genesis_commit)? {
             if div.is_stale() {
@@ -1608,25 +1270,15 @@ fn finalize_migration(
         }
     }
 
-    // Resolve the main repo root NOW, while the cache worktree still exists.
-    // After the worktree is removed, all ref operations must run from the repo
-    // root (which shares the same object store + ref namespace).
     let repo_root = git_main_repo_root(cache_dir)?;
 
-    // Finalize-time verification (GH#45): verify against the SEEDED genesis
-    // persisted in HubMeta, not the moving tips — legitimate post-migration
-    // hub use must never block the cutover. (fetch already ran in the
-    // dispatcher.)
     verify_finalize(cache_dir)?;
 
-    // Stamp HubMeta.finalized_at (new commit on META_REF preserving provenance)
-    // BEFORE removing the worktree, while ref reads from cache_dir still work.
     let mut meta = read_hub_meta(cache_dir)?
         .ok_or_else(|| anyhow::anyhow!("v3 meta marker missing during finalize"))?;
     meta.finalized_at = Some(Utc::now());
     let hub_json = serde_json::to_vec_pretty(&meta).context("serialize finalized HubMeta")?;
 
-    // Preserve allowed_signers if the meta ref currently carries it.
     let signers = read_meta_allowed_signers(cache_dir)?;
     let mut files: Vec<(&str, &[u8])> = vec![("hub.json", &hub_json)];
     if let Some(bytes) = &signers {
@@ -1640,12 +1292,9 @@ fn finalize_migration(
     )
     .context("failed to update meta marker with finalized_at")?;
 
-    // Now delete the local crosslink/hub branch + cache worktree, and push the
-    // deletion to the remote. All subsequent ref ops run from `repo_root`.
     delete_v2_branch_local(cache_dir, &repo_root)?;
     push_v2_branch_deletion(&repo_root, remote)?;
 
-    // Push the updated meta ref (best-effort, re-run retries) from the repo root.
     match hub_v3::push_ref(&repo_root, remote, META_REF) {
         Ok(PushOutcome::Pushed | PushOutcome::NoRemote) => {}
         Ok(other) => tracing::warn!("finalize: meta ref push did not complete: {other:?}"),
@@ -1666,7 +1315,6 @@ fn finalize_migration(
     Ok(())
 }
 
-/// Read `allowed_signers` from the current `META_REF` tip, if present.
 fn read_meta_allowed_signers(cache_dir: &Path) -> Result<Option<Vec<u8>>> {
     let Some(tip) = git_rev_parse(cache_dir, META_REF)? else {
         return Ok(None);
@@ -1675,41 +1323,21 @@ fn read_meta_allowed_signers(cache_dir: &Path) -> Result<Option<Vec<u8>>> {
     git_cat_file_blob_optional(cache_dir, &spec)
 }
 
-/// Delete the local crosslink/hub branch. The branch is checked out in the hub
-/// cache worktree, so every worktree hosting it must be removed first.
-/// `repo_root` is the main repository that owns the branch and object store.
-///
-/// Hardened after a live failure (#775): the registered worktree is not always
-/// at `cache_dir`. A GH#574-era corruption class leaves a SELF-REFERENTIAL
-/// registration whose working directory is its own `.git/worktrees/<id>`
-/// admin dir — `worktree remove <cache_dir>` then fails (not a registered
-/// path), `prune` never reaps it (its gitdir target "exists": itself), and
-/// `branch -D` refuses. So: enumerate the actual registrations, tear down
-/// every worktree on `crosslink/hub` wherever it lives, escalate force
-/// levels, and VERIFY none remain before deleting the branch — surfacing the
-/// captured stderr instead of swallowing it.
 fn delete_v2_branch_local(cache_dir: &Path, repo_root: &Path) -> Result<()> {
     let mut teardown_errors: Vec<String> = Vec::new();
 
     for path in worktrees_on_hub_branch(repo_root)? {
-        // `--force --force` also removes locked worktrees.
         let removed = run_git(
             repo_root,
             &["worktree", "remove", "--force", "--force", &path],
         );
         if let Err(e) = removed {
-            // Last resort for corrupt registrations (e.g. the self-referential
-            // admin-dir worktree): delete the directory and let prune reap the
-            // registration. For the self-referential case the directory IS the
-            // admin dir, so this removes the registration itself.
             teardown_errors.push(format!("worktree remove {path}: {e}"));
             let _ = std::fs::remove_dir_all(&path);
         }
     }
     let _ = run_git(repo_root, &["worktree", "prune"]);
 
-    // Verify before touching the branch: a leftover registration would make
-    // `branch -D` fail with a less actionable message.
     let remaining = worktrees_on_hub_branch(repo_root)?;
     if !remaining.is_empty() {
         bail!(
@@ -1723,10 +1351,6 @@ fn delete_v2_branch_local(cache_dir: &Path, repo_root: &Path) -> Result<()> {
     run_git(repo_root, &["branch", "-D", "crosslink/hub"])
         .context("failed to delete local crosslink/hub branch")?;
 
-    // The v2 cache directory may remain as an UNREGISTERED leftover (its
-    // registration was the corrupt one torn down above, or it was never
-    // re-registered). Remove it so the next crosslink command's init_cache
-    // self-heals into a fresh v3 host worktree instead of binding stale junk.
     if cache_dir.exists() {
         let still_registered = worktree_paths(repo_root)?
             .iter()
@@ -1743,7 +1367,6 @@ fn delete_v2_branch_local(cache_dir: &Path, repo_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// All registered worktree paths of `repo_root` (porcelain parse).
 fn worktree_paths(repo_root: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
         .current_dir(repo_root)
@@ -1763,7 +1386,6 @@ fn worktree_paths(repo_root: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
-/// Paths of registered worktrees whose checked-out branch is crosslink/hub.
 fn worktrees_on_hub_branch(repo_root: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
         .current_dir(repo_root)
@@ -1791,8 +1413,6 @@ fn worktrees_on_hub_branch(repo_root: &Path) -> Result<Vec<String>> {
     Ok(result)
 }
 
-/// Push the crosslink/hub branch deletion to the remote. `repo_root` is the
-/// main repository (the cache worktree has already been removed by this point).
 fn push_v2_branch_deletion(repo_root: &Path, remote: &str) -> Result<()> {
     let output = Command::new("git")
         .current_dir(repo_root)
@@ -1803,8 +1423,7 @@ fn push_v2_branch_deletion(repo_root: &Path, remote: &str) -> Result<()> {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // A remote that doesn't have the branch (or no remote) is not fatal here —
-    // the local deletion already happened and re-run can retry.
+
     if stderr.contains("remote ref does not exist")
         || stderr.contains("Could not read from remote")
         || stderr.contains("does not appear to be a git repository")
@@ -1819,47 +1438,27 @@ fn push_v2_branch_deletion(repo_root: &Path, remote: &str) -> Result<()> {
     );
 }
 
-// ── Pending-offline detection ────────────────────────────────────────
-
-/// Find issue files that have no `display_id` (pending offline promotion).
-///
-/// Mirrors the signal `shared_writer::offline::find_offline_issues` keys on
-/// (`display_id.is_none()`), but reads the hub-cache files directly — the
-/// migration must refuse before any agent/SQLite context is required.
 fn find_pending_offline(cache_dir: &Path) -> Result<Vec<IssueFile>> {
     let issues_dir = cache_dir.join("issues");
     let all = read_all_issue_files(&issues_dir)?;
     Ok(all.into_iter().filter(|i| i.display_id.is_none()).collect())
 }
 
-// ── v2-vs-v3 divergence (Corvidae-Coding-Projects/crosslink#653) ─────────────────
-
-/// How far the live `crosslink/hub` (v2) branch has advanced past a v3 hub's
-/// recorded genesis commit. A non-zero [`commits_ahead`](Self::commits_ahead)
-/// means the v3 hub is STALE: a v2-only binary kept writing after the migration,
-/// so issues created/edited after the genesis are visible only on the v2 branch.
 struct V2Divergence {
-    /// Current tip of the local `crosslink/hub` branch.
     v2_tip: String,
-    /// The commit the v3 genesis was built from (`HubMeta.migrated_from_commit`).
+
     genesis_commit: String,
-    /// Commits reachable from the v2 tip but not from the genesis commit
-    /// (issue mutations written after the migration). `None` when the genesis
-    /// commit is not in the local object store (unrelated history) — itself a
-    /// divergence.
+
     commits_ahead: Option<usize>,
-    /// Issues currently materialized on the v2 branch worktree.
+
     v2_issue_count: usize,
 }
 
 impl V2Divergence {
-    /// Whether the v2 branch carries work the v3 hub does not reflect.
     fn is_stale(&self) -> bool {
-        // `None` (unknown genesis) or a positive ahead-count both mean stale.
         self.commits_ahead.is_none_or(|n| n > 0)
     }
 
-    /// Short human description of how far v2 is ahead, for inline warnings.
     fn summary_line(&self) -> String {
         let tip = short_sha(&self.v2_tip);
         self.commits_ahead.map_or_else(
@@ -1880,7 +1479,6 @@ impl V2Divergence {
         )
     }
 
-    /// Refusal message for the adopt path: the remedy is to re-migrate.
     fn adopt_refusal_message(&self) -> String {
         format!(
             "refusing to adopt the remote v3 hub: it is STALE relative to your live \
@@ -1900,8 +1498,6 @@ impl V2Divergence {
         )
     }
 
-    /// Refusal message for the finalize path: deleting v2 would destroy the only
-    /// complete copy.
     fn finalize_refusal_message(&self) -> String {
         format!(
             "refusing to finalize: your live crosslink/hub (v2) branch is AHEAD of the v3 hub, \
@@ -1917,9 +1513,6 @@ impl V2Divergence {
     }
 }
 
-/// Compare the live `crosslink/hub` (v2) tip in `cache_dir` against
-/// `genesis_commit` (a v3 hub's `migrated_from_commit`). Returns `None` when
-/// there is no v2 branch (nothing to compare).
 fn compute_v2_divergence(cache_dir: &Path, genesis_commit: &str) -> Result<Option<V2Divergence>> {
     let Some(v2_tip) = git_rev_parse(cache_dir, V2_HUB_BRANCH)? else {
         return Ok(None);
@@ -1927,8 +1520,6 @@ fn compute_v2_divergence(cache_dir: &Path, genesis_commit: &str) -> Result<Optio
     let commits_ahead = if v2_tip == genesis_commit {
         Some(0)
     } else {
-        // `git rev-list --count <genesis>..<tip>` — commits on v2 not in genesis.
-        // Fails (→ None) if the genesis commit is absent from the object store.
         git_rev_list_count(cache_dir, genesis_commit, &v2_tip)?
     };
     let v2_issue_count = read_all_issue_files(&cache_dir.join("issues")).map_or(0, |v| v.len());
@@ -1940,11 +1531,6 @@ fn compute_v2_divergence(cache_dir: &Path, genesis_commit: &str) -> Result<Optio
     }))
 }
 
-/// Read a v3 hub's genesis commit (`HubMeta.migrated_from_commit`) from the
-/// REMOTE without polluting the local ref namespace: fetch only the meta ref to
-/// `FETCH_HEAD` and read `hub.json` from it. Returns `None` when the meta ref or
-/// its `hub.json` is unavailable (so the caller skips the divergence guard
-/// rather than blocking on something it cannot measure).
 fn read_remote_genesis_commit(cache_dir: &Path, remote: &str) -> Result<Option<String>> {
     let fetch = run_git(cache_dir, &["fetch", remote, META_REF])?;
     if !fetch.status.success() {
@@ -1962,10 +1548,6 @@ fn read_remote_genesis_commit(cache_dir: &Path, remote: &str) -> Result<Option<S
     Ok(Some(meta.migrated_from_commit))
 }
 
-/// `git rev-list --count <exclude>..<include>` → commits reachable from
-/// `include` but not `exclude`. Returns `None` if the range cannot be computed
-/// (e.g. `exclude` is not in the object store), which the caller treats as an
-/// unrelated/diverged history.
 fn git_rev_list_count(repo_dir: &Path, exclude: &str, include: &str) -> Result<Option<usize>> {
     let range = format!("{exclude}..{include}");
     let output = run_git(repo_dir, &["rev-list", "--count", &range])?;
@@ -1978,13 +1560,9 @@ fn git_rev_list_count(repo_dir: &Path, exclude: &str, include: &str) -> Result<O
         .ok())
 }
 
-/// First 12 chars of a commit sha for human-facing messages (falls back to the
-/// whole string when shorter).
 fn short_sha(sha: &str) -> &str {
     sha.get(..12).unwrap_or(sha)
 }
-
-// ── Output helpers ───────────────────────────────────────────────────
 
 fn print_hub_meta(meta: &HubMeta) {
     println!("  hub_version: {}", meta.hub_version);
@@ -2044,8 +1622,6 @@ fn print_mixed_version_warning() {
          operation, or finish the cutover."
     );
 }
-
-// ── Private git plumbing ─────────────────────────────────────────────
 
 fn git_rev_parse(repo_dir: &Path, ref_name: &str) -> Result<Option<String>> {
     let output = Command::new("git")
@@ -2112,7 +1688,6 @@ fn for_each_ref(repo_dir: &Path, pattern: &str) -> Result<Vec<String>> {
         .collect())
 }
 
-/// `git ls-remote <remote> refs/heads/crosslink/*` → map of refname → sha.
 fn ls_remote_crosslink(repo_dir: &Path, remote: &str) -> Result<BTreeMap<String, String>> {
     let output = Command::new("git")
         .current_dir(repo_dir)
@@ -2165,10 +1740,6 @@ fn run_git(repo_dir: &Path, args: &[&str]) -> Result<std::process::Output> {
     Ok(output)
 }
 
-/// Resolve the main (non-worktree) repository root that owns `repo_dir`'s
-/// object store. Works whether `repo_dir` is the cache worktree or already the
-/// main repo. Uses `git rev-parse --git-common-dir` and strips a trailing
-/// `/.git`.
 fn git_main_repo_root(repo_dir: &Path) -> Result<PathBuf> {
     let output = Command::new("git")
         .current_dir(repo_dir)
@@ -2199,14 +1770,6 @@ mod tests {
     use std::process::Command;
     use tempfile::TempDir;
 
-    /// Build a realistic populated v2 hub in a temp repo with a bare remote.
-    ///
-    /// Returns `(work_dir, remote_dir, crosslink_dir, cache_dir)`. The hub is
-    /// populated with two issues (labels, comments, a dependency, a relation),
-    /// a milestone, and a lock by writing the v2 agent event log directly (the
-    /// v2 write path is deleted, #754) and materializing with
-    /// `compaction::compact`. A second agent's events.log + issue file are
-    /// written directly so two agent refs seed.
     fn setup_v2_hub() -> (TempDir, TempDir, std::path::PathBuf, std::path::PathBuf) {
         let remote_dir = tempfile::tempdir().unwrap();
         let work_dir = tempfile::tempdir().unwrap();
@@ -2242,9 +1805,7 @@ mod tests {
         write_agent(&crosslink_dir, "alpha");
 
         let sync = SyncManager::new(&crosslink_dir).unwrap();
-        // Since 754b a fresh `init_cache` bootstraps v3; the migration tests need
-        // a legacy v2 hub to migrate FROM, so build the `crosslink/hub` worktree
-        // with the v2 layout explicitly (the way pre-754b `init_cache` did).
+
         let cache_dir = sync.cache_path().to_path_buf();
         run(
             &wp,
@@ -2286,16 +1847,10 @@ mod tests {
             ],
         );
 
-        // Populate the pre-migration v2 hub by writing the agent event log
-        // directly (the v2 SharedWriter write path is deleted, #754), then
-        // materializing with `compaction::compact` (kept for migration).
         populate_alpha_v2(&cache_dir);
 
-        // Second agent: write an events.log + issue file directly so the
-        // migration seeds a second agent ref.
         write_second_agent(&cache_dir);
 
-        // Force a compaction to materialize everything consistently.
         let lock = sync.acquire_lock().unwrap();
         crate::compaction::compact(&cache_dir, "alpha", true, &lock).unwrap();
         drop(lock);
@@ -2303,11 +1858,6 @@ mod tests {
         (work_dir, remote_dir, crosslink_dir, cache_dir)
     }
 
-    /// Write agent `alpha`'s v2 event log directly: two issues, labels,
-    /// comments, a blocker, a relation, a milestone, and a lock — the same
-    /// state the old `SharedWriter` population produced. `compaction::compact`
-    /// then materializes the worktree issue/lock/checkpoint files the migration
-    /// genesis reads.
     fn populate_alpha_v2(cache_dir: &Path) {
         use crate::events::{append_event, Event, EventEnvelope};
         let i1 = Uuid::parse_str("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1").unwrap();
@@ -2412,8 +1962,6 @@ mod tests {
             append_event(&log_path, &env).unwrap();
         }
 
-        // Materialize the V2 comment files (compaction writes issue.json but
-        // not the per-comment files the genesis reads via read_comment_files).
         let comments_dir = cache_dir
             .join("issues")
             .join(i1.to_string())
@@ -2455,9 +2003,6 @@ mod tests {
         .unwrap();
     }
 
-    /// Write a beta agent events.log plus a matching issue file directly into
-    /// the cache so the migration seeds a second agent ref and the issue is
-    /// part of the genesis.
     fn write_second_agent(cache_dir: &Path) {
         use crate::events::{append_event, Event, EventEnvelope};
         let uuid = Uuid::parse_str("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb").unwrap();
@@ -2484,9 +2029,6 @@ mod tests {
         let log_path = cache_dir.join("agents").join("beta").join("events.log");
         append_event(&log_path, &env).unwrap();
 
-        // Materialize the issue file (V2 layout) so the file-derived genesis
-        // includes it. compact() will also produce it, but writing it here makes
-        // the fixture explicit and robust.
         let issue = crate::issue_file::IssueFile {
             uuid,
             display_id: Some(3),
@@ -2530,27 +2072,22 @@ mod tests {
         git_rev_parse(dir, name).unwrap()
     }
 
-    // ── Test 1: happy path + idempotent re-run ───────────────────────
-
     #[test]
     fn migrate_happy_path_and_rerun_is_noop() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
 
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // v3 refs exist.
         assert!(rev(&cache_dir, CHECKPOINT_REF).is_some());
         assert!(rev(&cache_dir, META_REF).is_some());
         assert!(rev(&cache_dir, &agent_ref_name("alpha").unwrap()).is_some());
         assert!(rev(&cache_dir, &agent_ref_name("beta").unwrap()).is_some());
 
-        // HubMeta is correct.
         let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
         assert_eq!(meta.hub_version, 3);
         assert!(!meta.migrated_from_commit.is_empty());
         assert!(meta.finalized_at.is_none());
 
-        // Detected as V3 with the v2 branch still present.
         assert_eq!(
             hub_v3::detect_hub_version(&cache_dir).unwrap(),
             HubVersion::V3 {
@@ -2558,7 +2095,6 @@ mod tests {
             }
         );
 
-        // Snapshot tips, re-run, confirm idempotent no-op (tips unchanged).
         let cp = rev(&cache_dir, CHECKPOINT_REF);
         let mt = rev(&cache_dir, META_REF);
         let al = rev(&cache_dir, &agent_ref_name("alpha").unwrap());
@@ -2567,11 +2103,8 @@ mod tests {
         assert_eq!(mt, rev(&cache_dir, META_REF));
         assert_eq!(al, rev(&cache_dir, &agent_ref_name("alpha").unwrap()));
 
-        // v2 branch is untouched.
         assert!(rev(&cache_dir, V2_HUB_BRANCH).is_some());
     }
-
-    // ── Test 2: genesis equals files ─────────────────────────────────
 
     #[test]
     fn genesis_equals_files_via_refhubsource() {
@@ -2585,7 +2118,6 @@ mod tests {
         assert_eq!(reduced.issues.len(), genesis.issues.len());
         assert_eq!(reduced.milestones.len(), genesis.milestones.len());
 
-        // Per-issue full CompactIssue serde equality.
         for (uuid, g) in &genesis.issues {
             let r = reduced
                 .issues
@@ -2598,7 +2130,6 @@ mod tests {
             );
         }
 
-        // Comment count spot-check: at least one issue has 2 comments.
         let with_comments = genesis
             .issues
             .values()
@@ -2607,8 +2138,6 @@ mod tests {
         assert!(with_comments >= 1, "expected an issue with 2 comments");
     }
 
-    // ── Test 3: watermark correctness ────────────────────────────────
-
     #[test]
     fn new_event_above_watermark_is_applied_pre_genesis_is_not() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
@@ -2616,8 +2145,6 @@ mod tests {
 
         let genesis = build_genesis_from_files(&cache_dir).unwrap();
 
-        // Baseline: reduce equals genesis (no double-application of pre-genesis
-        // events such as the label-add already folded into the genesis state).
         let base = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
             .unwrap()
             .state;
@@ -2627,8 +2154,6 @@ mod tests {
             "reduce must equal genesis (pre-genesis events not re-applied)"
         );
 
-        // Append a NEW event ABOVE the watermark to the alpha ref and confirm it
-        // IS applied by reduce.
         use crate::events::{Event, EventEnvelope};
         let new_uuid = Uuid::new_v4();
         let env = EventEnvelope {
@@ -2650,7 +2175,7 @@ mod tests {
             signed_by: None,
             signature: None,
         };
-        // Read current alpha log, append the new line, commit it onto the ref.
+
         let tip = rev(&cache_dir, &agent_ref_name("alpha").unwrap()).unwrap();
         let mut bytes = git_cat_file_blob_optional(&cache_dir, &format!("{tip}:events.log"))
             .unwrap()
@@ -2666,36 +2191,29 @@ mod tests {
             after.issues.contains_key(&new_uuid),
             "event above watermark must be applied"
         );
-        // The new issue is the only difference vs genesis.
+
         assert_eq!(after.issues.len(), genesis.issues.len() + 1);
     }
-
-    // ── Test 4: rollback on verification failure ─────────────────────
 
     #[test]
     fn rollback_restores_all_refs_when_verify_fails() {
         let (_w, _r, _crosslink_dir, cache_dir) = setup_v2_hub();
 
-        // Snapshot pre-migration crosslink ref tips (including any dual-write
-        // shadow refs — here none exist, all should roll back to absent).
         let pre = snapshot_crosslink_refs(&cache_dir).unwrap();
 
-        // Build genesis, then TAMPER it so verification will fail (drop an issue).
         let mut genesis = build_genesis_from_files(&cache_dir).unwrap();
         let victim = *genesis.issues.keys().next().unwrap();
         genesis.issues.remove(&victim);
 
         let v2_tip = git_rev_parse(&cache_dir, V2_HUB_BRANCH).unwrap().unwrap();
         let pre_tips = snapshot_crosslink_refs(&cache_dir).unwrap();
-        // Seed with the tampered genesis: refs get created.
+
         seed_v3_refs(&cache_dir, &genesis, &v2_tip).unwrap();
         assert!(rev(&cache_dir, CHECKPOINT_REF).is_some());
 
-        // Verification must fail (tampered genesis disagrees with files).
         let result = verify_against_files(&cache_dir, &genesis);
         assert!(result.is_err(), "tampered genesis must fail verification");
 
-        // Roll back and assert all refs restored to pre-migration tips.
         rollback_refs(&cache_dir, &pre_tips).unwrap();
         for tip in &pre {
             assert_eq!(
@@ -2705,17 +2223,14 @@ mod tests {
                 tip.name
             );
         }
-        // v2 branch untouched.
+
         assert!(rev(&cache_dir, V2_HUB_BRANCH).is_some());
     }
-
-    // ── Test 5: duplicate display_id refusal ─────────────────────────
 
     #[test]
     fn duplicate_display_id_refuses_migration() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
 
-        // Write a second issue file claiming an already-used display_id (#1).
         let dup_uuid = Uuid::new_v4();
         let issue = crate::issue_file::IssueFile {
             uuid: dup_uuid,
@@ -2747,14 +2262,11 @@ mod tests {
             err.to_string().contains("duplicate display_id"),
             "must refuse on duplicate display_id, got: {err}"
         );
-        // Nothing created.
+
         assert!(rev(&cache_dir, CHECKPOINT_REF).is_none());
         assert!(rev(&cache_dir, META_REF).is_none());
     }
 
-    /// An offline issue created by a DEAD identity (not the current agent)
-    /// has no live promotion path — the migration must mint a deterministic
-    /// genesis display id for it instead of blocking forever.
     #[test]
     fn orphaned_offline_issue_gets_minted_genesis_id() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
@@ -2801,15 +2313,13 @@ mod tests {
             Some(minted),
             "CompactIssue must carry the minted id"
         );
-        // Uniqueness across the whole map.
+
         let mut seen = std::collections::BTreeSet::new();
         for id in state.display_id_map.values() {
             assert!(seen.insert(*id), "minted id collided: {id}");
         }
     }
 
-    /// An offline issue created by the CURRENT agent still refuses — the
-    /// promotion path (`crosslink sync`) exists and must run first.
     #[test]
     fn promotable_offline_issue_still_refuses_migration() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
@@ -2847,8 +2357,6 @@ mod tests {
         );
         assert!(rev(&cache_dir, CHECKPOINT_REF).is_none());
     }
-
-    // ── Test 6: no-events hub ────────────────────────────────────────
 
     #[test]
     fn no_events_hub_migrates_with_synthesized_watermark() {
@@ -2888,9 +2396,8 @@ mod tests {
 
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // Watermark must be Some (synthesized), so reduce returns genesis unchanged.
         let cp = crate::checkpoint::read_checkpoint(&cache_dir);
-        let _ = cp; // checkpoint dir form differs; read via the ref source below.
+        let _ = cp;
         let genesis = build_genesis_from_files(&cache_dir).unwrap();
         assert!(
             genesis.watermark.is_some(),
@@ -2907,33 +2414,27 @@ mod tests {
         assert!(reduced.issues.is_empty());
     }
 
-    // ── Test 7: finalize ─────────────────────────────────────────────
-
     #[test]
     fn finalize_requires_confirmation_then_deletes_v2() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // Without --yes-delete-v2 → refusal.
         let err = hub_v3(&crosslink_dir, true, false, false, false).unwrap_err();
         assert!(
             err.to_string().contains("yes-delete-v2"),
             "finalize without confirmation must refuse, got: {err}"
         );
-        // v2 branch still present.
+
         assert!(rev(&cache_dir, V2_HUB_BRANCH).is_some());
 
-        // With confirmation → v2 branch gone local + remote, finalized_at set.
         let repo_root = wp_of(&crosslink_dir);
         hub_v3(&crosslink_dir, true, true, false, false).unwrap();
 
-        // Local branch deleted (probe from the main repo root — cache worktree removed).
         assert!(
             rev(&repo_root, V2_HUB_BRANCH).is_none(),
             "local v2 branch must be gone"
         );
 
-        // Remote branch deleted.
         let ls = Command::new("git")
             .current_dir(&repo_root)
             .args(["ls-remote", "--heads", "origin", "crosslink/hub"])
@@ -2944,13 +2445,9 @@ mod tests {
             "remote crosslink/hub must be deleted"
         );
 
-        // HubMeta.finalized_at is set.
         let meta = read_hub_meta(&repo_root).unwrap().unwrap();
         assert!(meta.finalized_at.is_some(), "finalized_at must be stamped");
 
-        // Old-binary simulation: SyncManager fetch now fails loudly because the
-        // branch is gone. A fresh SyncManager re-init will try to fetch
-        // crosslink/hub; the branch is absent on the remote.
         let ls2 = Command::new("git")
             .current_dir(&repo_root)
             .args(["fetch", "origin", "crosslink/hub"])
@@ -2971,39 +2468,25 @@ mod tests {
         crosslink_dir.parent().unwrap().to_path_buf()
     }
 
-    // ── Test 8: warn wiring ──────────────────────────────────────────
-
     #[test]
     fn warn_detects_migrated_hub_for_v2_operation() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // No tracing-capture harness exists in this crate's tests, so assert the
-        // detection behavior the warn path keys on: a migrated hub reports V3.
         assert!(matches!(
             hub_v3::detect_hub_version(&cache_dir).unwrap(),
             HubVersion::V3 { .. }
         ));
-        // The warn function must run without panicking on a migrated hub when
-        // the caller is (exotically) still in V2 mode, and must be a silent
-        // no-op for a V3-mode caller.
+
         hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V2);
         hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V3);
     }
 
-    /// #775 — the ferrotorch finalize failure: a GH#574-era corrupt worktree
-    /// registration whose working directory is its own admin dir
-    /// (`gitdir` -> `.git/worktrees/<id>/.git`, self-referential). The old
-    /// teardown (`worktree remove <cache_dir>` + prune) could not reap it and
-    /// `branch -D crosslink/hub` failed with "used by worktree". The hardened
-    /// teardown must enumerate registrations, remove the corrupt worktree
-    /// wherever it lives, and delete the branch.
     #[test]
     fn finalize_teardown_survives_self_referential_worktree() {
         let (work, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         let repo_root = work.path();
 
-        // Locate the admin dir from the worktree's .git link file.
         let git_link = std::fs::read_to_string(cache_dir.join(".git")).unwrap();
         let admin = git_link
             .trim()
@@ -3013,19 +2496,14 @@ mod tests {
         let admin = std::path::PathBuf::from(admin);
         assert!(admin.join("HEAD").exists(), "fixture admin dir must exist");
 
-        // Corrupt exactly as observed live: the registration's gitdir points
-        // at the admin dir itself, the admin dir doubles as the working tree,
-        // and the real cache dir is gone.
         std::fs::write(admin.join("gitdir"), format!("{}/.git\n", admin.display())).unwrap();
         std::fs::write(admin.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
         std::fs::remove_dir_all(&cache_dir).unwrap();
 
-        // Sanity: git now reports a worktree ON crosslink/hub at the admin dir.
         let hosts = worktrees_on_hub_branch(repo_root).unwrap();
         assert_eq!(hosts.len(), 1, "corrupt registration must be visible");
         assert!(hosts[0].contains(".git"), "host is the admin dir itself");
 
-        // The hardened teardown must succeed where the old one failed.
         delete_v2_branch_local(&cache_dir, repo_root)
             .expect("teardown must survive the self-referential registration");
 
@@ -3047,19 +2525,10 @@ mod tests {
         let _ = crosslink_dir;
     }
 
-    /// #774 — the "machine that slept through the migration" path: machine B
-    /// clones while the hub is still v2, machine A migrates, then B runs
-    /// `migrate hub-v3`. B must ADOPT the remote's v3 hub — never mint a
-    /// second genesis from its stale local state.
     #[test]
     fn v2_local_v3_remote_adopts_instead_of_migrating() {
-        // Machine A: populated v2 hub pushed to the bare remote.
         let (_wa, remote_dir, cl_a, cache_a) = setup_v2_hub();
 
-        // Publish A's v2 hub branch so the remote ADVERTISES v2 (real v2
-        // projects do; the fixture builds the hub locally only). Without
-        // this, B's init_cache would see an Absent hub and bootstrap a
-        // conflicting fresh v3 genesis.
         let push = std::process::Command::new("git")
             .current_dir(&cache_a)
             .args(["push", "origin", "crosslink/hub"])
@@ -3071,7 +2540,6 @@ mod tests {
             String::from_utf8_lossy(&push.stderr)
         );
 
-        // Machine B: clones while the remote is still v2-only.
         let work_b = tempfile::tempdir().unwrap();
         for args in [
             vec!["init", "-b", "main"],
@@ -3108,7 +2576,6 @@ mod tests {
             "B must start as a v2-only clone"
         );
 
-        // Machine A migrates; the remote now hosts the authoritative v3 hub.
         hub_v3(&cl_a, false, false, false, false).expect("A's migration must succeed");
         let remote_checkpoint_before = std::process::Command::new("git")
             .current_dir(&cache_a)
@@ -3122,10 +2589,8 @@ mod tests {
             .to_string();
         assert!(!sha_before.is_empty(), "remote checkpoint must exist");
 
-        // Machine B runs migrate hub-v3: must ADOPT, not re-migrate.
         hub_v3(&cl_b, false, false, false, false).expect("B must adopt the remote v3 hub");
 
-        // B's local detection flips to V3.
         assert!(
             matches!(
                 hub_v3::detect_hub_version(&cache_b).unwrap(),
@@ -3134,7 +2599,6 @@ mod tests {
             "B must operate v3 after adoption"
         );
 
-        // No second genesis: the remote checkpoint is byte-identical.
         let remote_checkpoint_after = std::process::Command::new("git")
             .current_dir(&cache_a)
             .args(["ls-remote", "origin", "refs/heads/crosslink/checkpoint"])
@@ -3150,7 +2614,6 @@ mod tests {
             "adoption must never move the remote checkpoint"
         );
 
-        // B's reduction sees A's state.
         let source = crate::hub_source::RefHubSource::new(&cache_b).unwrap();
         let state = crate::compaction::reduce(&source).unwrap().state;
         assert!(
@@ -3158,16 +2621,9 @@ mod tests {
             "B must see the migrated issues after adoption"
         );
 
-        // Idempotent: a second run hits the already-migrated no-op path.
         hub_v3(&cl_b, false, false, false, false).expect("re-run after adoption must be a no-op");
     }
 
-    // ── #653: v2-vs-v3 divergence guard + re-migrate path ────────────
-
-    /// Commit an arbitrary change onto the checked-out crosslink/hub worktree so
-    /// the v2 branch tip advances past the migration genesis (simulating a
-    /// v2-only binary that kept writing after the migration). Returns the new
-    /// v2 tip sha.
     fn advance_v2_branch(cache_dir: &Path, marker: &str) -> String {
         std::fs::write(cache_dir.join("post-migration-marker.txt"), marker).unwrap();
         run(cache_dir, &["add", "-A"]);
@@ -3178,7 +2634,6 @@ mod tests {
         rev(cache_dir, V2_HUB_BRANCH).unwrap()
     }
 
-    /// The divergence helper: equal tips are not stale; an advanced v2 tip is.
     #[test]
     fn compute_v2_divergence_detects_advanced_v2() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
@@ -3189,14 +2644,12 @@ mod tests {
             .unwrap()
             .migrated_from_commit;
 
-        // At the genesis commit, v2 and v3 agree — not stale.
         let div = compute_v2_divergence(&cache_dir, &genesis)
             .unwrap()
             .expect("v2 branch present");
         assert_eq!(div.commits_ahead, Some(0));
         assert!(!div.is_stale(), "matching tips must not be stale");
 
-        // Advance the v2 branch — now it is one commit ahead of the genesis.
         advance_v2_branch(&cache_dir, "one");
         let div = compute_v2_divergence(&cache_dir, &genesis)
             .unwrap()
@@ -3209,14 +2662,11 @@ mod tests {
         );
     }
 
-    /// `--finalize` must refuse when the live v2 branch is ahead of the v3 hub:
-    /// deleting it would destroy the only complete copy (fix #4).
     #[test]
     fn finalize_refuses_when_v2_is_ahead_of_v3() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // A v2-only binary keeps writing after the migration.
         advance_v2_branch(&cache_dir, "stale");
 
         let err = hub_v3(&crosslink_dir, true, true, false, false).unwrap_err();
@@ -3230,15 +2680,12 @@ mod tests {
             "finalize refusal must point at the recovery path: {msg}"
         );
 
-        // The v2 branch is untouched — no escalation to real data loss.
         assert!(
             rev(&cache_dir, V2_HUB_BRANCH).is_some(),
             "v2 branch must still exist after a refused finalize"
         );
     }
 
-    /// `--remigrate-from-v2` regenerates the v3 genesis from the CURRENT v2 tip
-    /// and force-pushes it, superseding the stale remote v3 hub (fix #2).
     #[test]
     fn remigrate_regenerates_genesis_from_current_v2_tip() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
@@ -3250,14 +2697,11 @@ mod tests {
             .migrated_from_commit;
         let checkpoint_t0 = rev(&cache_dir, CHECKPOINT_REF).unwrap();
 
-        // v2 advances past the genesis: the v3 hub is now stale.
         let t1 = advance_v2_branch(&cache_dir, "remigrate");
         assert_ne!(t1, genesis_t0, "v2 tip must have advanced");
 
-        // Re-migrate from the current v2 tip.
         hub_v3(&crosslink_dir, false, false, false, true).unwrap();
 
-        // The regenerated genesis is anchored at the CURRENT v2 tip, not the old one.
         let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
         assert_eq!(
             meta.migrated_from_commit, t1,
@@ -3265,14 +2709,12 @@ mod tests {
         );
         assert_ne!(meta.migrated_from_commit, genesis_t0);
 
-        // The checkpoint ref was regenerated (a fresh genesis commit).
         assert_ne!(
             rev(&cache_dir, CHECKPOINT_REF).unwrap(),
             checkpoint_t0,
             "remigrate must mint a new checkpoint"
         );
 
-        // The hub is no longer stale relative to its own (new) genesis.
         let div = compute_v2_divergence(&cache_dir, &meta.migrated_from_commit)
             .unwrap()
             .expect("v2 branch present");
@@ -3281,7 +2723,6 @@ mod tests {
             "after remigrate the v3 genesis must match the v2 tip"
         );
 
-        // The remote checkpoint was superseded by force-push.
         let remote_cp = std::process::Command::new("git")
             .current_dir(&cache_dir)
             .args(["ls-remote", "origin", "refs/heads/crosslink/checkpoint"])
@@ -3299,16 +2740,12 @@ mod tests {
         );
     }
 
-    /// End-to-end: a machine whose live v2 branch is ahead of a stale remote v3
-    /// hub must REFUSE to adopt (fix #1), and `--adopt-stale` overrides it.
     #[test]
     fn adopt_refuses_stale_remote_v3_unless_forced() {
         let (_wa, remote_dir, cl_a, cache_a) = setup_v2_hub();
 
-        // Publish A's v2 hub so the remote advertises v2.
         run(&cache_a, &["push", "origin", "crosslink/hub"]);
 
-        // Machine B clones while the remote is still v2-only.
         let work_b = tempfile::tempdir().unwrap();
         for args in [
             vec!["init", "-b", "main"],
@@ -3338,22 +2775,18 @@ mod tests {
         sync_b.init_cache().unwrap();
         let cache_b = sync_b.cache_path().to_path_buf();
 
-        // A migrates → the remote now hosts the v3 hub (genesis = current v2 tip).
         hub_v3(&cl_a, false, false, false, false).expect("A migrates");
 
-        // A v2-only binary keeps writing: advance crosslink/hub and publish it,
-        // so the remote v3 hub is now STALE behind the v2 branch.
         advance_v2_branch(&cache_a, "post-migration");
         run(&cache_a, &["push", "origin", "crosslink/hub"]);
 
-        // B runs migrate hub-v3: it must REFUSE to adopt the stale v3 hub.
         let err = hub_v3(&cl_b, false, false, false, false).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("refusing to adopt") && msg.contains("STALE"),
             "B must refuse to adopt a stale v3 hub, got: {msg}"
         );
-        // B did NOT switch to v3 — still v2-only, data still visible on v2.
+
         assert!(
             matches!(
                 hub_v3::detect_hub_version(&cache_b).unwrap(),
@@ -3362,7 +2795,6 @@ mod tests {
             "B must remain v2-only after a refused adopt"
         );
 
-        // With --adopt-stale, B adopts anyway (operator override).
         hub_v3(&cl_b, false, false, true, false).expect("B adopts with --adopt-stale");
         assert!(
             matches!(
@@ -3373,9 +2805,6 @@ mod tests {
         );
     }
 
-    // ── GH#45: finalize must tolerate legitimate post-migration activity ──
-
-    /// Append one post-genesis event to alpha's ref; returns the new issue uuid.
     fn append_post_genesis_event(cache_dir: &Path) -> Uuid {
         use crate::events::{Event, EventEnvelope};
         let new_uuid = Uuid::new_v4();
@@ -3408,7 +2837,6 @@ mod tests {
         new_uuid
     }
 
-    /// Rewrite hub.json without the GH#45 seed metadata (pre-fix migration).
     fn strip_seed_metadata(cache_dir: &Path) {
         let mut meta = read_hub_meta(cache_dir).unwrap().unwrap();
         meta.genesis_checkpoint_commit = None;
@@ -3424,19 +2852,16 @@ mod tests {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // Seed metadata persisted at migration.
         let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
         assert!(
             meta.genesis_checkpoint_commit.is_some(),
             "genesis commit recorded"
         );
         assert!(
-            meta.seed_agent_tips.clone().unwrap().contains_key("alpha"),
+            meta.seed_agent_tips.unwrap().contains_key("alpha"),
             "alpha seed tip recorded"
         );
 
-        // Legitimate post-migration use: a new event above the watermark plus
-        // an advanced checkpoint (what the dispatcher's own fetch_v3 does).
         append_post_genesis_event(&cache_dir);
         let advanced = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
             .unwrap()
@@ -3451,7 +2876,6 @@ mod tests {
         )
         .unwrap();
 
-        // GH#45 regression: finalize must SUCCEED despite the activity.
         let repo_root = wp_of(&crosslink_dir);
         hub_v3(&crosslink_dir, true, true, false, false).unwrap();
         assert!(
@@ -3467,8 +2891,6 @@ mod tests {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // Tamper: point alpha's ref at unrelated history (the checkpoint tip),
-        // breaking ancestry with the recorded seed tip.
         let alpha_ref = agent_ref_name("alpha").unwrap();
         let ckpt = rev(&cache_dir, CHECKPOINT_REF).unwrap();
         let out = Command::new("git")
@@ -3495,8 +2917,6 @@ mod tests {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        // Same-tip v2 divergence: mutate a worktree issue file in place
-        // (uncommitted, so the explicit tip-divergence guard cannot see it).
         let issues_dir = cache_dir.join("issues");
         let entry = std::fs::read_dir(&issues_dir)
             .unwrap()
@@ -3526,7 +2946,6 @@ mod tests {
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
         strip_seed_metadata(&cache_dir);
 
-        // Untouched hub: the strict fallback passes and finalize completes.
         let repo_root = wp_of(&crosslink_dir);
         hub_v3(&crosslink_dir, true, true, false, false).unwrap();
         let meta = read_hub_meta(&repo_root).unwrap().unwrap();
@@ -3547,9 +2966,6 @@ mod tests {
             "pre-metadata hub with activity must steer to remigrate, got: {msg}"
         );
 
-        // Recovery: remigrate re-seeds (and records the metadata), then
-        // immediate finalize succeeds. The post-genesis v3-only event is
-        // dropped by remigrate per its documented semantics.
         hub_v3(&crosslink_dir, false, false, false, true).unwrap();
         let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
         assert!(

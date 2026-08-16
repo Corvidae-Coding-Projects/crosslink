@@ -57,7 +57,6 @@ mod tests {
         (db, dir)
     }
 
-    // Truncate function tests
     #[test]
     fn test_truncate_short_string() {
         assert_eq!(truncate("hello", 10), "hello");
@@ -75,7 +74,6 @@ mod tests {
 
     #[test]
     fn test_truncate_unicode() {
-        // Multi-byte UTF-8 characters
         assert_eq!(truncate("← → ↑ ↓", 10), "← → ↑ ↓");
         let result = truncate("←←←←←←←←←←←←", 5);
         assert!(result.ends_with("..."));
@@ -84,7 +82,6 @@ mod tests {
 
     #[test]
     fn test_truncate_emoji() {
-        // Emoji are multi-byte
         let result = truncate("🎉🎊🎈🎁🎂🎄🎃🎇🎆", 6);
         assert!(result.ends_with("..."));
         assert_eq!(result.chars().count(), 6);
@@ -103,7 +100,6 @@ mod tests {
         assert_eq!(truncate("abcd", 3), "...");
     }
 
-    // Run function tests
     #[test]
     fn test_run_empty() {
         let (db, _dir) = setup_test_db();

@@ -7,29 +7,18 @@ use super::core::{
 };
 
 impl KnowledgeManager {
-    /// Initialize the knowledge cache directory.
-    ///
-    /// If the `crosslink/knowledge` branch exists on the remote, fetches it and
-    /// creates a worktree. If not, creates an orphan branch with an initial
-    /// `index.md` page.
-    ///
-    /// # Errors
-    /// Returns an error if git operations or filesystem writes fail.
     pub fn init_cache(&self) -> Result<()> {
         if self.cache_dir.exists() {
             return Ok(());
         }
 
-        // Check if remote branch exists
         let has_remote = self
             .git_in_repo(&["ls-remote", "--heads", &self.remote, KNOWLEDGE_BRANCH])
             .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty());
 
         if has_remote {
-            // Fetch the remote branch
             self.git_in_repo(&["fetch", &self.remote, KNOWLEDGE_BRANCH])?;
 
-            // Check if a local branch already exists
             let has_local = self
                 .git_in_repo(&["rev-parse", "--verify", KNOWLEDGE_BRANCH])
                 .is_ok();
@@ -37,7 +26,6 @@ impl KnowledgeManager {
             if has_local {
                 self.git_in_repo(&["worktree", "add", &self.cache_path_str(), KNOWLEDGE_BRANCH])?;
             } else {
-                // Create local branch tracking remote
                 let remote_ref = format!("{}/{}", self.remote, KNOWLEDGE_BRANCH);
                 self.git_in_repo(&[
                     "worktree",
@@ -49,16 +37,12 @@ impl KnowledgeManager {
                 ])?;
             }
         } else {
-            // No remote branch — create orphan branch with worktree.
-            // `git worktree add --orphan` needs Git >= 2.42.0; older Git (e.g.
-            // Ubuntu 22.04's 2.34.1) takes an equivalent fallback (#655).
             crate::git_compat::add_orphan_worktree(
                 &self.repo_root,
                 KNOWLEDGE_BRANCH,
                 &self.cache_path_str(),
             )?;
 
-            // Initialize with index.md
             let now = Utc::now().format("%Y-%m-%d").to_string();
             let index_content = format!(
                 "\
@@ -79,7 +63,6 @@ This is the shared knowledge repository for the project.
 
             std::fs::write(self.cache_dir.join("index.md"), index_content)?;
 
-            // Commit the initial state so the branch has at least one commit.
             self.git_in_cache(&["add", "index.md"])?;
             self.git_in_cache(&["commit", "-m", "Initialize crosslink/knowledge branch"])?;
         }
@@ -87,15 +70,6 @@ This is the shared knowledge repository for the project.
         Ok(())
     }
 
-    /// Fetch the latest state from remote and rebase local changes on top.
-    ///
-    /// If a rebase produces merge conflicts, falls back to an "accept both"
-    /// strategy: aborts the rebase, merges instead, and resolves any remaining
-    /// conflicts by keeping both versions. Returns the list of slugs that had
-    /// conflicts resolved.
-    ///
-    /// # Errors
-    /// Returns an error if fetching, rebasing, or conflict resolution fails.
     pub fn sync(&self) -> Result<SyncOutcome> {
         let fetch_result = self.git_in_cache(&["fetch", &self.remote, KNOWLEDGE_BRANCH]);
         if let Err(e) = &fetch_result {
@@ -111,7 +85,6 @@ This is the shared knowledge repository for the project.
             fetch_result?;
         }
 
-        // Check for unpushed local commits. If any exist, rebase to preserve them.
         let remote_ref = format!("{}/{}", self.remote, KNOWLEDGE_BRANCH);
         let log_result = self.git_in_cache(&["log", &format!("{remote_ref}..HEAD"), "--oneline"]);
         if let Ok(output) = &log_result {
@@ -125,7 +98,7 @@ This is the shared knowledge repository for the project.
                     {
                         return Ok(SyncOutcome::default());
                     }
-                    // Rebase failed — likely a conflict. Try accept-both fallback.
+
                     let outcome = self.handle_rebase_conflict(&remote_ref)?;
                     if !outcome.resolved_conflicts.is_empty() {
                         return Ok(outcome);
@@ -136,9 +109,6 @@ This is the shared knowledge repository for the project.
             }
         }
 
-        // No unpushed commits — check for uncommitted changes before resetting.
-        // A dirty worktree means write_page() was called without commit(),
-        // and reset --hard would destroy those edits.
         if let Ok(status_output) = self.git_in_cache(&["status", "--porcelain"]) {
             let status_str = String::from_utf8_lossy(&status_output.stdout);
             if !status_str.trim().is_empty() {
@@ -158,13 +128,6 @@ This is the shared knowledge repository for the project.
         Ok(SyncOutcome::default())
     }
 
-    /// Push local commits to the remote.
-    ///
-    /// If the push is rejected (non-fast-forward), attempts a pull --rebase.
-    /// If that rebase produces conflicts, falls back to "accept both" resolution.
-    ///
-    /// # Errors
-    /// Returns an error if pushing or conflict resolution fails.
     pub fn push(&self) -> Result<SyncOutcome> {
         let push_result = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]);
         if let Err(e) = &push_result {
@@ -176,22 +139,19 @@ This is the shared knowledge repository for the project.
             }
             if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                 let remote_ref = format!("{}/{}", self.remote, KNOWLEDGE_BRANCH);
-                // INTENTIONAL: fetch is best-effort — rebase below will use whatever state is available
+
                 let _ = self.git_in_cache(&["fetch", &self.remote, KNOWLEDGE_BRANCH]);
-                // Try rebase
+
                 let rebase_result = self.git_in_cache(&["rebase", &remote_ref]);
                 if rebase_result.is_err() {
-                    // Rebase failed — try accept-both fallback
                     let outcome = self.handle_rebase_conflict(&remote_ref)?;
-                    // Push after conflict resolution is best-effort — local state is
-                    // consistent either way, but log failures so they aren't silent (#417).
+
                     if let Err(e) = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]) {
                         tracing::warn!("knowledge push after conflict resolution failed: {e}");
                     }
                     return Ok(outcome);
                 }
-                // Push after rebase is best-effort — local state is consistent
-                // either way, but log failures so they aren't silent (#417).
+
                 if let Err(e) = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]) {
                     tracing::warn!("knowledge push after rebase failed: {e}");
                 }
@@ -202,28 +162,18 @@ This is the shared knowledge repository for the project.
         Ok(SyncOutcome::default())
     }
 
-    /// Abort a failed rebase and fall back to merge with "accept both" resolution.
-    ///
-    /// 1. Aborts the in-progress rebase
-    /// 2. Merges the remote ref
-    /// 3. If merge conflicts, resolves each .md file using accept-both
-    /// 4. Stages and commits the resolution
     pub(super) fn handle_rebase_conflict(&self, remote_ref: &str) -> Result<SyncOutcome> {
-        // INTENTIONAL: rebase --abort is best-effort — may have already been aborted or not started
         let _ = self.git_in_cache(&["rebase", "--abort"]);
 
-        // Attempt a merge instead
         let merge_result = self.git_in_cache(&["merge", remote_ref, "--no-edit"]);
 
         let resolved = if merge_result.is_err() {
-            // Merge has conflicts — resolve all .md files with accept-both
             self.resolve_conflicts_in_cache()?
         } else {
             Vec::new()
         };
 
         if !resolved.is_empty() {
-            // Stage resolved files and commit
             self.git_in_cache(&["add", "-A"])?;
             let slugs_str = resolved.join(", ");
             self.commit(&format!(
@@ -236,9 +186,6 @@ This is the shared knowledge repository for the project.
         })
     }
 
-    /// Scan all `.md` files in the cache for conflict markers and resolve them.
-    ///
-    /// Returns the list of slugs that had conflicts resolved.
     pub(super) fn resolve_conflicts_in_cache(&self) -> Result<Vec<String>> {
         let mut resolved = Vec::new();
 
@@ -267,10 +214,6 @@ This is the shared knowledge repository for the project.
         Ok(resolved)
     }
 
-    /// Stage all changes in the knowledge worktree and commit.
-    ///
-    /// # Errors
-    /// Returns an error if staging or committing fails.
     pub fn commit(&self, message: &str) -> Result<()> {
         self.git_in_cache(&["add", "-A"])?;
 
@@ -284,8 +227,6 @@ This is the shared knowledge repository for the project.
         }
         Ok(())
     }
-
-    // --- Private git helpers ---
 
     pub(super) fn git_in_repo(&self, args: &[&str]) -> Result<std::process::Output> {
         let output = Command::new("git")
