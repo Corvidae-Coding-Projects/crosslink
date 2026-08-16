@@ -87,11 +87,7 @@ jobs:
     needs: lint
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # The native Windows runner needs over 60 minutes for the complete unit,
-    # integration, and provider-hook suite. Keep enough headroom for runner
-    # variance so the job reports test results instead of infrastructure
-    # cancellation.
-    timeout-minutes: 90
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: crosslink
@@ -136,7 +132,7 @@ jobs:
 
       - name: Run unit tests (skip proptests, macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
-        run: cargo test --bin crosslink --verbose -- --skip proptest
+        run: cargo test --bin crosslink --verbose -- --skip proptest --skip prop_
 
       - name: Run integration tests
         run: cargo test --test cli_integration --verbose
