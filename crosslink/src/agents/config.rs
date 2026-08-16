@@ -133,20 +133,19 @@ fn read_json(path: &Path) -> Result<Option<serde_json::Value>> {
 }
 
 fn agent_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    let nested = value
-        .get("agent")
-        .and_then(|agent| agent.get(key))
+    // `crosslink config set` exposes and writes nested settings as literal
+    // dotted keys. Prefer that explicit CLI-set value when a canonical nested
+    // value from `crosslink init` is also present in the same layer.
+    let dotted = value
+        .get(format!("agent.{key}"))
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    // `crosslink config` exposes nested settings as dotted keys. Older
-    // versions wrote that spelling literally at the top level, so accept it
-    // as an equivalent representation while keeping the nested JSON shape
-    // canonical for hand-authored configuration.
-    nested.or_else(|| {
+    dotted.or_else(|| {
         value
-            .get(format!("agent.{key}"))
+            .get("agent")
+            .and_then(|agent| agent.get(key))
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -324,6 +323,24 @@ mod tests {
             dir.path(),
             "hook-config.local.json",
             serde_json::json!({"agent.provider":"codex"}),
+        );
+
+        let resolved = resolve_agent(dir.path()).unwrap();
+        assert_eq!(resolved.provider, AgentProvider::Codex);
+        assert_eq!(resolved.binary, PathBuf::from("codex"));
+        assert!(!resolved.legacy_inferred);
+    }
+
+    #[test]
+    fn dotted_team_provider_key_overrides_nested_init_default() {
+        let dir = tempdir().unwrap();
+        write(
+            dir.path(),
+            "hook-config.json",
+            serde_json::json!({
+                "agent": {"provider": "claude"},
+                "agent.provider": "codex"
+            }),
         );
 
         let resolved = resolve_agent(dir.path()).unwrap();
