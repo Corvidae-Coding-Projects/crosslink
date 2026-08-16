@@ -195,7 +195,7 @@ fn auth_logout(provider: &str, force: bool) -> Result<()> {
 // GHCR-namespaced image name so this command composes with `crosslink kickoff
 // run --container docker|podman` (which defaults to the same registry path).
 // Built images, lookup paths, and snapshot tags all live under this name.
-const IMAGE_NAME: &str = "ghcr.io/Corvidae-Coding-Projects/crosslink-agent";
+const IMAGE_NAME: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent";
 // Default tag when starting a container or checking staleness — matches
 // kickoff's `--image` default so a `docker pull` of the published image
 // satisfies both code paths.
@@ -899,7 +899,7 @@ mod tests {
     fn image_name_is_ghcr_namespaced() {
         assert_eq!(
             IMAGE_NAME,
-            "ghcr.io/Corvidae-Coding-Projects/crosslink-agent"
+            "ghcr.io/corvidae-coding-projects/crosslink-agent"
         );
         assert_eq!(
             IMAGE_NAME,

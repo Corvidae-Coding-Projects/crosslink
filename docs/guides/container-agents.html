@@ -482,14 +482,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="managing-container-lifecycle">Managing container lifecycle</h2>
 <section id="getting-the-image" class="level3">
 <h3 class="anchored" data-anchor-id="getting-the-image">Getting the image</h3>
-<p>The default image used by <code>--container docker|podman</code> is published to GitHub Container Registry as <a href="https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent"><code>ghcr.io/Corvidae-Coding-Projects/crosslink-agent</code></a>, built for both <code>linux/amd64</code> and <code>linux/arm64</code>. Published tags:</p>
+<p>The default image used by <code>--container docker|podman</code> is published to GitHub Container Registry as <a href="https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent"><code>ghcr.io/corvidae-coding-projects/crosslink-agent</code></a>, built for both <code>linux/amd64</code> and <code>linux/arm64</code>. Published tags:</p>
 <ul>
 <li><code>:latest</code> — the most recent tagged release</li>
 <li><code>:&lt;version&gt;</code> (e.g.&nbsp;<code>:0.5.2</code>) — pinned release</li>
 <li><code>:nightly</code> — floating tag tracking <code>develop</code></li>
 <li><code>:nightly-&lt;short-sha&gt;</code> — immutable nightly snapshots</li>
 </ul>
-<p>The first <code>--container docker</code> launch will pull the image automatically; subsequent launches reuse the local copy. Pin <code>--image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:&lt;version&gt;</code> for reproducible runs.</p>
+<p>The first <code>--container docker</code> launch will pull the image automatically; subsequent launches reuse the local copy. Pin <code>--image ghcr.io/corvidae-coding-projects/crosslink-agent:&lt;version&gt;</code> for reproducible runs.</p>
 </section>
 <section id="building-the-image-locally" class="level3">
 <h3 class="anchored" data-anchor-id="building-the-image-locally">Building the image locally</h3>
@@ -507,7 +507,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">just</span> build-image            <span class="co"># tags :local</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"..."</span> <span class="dt">\</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker <span class="dt">\</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--image</span> ghcr.io/Corvidae-Coding-Projects/crosslink-agent:local</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--image</span> ghcr.io/corvidae-coding-projects/crosslink-agent:local</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The image includes both Claude Code and Codex CLIs, Crosslink, git, Python, <code>uv</code>, and non-root UID remapping. The entrypoint installs both repository integrations without changing <code>agent.provider</code> and runs the final process as the remapped non-root user.</p>
 </div>
 </div>

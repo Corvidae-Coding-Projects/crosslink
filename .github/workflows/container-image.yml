@@ -42,10 +42,9 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  # Repo-owner-derived so a fork publishes to its own GHCR namespace instead of
-  # failing to push to the upstream org. On Corvidae-Coding-Projects/crosslink this still
-  # resolves to Corvidae-Coding-Projects/crosslink-agent.
-  IMAGE_NAME: ${{ github.repository_owner }}/crosslink-agent
+  # The tag step prefixes this with a lowercased repository owner so forks use
+  # their own valid GHCR namespace rather than attempting an upstream push.
+  IMAGE_NAME: crosslink-agent
 
 jobs:
   # ===========================================
@@ -165,7 +164,8 @@ jobs:
           REF="${GITHUB_REF}"
           EVENT="${GITHUB_EVENT_NAME}"
           SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          BASE="${REGISTRY}/${IMAGE_NAME}"
+          OWNER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          BASE="${REGISTRY}/${OWNER}/${IMAGE_NAME}"
           TAGS=()
           PUSH=false
           PRIMARY=""
@@ -204,6 +204,7 @@ jobs:
             echo "primary_tag=${PRIMARY}"
             echo "version=${VERSION}"
             echo "pushed=${PUSH}"
+            echo "cache_ref=${BASE}:buildcache"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
@@ -232,8 +233,8 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           provenance: false
           # Push registry cache only when we have write access (push events).
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
+          cache-from: type=registry,ref=${{ steps.tags.outputs.cache_ref }}
+          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0},mode=max', steps.tags.outputs.cache_ref) || '' }}
 
   # PR-only native smoke: build a loadable amd64 image and verify that both
   # provider CLIs dispatch through the non-root entrypoint before merge.

@@ -1031,17 +1031,17 @@ enum IssuesAliasCommands {
 enum ContainerCommands {
     /// Build the crosslink agent container image locally.
     ///
-    /// Produces `ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>` (default tag
+    /// Produces `ghcr.io/corvidae-coding-projects/crosslink-agent:<tag>` (default tag
     /// `local`) so it composes with `crosslink kickoff run --container
-    /// docker|podman --image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>`.
-    /// For routine use prefer `docker pull ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest`
+    /// docker|podman --image ghcr.io/corvidae-coding-projects/crosslink-agent:<tag>`.
+    /// For routine use prefer `docker pull ghcr.io/corvidae-coding-projects/crosslink-agent:latest`
     /// or `:nightly` — this command exists for offline / Dockerfile-iteration work.
     Build {
         /// Rebuild from scratch (no cache)
         #[arg(long)]
         force: bool,
         /// Image tag suffix (default: `local`). Image is always namespaced
-        /// `ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>`.
+        /// `ghcr.io/corvidae-coding-projects/crosslink-agent:<tag>`.
         #[arg(long)]
         tag: Option<String>,
         /// Path to a custom Dockerfile
@@ -1709,7 +1709,7 @@ enum KickoffCommands {
         /// Container image (for --container docker/podman)
         #[arg(
             long,
-            default_value = "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest"
+            default_value = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest"
         )]
         image: String,
         /// Max runtime before killing agent (e.g. "1h", "30m")

@@ -237,7 +237,7 @@ audit:
 
 # Build the crosslink-agent container image locally for the host architecture.
 # Drops a static musl binary into the build context, then `docker buildx build
-# --load` produces a single-arch image tagged ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>.
+# --load` produces a single-arch image tagged ghcr.io/corvidae-coding-projects/crosslink-agent:<tag>.
 # Default tag is `local` so this never collides with published `:nightly`/`:latest`.
 build-image tag="local":
     #!/usr/bin/env bash
@@ -254,20 +254,20 @@ build-image tag="local":
     cd ..
     cp "crosslink/target/${RUST_TARGET}/release/crosslink" \
        "crosslink/resources/container/crosslink-${DOCKER_ARCH}"
-    echo "==> Building image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:{{tag}} for ${PLATFORM}"
+    echo "==> Building image ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}} for ${PLATFORM}"
     docker buildx build \
         --platform "${PLATFORM}" \
         --build-arg "TARGETARCH=${DOCKER_ARCH}" \
         --load \
-        -t "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:{{tag}}" \
+        -t "ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}}" \
         crosslink/resources/container
-    echo "==> Built ghcr.io/Corvidae-Coding-Projects/crosslink-agent:{{tag}} (${DOCKER_ARCH})"
+    echo "==> Built ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}} (${DOCKER_ARCH})"
 
 # Push a locally-built image to GHCR. Use only for emergency manual publishes;
 # routine publishing is owned by .github/workflows/container-image.yml.
 # Requires: `docker login ghcr.io` first (PAT with write:packages scope).
 push-image tag:
-    docker push "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:{{tag}}"
+    docker push "ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}}"
 
 # ─── CI composite ────────────────────────────────────────────────────
 

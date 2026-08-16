@@ -71,7 +71,7 @@ Creates branch, worktree, builds the image (if needed), starts a container, and 
 ### Getting the image
 
 The default image used by `--container docker|podman` is published to GitHub Container Registry as
-[`ghcr.io/Corvidae-Coding-Projects/crosslink-agent`](https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent),
+[`ghcr.io/corvidae-coding-projects/crosslink-agent`](https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent),
 built for both `linux/amd64` and `linux/arm64`. Published tags:
 
 - `:latest` — the most recent tagged release
@@ -79,7 +79,7 @@ built for both `linux/amd64` and `linux/arm64`. Published tags:
 - `:nightly` — floating tag tracking `develop`
 - `:nightly-<short-sha>` — immutable nightly snapshots
 
-The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<version>` for reproducible runs.
+The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/corvidae-coding-projects/crosslink-agent:<version>` for reproducible runs.
 
 ### Building the image locally
 
@@ -101,7 +101,7 @@ Useful when iterating on `crosslink/resources/container/Dockerfile` or running o
 just build-image            # tags :local
 crosslink kickoff run "..." \
   --container docker \
-  --image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:local
+  --image ghcr.io/corvidae-coding-projects/crosslink-agent:local
 ```
 
 The image includes both Claude Code and Codex CLIs, Crosslink, git, Python,

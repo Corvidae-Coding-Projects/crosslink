@@ -8,7 +8,7 @@ use std::time::Duration;
 ///
 /// Consolidated here to avoid duplicating the string literal across kickoff,
 /// swarm, and CLI default values.
-pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest";
+pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest";
 
 /// Provider-neutral reasoning-effort levels accepted by kickoff (gh#61).
 ///
