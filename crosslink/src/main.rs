@@ -2824,7 +2824,26 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
     }
 }
 
+const CLI_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 fn main() -> Result<()> {
+    // Windows executables start with a 1 MiB main-thread stack. Building
+    // clap's large nested command tree exceeds that before even `--version`
+    // can be handled. Run the CLI on an explicitly sized stack so every
+    // command has the same headroom across Windows, macOS, and Linux.
+    let result = std::thread::Builder::new()
+        .name("crosslink-main".to_string())
+        .stack_size(CLI_STACK_SIZE)
+        .spawn(run_cli)
+        .context("failed to start Crosslink CLI thread")?
+        .join();
+    match result {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+fn run_cli() -> Result<()> {
     let cli = Cli::parse();
 
     let log_format = match &cli.command {
