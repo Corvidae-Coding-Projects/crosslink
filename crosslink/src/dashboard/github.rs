@@ -347,10 +347,10 @@ mod tests {
     fn test_plain_config_roundtrip() {
         let (_dir, _path, db) = open_db();
         assert!(get_plain(&db, KEY_DEFAULT_ORG).unwrap().is_none());
-        set_plain(&db, KEY_DEFAULT_ORG, Some("forecast-bio")).unwrap();
+        set_plain(&db, KEY_DEFAULT_ORG, Some("Corvidae-Coding-Projects")).unwrap();
         assert_eq!(
             get_plain(&db, KEY_DEFAULT_ORG).unwrap().as_deref(),
-            Some("forecast-bio")
+            Some("Corvidae-Coding-Projects")
         );
         set_plain(&db, KEY_DEFAULT_ORG, None).unwrap();
         assert!(get_plain(&db, KEY_DEFAULT_ORG).unwrap().is_none());

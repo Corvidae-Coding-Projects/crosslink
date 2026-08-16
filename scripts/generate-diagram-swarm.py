@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a Forecast-styled diagram for swarm orchestration.
+Generate a Crosslink-styled diagram for swarm orchestration.
 
 Shows: Design doc → Planner → Phases (with agents + gates) → Checkpoint
 

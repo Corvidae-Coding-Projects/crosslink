@@ -12,6 +12,7 @@ pub mod delete;
 pub mod deps;
 pub mod design_cmd;
 pub mod design_doc;
+pub mod doctor;
 pub mod export;
 pub mod external_issues;
 pub mod external_knowledge;

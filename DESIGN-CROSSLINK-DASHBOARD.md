@@ -4,8 +4,8 @@ Multi-project SCADA-style control panel for crosslink.
 
 - **Status**: Draft
 - **Issue**: GH #429 (and internal #688)
-- **Authors**: @dollspace-gay, @Claude
-- **Reviewers**: @maxine-at-forecast (CTO sponsor)
+- **Authors**: @Corvidae-Coding-Projects, @Claude
+- **Reviewers**: @maxine-at-crosslink (CTO sponsor)
 - **Related**: `.design/crosslink-dashboard-*` for iterative refinement
 
 ---
@@ -38,7 +38,7 @@ matching crosslink's existing coordination model.
   overdue issues, CI failures on the hub branch, and any future signals the
   rest of crosslink surfaces.
 - **G5** Runs on each user's own machine. No centralised deploy, no SSO
-  setup, no per-forecast-employee provisioning. External contributors can
+  setup, no per-crosslink-employee provisioning. External contributors can
   use it too.
 - **G6** Distribution via the existing `cargo install crosslink` path. No
   new package to install.
@@ -49,7 +49,7 @@ matching crosslink's existing coordination model.
 - **Not** a Tauri desktop app (deferred; could be layered later).
 - **Not** a replacement for `crosslink tui` — the terminal UI stays for
   single-project workflows; the dashboard is the multi-project layer above it.
-- **Not** a shipped-to-customers product. Primary users are forecast
+- **Not** a shipped-to-customers product. Primary users are crosslink
   employees and approved collaborators with GitHub access to the relevant
   repos.
 - **No** new concurrency model. The hub branch remains source of truth;
@@ -59,7 +59,7 @@ matching crosslink's existing coordination model.
 
 ### US-1 — "CTO command post"
 As CTO, I open `crosslink dashboard` on my second monitor at the start of the
-day. I see every crosslink project at forecast-bio at a glance. A tile
+day. I see every crosslink project at Corvidae-Coding-Projects at a glance. A tile
 flashes amber — a lock has been stale on repo X for 40 minutes. I click
 in, see the stuck agent, force-release the lock and spawn a fresh agent
 to retry. All without leaving the panel.
@@ -84,7 +84,7 @@ resulting `.design/*.md` appears in the project's recent-activity
 feed back on the main panel.
 
 ### US-5 — "External contractor"
-As an external contractor with access to three forecast repos, I run
+As an external contractor with access to three crosslink repos, I run
 `crosslink dashboard` locally. My GitHub PAT scopes the view to just those
 three repos. I can take actions on them; I can't see the others.
 
@@ -127,7 +127,7 @@ three repos. I can take actions on them; I can't see the others.
                    │ GitHub API (PAT)
                    ▼
               ┌─────────────────────────────┐
-              │  forecast-bio org + mirrors │
+              │  Corvidae-Coding-Projects org + mirrors │
               │  (source of truth for every │
               │   tracked project's hub)    │
               └─────────────────────────────┘
@@ -165,7 +165,7 @@ user_version`.
 -- Tracked repositories
 CREATE TABLE projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT NOT NULL UNIQUE,          -- "forecast-bio/crosslink"
+    slug TEXT NOT NULL UNIQUE,          -- "Corvidae-Coding-Projects/crosslink"
     clone_path TEXT NOT NULL,           -- local clone location
     default_branch TEXT NOT NULL,       -- usually "main"
     hub_sha TEXT,                       -- last fetched crosslink/hub tip
@@ -321,7 +321,7 @@ today.
 ### Top-level layout
 
 ```
-┌─ header (forecast logo, global status line, user avatar, settings) ─┐
+┌─ header (crosslink logo, global status line, user avatar, settings) ─┐
 │                                                                     │
 ├─ alert banner (if any active critical alerts) ──────────────────────┤
 │                                                                     │
@@ -770,7 +770,7 @@ point, `serve` is redundant.
      every invocation:
      ```
      warning: `crosslink serve` is deprecated. Use `crosslink dashboard`
-     instead. See https://github.com/forecast-bio/crosslink/issues/429.
+     instead. See https://github.com/Corvidae-Coding-Projects/crosslink/issues/429.
      This alias will be removed in crosslink 0.7.
      ```
    - `crosslink serve` behaviour: dispatch through to the same handler

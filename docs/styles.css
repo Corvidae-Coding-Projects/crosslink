@@ -248,14 +248,14 @@ h1 {
   color: #F95838 !important;
 }
 
-/* Forecast-style footer — sits inside content area, left-aligned */
-footer.forecast-footer {
+/* Crosslink-style footer — sits inside content area, left-aligned */
+footer.crosslink-footer {
   margin-top: 4rem;
   padding: 0 0 3rem 3px;
   text-align: left;
 }
 
-footer.forecast-footer .forecast-rule {
+footer.crosslink-footer .crosslink-rule {
   width: 220px;
   height: 2px;
   background-color: #ebe3e3;
@@ -264,20 +264,20 @@ footer.forecast-footer .forecast-rule {
 }
 
 /* Wordmark + confetti on the same line, aligned to logo baseline */
-footer.forecast-footer .forecast-wordmark-row {
+footer.crosslink-footer .crosslink-wordmark-row {
   display: flex;
   align-items: flex-end;
   gap: 4px;
   margin-bottom: 0.5rem;
 }
 
-footer.forecast-footer .forecast-wordmark-link {
+footer.crosslink-footer .crosslink-wordmark-link {
   flex-shrink: 0;
   text-decoration: none;
   line-height: 0; /* prevent extra space below img */
 }
 
-footer.forecast-footer .forecast-wordmark {
+footer.crosslink-footer .crosslink-wordmark {
   width: 100px;
   height: auto;
   display: block;
@@ -285,7 +285,7 @@ footer.forecast-footer .forecast-wordmark {
 }
 
 /* Confetti field sits right of the logo, cone expands upward */
-footer.forecast-footer .forecast-confetti {
+footer.crosslink-footer .crosslink-confetti {
   position: relative;
   width: 200px;
   height: 55px;
@@ -293,24 +293,24 @@ footer.forecast-footer .forecast-confetti {
   overflow: visible;
 }
 
-footer.forecast-footer .forecast-dot {
+footer.crosslink-footer .crosslink-dot {
   position: absolute;
   border-radius: 50%;
   mix-blend-mode: multiply;
 }
 
-footer.forecast-footer .forecast-copyright {
+footer.crosslink-footer .crosslink-copyright {
   font-family: Helvetica, 'Helvetica Neue', sans-serif;
   font-size: 1rem;
   color: #ebe3e3;
   margin: 2.5rem 0 0 0;
 }
 
-footer.forecast-footer .forecast-copyright a {
+footer.crosslink-footer .crosslink-copyright a {
   color: #ebe3e3;
   text-decoration: none;
 }
 
-footer.forecast-footer .forecast-copyright a:hover {
+footer.crosslink-footer .crosslink-copyright a:hover {
   text-decoration: underline;
 }

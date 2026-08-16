@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-1",
+  "tool_use_id": "tool-2",
+  "tool_name": "Edit",
+  "tool_input": {"file_path": "src/lib.rs", "old_string": "a", "new_string": "b"},
+  "cwd": "."
+}

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
-pub const SCHEMA_VERSION: i32 = 17;
+pub const SCHEMA_VERSION: i32 = 18;
 
 /// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
@@ -429,6 +429,20 @@ impl Database {
         if version < 17 {
             self.migrate("ALTER TABLE issues ADD COLUMN scheduled_at TEXT");
             self.migrate("ALTER TABLE issues ADD COLUMN due_at TEXT");
+        }
+
+        // Migration v18: provider-aware account-session usage. Legacy rows are
+        // Claude because that was the only first-class provider before v18.
+        if version < 18 {
+            self.migrate(
+                "ALTER TABLE token_usage ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'",
+            );
+            self.migrate("ALTER TABLE token_usage ADD COLUMN cached_input_tokens INTEGER");
+            self.migrate("ALTER TABLE token_usage ADD COLUMN reasoning_output_tokens INTEGER");
+            self.migrate("ALTER TABLE token_usage ADD COLUMN provider_metadata_json TEXT");
+            self.migrate(
+                "CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider)",
+            );
         }
     }
 

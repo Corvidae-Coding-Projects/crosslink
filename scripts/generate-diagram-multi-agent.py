@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a Forecast-styled diagram for multi-agent coordination.
+Generate a Crosslink-styled diagram for multi-agent coordination.
 
 Usage:
     python3 scripts/generate-diagram-multi-agent.py -o docs_src/assets/img/multi-agent-flow.svg

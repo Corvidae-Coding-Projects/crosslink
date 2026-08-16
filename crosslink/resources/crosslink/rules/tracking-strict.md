@@ -75,7 +75,7 @@ crosslink -q create "Fix bug" -p high  # Outputs just the ID number
 
 ### Memory-Driven Planning (CRITICAL)
 
-Your auto-memory directory (`~/.claude/projects/.../memory/`) contains plans, architecture notes, and context from prior sessions. **You MUST consult memory before creating issues.**
+Your provider's account-level memory may contain plans, architecture notes, and context from prior sessions. **You MUST consult available memory before creating issues.**
 
 1. **Read memory first**: At session start, read `MEMORY.md` and any linked topic files. These contain the current plan of record.
 2. **Translate plans to issues**: Break memory plans into small, concrete crosslink issues/epics/subissues. Each subissue should be completable in a single focused session.

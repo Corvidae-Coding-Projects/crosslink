@@ -16,14 +16,16 @@ Container execution gives your agents the same workflow with stronger sandboxing
 
 - **Isolation** -- agents cannot access your host filesystem outside the worktree
 - **Reproducibility** -- consistent environment regardless of host OS
-- **Security** -- `--dangerously-skip-permissions` becomes safe inside a container because crosslink hooks still enforce policy (no merge/rebase, commits gated on an active issue, force-push always blocked; plain push is reserved for the CI-verify draft-PR flow)
+- **Security** -- provider execution may use a broader sandbox only inside the configured external container boundary; Crosslink hooks still enforce repository policy
 - **Cross-platform** -- works on Windows, Linux, and macOS anywhere Docker runs
 
 &nbsp;
 
 ### Local sandbox alternative
 
-If you can't run Docker or Podman but still want some host isolation for local kickoffs, set the `sandbox.command` key in `hook-config.json` (see [hook configuration reference](../reference/hook-config.qmd#sandbox-command)). The configured command is prefixed to every local kickoff `claude` invocation, so you can wrap the agent in `firejail`, `bwrap`, `nsjail`, macOS `sandbox-exec`, or any tool that accepts the command to run as its trailing argument.
+If you can't run Docker or Podman but still want host isolation, set
+`sandbox.command` in `hook-config.json`. The configured command wraps the
+structured provider invocation at the shell boundary.
 
 ```bash
 crosslink config set sandbox.command "firejail --quiet --net=none"
@@ -69,7 +71,7 @@ Creates branch, worktree, builds the image (if needed), starts a container, and 
 ### Getting the image
 
 The default image used by `--container docker|podman` is published to GitHub Container Registry as
-[`ghcr.io/forecast-bio/crosslink-agent`](https://github.com/forecast-bio/crosslink/pkgs/container/crosslink-agent),
+[`ghcr.io/Corvidae-Coding-Projects/crosslink-agent`](https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent),
 built for both `linux/amd64` and `linux/arm64`. Published tags:
 
 - `:latest` — the most recent tagged release
@@ -77,7 +79,7 @@ built for both `linux/amd64` and `linux/arm64`. Published tags:
 - `:nightly` — floating tag tracking `develop`
 - `:nightly-<short-sha>` — immutable nightly snapshots
 
-The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/forecast-bio/crosslink-agent:<version>` for reproducible runs.
+The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<version>` for reproducible runs.
 
 ### Building the image locally
 
@@ -99,10 +101,13 @@ Useful when iterating on `crosslink/resources/container/Dockerfile` or running o
 just build-image            # tags :local
 crosslink kickoff run "..." \
   --container docker \
-  --image ghcr.io/forecast-bio/crosslink-agent:local
+  --image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:local
 ```
 
-The recipe builds a static musl crosslink binary for the host architecture and bakes it into the image alongside the entrypoint. The image includes git, openssh, jq, python3, sudo, the Claude CLI, and gosu for UID-remapping; project-specific toolchains (Rust/Node/Python/Go) are installed by the entrypoint on first run.
+The image includes both Claude Code and Codex CLIs, Crosslink, git, Python,
+`uv`, and non-root UID remapping. The entrypoint installs both repository
+integrations without changing `agent.provider` and runs the final process as
+the remapped non-root user.
 :::
 :::
 
@@ -162,9 +167,20 @@ The same crosslink hooks that enforce policy in local sessions also run inside c
 - **Stub detection** -- post-edit hooks catch TODOs and incomplete code
 - **Language rules** -- project-specific best practices are injected
 
-This means you can use `--dangerously-skip-permissions` for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.
+Container execution maps the selected provider to an externally isolated
+posture. Codex may use danger-full-access only inside that boundary; host Codex
+defaults to workspace-write.
 
-That CLI flag is a **per-invocation override**, not a configuration. Persistent agent permissions are set in the worktree's `.claude/settings.json` -- specifically the `allowedTools` array and Claude Code's `permissions` block -- which crosslink writes via `init` and preserves across `init --force` merges. If you find yourself passing `--skip-permissions` to every container kickoff, the right move is to add the relevant tool patterns to `allowedTools` instead, so the agent runs unattended for that surface while every other tool still prompts. See [Configuring agent permissions](kickoff.qmd#configuring-agent-permissions) in the kickoff guide for the full contrast.
+Authentication uses normal interactive account login in provider- and
+user-scoped persistent volumes. No API-key environment variables are accepted
+or forwarded:
+
+```bash
+crosslink container auth login --provider codex
+crosslink container auth status --provider codex
+crosslink container auth refresh --provider claude
+crosslink container auth logout --provider codex
+```
 
 &nbsp;
 

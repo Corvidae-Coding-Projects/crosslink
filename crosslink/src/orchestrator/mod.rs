@@ -2,7 +2,7 @@
 //!
 //! This module provides:
 //! - [`models`] — domain types for plans, phases, stages, tasks
-//! - [`decompose`] — LLM-assisted document decomposition via `claude` CLI
+//! - [`decompose`] — provider-aware LLM-assisted document decomposition
 //! - [`dag`] — directed acyclic graph with topological sort and ready-node detection
 //! - [`executor`] — execution lifecycle management with kickoff integration
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a Forecast-styled diagram for the design document workflow.
+Generate a Crosslink-styled diagram for the design document workflow.
 
 Shows: Explore → Interview → Draft → Validate → Iterate loop → Implementation outputs
 

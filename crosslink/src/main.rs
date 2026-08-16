@@ -44,6 +44,7 @@
 
 mod agent_flags;
 mod agent_requests;
+mod agents;
 mod checkpoint;
 mod clock_skew;
 mod commands;
@@ -72,6 +73,7 @@ mod server;
 mod shared_writer;
 mod signing;
 mod sync;
+mod token_usage;
 mod trust_model;
 mod tui;
 mod utils;
@@ -151,7 +153,13 @@ enum Commands {
         /// Skip TUI and use opinionated team-mode defaults
         #[arg(long)]
         defaults: bool,
+        /// Repository agent integrations to install
+        #[arg(long = "agent-integration", alias = "integration", default_value = "both", value_parser = ["claude", "codex", "both"])]
+        agent_integration: String,
     },
+
+    /// Diagnose provider resolution, account login, hooks, MCP, and integrations
+    Doctor,
 
     /// Issue lifecycle commands (create, show, list, close, ...)
     Issue {
@@ -319,7 +327,7 @@ enum Commands {
         #[command(subcommand)]
         action: Option<KickoffCommands>,
     },
-    /// Launch a foreground Claude session for design document authoring
+    /// Launch the configured provider interactively for design document authoring
     Design {
         /// Feature description (e.g. "add batch retry logic")
         description: Option<String>,
@@ -899,7 +907,7 @@ enum MigrateCommands {
     /// With `--remigrate-from-v2`: regenerates the v3 genesis from the CURRENT
     /// crosslink/hub tip and force-pushes it, superseding a stale remote v3 hub
     /// (the recovery path when a v2-only binary kept writing after an earlier
-    /// migration — forecast-bio/crosslink#653).
+    /// migration — Corvidae-Coding-Projects/crosslink#653).
     HubV3 {
         /// Delete the legacy crosslink/hub branch (destructive cutover).
         #[arg(long)]
@@ -1023,17 +1031,17 @@ enum IssuesAliasCommands {
 enum ContainerCommands {
     /// Build the crosslink agent container image locally.
     ///
-    /// Produces `ghcr.io/dollspace-gay/crosslink-agent:<tag>` (default tag
+    /// Produces `ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>` (default tag
     /// `local`) so it composes with `crosslink kickoff run --container
-    /// docker|podman --image ghcr.io/dollspace-gay/crosslink-agent:<tag>`.
-    /// For routine use prefer `docker pull ghcr.io/dollspace-gay/crosslink-agent:latest`
+    /// docker|podman --image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>`.
+    /// For routine use prefer `docker pull ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest`
     /// or `:nightly` — this command exists for offline / Dockerfile-iteration work.
     Build {
         /// Rebuild from scratch (no cache)
         #[arg(long)]
         force: bool,
         /// Image tag suffix (default: `local`). Image is always namespaced
-        /// `ghcr.io/dollspace-gay/crosslink-agent:<tag>`.
+        /// `ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>`.
         #[arg(long)]
         tag: Option<String>,
         /// Path to a custom Dockerfile
@@ -1097,6 +1105,38 @@ enum ContainerCommands {
         /// Image tag for the snapshot (default: cached)
         #[arg(long)]
         tag: Option<String>,
+    },
+    /// Manage normal account-login credentials in provider-scoped volumes
+    Auth {
+        #[command(subcommand)]
+        action: ContainerAuthCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContainerAuthCommands {
+    /// Run the provider's interactive account login
+    Login {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+    },
+    /// Inspect account login state without exposing credentials
+    Status {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+    },
+    /// Refresh credentials through the provider's interactive login flow
+    Refresh {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+    },
+    /// Remove the provider credential volume
+    Logout {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+        /// Remove credentials without an interactive confirmation
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -1664,10 +1704,13 @@ enum KickoffCommands {
         #[arg(long, default_value = "local")]
         verify: String,
         /// LLM model to use
-        #[arg(long, default_value = "opus")]
+        #[arg(long, default_value = "standard")]
         model: String,
         /// Container image (for --container docker/podman)
-        #[arg(long, default_value = "ghcr.io/dollspace-gay/crosslink-agent:latest")]
+        #[arg(
+            long,
+            default_value = "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest"
+        )]
         image: String,
         /// Max runtime before killing agent (e.g. "1h", "30m")
         #[arg(long, default_value = "1h")]
@@ -1681,22 +1724,16 @@ enum KickoffCommands {
         /// Path to a design document (markdown) with structured requirements
         #[arg(long, value_name = "PATH")]
         doc: Option<PathBuf>,
-        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        /// Compatibility no-prompt execution override for the selected provider.
         ///
-        /// One-shot override that bypasses ALL Claude permission prompts for
-        /// this launch. Persistent policy lives in the worktree's
-        /// .claude/settings.json (allowedTools / permissions blocks); reach
-        /// for that instead of this flag for repeatable configuration.
+        /// One-shot override. It maps to the selected provider's no-prompt
+        /// posture; unsupported mappings fail before any launch side effects.
         #[arg(long)]
         skip_permissions: bool,
-        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        /// Claude-compatible permission alias mapped to provider-neutral policy.
         ///
-        /// Finer-grained alternative to `--skip-permissions`. Claude
-        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
-        /// `default`, `dontAsk`, `plan`. `auto` is the common choice
-        /// for unattended runs on the host (`--container none`) — the
-        /// permission classifier stays active for anomalous calls.
-        /// Mutually exclusive with `--skip-permissions`.
+        /// Unsupported mappings fail before launch. Mutually exclusive with
+        /// `--skip-permissions`.
         #[arg(
             long,
             value_parser = clap::builder::PossibleValuesParser::new([
@@ -1706,10 +1743,9 @@ enum KickoffCommands {
             conflicts_with = "skip_permissions"
         )]
         permission_mode: Option<String>,
-        /// Reasoning effort for the dispatched claude session (gh#61).
+        /// Reasoning effort for the selected provider (gh#61).
         ///
-        /// Emitted as `claude --effort <level>` right after `--model`.
-        /// Omitting it reproduces the previous invocation exactly.
+        /// Forwarded through the provider adapter; omitted when unset.
         #[arg(
             long,
             value_name = "LEVEL",
@@ -1718,11 +1754,10 @@ enum KickoffCommands {
             )
         )]
         effort: Option<String>,
-        /// Spend ceiling in USD for the dispatched claude session (gh#61).
+        /// Provider monetary spend ceiling, when supported (gh#61).
         ///
-        /// Emitted as `claude --max-budget-usd <amount>` — a fail-closed cap
-        /// for unattended dispatch. Per-session: under swarm each agent gets
-        /// this cap, so a wave of N agents can spend up to N x amount.
+        /// Codex normal-account sessions reject this option because they do
+        /// not expose a per-run USD cap.
         #[arg(long, value_name = "AMOUNT")]
         budget_usd: Option<String>,
         /// Prompt template file interpolated with the built prompt (gh#62).
@@ -1764,7 +1799,7 @@ enum KickoffCommands {
         #[arg(long)]
         issue: Option<i64>,
         /// LLM model to use
-        #[arg(long, default_value = "opus")]
+        #[arg(long, default_value = "standard")]
         model: String,
         /// Max runtime (e.g. "30m", "1h")
         #[arg(long, default_value = "30m")]
@@ -1772,17 +1807,12 @@ enum KickoffCommands {
         /// Print the analysis prompt without launching
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        /// Compatibility no-prompt execution override for the selected provider.
         ///
-        /// Plan mode is read-only, so it launches WITHOUT any permission flag
-        /// by default — which means claude shows its interactive workspace-trust
-        /// dialog for the fresh worktree. A headless dispatcher (no TTY to
-        /// answer the dialog) must pass this so the agent can start (gh#66);
-        /// `--permission-mode` alone does NOT clear the trust dialog. The
-        /// read-only `--allowedTools` set still constrains what the agent runs.
+        /// Plan mode remains read-only; this controls approval prompting only.
         #[arg(long)]
         skip_permissions: bool,
-        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        /// Claude-compatible permission alias mapped to provider-neutral policy.
         ///
         /// Finer-grained alternative to `--skip-permissions` (same modes as
         /// `kickoff run`). Note it does not, by itself, clear the first-run
@@ -1797,7 +1827,7 @@ enum KickoffCommands {
             conflicts_with = "skip_permissions"
         )]
         permission_mode: Option<String>,
-        /// Reasoning effort for the dispatched claude session (gh#61).
+        /// Reasoning effort for the selected provider (gh#61).
         ///
         /// Same levels and placement as `kickoff run --effort`.
         #[arg(
@@ -1808,7 +1838,7 @@ enum KickoffCommands {
             )
         )]
         effort: Option<String>,
-        /// Spend ceiling in USD for the dispatched claude session (gh#61).
+        /// Provider monetary spend ceiling, when supported (gh#61).
         #[arg(long, value_name = "AMOUNT")]
         budget_usd: Option<String>,
         /// Prompt template file interpolated with the plan prompt (gh#62).
@@ -1884,7 +1914,7 @@ enum KickoffCommands {
         #[arg(long, default_value = "local")]
         verify: String,
         /// LLM model to use
-        #[arg(long, default_value = "opus")]
+        #[arg(long, default_value = "standard")]
         model: String,
         /// Max runtime (e.g. "1h", "30m")
         #[arg(long, default_value = "1h")]
@@ -1898,14 +1928,12 @@ enum KickoffCommands {
         /// Print the prompt without launching
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        /// Compatibility no-prompt execution override for the selected provider.
         ///
-        /// One-shot override that bypasses ALL Claude permission prompts.
-        /// Persistent policy lives in the worktree's .claude/settings.json
-        /// (allowedTools / permissions blocks).
+        /// Unsupported provider mappings fail before launch.
         #[arg(long)]
         skip_permissions: bool,
-        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        /// Claude-compatible permission alias mapped to provider-neutral policy.
         ///
         /// Finer-grained alternative to `--skip-permissions`. Claude
         /// supports `acceptEdits`, `auto`, `bypassPermissions`,
@@ -2026,7 +2054,7 @@ enum SwarmCommands {
         budget_window: String,
         /// Model to estimate costs for — also the model swarm dispatches
         /// its agents with (gh#61)
-        #[arg(long, default_value = "opus")]
+        #[arg(long, default_value = "standard")]
         model: String,
         /// Reasoning effort for every agent swarm dispatches (gh#61)
         #[arg(
@@ -2824,6 +2852,7 @@ fn main() -> Result<()> {
             signing_key,
             reconfigure,
             defaults,
+            agent_integration,
         } => {
             let cwd = env::current_dir()?;
             let opts = commands::init::InitOpts {
@@ -2837,6 +2866,7 @@ fn main() -> Result<()> {
                 signing_key: signing_key.as_deref(),
                 reconfigure,
                 defaults,
+                integrations: agent_integration.parse()?,
             };
             commands::init::run(&cwd, &opts)
         }
@@ -3296,7 +3326,7 @@ fn main() -> Result<()> {
                 plan: false,
                 run: false,
                 verify: "local".to_string(),
-                model: "opus".to_string(),
+                model: "standard".to_string(),
                 timeout: "1h".to_string(),
                 container: "none".to_string(),
                 issue: None,
@@ -3313,17 +3343,25 @@ fn main() -> Result<()> {
                 cli.json,
             )
         }
+        Commands::Doctor => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::doctor::run(&crosslink_dir, cli.json)
+        }
         Commands::Design {
             description,
             issue,
             gh_issue,
             continue_slug,
-        } => commands::design_cmd::run(
-            description.as_deref(),
-            issue,
-            gh_issue,
-            continue_slug.as_deref(),
-        ),
+        } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::design_cmd::run(
+                &crosslink_dir,
+                description.as_deref(),
+                issue,
+                gh_issue,
+                continue_slug.as_deref(),
+            )
+        }
         Commands::Swarm { action } => {
             let crosslink_dir = find_crosslink_dir()?;
             match action {
@@ -3618,7 +3656,7 @@ fn main() -> Result<()> {
             eprintln!(
                 "warning: `crosslink serve` is deprecated. \
                  Use `crosslink dashboard` instead. \
-                 See https://github.com/forecast-bio/crosslink/issues/429. \
+                 See https://github.com/Corvidae-Coding-Projects/crosslink/issues/429. \
                  This alias will be removed in a future release."
             );
             let crosslink_dir = find_crosslink_dir()?;

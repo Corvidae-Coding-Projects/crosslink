@@ -70,15 +70,22 @@ pub async fn create_usage(
     let db = state.db().await;
 
     let id = db
-        .create_token_usage(
+        .create_token_usage_for_provider(
             &body.agent_id,
             body.session_id,
+            &body.provider,
             body.input_tokens,
             body.output_tokens,
+            body.cached_input_tokens,
+            body.reasoning_output_tokens,
             body.cache_read_tokens,
             body.cache_creation_tokens,
             &body.model,
             body.cost_estimate,
+            body.provider_metadata
+                .as_ref()
+                .map(serde_json::Value::to_string)
+                .as_deref(),
         )
         .map_err(|e| internal_error("Failed to create token usage", e))?;
 
@@ -226,6 +233,59 @@ mod tests {
         let body = body_json(list_resp).await;
         assert_eq!(body["total"], 1);
         assert_eq!(body["items"][0]["agent_id"], "test-agent");
+    }
+
+    #[tokio::test]
+    async fn test_codex_usage_round_trips_extended_fields_without_fake_cost() {
+        let (app, _dir) = test_app();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/usage")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "agent_id": "codex-agent",
+                            "provider": "codex",
+                            "input_tokens": 24763,
+                            "cached_input_tokens": 24448,
+                            "output_tokens": 122,
+                            "reasoning_output_tokens": 7,
+                            "model": "account-default",
+                            "provider_metadata": {"thread_id": "thread-1"}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let created = body_json(response).await;
+        assert_eq!(created["provider"], "codex");
+        assert_eq!(created["cached_input_tokens"], 24448);
+        assert_eq!(created["reasoning_output_tokens"], 7);
+        assert!(created.get("cost_estimate").is_none());
+        assert_eq!(
+            created["provider_metadata_json"],
+            r#"{"thread_id":"thread-1"}"#
+        );
+
+        let list = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/usage")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let listed = body_json(list).await;
+        assert_eq!(listed["items"][0]["provider"], "codex");
+        assert_eq!(listed["items"][0]["cached_input_tokens"], 24448);
     }
 
     #[tokio::test]

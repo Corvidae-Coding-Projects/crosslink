@@ -156,6 +156,21 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     };
 
     let root = repo_root()?;
+    let validation_agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let validation_tools = build_allowed_tools_plan();
+    validate_agent_request(
+        &validation_agent,
+        &root,
+        opts.model,
+        &validation_tools,
+        opts.skip_permissions,
+        opts.permission_mode,
+        opts.effort,
+        opts.budget_usd,
+        opts.timeout,
+        true,
+        false,
+    )?;
     let title_slug = if opts.doc.title.is_empty() {
         "analysis".to_string()
     } else {
@@ -227,6 +242,21 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     // 5. Write PLAN_KICKOFF.md
     std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
         .context("Failed to write PLAN_KICKOFF.md")?;
+    std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
+        .context("Failed to create provider runtime log directory")?;
+    let metadata = KickoffMetadata {
+        started_at: chrono::Utc::now().to_rfc3339(),
+        timeout_secs: opts.timeout.as_secs(),
+        provider: Some(validation_agent.provider.to_string()),
+        model: validation_agent.resolve_model(Some(opts.model)),
+        effort: opts.effort.map(ToOwned::to_owned),
+        budget_usd: opts.budget_usd.map(ToOwned::to_owned),
+    };
+    std::fs::write(
+        worktree_dir.join(".kickoff-metadata.json"),
+        serde_json::to_vec_pretty(&metadata)?,
+    )
+    .context("Failed to write plan provider metadata")?;
 
     // 6. Exclude files from git
     exclude_kickoff_files(&worktree_dir)?;
@@ -254,15 +284,10 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         session_name = format!("{}-{}", &session_name[..session_name.len().min(44)], suffix);
     }
 
-    // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session (#555);
-    // see comment on `launch_local` for rationale.
-    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
-
     // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
-    let cmd = build_agent_command(
-        &opts.agent_binary,
+    let cmd = build_resolved_agent_command(
+        &preflight.agent,
         preflight.timeout_cmd,
-        opts.timeout.as_secs(),
         opts.model,
         &allowed_tools,
         "PLAN_KICKOFF.md",
@@ -272,11 +297,13 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         // dispatcher passes --skip-permissions so claude's fresh-worktree
         // workspace-trust dialog does not block the agent forever.
         opts.skip_permissions,
-        claude_config_dir.as_deref(),
         opts.permission_mode,
         opts.effort,
         opts.budget_usd,
-    );
+        opts.timeout,
+        true,
+        false,
+    )?;
 
     let output = Command::new("tmux")
         .args([

@@ -234,25 +234,33 @@ impl SyncManager {
         Ok(output)
     }
 
-    /// Copy `.claude/hooks/` from the repo root into the hub cache worktree.
+    /// Copy canonical agent hooks into the hub cache worktree.
     ///
     /// `PreToolUse` hooks resolve their path via `git rev-parse --show-toplevel`.
     /// When an agent's CWD is inside the hub cache, that resolves to the cache
     /// root instead of the main repo, so the hooks must exist there too.
-    /// This is a best-effort operation — if `.claude/hooks/` doesn't exist in
-    /// the repo root, we silently skip.
+    /// This is a best-effort operation — if canonical integration hooks do not
+    /// exist in the repo root, we silently skip.
     ///
     /// **Note**: This performs a shallow copy — only regular files in the
     /// top-level `hooks/` directory are copied. Subdirectories and symlinks
     /// are ignored. The copy runs once (skips if `dst` already exists),
     /// so hook updates in the source require deleting the cache copy to
     /// re-trigger propagation.
-    pub(super) fn propagate_claude_hooks(&self) -> Result<()> {
-        let src = self.repo_root.join(".claude").join("hooks");
+    pub(super) fn propagate_agent_hooks(&self) -> Result<()> {
+        let src = self
+            .repo_root
+            .join(".crosslink")
+            .join("integrations")
+            .join("hooks");
         if !src.is_dir() {
             return Ok(());
         }
-        let dst = self.cache_dir.join(".claude").join("hooks");
+        let dst = self
+            .cache_dir
+            .join(".crosslink")
+            .join("integrations")
+            .join("hooks");
         if dst.is_dir() {
             return Ok(()); // already propagated
         }

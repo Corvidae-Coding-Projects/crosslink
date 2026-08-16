@@ -469,7 +469,7 @@ Phases 2 and 3 could be developed in parallel by separate agents once Phase 1 is
 | Convention detection | Implemented | Rust, Node, Python, Go, Make, Just supported |
 | Container execution | Implemented | Docker and Podman support |
 | Knowledge repository | Implemented | Git-backed, CLI-accessible, TUI browser |
-| MCP infrastructure | Partial | Safe-fetch server exists; knowledge server does not |
+| MCP infrastructure | Implemented | Provider-neutral knowledge and agent-prompt servers ship for Claude and Codex |
 | Design document parser | Not started | New capability |
 | Spec validation engine | Not started | New capability |
 | Structured report system | Not started | New capability |
@@ -495,7 +495,7 @@ Phases 2 and 3 could be developed in parallel by separate agents once Phase 1 is
 | CLI entry point | `crosslink/src/main.rs` | 1,600+ |
 | Kickoff skill | `crosslink/resources/claude/commands/kickoff.md` | 68 |
 | Check skill | `crosslink/resources/claude/commands/check.md` | 141 |
-| Session start hook | `crosslink/resources/claude/hooks/session-start.py` | ~200 |
+| Session start hook | `crosslink/resources/agent/hooks/session-start.py` | provider-neutral |
 | Dockerfile | `crosslink/resources/container/Dockerfile` | 36 |
 | Container entrypoint | `crosslink/resources/container/entrypoint.sh` | 99 |
 

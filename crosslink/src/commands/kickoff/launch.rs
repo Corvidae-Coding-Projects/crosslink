@@ -4,6 +4,10 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use crate::agents::{
+    build_invocation, render_shell_command, AgentProvider, ApprovalPolicy, ExecutionPolicy,
+    InvocationRequest, OutputProtocol, ResolvedAgent, SandboxPosture,
+};
 use crate::identity::AgentConfig;
 
 use super::helpers::*;
@@ -141,6 +145,7 @@ pub(super) fn spawn_watchdog(
 /// `--permission-mode <mode>`, else `skip_permissions` emits
 /// `--dangerously-skip-permissions`, else no flag (claude prompts per tool —
 /// which hangs a headless container agent, the GH#55 stall).
+#[cfg(test)]
 pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: bool) -> String {
     match (permission_mode, skip_permissions) {
         (Some(mode), _) if !mode.is_empty() => {
@@ -163,6 +168,7 @@ pub(super) fn permission_flag(permission_mode: Option<&str>, skip_permissions: b
 /// shell-escaped because both end up inside a `bash -c` string. Either dial
 /// being `None` (or empty) omits its flag entirely, so a launch that sets
 /// neither reproduces the previous invocation byte-for-byte.
+#[cfg(test)]
 pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> String {
     use crate::utils::shell_escape_arg;
     use std::fmt::Write as _;
@@ -177,6 +183,186 @@ pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> Stri
         let _ = write!(flags, " --max-budget-usd {}", shell_escape_arg(amount));
     }
     flags
+}
+
+#[derive(Clone, Copy)]
+struct ExecutionPolicyOptions<'a> {
+    permission_mode: Option<&'a str>,
+    skip_permissions: bool,
+    read_only: bool,
+    externally_isolated: bool,
+    effort: Option<&'a str>,
+    budget_usd: Option<&'a str>,
+    timeout: Duration,
+}
+
+fn execution_policy(
+    agent: &ResolvedAgent,
+    options: ExecutionPolicyOptions<'_>,
+) -> Result<ExecutionPolicy> {
+    let configured_sandbox = match agent.options.sandbox.as_str() {
+        "read-only" => SandboxPosture::ReadOnly,
+        "workspace-write" => SandboxPosture::WorkspaceWrite,
+        other => bail!(
+            "Unsupported configured agent sandbox '{other}'; expected read-only or workspace-write"
+        ),
+    };
+    let mut sandbox = if options.externally_isolated {
+        SandboxPosture::ExternalIsolation
+    } else if options.read_only {
+        SandboxPosture::ReadOnly
+    } else {
+        configured_sandbox
+    };
+    let approval = match options.permission_mode.filter(|mode| !mode.is_empty()) {
+        Some("acceptEdits") => ApprovalPolicy::AutoReview,
+        Some("auto") => ApprovalPolicy::Automatic,
+        Some("bypassPermissions") => ApprovalPolicy::Never,
+        Some("default") => ApprovalPolicy::Interactive,
+        Some("dontAsk") => ApprovalPolicy::DontAsk,
+        Some("plan") => {
+            sandbox = SandboxPosture::ReadOnly;
+            ApprovalPolicy::Interactive
+        }
+        Some(mode) => bail!(
+            "Unsupported --permission-mode '{mode}'; expected acceptEdits, auto, bypassPermissions, default, dontAsk, or plan"
+        ),
+        None if options.skip_permissions => ApprovalPolicy::Never,
+        None => match agent.options.approval.as_str() {
+            "interactive" | "on-request" => ApprovalPolicy::Interactive,
+            "never" => ApprovalPolicy::Never,
+            "auto-review" | "acceptEdits" => ApprovalPolicy::AutoReview,
+            "automatic" | "auto" => ApprovalPolicy::Automatic,
+            "dontAsk" | "dont-ask" => ApprovalPolicy::DontAsk,
+            other => bail!("Unsupported configured agent approval policy '{other}'"),
+        },
+    };
+    Ok(ExecutionPolicy {
+        approval,
+        sandbox,
+        effort: options
+            .effort
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        monetary_budget_usd: options
+            .budget_usd
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        timeout: options.timeout,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn validate_agent_request(
+    agent: &ResolvedAgent,
+    cwd: &Path,
+    model: &str,
+    allowed_tools: &str,
+    skip_permissions: bool,
+    permission_mode: Option<&str>,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
+    timeout: Duration,
+    read_only: bool,
+    externally_isolated: bool,
+) -> Result<()> {
+    let policy = execution_policy(
+        agent,
+        ExecutionPolicyOptions {
+            permission_mode,
+            skip_permissions,
+            read_only,
+            externally_isolated,
+            effort,
+            budget_usd,
+            timeout,
+        },
+    )?;
+    let model = agent.resolve_model(Some(model));
+    build_invocation(
+        agent,
+        &InvocationRequest {
+            cwd,
+            prompt_file: Path::new("KICKOFF.md"),
+            model: model.as_deref(),
+            allowed_tools: Some(allowed_tools),
+            policy,
+            output: OutputProtocol::JsonLines,
+            verified_hook_trust: false,
+            claude_config_dir: None,
+        },
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_resolved_agent_command(
+    agent: &ResolvedAgent,
+    timeout_cmd: &str,
+    model: &str,
+    allowed_tools: &str,
+    kickoff_file: &str,
+    sandbox_command: Option<&str>,
+    worktree_dir: &Path,
+    skip_permissions: bool,
+    permission_mode: Option<&str>,
+    effort: Option<&str>,
+    budget_usd: Option<&str>,
+    timeout: Duration,
+    read_only: bool,
+    externally_isolated: bool,
+) -> Result<String> {
+    let policy = execution_policy(
+        agent,
+        ExecutionPolicyOptions {
+            permission_mode,
+            skip_permissions,
+            read_only,
+            externally_isolated,
+            effort,
+            budget_usd,
+            timeout,
+        },
+    )?;
+    let verified_hook_trust = agent.provider == AgentProvider::Codex
+        && crate::commands::init::codex_hook_trust_ready(worktree_dir)?;
+    if agent.provider == AgentProvider::Codex && !verified_hook_trust {
+        eprintln!(
+            "Codex hook definitions do not match Crosslink's init manifest; normal /hooks review is required."
+        );
+    }
+    let model = agent.resolve_model(Some(model));
+    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+    let invocation = build_invocation(
+        agent,
+        &InvocationRequest {
+            cwd: worktree_dir,
+            prompt_file: Path::new(kickoff_file),
+            model: model.as_deref(),
+            allowed_tools: Some(allowed_tools),
+            policy,
+            output: OutputProtocol::JsonLines,
+            verified_hook_trust,
+            claude_config_dir: claude_config_dir.as_deref(),
+        },
+    )?;
+    let mut launch = render_shell_command(&invocation, timeout_cmd);
+    if let Some(command) = sandbox_command {
+        let prefix = format!("{timeout_cmd} {}s ", timeout.as_secs());
+        let escaped_worktree = crate::utils::shell_escape_arg(&worktree_dir.to_string_lossy());
+        let wrapper = command.replace("{{worktree}}", &escaped_worktree);
+        launch = launch.replacen(&prefix, &format!("{prefix}{wrapper} "), 1);
+    }
+    let status_path =
+        crate::utils::shell_escape_arg(&worktree_dir.join(".kickoff-status").to_string_lossy());
+    let raw_log_path = crate::utils::shell_escape_arg(
+        &worktree_dir
+            .join(".crosslink/runtime/agent-events.jsonl")
+            .to_string_lossy(),
+    );
+    Ok(format!(
+        "set -o pipefail; {{ {launch}; }} 2>&1 | tee -a {raw_log_path}; CROSSLINK_AGENT_RC=${{PIPESTATUS[0]}}; if [ \"$CROSSLINK_AGENT_RC\" -eq 124 ]; then printf 'TIMEOUT\\n' > {status_path}; fi; exit \"$CROSSLINK_AGENT_RC\""
+    ))
 }
 
 /// Build the shell command string for launching a claude agent.
@@ -208,6 +394,7 @@ pub(super) fn dial_flags(effort: Option<&str>, budget_usd: Option<&str>) -> Stri
 /// ```
 /// When `claude_config_dir` is `None`, the assignment is omitted.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(super) fn build_agent_command(
     agent_binary: &str,
     timeout_cmd: &str,
@@ -294,7 +481,8 @@ pub(super) fn preflight_check(
     crosslink_dir: &Path,
 ) -> Result<PreflightResult> {
     let platform = detect_platform();
-    let agent_binary = crate::utils::read_agent_binary(crosslink_dir);
+    let agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let agent_binary = agent.binary.to_string_lossy().into_owned();
     let mut missing: Vec<String> = Vec::new();
 
     // timeout (or gtimeout on macOS) — always required for agent timeout
@@ -320,8 +508,8 @@ pub(super) fn preflight_check(
         }
     }
 
-    // Agent CLI — required for local mode. The binary name comes from
-    // hook-config.json's `agent.binary` (default "claude").
+    // The selected provider CLI is required for local mode. `agent.binary`
+    // may override its executable path without changing provider semantics.
     if *container == ContainerMode::None && !command_available(&agent_binary) {
         missing.push(install_hint(&agent_binary, &platform));
     }
@@ -370,9 +558,14 @@ pub(super) fn preflight_check(
         bail!("{header}{body}");
     }
 
+    if *container == ContainerMode::None {
+        crate::agents::verify_account_login(&agent)?;
+    }
+
     Ok(PreflightResult {
         timeout_cmd,
         sandbox_command,
+        agent,
     })
 }
 
@@ -634,7 +827,7 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
 /// Launch the agent as a local tmux process.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_local(
-    agent_binary: &str,
+    agent: &ResolvedAgent,
     worktree_dir: &Path,
     session_name: &str,
     model: &str,
@@ -648,6 +841,8 @@ pub(super) fn launch_local(
     effort: Option<&str>,
     budget_usd: Option<&str>,
 ) -> Result<()> {
+    std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
+        .context("Failed to create provider runtime log directory")?;
     // Create the tmux session
     let output = Command::new("tmux")
         .args([
@@ -666,28 +861,22 @@ pub(super) fn launch_local(
         bail!("Failed to create tmux session: {}", stderr.trim());
     }
 
-    // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session by
-    // baking it into the command string. `tmux new-session` would otherwise
-    // inherit env from the tmux server's frozen-at-startup environment
-    // rather than the caller's shell (#555).
-    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
-
-    // Build the claude command (with optional sandbox wrapping)
-    let cmd = build_agent_command(
-        agent_binary,
+    let cmd = build_resolved_agent_command(
+        agent,
         timeout_cmd,
-        timeout.as_secs(),
         model,
         allowed_tools,
         "KICKOFF.md",
         sandbox_command,
         worktree_dir,
         skip_permissions,
-        claude_config_dir.as_deref(),
         permission_mode,
         effort,
         budget_usd,
-    );
+        timeout,
+        false,
+        false,
+    )?;
 
     // Write initial status sentinel BEFORE sending the command.
     // This ensures we never have a worktree in limbo with no status.
@@ -736,7 +925,7 @@ pub(super) fn launch_local(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
-    agent_binary: &str,
+    agent: &ResolvedAgent,
     worktree_dir: &Path,
     host_repo_root: &Path,
     image: &str,
@@ -750,6 +939,8 @@ pub(super) fn launch_container(
     effort: Option<&str>,
     budget_usd: Option<&str>,
 ) -> Result<String> {
+    std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
+        .context("Failed to create provider runtime log directory")?;
     let runtime_cmd = match runtime {
         ContainerMode::Docker => "docker",
         ContainerMode::Podman => "podman",
@@ -795,16 +986,15 @@ pub(super) fn launch_container(
         format!("AGENT_ID={}", agent_id),
     ];
 
-    // Mount claude credentials read-only and forward Anthropic auth env vars
-    // only when the configured agent is claude. Other agents have no use for
-    // `~/.claude` auth or the Anthropic/Claude OAuth tokens.
-    if agent_binary == "claude" {
-        // Resolve host auth path for credential mounting
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-        let host_auth = format!("{home}/.claude");
-        args.push("-v".to_string());
-        args.push(format!("{host_auth}:/host-auth:ro"));
-    }
+    // Account credentials live in provider-scoped persistent volumes. API
+    // keys and host token environment variables are intentionally unsupported.
+    let credential_volume = crate::commands::container::credential_volume(agent.provider)?;
+    args.extend([
+        "-v".to_string(),
+        format!("{credential_volume}:/home/agent/.{}", agent.provider),
+        "-e".to_string(),
+        format!("CROSSLINK_AGENT_PROVIDER={}", agent.provider),
+    ]);
 
     // Bind-mount the main repo's `.git/` at its host absolute path. The
     // worktree's `.git` is a single file containing an absolute
@@ -832,21 +1022,6 @@ pub(super) fn launch_container(
         ]);
     }
 
-    // Forward Claude auth env vars from the host when set. Using the
-    // `-e NAME` form (no value) tells the runtime to pull the value from
-    // the parent process env, so tokens don't appear in `ps`. macOS hosts
-    // — where the Keychain holds the OAuth credential rather than
-    // `~/.claude/.credentials.json` — rely on this passthrough. See GH#580.
-    // Only relevant when the configured agent is claude.
-    if agent_binary == "claude" {
-        for var in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
-            if std::env::var(var).is_ok_and(|v| !v.is_empty()) {
-                args.push("-e".to_string());
-                args.push(var.to_string());
-            }
-        }
-    }
-
     // Overlay-bind the design doc read-only so the agent cannot rewrite the
     // canonical `--doc` input. Mounting a single file on top of a writable
     // parent mount is supported by both docker and podman. See GH#580.
@@ -863,26 +1038,35 @@ pub(super) fn launch_container(
         }
     }
 
-    // Image and command. GH#59: emit the same permission flag the local path
-    // and `container start` use — without it claude prompts for every tool and
-    // the headless container agent blocks forever (a GH#55 stall cause).
-    let skip_flag = permission_flag(permission_mode, skip_permissions);
-    // gh#61: same dial fragment the local path emits, in the same position
-    // (immediately after `--model`), so both launch paths dispatch identically.
-    let dials = dial_flags(effort, budget_usd);
+    let container_agent = ResolvedAgent {
+        provider: agent.provider,
+        binary: agent
+            .provider
+            .default_binary()
+            .map_or_else(|| agent.binary.clone(), std::path::PathBuf::from),
+        options: agent.options.clone(),
+        legacy_inferred: agent.legacy_inferred,
+    };
+    let command = build_resolved_agent_command(
+        &container_agent,
+        "timeout",
+        model,
+        allowed_tools,
+        "KICKOFF.md",
+        None,
+        Path::new("/workspaces/repo"),
+        skip_permissions,
+        permission_mode,
+        effort,
+        budget_usd,
+        timeout,
+        false,
+        true,
+    )?;
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
-    if agent_binary == "claude" {
-        args.push(format!(
-            "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary}{skip_flag} --model {model}{dials} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\"; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
-        ));
-    } else {
-        // Non-Claude agents: pipe the prompt via stdin
-        args.push(format!(
-            "cd /workspaces/repo && timeout {timeout_secs}s {agent_binary} < KICKOFF.md; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > /workspaces/repo/.kickoff-status; fi"
-        ));
-    }
+    args.push(format!("cd /workspaces/repo && {command}"));
 
     let output = Command::new(runtime_cmd)
         .args(&args)
@@ -901,7 +1085,7 @@ pub(super) fn launch_container(
 /// URL of the published GHCR package — surfaced in the launch-failure hint so
 /// users can confirm whether the image they're requesting actually exists.
 const AGENT_IMAGE_PACKAGE_URL: &str =
-    "https://github.com/forecast-bio/crosslink/pkgs/container/crosslink-agent";
+    "https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent";
 
 /// Format the error message emitted when `docker run` / `podman run` fails.
 ///
@@ -923,7 +1107,7 @@ fn format_container_launch_error(runtime_cmd: &str, image: &str, stderr: &str) -
              Hint: the image `{image}` could not be pulled. Either:\n  \
                * Build it locally:  just build-image       (tags as :local)\n  \
                * Or pick a published tag from {AGENT_IMAGE_PACKAGE_URL}\n  \
-                 and pass it via `--image ghcr.io/dollspace-gay/crosslink-agent:<tag>`."
+                 and pass it via `--image ghcr.io/Corvidae-Coding-Projects/crosslink-agent:<tag>`."
         )
     } else {
         format!("{runtime_cmd} container launch failed: {trimmed}")
@@ -936,17 +1120,17 @@ mod tests {
 
     #[test]
     fn pull_failure_not_found_yields_hint() {
-        let stderr = "Unable to find image 'ghcr.io/dollspace-gay/crosslink-agent:latest' locally\nError response from daemon: manifest unknown";
+        let stderr = "Unable to find image 'ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest' locally\nError response from daemon: manifest unknown";
         let msg = format_container_launch_error(
             "docker",
-            "ghcr.io/dollspace-gay/crosslink-agent:latest",
+            "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest",
             stderr,
         );
         assert!(msg.contains("docker container launch failed"));
         assert!(msg.contains("Hint:"));
         assert!(msg.contains("just build-image"));
         assert!(msg.contains(AGENT_IMAGE_PACKAGE_URL));
-        assert!(msg.contains("ghcr.io/dollspace-gay/crosslink-agent:latest"));
+        assert!(msg.contains("ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest"));
     }
 
     #[test]
@@ -954,7 +1138,7 @@ mod tests {
         let stderr = "Error response from daemon: pull access denied for some/image, repository does not exist or may require 'docker login'";
         let msg = format_container_launch_error(
             "podman",
-            "ghcr.io/dollspace-gay/crosslink-agent:nightly",
+            "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:nightly",
             stderr,
         );
         assert!(msg.contains("podman container launch failed"));
@@ -964,10 +1148,11 @@ mod tests {
 
     #[test]
     fn pull_failure_no_such_image_yields_hint() {
-        let stderr = "Error: No such image: ghcr.io/dollspace-gay/crosslink-agent:does-not-exist";
+        let stderr =
+            "Error: No such image: ghcr.io/Corvidae-Coding-Projects/crosslink-agent:does-not-exist";
         let msg = format_container_launch_error(
             "docker",
-            "ghcr.io/dollspace-gay/crosslink-agent:does-not-exist",
+            "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:does-not-exist",
             stderr,
         );
         assert!(msg.contains("Hint:"));
@@ -978,7 +1163,7 @@ mod tests {
         let stderr = "docker: Error response from daemon: invalid mount config for type \"bind\": bind source path does not exist";
         let msg = format_container_launch_error(
             "docker",
-            "ghcr.io/dollspace-gay/crosslink-agent:latest",
+            "ghcr.io/Corvidae-Coding-Projects/crosslink-agent:latest",
             stderr,
         );
         assert!(msg.contains("docker container launch failed"));

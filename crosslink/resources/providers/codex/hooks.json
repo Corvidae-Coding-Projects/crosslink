@@ -1,0 +1,83 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "description": "crosslink:work-check",
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/work-check.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\work-check.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "description": "crosslink:post-edit-check",
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/post-edit-check.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\post-edit-check.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "description": "crosslink:heartbeat",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/heartbeat.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\heartbeat.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "description": "crosslink:session-start",
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/session-start.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\session-start.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "description": "crosslink:prompt-guard",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/prompt-guard.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\prompt-guard.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "description": "crosslink:subagent-context",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/prompt-guard.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\prompt-guard.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

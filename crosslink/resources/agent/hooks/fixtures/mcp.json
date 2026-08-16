@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "session-1",
+  "tool_use_id": "tool-4",
+  "tool_name": "mcp__crosslink-knowledge__search",
+  "tool_input": {"query": "provider adapters"},
+  "cwd": "."
+}

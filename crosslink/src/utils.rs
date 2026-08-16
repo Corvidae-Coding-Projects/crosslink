@@ -5,16 +5,10 @@ use std::process::Command;
 /// Resolve the agent binary from `hook-config.json`'s `agent.binary`
 /// (default "claude").
 pub fn read_agent_binary(crosslink_dir: &Path) -> String {
-    let config_path = crosslink_dir.join("hook-config.json");
-    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
-    parsed
-        .get("agent")
-        .and_then(|a| a.get("binary"))
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map_or_else(|| "claude".to_string(), ToString::to_string)
+    crate::agents::resolve_agent(crosslink_dir).map_or_else(
+        |_| "claude".to_string(),
+        |agent| agent.binary.to_string_lossy().into_owned(),
+    )
 }
 
 /// Read the `agent.kickoff_template` setting from `hook-config.json`.

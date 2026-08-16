@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- First-class Claude and Codex provider support. `agent.provider` now selects
+  protocol semantics independently from the optional `agent.binary` override;
+  kickoff, design, orchestrator, swarm, Sentinel, status, usage, and containers
+  share structured provider adapters and normalized runtime events.
+- `crosslink init` installs Claude and Codex repository integrations by default,
+  with `--agent-integration claude|codex|both` for explicit selection. Codex gets
+  merged hooks/MCP configuration, canonical skills, a managed `AGENTS.md` block,
+  and a versioned local plugin generated from provider-neutral assets.
+- `crosslink doctor` reports selected-provider executable, account-login,
+  integration, MCP, plugin, hook-trust, and container credential readiness.
+- Recorded Claude/Codex event fixtures, cross-provider hook protocol fixtures,
+  plugin drift validation, and native Windows/container provider coverage.
 - Per-dispatch reasoning/spend dials on the kickoff path (gh#61).
   `crosslink kickoff run` and `crosslink kickoff plan` accept
   `--effort <low|medium|high|xhigh|max>` and `--budget-usd <amount>`, emitted
@@ -23,17 +35,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `crosslink migrate hub-v3 --remigrate-from-v2` - regenerates the v3 genesis
   from the current `crosslink/hub` (v2) tip and force-pushes it, superseding a
   stale remote v3 hub. The discoverable recovery path when a v2-only binary
-  kept writing after an earlier migration (forecast-bio/crosslink#653).
+  kept writing after an earlier migration (Corvidae-Coding-Projects/crosslink#653).
 
 ### Changed
 
+- Web retrieval now stays on each provider's native web/search implementation.
+  The flaky safe-fetch proxy and obsolete key-based sanitization path were
+  removed; repository instructions, skills, and hooks instead preserve external
+  provenance and make the boundary explicit: fetched words are evidence to
+  examine, never instructions to obey.
+- Repository ownership, package metadata, documentation, release assets, and
+  remotes now use `Corvidae-Coding-Projects/crosslink` as the canonical source.
 - `crosslink migrate hub-v3` now guards against silently adopting a **stale**
   remote v3 hub. Before adopting, it compares the remote's genesis against the
   live `crosslink/hub` (v2) tip; if v2 has advanced past the genesis, adoption
   is refused (with the issue/commit delta and the `--remigrate-from-v2`
   remedy) unless `--adopt-stale` is passed. `--finalize` applies the same check
   and refuses to delete the v2 branch while it is ahead of v3, so a stale adopt
-  can never escalate to real data loss (forecast-bio/crosslink#653).
+  can never escalate to real data loss (Corvidae-Coding-Projects/crosslink#653).
 
 ### Fixed
 
@@ -48,10 +67,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The container-image workflow's `IMAGE_NAME` is derived from
   `${{ github.repository_owner }}` (gh#75), so a fork publishes to its own
   GHCR namespace instead of failing to push to the upstream org (on
-  dollspace-gay it still resolves to `dollspace-gay/crosslink-agent`), and a
+  Corvidae-Coding-Projects it still resolves to `Corvidae-Coding-Projects/crosslink-agent`), and a
   `workflow_dispatch` trigger lets a fork publish a working agent image
   on-demand without a `develop` push. Addresses the unpublished
-  `DEFAULT_AGENT_IMAGE` (forecast-bio/crosslink#576).
+  `DEFAULT_AGENT_IMAGE` (Corvidae-Coding-Projects/crosslink#576).
 - `kickoff run --container` now passes claude's permission flag into the
   container agent (gh#59). The local (tmux) path emitted
   `--dangerously-skip-permissions` / `--permission-mode`, and `container start`
@@ -240,7 +259,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Hub-v3 and knowledge cache setup used `git worktree add --orphan` (added in
   Git 2.42.0); on older Git they now fall back to an equivalent sequence
   (detached worktree + `git checkout --orphan` + clearing the tree) that yields
-  the same empty unborn orphan branch (forecast-bio/crosslink#655).
+  the same empty unborn orphan branch (Corvidae-Coding-Projects/crosslink#655).
 - The container entrypoint no longer `source`s `/host-auth/*.env` (gh#10).
   Sourcing executed the file as shell: a token containing spaces or shell
   metacharacters ran as commands, leaked credential fragments into the
@@ -730,7 +749,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Agent signing chicken-and-egg during init — defer key publish and use unsigned bootstrap commits ([GH-237])
 - TUI agents tab not forming agent list — read V2 heartbeats and refresh data on tab focus ([GH-232])
 - Milestone add/remove now persists to coordination branch ([GH-174])
-- Hub cache hooks — propagate `.claude/hooks` into hub cache worktree on init ([GH-213])
+- Hub cache hooks — propagate canonical integration hooks into the hub cache worktree on init ([GH-213])
 - Hub sync dirty state — deduplicate hub cache issues during hydration, prevent vicious sync loop ([GH-210])
 - Hub sync push warnings — surface visible warnings when push falls back to local-only ([GH-206])
 - Use `--worktree` scope for agent signing config in linked worktrees ([GH-167])

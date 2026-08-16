@@ -606,18 +606,27 @@ impl OrchestratorExecutor {
                     // The agent's worktree is at <repo_root>/.worktrees/<slug>
                     // The agent_id has the format "parent--slug", extract the slug part.
                     let slug = agent_id.rsplit("--").next().unwrap_or(agent_id);
-                    let status_file = repo_root
-                        .join(".worktrees")
-                        .join(slug)
-                        .join(".kickoff-status");
-
-                    if status_file.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&status_file) {
-                            let status = content.trim().to_string();
-                            if !status.is_empty() {
-                                completed.push((stage_id.clone(), status));
-                            }
+                    let worktree = repo_root.join(".worktrees").join(slug);
+                    let sentinel = std::fs::read_to_string(worktree.join(".kickoff-status"))
+                        .ok()
+                        .map(|content| content.trim().to_string())
+                        .filter(|status| !status.is_empty());
+                    let runtime = crate::agents::runtime_snapshot(&worktree).status;
+                    let status = match (sentinel, runtime) {
+                        (Some(current), Some(normalized))
+                            if current.eq_ignore_ascii_case("running")
+                                || matches!(
+                                    normalized.as_str(),
+                                    "done" | "failed" | "timed-out" | "waiting"
+                                ) =>
+                        {
+                            Some(normalized)
                         }
+                        (Some(current), _) => Some(current),
+                        (None, runtime) => runtime,
+                    };
+                    if let Some(status) = status {
+                        completed.push((stage_id.clone(), status));
                     }
                 }
             }

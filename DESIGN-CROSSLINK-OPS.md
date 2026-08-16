@@ -5,7 +5,7 @@ Operator's runbook for `crosslink dashboard`.
 - **Status**: Initial (companion to [DESIGN-CROSSLINK-DASHBOARD.md](DESIGN-CROSSLINK-DASHBOARD.md))
 - **Issue**: GH #429 (followup — internal #688)
 - **Audience**: anyone running `crosslink dashboard` on their own machine
-  (Forecast employees, approved collaborators, self-hosted end users)
+  (Crosslink employees, approved collaborators, self-hosted end users)
 - **Scope**: how to install, configure, operate, troubleshoot, and
   upgrade the dashboard. The companion design doc says **why** things
   work the way they do; this doc says **how to operate** the deployed
@@ -126,7 +126,7 @@ Navigate to **Settings → GitHub**.
 1. Paste a GitHub PAT with `repo` scope. Fine-grained PATs work too —
    they need Contents: read and Metadata: read on each org you plan
    to enumerate.
-2. Set your default org (e.g. `forecast-bio`).
+2. Set your default org (e.g. `Corvidae-Coding-Projects`).
 3. Click **Browse `<org>`**. The dashboard walks the org via the
    GitHub REST API and returns every repo that already has a
    `crosslink/hub` branch.

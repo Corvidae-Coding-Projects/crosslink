@@ -257,7 +257,7 @@ mod tests {
     fn base_project() -> Project {
         Project {
             id: 1,
-            slug: "forecast-bio/crosslink".into(),
+            slug: "Corvidae-Coding-Projects/crosslink".into(),
             clone_path: PathBuf::from("/tmp/x"),
             default_branch: "main".into(),
             hub_sha: None,

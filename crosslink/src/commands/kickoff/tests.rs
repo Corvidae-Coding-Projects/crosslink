@@ -2930,7 +2930,7 @@ fn test_probe_live_worktree_running_status() {
 /// rows pasted verbatim from the issue evidence.
 const GH614_LEGACY_PIPELINE_JSON: &str = r#"{
   "schema_version": 1,
-  "design_doc": ".design/forecast-decode.md",
+  "design_doc": ".design/crosslink-decode.md",
   "doc_hash": "sha256:abc",
   "stage": "running",
   "plans": [],
@@ -2956,9 +2956,9 @@ const GH614_LEGACY_PIPELINE_JSON: &str = r#"{
 fn test_legacy_pending_file_reconciles_to_aborted_and_persists() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
-    let doc = tmp.path().join(".design/forecast-decode.md");
-    std::fs::write(&doc, "# Forecast decode\n").unwrap();
-    let pipeline_file = tmp.path().join(".design/forecast-decode.pipeline.json");
+    let doc = tmp.path().join(".design/crosslink-decode.md");
+    std::fs::write(&doc, "# Crosslink decode\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/crosslink-decode.pipeline.json");
     std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
 
     // Old file parses despite its shape (serde defaults tolerate it).
@@ -2989,9 +2989,9 @@ fn test_legacy_pending_file_reconciles_to_aborted_and_persists() {
 fn test_reconcile_is_idempotent() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
-    let doc = tmp.path().join(".design/forecast-decode.md");
-    std::fs::write(&doc, "# Forecast decode\n").unwrap();
-    let pipeline_file = tmp.path().join(".design/forecast-decode.pipeline.json");
+    let doc = tmp.path().join(".design/crosslink-decode.md");
+    std::fs::write(&doc, "# Crosslink decode\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/crosslink-decode.pipeline.json");
     std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
 
     let mut state = pipeline::read_pipeline_state(&doc).unwrap();

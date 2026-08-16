@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a Forecast-styled diagram for knowledge management.
+Generate a Crosslink-styled diagram for knowledge management.
 
 Shows: Agents write knowledge → synced via git → searchable by all agents
 

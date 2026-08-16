@@ -4,6 +4,7 @@
 
 pub mod agent_flags;
 pub mod agent_requests;
+pub mod agents;
 pub mod checkpoint;
 pub mod clock_skew;
 pub mod compaction;

@@ -950,54 +950,66 @@ fn test_verify_locks_signature_no_commits_on_v3_hub() {
 // ------------------------------------------------------------------
 
 // ------------------------------------------------------------------
-// propagate_claude_hooks
+// propagate_agent_hooks
 // ------------------------------------------------------------------
 
 #[test]
-fn test_propagate_claude_hooks_no_src() {
+fn test_propagate_agent_hooks_no_src() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // No .claude/hooks/ dir in repo root -> propagate is a no-op
-    manager.propagate_claude_hooks().unwrap();
+    // No canonical hooks directory in the repo root -> propagation is a no-op.
+    manager.propagate_agent_hooks().unwrap();
 }
 
 #[test]
-fn test_propagate_claude_hooks_copies_files() {
+fn test_propagate_agent_hooks_copies_files() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
     // Create source hooks dir
-    let hooks_src = work_dir.path().join(".claude").join("hooks");
+    let hooks_src = work_dir
+        .path()
+        .join(".crosslink")
+        .join("integrations")
+        .join("hooks");
     std::fs::create_dir_all(&hooks_src).unwrap();
     std::fs::write(hooks_src.join("pre-tool-use.sh"), "#!/bin/bash\n").unwrap();
 
     // Propagate
-    manager.propagate_claude_hooks().unwrap();
+    manager.propagate_agent_hooks().unwrap();
 
-    let hooks_dst = manager.cache_dir.join(".claude").join("hooks");
+    let hooks_dst = manager
+        .cache_dir
+        .join(".crosslink")
+        .join("integrations")
+        .join("hooks");
     assert!(hooks_dst.exists());
     assert!(hooks_dst.join("pre-tool-use.sh").exists());
 }
 
 #[test]
-fn test_propagate_claude_hooks_idempotent() {
+fn test_propagate_agent_hooks_idempotent() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    let hooks_src = work_dir.path().join(".claude").join("hooks");
+    let hooks_src = work_dir
+        .path()
+        .join(".crosslink")
+        .join("integrations")
+        .join("hooks");
     std::fs::create_dir_all(&hooks_src).unwrap();
     std::fs::write(hooks_src.join("hook.sh"), "#!/bin/bash\n").unwrap();
 
-    manager.propagate_claude_hooks().unwrap();
+    manager.propagate_agent_hooks().unwrap();
     // Second call should be a no-op (dst already exists)
-    manager.propagate_claude_hooks().unwrap();
+    manager.propagate_agent_hooks().unwrap();
 }
 
 // ------------------------------------------------------------------

@@ -32,6 +32,25 @@ pub fn run(
     };
 
     let root = repo_root()?;
+    let validation_agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let mut validation_conventions = detect_conventions(&root);
+    validation_conventions
+        .allowed_tools
+        .extend(read_kickoff_allowed_tools(crosslink_dir));
+    let validation_tools = build_allowed_tools(&validation_conventions, &opts.verify);
+    validate_agent_request(
+        &validation_agent,
+        &root,
+        opts.model,
+        &validation_tools,
+        opts.skip_permissions,
+        opts.permission_mode,
+        opts.effort,
+        opts.budget_usd,
+        opts.timeout,
+        false,
+        opts.container != ContainerMode::None,
+    )?;
     let base_slug = slugify(opts.description);
     let slug = if base_slug.is_empty() {
         rand_hex_suffix()
@@ -100,7 +119,7 @@ pub fn run(
     //    from `hook-config.json`'s `kickoff.allowed_tools` array so projects
     //    can teach the kickoff agent about tools detection doesn't pick up
     //    automatically. See GH#584.
-    let mut conventions = detect_conventions(&root);
+    let mut conventions = validation_conventions;
     conventions
         .allowed_tools
         .extend(read_kickoff_allowed_tools(crosslink_dir));
@@ -179,7 +198,9 @@ pub fn run(
     //     captures what reasoning and spend posture the agent was given
     //     (gh#61). Dials absent from the launch stay absent from the JSON.
     {
-        let metadata = KickoffMetadata::for_launch(opts, chrono::Utc::now().to_rfc3339());
+        let mut metadata = KickoffMetadata::for_launch(opts, chrono::Utc::now().to_rfc3339());
+        metadata.provider = Some(validation_agent.provider.to_string());
+        metadata.model = validation_agent.resolve_model(Some(opts.model));
         let json = serde_json::to_string_pretty(&metadata)
             .context("Failed to serialize kickoff metadata")?;
         std::fs::write(worktree_dir.join(".kickoff-metadata.json"), &json)
@@ -236,7 +257,7 @@ pub fn run(
             }
 
             launch_local(
-                &opts.agent_binary,
+                &preflight.agent,
                 &worktree_dir,
                 &session_name,
                 opts.model,
@@ -278,7 +299,7 @@ pub fn run(
         mode @ (ContainerMode::Docker | ContainerMode::Podman) => {
             let container_id = launch_container(
                 mode,
-                &opts.agent_binary,
+                &preflight.agent,
                 &worktree_dir,
                 &root,
                 opts.image,

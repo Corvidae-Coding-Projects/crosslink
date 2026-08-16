@@ -275,7 +275,7 @@ mod tests {
                 "INSERT INTO projects (slug, clone_path, default_branch, added_at)
                  VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![
-                    "forecast-bio/crosslink",
+                    "Corvidae-Coding-Projects/crosslink",
                     "/tmp/x",
                     "main",
                     "2026-04-20T00:00:00Z"

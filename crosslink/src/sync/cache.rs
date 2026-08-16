@@ -226,10 +226,9 @@ impl SyncManager {
         // Ensure identity so callers that commit in the cache don't fail in CI.
         self.ensure_cache_git_identity()?;
 
-        // Propagate .claude/hooks into the cache worktree so that PreToolUse
-        // hooks (which resolve via `git rev-parse --show-toplevel`) still work
-        // when an agent's CWD lands inside the hub cache.
-        self.propagate_claude_hooks()?;
+        // Propagate canonical hooks into the cache worktree so provider hook
+        // projections still work when an agent's CWD lands inside the cache.
+        self.propagate_agent_hooks()?;
 
         Ok(())
     }

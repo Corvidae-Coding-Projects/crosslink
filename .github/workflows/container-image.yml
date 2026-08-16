@@ -43,8 +43,8 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   # Repo-owner-derived so a fork publishes to its own GHCR namespace instead of
-  # failing to push to the upstream org. On dollspace-gay/crosslink this still
-  # resolves to dollspace-gay/crosslink-agent.
+  # failing to push to the upstream org. On Corvidae-Coding-Projects/crosslink this still
+  # resolves to Corvidae-Coding-Projects/crosslink-agent.
   IMAGE_NAME: ${{ github.repository_owner }}/crosslink-agent
 
 jobs:
@@ -234,6 +234,42 @@ jobs:
           # Push registry cache only when we have write access (push events).
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
+
+  # PR-only native smoke: build a loadable amd64 image and verify that both
+  # provider CLIs dispatch through the non-root entrypoint before merge.
+  container-pr-smoke:
+    name: Provider smoke (PR)
+    needs: build-binary
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crosslink-amd64
+          path: artifacts/amd64
+      - name: Stage amd64 binary
+        run: |
+          cp artifacts/amd64/crosslink crosslink/resources/container/crosslink-amd64
+          chmod +x crosslink/resources/container/crosslink-amd64
+      - name: Build native smoke image
+        run: docker build --build-arg TARGETARCH=amd64 -t crosslink-agent:pr-smoke crosslink/resources/container
+      - name: Verify both CLIs and non-root dispatch
+        run: |
+          set -euo pipefail
+          docker run --rm -e CROSSLINK_AGENT_PROVIDER=claude crosslink-agent:pr-smoke bash -c 'test "$(id -u)" != 0 && claude --version'
+          docker run --rm -e CROSSLINK_AGENT_PROVIDER=codex crosslink-agent:pr-smoke bash -c 'test "$(id -u)" != 0 && codex --version'
+      - name: Verify timeout parity and no key environment
+        run: |
+          set -euo pipefail
+          for provider in claude codex; do
+            test "$(docker run --rm -e CROSSLINK_AGENT_PROVIDER="$provider" crosslink-agent:pr-smoke bash -c 'timeout 1s sh -c "sleep 5"; printf "%s" "$?"')" = 124
+          done
+          if docker inspect crosslink-agent:pr-smoke --format '{{json .Config.Env}}' \
+            | grep -E 'ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY'; then
+            echo 'Container image unexpectedly contains an API-key environment variable.' >&2
+            exit 1
+          fi
 
   # ===========================================
   # Smoke-verify the published image is pullable + runnable on both arches.

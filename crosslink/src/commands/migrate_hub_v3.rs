@@ -127,7 +127,7 @@ fn adopt_remote_v3(
     remote: &str,
     adopt_stale: bool,
 ) -> Result<()> {
-    // Divergence guard (forecast-bio/crosslink#653): before switching this
+    // Divergence guard (Corvidae-Coding-Projects/crosslink#653): before switching this
     // machine to the remote v3 hub, compare the remote v3 genesis against the
     // live crosslink/hub (v2) tip. If a v2-only binary kept writing after the
     // original migration, the remote v3 hub is STALE — adopting it would hide
@@ -550,7 +550,7 @@ fn migrate_phase_a(
 ///   yet, so there is nothing to overwrite.
 /// - `true` (re-migrate): the remote already hosts a STALE v3 hub whose history
 ///   the regenerated genesis does NOT descend from, so every ref is force-pushed
-///   to supersede it (forecast-bio/crosslink#653).
+///   to supersede it (Corvidae-Coding-Projects/crosslink#653).
 ///
 /// On any seeding or verification failure the v3 hub branches are rolled back to
 /// their pre-run tips; the `crosslink/hub` v2 branch is never touched.
@@ -666,7 +666,7 @@ fn build_and_publish_v3(
     Ok(())
 }
 
-// ── Re-migrate from the current v2 tip (forecast-bio/crosslink#653) ───
+// ── Re-migrate from the current v2 tip (Corvidae-Coding-Projects/crosslink#653) ───
 
 /// `crosslink migrate hub-v3 --remigrate-from-v2`.
 ///
@@ -1334,7 +1334,7 @@ struct PushSummary {
 /// When `force` is set (the `--remigrate-from-v2` recovery path), every ref is
 /// force-pushed instead: the regenerated genesis does NOT descend from the
 /// stale remote v3 hub it supersedes, so fast-forward pushes would all be
-/// rejected as non-fast-forward (forecast-bio/crosslink#653).
+/// rejected as non-fast-forward (Corvidae-Coding-Projects/crosslink#653).
 fn push_v3_refs(cache_dir: &Path, remote: &str, seeded: &SeededRefs, force: bool) -> PushSummary {
     let mut summary = PushSummary {
         pushed: Vec::new(),
@@ -1594,7 +1594,7 @@ fn finalize_migration(
         }
     }
 
-    // Divergence guard (forecast-bio/crosslink#653): deleting crosslink/hub is
+    // Divergence guard (Corvidae-Coding-Projects/crosslink#653): deleting crosslink/hub is
     // the point of no return — it removes the only complete copy of the v2
     // state. Refuse if the live v2 branch has advanced past the v3 genesis, so
     // a stale adopt can never escalate to REAL data loss. (This is the explicit,
@@ -1832,7 +1832,7 @@ fn find_pending_offline(cache_dir: &Path) -> Result<Vec<IssueFile>> {
     Ok(all.into_iter().filter(|i| i.display_id.is_none()).collect())
 }
 
-// ── v2-vs-v3 divergence (forecast-bio/crosslink#653) ─────────────────
+// ── v2-vs-v3 divergence (Corvidae-Coding-Projects/crosslink#653) ─────────────────
 
 /// How far the live `crosslink/hub` (v2) branch has advanced past a v3 hub's
 /// recorded genesis commit. A non-zero [`commits_ahead`](Self::commits_ahead)

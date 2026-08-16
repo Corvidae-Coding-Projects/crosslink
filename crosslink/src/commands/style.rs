@@ -46,7 +46,7 @@ fn default_components() -> Vec<String> {
 /// Component directory mappings: (component name, source subdir in cache, target relative to project root)
 const COMPONENT_DIRS: &[(&str, &str, &str)] = &[
     ("rules", "rules", ".crosslink/rules"),
-    ("hooks", "hooks", ".claude/hooks"),
+    ("hooks", "hooks", ".crosslink/integrations/hooks"),
     ("commands", "commands", ".claude/commands"),
 ];
 

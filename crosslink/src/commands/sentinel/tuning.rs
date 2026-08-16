@@ -14,7 +14,7 @@ pub struct TuningOverride {
 
 impl TuningOverride {
     /// Analyze dispatch history and recommend model overrides for labels
-    /// where the default model (Sonnet) has a success rate below the threshold.
+    /// where the configured standard tier has a success rate below the threshold.
     pub fn from_history(db: &Database, config: &SentinelConfig) -> Result<Self> {
         let metrics = db.get_dispatch_metrics()?;
         let mut overrides = HashMap::new();

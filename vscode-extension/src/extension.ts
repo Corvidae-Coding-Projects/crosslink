@@ -774,20 +774,24 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
 }
 
 /**
- * Checks if Python is available when Claude Code hooks are configured.
+ * Checks if Python is available when Crosslink agent hooks are configured.
  * Shows a warning if hooks exist but Python cannot be found.
  */
 function checkPythonForHooks(workspaceFolder: string, output: vscode.OutputChannel): void {
-    // Check if .claude/hooks directory exists with Python scripts
-    const claudeHooksDir = path.join(workspaceFolder, '.claude', 'hooks');
-    if (!fs.existsSync(claudeHooksDir)) {
+    const integrationHooksDir = path.join(
+        workspaceFolder,
+        '.crosslink',
+        'integrations',
+        'hooks'
+    );
+    if (!fs.existsSync(integrationHooksDir)) {
         return; // No hooks directory, nothing to check
     }
 
     // Look for Python files in hooks directory
     let hasPythonHooks = false;
     try {
-        const files = fs.readdirSync(claudeHooksDir);
+        const files = fs.readdirSync(integrationHooksDir);
         hasPythonHooks = files.some(f => f.endsWith('.py'));
     } catch {
         return; // Can't read directory, skip check

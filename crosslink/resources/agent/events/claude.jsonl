@@ -1,0 +1,10 @@
+{"type":"system","session_id":"claude-session"}
+{"type":"assistant","session_id":"claude-session","message":{"content":[{"type":"text","text":"working"}]}}
+{"type":"assistant","session_id":"claude-session","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"cargo test"}}]}}
+{"type":"assistant","session_id":"claude-session","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/lib.rs"}}]}}
+{"type":"assistant","session_id":"claude-session","message":{"content":[{"type":"tool_use","name":"WebSearch","input":{"query":"docs"}}]}}
+{"type":"assistant","session_id":"claude-session","message":{"content":[{"type":"tool_use","name":"mcp__crosslink-knowledge__search","input":{"query":"docs"}}]}}
+{"type":"result","session_id":"claude-session","result":"done","usage":{"input_tokens":10,"cache_read_input_tokens":4,"output_tokens":3}}
+{"type":"result","session_id":"claude-session","is_error":true,"result":"failed"}
+{"type":"turn.waiting","session_id":"claude-session"}
+{"type":"turn.timed_out","session_id":"claude-session"}

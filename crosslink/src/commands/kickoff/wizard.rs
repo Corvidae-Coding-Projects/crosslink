@@ -39,7 +39,7 @@ pub struct PlanConfig {
 impl Default for PlanConfig {
     fn default() -> Self {
         Self {
-            model: "opus".to_string(),
+            model: "standard".to_string(),
             timeout: "30m".to_string(),
         }
     }
@@ -59,7 +59,7 @@ impl Default for RunConfig {
     fn default() -> Self {
         Self {
             verify: "local".to_string(),
-            model: "opus".to_string(),
+            model: "standard".to_string(),
             timeout: "1h".to_string(),
             container: "none".to_string(),
             issue: None,
@@ -201,7 +201,7 @@ impl WizardApp {
             Some(WizardStage::Plan) => {
                 self.config_options.push(ConfigOption {
                     label: "Model",
-                    values: vec!["opus", "sonnet"],
+                    values: vec!["standard", "advanced", "default"],
                     selected: 0,
                 });
                 self.config_options.push(ConfigOption {
@@ -218,7 +218,7 @@ impl WizardApp {
                 });
                 self.config_options.push(ConfigOption {
                     label: "Model",
-                    values: vec!["opus", "sonnet"],
+                    values: vec!["standard", "advanced", "default"],
                     selected: 0,
                 });
                 self.config_options.push(ConfigOption {

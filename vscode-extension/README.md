@@ -303,7 +303,7 @@ Ready issues (unblocked):
 </coding-rules>
 ```
 
-For full documentation, see the [main README](https://github.com/dollspace-gay/crosslink#using-crosslink-with-any-ai-agent).
+For full documentation, see the [main README](https://github.com/Corvidae-Coding-Projects/crosslink#using-crosslink-with-any-ai-agent).
 
 ## License
 

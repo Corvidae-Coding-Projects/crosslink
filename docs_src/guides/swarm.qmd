@@ -71,7 +71,7 @@ You set a budget and the swarm figures out how to distribute phases across your 
 
 ```bash
 crosslink swarm plan --budget-window 3h
-crosslink swarm config --budget-window 3h --model opus
+crosslink swarm config --budget-window 3h --model standard
 crosslink swarm estimate 1
 ```
 

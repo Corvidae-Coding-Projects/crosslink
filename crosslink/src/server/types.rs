@@ -491,10 +491,16 @@ pub use crate::models::TokenUsage;
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateTokenUsageRequest {
     pub agent_id: String,
+    #[serde(default = "default_provider")]
+    pub provider: String,
     #[serde(default)]
     pub session_id: Option<i64>,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    #[serde(default)]
+    pub cached_input_tokens: Option<i64>,
+    #[serde(default)]
+    pub reasoning_output_tokens: Option<i64>,
     #[serde(default)]
     pub cache_read_tokens: Option<i64>,
     #[serde(default)]
@@ -503,6 +509,12 @@ pub struct CreateTokenUsageRequest {
     pub model: String,
     #[serde(default)]
     pub cost_estimate: Option<f64>,
+    #[serde(default)]
+    pub provider_metadata: Option<serde_json::Value>,
+}
+
+fn default_provider() -> String {
+    "claude".to_string()
 }
 
 fn default_model() -> String {

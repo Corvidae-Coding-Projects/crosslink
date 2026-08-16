@@ -633,6 +633,7 @@ pub(super) fn install_hint(cmd: &str, platform: &Platform) -> String {
                     .to_string()
             }
         },
+        "codex" => "`codex` CLI is not installed. Install it from the official Codex CLI package, then run `codex login`.".to_string(),
         "gh" => match platform {
             Platform::MacOS => {
                 "`gh` (GitHub CLI) is required for --verify ci/thorough.\n\n  brew install gh"

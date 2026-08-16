@@ -1,6 +1,6 @@
 //! LLM-assisted document decomposition.
 //!
-//! Accepts a markdown design document, calls the Claude CLI with a structured
+//! Accepts a markdown design document, calls the selected provider with a structured
 //! prompt requesting JSON output, and transforms the result into an
 //! [`OrchestratorPlan`](crate::server::types::OrchestratorPlan).
 
@@ -10,6 +10,10 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::agents::{
+    build_invocation, AgentProvider, ApprovalPolicy, ExecutionPolicy, InvocationRequest,
+    OutputProtocol, SandboxPosture, StdinSource,
+};
 use crate::orchestrator::models::{
     LlmDecomposeResponse, OrchestratorPhase, OrchestratorPlan, OrchestratorStage, OrchestratorTask,
     StoredPlan,
@@ -77,48 +81,114 @@ fn build_user_prompt(document: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Claude CLI invocation
+// Provider invocation
 // ---------------------------------------------------------------------------
 
-/// Call the agent CLI to decompose a document.
-///
-/// This runs `<agent_binary> -p <prompt> --output-format json` as a subprocess.
-/// The agent CLI (default `claude`) must be available on `$PATH`.
-///
-/// Returns the raw stdout as a string on success.
-async fn call_claude_cli(agent_binary: &str, document: &str) -> Result<String> {
+const DECOMPOSE_SCHEMA: &str =
+    include_str!("../../resources/agent/schemas/decompose-response.json");
+
+/// Call the configured provider with its supported structured-output protocol.
+async fn call_agent_cli(crosslink_dir: &Path, document: &str) -> Result<(AgentProvider, String)> {
     let system_prompt = build_system_prompt();
     let user_prompt = build_user_prompt(document);
 
     // Combine into a single prompt since `<agent> -p` takes one prompt argument.
     let full_prompt = format!("{system_prompt}\n\n---\n\n{user_prompt}");
+    let temp = tempfile::tempdir().context("Failed to create decomposition input directory")?;
+    let prompt_path = temp.path().join("prompt.md");
+    let schema_path = temp.path().join("decompose-response.schema.json");
+    std::fs::write(&prompt_path, full_prompt)?;
+    std::fs::write(&schema_path, DECOMPOSE_SCHEMA)?;
 
-    let output = tokio::process::Command::new(agent_binary)
-        .arg("-p")
-        .arg(&full_prompt)
-        .arg("--output-format")
-        .arg("json")
+    let agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let project_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+    let output_protocol = if agent.provider == AgentProvider::Codex {
+        OutputProtocol::JsonSchema(schema_path)
+    } else {
+        OutputProtocol::FinalText
+    };
+    let invocation = build_invocation(
+        &agent,
+        &InvocationRequest {
+            cwd: project_root,
+            prompt_file: &prompt_path,
+            model: agent.resolve_model(Some("advanced")).as_deref(),
+            allowed_tools: None,
+            policy: ExecutionPolicy {
+                approval: if agent.provider == AgentProvider::Claude {
+                    ApprovalPolicy::Interactive
+                } else {
+                    ApprovalPolicy::Never
+                },
+                sandbox: SandboxPosture::ReadOnly,
+                effort: None,
+                monetary_budget_usd: None,
+                timeout: std::time::Duration::from_secs(180),
+            },
+            output: output_protocol,
+            verified_hook_trust: false,
+            claude_config_dir: std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref(),
+        },
+    )?;
+
+    let mut command = tokio::process::Command::new(&invocation.program);
+    command
+        .args(&invocation.args)
+        .current_dir(&invocation.cwd)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn `claude` CLI — is it installed and on $PATH?")?
-        .wait_with_output()
+        .stderr(std::process::Stdio::piped());
+    for name in &invocation.env_remove {
+        command.env_remove(name);
+    }
+    for (name, value) in &invocation.env_set {
+        command.env(name, value);
+    }
+    match &invocation.stdin {
+        StdinSource::None => {
+            command.stdin(std::process::Stdio::null());
+        }
+        StdinSource::File(path) => {
+            command.stdin(std::process::Stdio::from(std::fs::File::open(path)?));
+        }
+        StdinSource::PromptArgumentFile(path) => {
+            command.arg("--").arg(std::fs::read_to_string(path)?);
+            command.stdin(std::process::Stdio::null());
+        }
+    }
+    let child = command.spawn().with_context(|| {
+        format!(
+            "Failed to spawn {} CLI at {}",
+            agent.provider,
+            invocation.program.display()
+        )
+    })?;
+    let output = tokio::time::timeout(invocation.timeout, child.wait_with_output())
         .await
-        .context("Failed to read `claude` CLI output")?;
+        .with_context(|| format!("{} decomposition timed out", agent.provider))??;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!(
-            "`claude` CLI exited with status {}: {}",
+            "{} CLI exited with status {}: {}",
+            agent.provider,
             output.status,
             stderr.trim()
         );
     }
 
-    let stdout =
-        String::from_utf8(output.stdout).context("`claude` CLI produced non-UTF-8 output")?;
+    let stdout = String::from_utf8(output.stdout)
+        .with_context(|| format!("{} CLI produced non-UTF-8 output", agent.provider))?;
 
-    Ok(stdout)
+    let log_dir = crosslink_dir.join("orchestrator").join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+    let log_path = log_dir.join(format!(
+        "decompose-{}-{}.jsonl",
+        agent.provider,
+        Utc::now().format("%Y%m%dT%H%M%SZ")
+    ));
+    std::fs::write(log_path, &stdout)?;
+
+    Ok((agent.provider, stdout))
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +213,27 @@ fn extract_json_from_response(raw: &str) -> Result<String> {
 
     // Fallback: maybe it's already raw JSON matching our schema
     extract_json_block(trimmed)
+}
+
+fn extract_provider_response(provider: AgentProvider, raw: &str) -> Result<String> {
+    if provider != AgentProvider::Codex {
+        return extract_json_from_response(raw);
+    }
+    let final_text = raw
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter_map(|event| event.get("item").cloned())
+        .filter(|item| {
+            item.get("type").and_then(serde_json::Value::as_str) == Some("agent_message")
+        })
+        .filter_map(|item| {
+            item.get("text")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .next_back()
+        .context("Codex JSONL contained no final schema-conforming agent message")?;
+    extract_json_block(&final_text)
 }
 
 /// Find and extract a JSON object from text that may contain surrounding prose.
@@ -328,7 +419,7 @@ pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
 /// Decompose a design document into an orchestrator plan.
 ///
 /// This is the main entry point called by the HTTP handler. It:
-/// 1. Calls the Claude CLI with the document
+/// 1. Resolves and calls the configured provider with the document
 /// 2. Parses the JSON response
 /// 3. Transforms it into an `OrchestratorPlan`
 /// 4. Stores the plan on disk
@@ -340,7 +431,6 @@ pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
 /// plan storage fails.
 pub async fn decompose_document(
     crosslink_dir: &Path,
-    agent_binary: &str,
     document: &str,
     slug: Option<&str>,
 ) -> Result<OrchestratorPlan> {
@@ -351,11 +441,14 @@ pub async fn decompose_document(
     let effective_slug = slug.unwrap_or("untitled");
 
     // Call the LLM
-    let raw_response = call_claude_cli(agent_binary, document).await?;
+    let (provider, raw_response) = call_agent_cli(crosslink_dir, document).await?;
 
     // Extract and parse JSON
-    let json_str = extract_json_from_response(&raw_response)?;
-    let llm_response = parse_llm_response(&json_str)?;
+    let json_str = extract_provider_response(provider, &raw_response)
+        .with_context(|| format!("Failed to extract {provider} decomposition output"))?;
+    let llm_response = parse_llm_response(&json_str).with_context(|| {
+        format!("{provider} returned a response outside the decomposition schema")
+    })?;
 
     // Validate: at least one phase with at least one stage
     if llm_response.phases.is_empty() {
@@ -436,6 +529,40 @@ mod tests {
         let input = r#"{"phases": [], "estimated_hours": 0}"#;
         let result = extract_json_from_response(input).unwrap();
         assert_eq!(result, input);
+    }
+
+    #[test]
+    fn claude_and_codex_fixtures_validate_to_the_same_decomposition() {
+        let payload = r#"{"phases":[{"title":"P1","description":"phase","stages":[{"title":"S1","description":"stage","tasks":[{"title":"T1","description":"task","complexity_hours":1.0}],"depends_on":[],"agent_count":1,"complexity_hours":1.0}],"gate_criteria":["tests"]}],"estimated_hours":1.0}"#;
+        let claude = serde_json::json!({"type": "result", "result": payload}).to_string();
+        let codex = format!(
+            "{{\"type\":\"thread.started\",\"thread_id\":\"t1\"}}\n{}\n",
+            serde_json::json!({
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": payload}
+            })
+        );
+        let claude_response =
+            parse_llm_response(&extract_provider_response(AgentProvider::Claude, &claude).unwrap())
+                .unwrap();
+        let codex_response =
+            parse_llm_response(&extract_provider_response(AgentProvider::Codex, &codex).unwrap())
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(claude_response).unwrap(),
+            serde_json::to_value(codex_response).unwrap()
+        );
+        let schema: serde_json::Value = serde_json::from_str(DECOMPOSE_SCHEMA).unwrap();
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(schema["properties"]["phases"]["minItems"], 1);
+    }
+
+    #[test]
+    fn malformed_codex_output_names_the_provider_protocol() {
+        let error = extract_provider_response(AgentProvider::Codex, "not-jsonl")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Codex JSONL"));
     }
 
     #[test]
@@ -841,7 +968,7 @@ mod tests {
     #[tokio::test]
     async fn test_decompose_document_empty_document_bails() {
         let dir = tempfile::tempdir().unwrap();
-        let result = decompose_document(dir.path(), "claude", "", None).await;
+        let result = decompose_document(dir.path(), "", None).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -852,7 +979,7 @@ mod tests {
     #[tokio::test]
     async fn test_decompose_document_whitespace_only_bails() {
         let dir = tempfile::tempdir().unwrap();
-        let result = decompose_document(dir.path(), "claude", "   \n\t  ", Some("my-slug")).await;
+        let result = decompose_document(dir.path(), "   \n\t  ", Some("my-slug")).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()

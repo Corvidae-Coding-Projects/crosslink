@@ -1,6 +1,13 @@
 use anyhow::{bail, Context, Result};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
+
+use crate::agents::{
+    build_invocation, render_shell_command, ApprovalPolicy, ExecutionPolicy, InvocationRequest,
+    OutputProtocol, ResolvedAgent, SandboxPosture,
+};
 
 use crate::ContainerCommands;
 
@@ -34,13 +41,161 @@ pub fn run(command: ContainerCommands) -> Result<()> {
         ContainerCommands::Kill { name } => kill(&name),
         ContainerCommands::Shell { name } => shell(&name),
         ContainerCommands::Snapshot { name, tag } => snapshot(&name, tag.as_deref()),
+        ContainerCommands::Auth { action } => match action {
+            crate::ContainerAuthCommands::Login { provider }
+            | crate::ContainerAuthCommands::Refresh { provider } => auth_login(&provider),
+            crate::ContainerAuthCommands::Status { provider } => auth_status(&provider),
+            crate::ContainerAuthCommands::Logout { provider, force } => {
+                auth_logout(&provider, force)
+            }
+        },
     }
+}
+
+fn normalize_auth_scope(raw: &str) -> String {
+    let normalized: String = raw
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if normalized.is_empty() {
+        "default".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn auth_scope() -> String {
+    let raw = std::env::var("CROSSLINK_AUTH_SCOPE")
+        .ok()
+        .or_else(|| std::env::var("UID").ok())
+        .or_else(|| {
+            if cfg!(windows) {
+                std::env::var("USERNAME").ok()
+            } else {
+                Command::new("id")
+                    .arg("-u")
+                    .output()
+                    .ok()
+                    .and_then(|output| {
+                        output
+                            .status
+                            .success()
+                            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+                    })
+            }
+        })
+        .unwrap_or_else(|| "default".to_string());
+    normalize_auth_scope(&raw)
+}
+
+pub(crate) fn credential_volume(provider: crate::agents::AgentProvider) -> Result<String> {
+    match provider {
+        crate::agents::AgentProvider::Claude | crate::agents::AgentProvider::Codex => {
+            Ok(format!("crosslink-auth-{provider}-{}", auth_scope()))
+        }
+        crate::agents::AgentProvider::Custom => {
+            bail!("Container account login supports only claude or codex")
+        }
+    }
+}
+
+fn auth_command(provider: &str, status: bool) -> Vec<&'static str> {
+    match (provider, status) {
+        ("claude", false) => vec!["claude", "auth", "login"],
+        ("claude", true) => vec!["claude", "auth", "status"],
+        ("codex", false) => vec!["codex", "login"],
+        ("codex", true) => vec!["codex", "login", "status"],
+        _ => unreachable!(),
+    }
+}
+
+fn run_auth_container(provider: &str, status: bool) -> Result<()> {
+    if !docker_available() {
+        bail!("Docker is not available.");
+    }
+    let parsed_provider = provider.parse::<crate::agents::AgentProvider>()?;
+    let volume = credential_volume(parsed_provider)?;
+    let image = format!("{IMAGE_NAME}:{IMAGE_TAG}");
+    let mut command = Command::new("docker");
+    command.args(["run", "--rm"]);
+    if !status {
+        command.arg("-it");
+    }
+    command.args([
+        "-v",
+        &format!("{volume}:/home/agent/.{provider}"),
+        "-e",
+        &format!("CROSSLINK_AGENT_PROVIDER={provider}"),
+        &image,
+    ]);
+    command.args(auth_command(provider, status));
+    if status {
+        let output = command
+            .output()
+            .context("Failed to inspect container account login")?;
+        if output.status.success() {
+            println!("{provider} container account is logged in (account details redacted).");
+            return Ok(());
+        }
+        bail!("{provider} container account is not logged in; run `crosslink container auth login --provider {provider}`");
+    }
+    let result = command
+        .status()
+        .context("Failed to run container account login command")?;
+    if !result.success() {
+        bail!(
+            "{provider} account {} failed",
+            if status { "status" } else { "login" }
+        );
+    }
+    Ok(())
+}
+
+fn auth_login(provider: &str) -> Result<()> {
+    run_auth_container(provider, false)
+}
+
+fn auth_status(provider: &str) -> Result<()> {
+    run_auth_container(provider, true)
+}
+
+fn auth_logout(provider: &str, force: bool) -> Result<()> {
+    let parsed_provider = provider.parse::<crate::agents::AgentProvider>()?;
+    let volume = credential_volume(parsed_provider)?;
+    if !force {
+        if !io::stdin().is_terminal() {
+            bail!("Refusing to remove credential volume {volume} without confirmation; rerun with --force");
+        }
+        print!("Remove {provider} account credentials from volume {volume}? [y/N] ");
+        io::stdout().flush().ok();
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            println!("Credentials preserved.");
+            return Ok(());
+        }
+    }
+    let result = Command::new("docker")
+        .args(["volume", "rm", &volume])
+        .status()
+        .context("Failed to remove credential volume")?;
+    if !result.success() {
+        bail!("Could not remove credential volume {volume}");
+    }
+    println!("Removed {provider} container account credentials ({volume}).");
+    Ok(())
 }
 
 // GHCR-namespaced image name so this command composes with `crosslink kickoff
 // run --container docker|podman` (which defaults to the same registry path).
 // Built images, lookup paths, and snapshot tags all live under this name.
-const IMAGE_NAME: &str = "ghcr.io/dollspace-gay/crosslink-agent";
+const IMAGE_NAME: &str = "ghcr.io/Corvidae-Coding-Projects/crosslink-agent";
 // Default tag when starting a container or checking staleness — matches
 // kickoff's `--image` default so a `docker pull` of the published image
 // satisfies both code paths.
@@ -348,19 +503,53 @@ pub fn start(
             prompt_path.display()
         );
     }
-    let prompt = std::fs::read_to_string(&prompt_path).context("Failed to read prompt file")?;
+    let prompt_abs = std::fs::canonicalize(&prompt_path)
+        .with_context(|| format!("Could not resolve prompt file {}", prompt_path.display()))?;
 
-    // Resolve credentials
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-    let credentials_path = PathBuf::from(&home)
-        .join(".claude")
-        .join(".credentials.json");
-    if !credentials_path.exists() {
-        bail!(
-            "Claude credentials not found at {}. Run 'claude' to authenticate first.",
-            credentials_path.display()
-        );
+    let resolved = crate::agents::resolve_agent(&worktree_abs.join(".crosslink"))?;
+    if !resolved.provider.capabilities().container {
+        bail!("{} does not support container execution", resolved.provider);
     }
+    let container_agent = ResolvedAgent {
+        provider: resolved.provider,
+        binary: resolved
+            .provider
+            .default_binary()
+            .map_or_else(|| resolved.binary.clone(), PathBuf::from),
+        options: resolved.options.clone(),
+        legacy_inferred: resolved.legacy_inferred,
+    };
+    // Validate provider capabilities and credential scope before creating git
+    // fixup files or starting a container.
+    let credentials = credential_volume(resolved.provider)?;
+    let container_workspace = PathBuf::from(format!("/workspaces/{worktree_slug}"));
+    let container_prompt = prompt_abs.strip_prefix(&worktree_abs).map_or_else(
+        |_| PathBuf::from("/tmp/crosslink-prompt.md"),
+        |relative| container_workspace.join(relative),
+    );
+    let timeout = Duration::from_secs(3600);
+    let model = container_agent.resolve_model(Some("standard"));
+    let invocation = build_invocation(
+        &container_agent,
+        &InvocationRequest {
+            cwd: &container_workspace,
+            prompt_file: &container_prompt,
+            model: model.as_deref(),
+            allowed_tools: None,
+            policy: ExecutionPolicy {
+                approval: ApprovalPolicy::Never,
+                sandbox: SandboxPosture::ExternalIsolation,
+                effort: None,
+                monetary_budget_usd: None,
+                timeout,
+            },
+            output: OutputProtocol::JsonLines,
+            verified_hook_trust: resolved.provider == crate::agents::AgentProvider::Codex
+                && crate::commands::init::codex_hook_trust_ready(&worktree_abs)?,
+            claude_config_dir: None,
+        },
+    )?;
+    let agent_command = render_shell_command(&invocation, "timeout");
 
     // Compute resource limits
     let memory_limit = compute_memory_limit(memory);
@@ -374,6 +563,7 @@ pub fn start(
     println!("  Worktree: {}", worktree_abs.display());
     println!("  Memory:   {memory_limit}");
     println!("  Agent:    {agent_id}");
+    println!("  Provider: {}", resolved.provider);
 
     let mut cmd = Command::new("docker");
     cmd.args(["run", "-d"]);
@@ -390,6 +580,13 @@ pub fn start(
         "-v",
         &format!("{}:/workspaces/{}", worktree_abs.display(), worktree_slug),
     ]);
+    if prompt_abs.strip_prefix(&worktree_abs).is_err() {
+        let target = PathBuf::from("/tmp/crosslink-prompt.md");
+        cmd.args([
+            "-v",
+            &format!("{}:{}:ro", prompt_abs.display(), target.display()),
+        ]);
+    }
 
     // Mount .git common dir (shared git objects)
     cmd.args(["-v", &format!("{}:/repo/.git:rw", git_common_dir.display())]);
@@ -444,18 +641,17 @@ pub fn start(
         ]);
     }
 
-    // Mount credentials read-only
     cmd.args([
         "-v",
-        &format!(
-            "{}:/host-auth/.credentials.json:ro",
-            credentials_path.display()
-        ),
+        &format!("{credentials}:/home/agent/.{}", resolved.provider),
     ]);
 
     // Environment
     cmd.args(["-e", &format!("AGENT_ID={agent_id}")]);
-    cmd.args(["-e", "CLAUDE_CONFIG_DIR=/home/agent/.claude"]);
+    cmd.args([
+        "-e",
+        &format!("CROSSLINK_AGENT_PROVIDER={}", resolved.provider),
+    ]);
 
     // Pass host UID/GID so the entrypoint can remap the agent user to match,
     // avoiding permission issues with bind-mounted files.
@@ -476,15 +672,38 @@ pub fn start(
         }
     }
 
-    // Image and command
+    // Image and provider-adapted command.
     cmd.arg(&image);
+    let workspace_arg = crate::utils::shell_escape_arg(&container_workspace.to_string_lossy());
+    let runtime_dir = crate::utils::shell_escape_arg(
+        &container_workspace
+            .join(".crosslink/runtime")
+            .to_string_lossy(),
+    );
+    let raw_log = crate::utils::shell_escape_arg(
+        &container_workspace
+            .join(".crosslink/runtime/agent-events.jsonl")
+            .to_string_lossy(),
+    );
+    let status_file = crate::utils::shell_escape_arg(
+        &container_workspace
+            .join(".kickoff-status")
+            .to_string_lossy(),
+    );
     cmd.args([
-        "claude",
-        "--dangerously-skip-permissions",
-        "--model",
-        "opus",
-        "--",
-        &prompt,
+        "bash",
+        "-o",
+        "pipefail",
+        "-c",
+        &format!(
+            "cd {workspace_arg} && mkdir -p {runtime_dir} && \
+             {agent_command} 2>&1 | tee -a {raw_log}; \
+             code=${{PIPESTATUS[0]}}; \
+             if [ \"$code\" -eq 124 ]; then printf 'TIMEOUT\\n' > {status_file}; \
+             elif [ \"$code\" -ne 0 ]; then printf 'FAILED\\n' > {status_file}; \
+             elif [ ! -s {status_file} ]; then printf 'DONE\\n' > {status_file}; fi; \
+             exit \"$code\""
+        ),
     ]);
 
     let output = cmd.output().context("Failed to start container")?;
@@ -678,7 +897,10 @@ mod tests {
     /// silently un-composes the two code paths and re-opens GH#576.
     #[test]
     fn image_name_is_ghcr_namespaced() {
-        assert_eq!(IMAGE_NAME, "ghcr.io/dollspace-gay/crosslink-agent");
+        assert_eq!(
+            IMAGE_NAME,
+            "ghcr.io/Corvidae-Coding-Projects/crosslink-agent"
+        );
         assert_eq!(
             IMAGE_NAME,
             crate::commands::kickoff::DEFAULT_AGENT_IMAGE
@@ -700,5 +922,17 @@ mod tests {
             "BUILD_DEFAULT_TAG and IMAGE_TAG must differ — otherwise `crosslink container build` \
              clobbers the published `:latest` users pulled from GHCR"
         );
+    }
+
+    #[test]
+    fn provider_credentials_are_isolated_and_scope_is_volume_safe() {
+        assert_eq!(normalize_auth_scope("user/name:42"), "user-name-42");
+        assert_eq!(normalize_auth_scope("***"), "---");
+        let claude = credential_volume(crate::agents::AgentProvider::Claude).unwrap();
+        let codex = credential_volume(crate::agents::AgentProvider::Codex).unwrap();
+        assert!(claude.starts_with("crosslink-auth-claude-"));
+        assert!(codex.starts_with("crosslink-auth-codex-"));
+        assert_ne!(claude, codex);
+        assert!(credential_volume(crate::agents::AgentProvider::Custom).is_err());
     }
 }

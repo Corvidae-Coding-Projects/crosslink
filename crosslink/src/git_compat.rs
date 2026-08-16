@@ -1,7 +1,7 @@
 //! Git capability detection + compatibility shims for older Git versions.
 //!
 //! `git worktree add --orphan` was introduced in Git 2.42.0
-//! (forecast-bio/crosslink#655). Distros like Ubuntu 22.04 LTS ship Git 2.34.1,
+//! (Corvidae-Coding-Projects/crosslink#655). Distros like Ubuntu 22.04 LTS ship Git 2.34.1,
 //! where it fails with `error: unknown option 'orphan'`. This module detects
 //! support once and provides an equivalent fallback (a regular detached
 //! worktree, then `git checkout --orphan` and clearing the tree) that produces
@@ -60,7 +60,7 @@ pub fn supports_worktree_orphan() -> bool {
 /// branch `branch` (empty index + working tree).
 ///
 /// Uses `git worktree add --orphan` on Git >= 2.42.0 and an equivalent fallback
-/// on older Git (forecast-bio/crosslink#655). `repo_root` is the main
+/// on older Git (Corvidae-Coding-Projects/crosslink#655). `repo_root` is the main
 /// repository whose ref namespace the worktree shares.
 ///
 /// # Errors

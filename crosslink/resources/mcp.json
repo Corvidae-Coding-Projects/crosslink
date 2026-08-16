@@ -1,16 +1,12 @@
 {
   "mcpServers": {
-    "crosslink-safe-fetch": {
-      "command": "uv",
-      "args": ["run", ".claude/mcp/safe-fetch-server.py"]
-    },
     "crosslink-knowledge": {
       "command": "uv",
-      "args": ["run", ".claude/mcp/knowledge-server.py"]
+      "args": ["run", ".crosslink/integrations/mcp/knowledge-server.py"]
     },
     "crosslink-agent-prompt": {
       "command": "uv",
-      "args": ["run", ".claude/mcp/agent-prompt-server.py"]
+      "args": ["run", ".crosslink/integrations/mcp/agent-prompt-server.py"]
     }
   }
 }

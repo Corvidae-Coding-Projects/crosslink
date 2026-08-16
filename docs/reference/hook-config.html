@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Hook configuration – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -65,23 +71,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <script src="../site_libs/quarto-search/fuse.min.js"></script>
 <script src="../site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="../">
-<link href="../reference/rules.html" rel="next">
+<link href="../reference/state-files.html" rel="next">
 <link href="../reference/commands.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -182,6 +187,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -241,6 +250,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -253,7 +266,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -303,6 +316,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../reference/state-files.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">State and config files</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../reference/rules.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Rules customization</span></a>
   </div>
@@ -333,12 +352,55 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#cpitd_auto_install" id="toc-cpitd_auto_install" class="nav-link" data-scroll-target="#cpitd_auto_install"><code>cpitd_auto_install</code></a></li>
   <li><a href="#comment_discipline" id="toc-comment_discipline" class="nav-link" data-scroll-target="#comment_discipline"><code>comment_discipline</code></a></li>
   <li><a href="#kickoff_verification" id="toc-kickoff_verification" class="nav-link" data-scroll-target="#kickoff_verification"><code>kickoff_verification</code></a></li>
+  <li><a href="#agent.provider" id="toc-agent.provider" class="nav-link" data-scroll-target="#agent.provider"><code>agent.provider</code></a></li>
+  <li><a href="#agent.binary" id="toc-agent.binary" class="nav-link" data-scroll-target="#agent.binary"><code>agent.binary</code></a></li>
+  <li><a href="#agent.providers" id="toc-agent.providers" class="nav-link" data-scroll-target="#agent.providers"><code>agent.providers</code></a></li>
   <li><a href="#signing_enforcement" id="toc-signing_enforcement" class="nav-link" data-scroll-target="#signing_enforcement"><code>signing_enforcement</code></a></li>
   <li><a href="#auto_steal_stale_locks" id="toc-auto_steal_stale_locks" class="nav-link" data-scroll-target="#auto_steal_stale_locks"><code>auto_steal_stale_locks</code></a></li>
   <li><a href="#reminder_drift_threshold" id="toc-reminder_drift_threshold" class="nav-link" data-scroll-target="#reminder_drift_threshold"><code>reminder_drift_threshold</code></a></li>
   <li><a href="#gated_git_commands" id="toc-gated_git_commands" class="nav-link" data-scroll-target="#gated_git_commands"><code>gated_git_commands</code></a></li>
   <li><a href="#blocked_git_commands" id="toc-blocked_git_commands" class="nav-link" data-scroll-target="#blocked_git_commands"><code>blocked_git_commands</code></a></li>
   <li><a href="#allowed_bash_prefixes" id="toc-allowed_bash_prefixes" class="nav-link" data-scroll-target="#allowed_bash_prefixes"><code>allowed_bash_prefixes</code></a></li>
+  <li><a href="#tracker_remote" id="toc-tracker_remote" class="nav-link" data-scroll-target="#tracker_remote"><code>tracker_remote</code></a></li>
+  <li><a href="#external-cache-ttl" id="toc-external-cache-ttl" class="nav-link" data-scroll-target="#external-cache-ttl"><code>external-cache-ttl</code></a></li>
+  <li><a href="#external-url-ttl" id="toc-external-url-ttl" class="nav-link" data-scroll-target="#external-url-ttl"><code>external-url-ttl</code></a></li>
+  <li><a href="#repo-alias" id="toc-repo-alias" class="nav-link" data-scroll-target="#repo-alias"><code>repo-alias</code></a></li>
+  <li><a href="#crosslink_binary" id="toc-crosslink_binary" class="nav-link" data-scroll-target="#crosslink_binary"><code>crosslink_binary</code></a></li>
+  <li><a href="#context_budget_chars" id="toc-context_budget_chars" class="nav-link" data-scroll-target="#context_budget_chars"><code>context_budget_chars</code></a></li>
+  <li><a href="#kickoff.allowed_tools" id="toc-kickoff.allowed_tools" class="nav-link" data-scroll-target="#kickoff.allowed_tools"><code>kickoff.allowed_tools</code></a></li>
+  <li><a href="#sandbox-command" id="toc-sandbox-command" class="nav-link" data-scroll-target="#sandbox-command"><code>sandbox.command</code></a></li>
+  </ul></li>
+  <li><a href="#agent-overrides" id="toc-agent-overrides" class="nav-link" data-scroll-target="#agent-overrides">Agent overrides</a>
+  <ul>
+  <li><a href="#agent_overrides.tracking_mode" id="toc-agent_overrides.tracking_mode" class="nav-link" data-scroll-target="#agent_overrides.tracking_mode"><code>agent_overrides.tracking_mode</code></a></li>
+  <li><a href="#agent_overrides.blocked_git_commands" id="toc-agent_overrides.blocked_git_commands" class="nav-link" data-scroll-target="#agent_overrides.blocked_git_commands"><code>agent_overrides.blocked_git_commands</code></a></li>
+  <li><a href="#agent_overrides.gated_git_commands" id="toc-agent_overrides.gated_git_commands" class="nav-link" data-scroll-target="#agent_overrides.gated_git_commands"><code>agent_overrides.gated_git_commands</code></a></li>
+  <li><a href="#agent_overrides.agent_lint_commands" id="toc-agent_overrides.agent_lint_commands" class="nav-link" data-scroll-target="#agent_overrides.agent_lint_commands"><code>agent_overrides.agent_lint_commands</code></a></li>
+  <li><a href="#agent_overrides.agent_test_commands" id="toc-agent_overrides.agent_test_commands" class="nav-link" data-scroll-target="#agent_overrides.agent_test_commands"><code>agent_overrides.agent_test_commands</code></a></li>
+  </ul></li>
+  <li><a href="#watchdog-configuration" id="toc-watchdog-configuration" class="nav-link" data-scroll-target="#watchdog-configuration">Watchdog configuration</a>
+  <ul>
+  <li><a href="#watchdog.enabled" id="toc-watchdog.enabled" class="nav-link" data-scroll-target="#watchdog.enabled"><code>watchdog.enabled</code></a></li>
+  <li><a href="#watchdog.staleness_secs" id="toc-watchdog.staleness_secs" class="nav-link" data-scroll-target="#watchdog.staleness_secs"><code>watchdog.staleness_secs</code></a></li>
+  <li><a href="#watchdog.max_nudges" id="toc-watchdog.max_nudges" class="nav-link" data-scroll-target="#watchdog.max_nudges"><code>watchdog.max_nudges</code></a></li>
+  <li><a href="#watchdog.check_interval_secs" id="toc-watchdog.check_interval_secs" class="nav-link" data-scroll-target="#watchdog.check_interval_secs"><code>watchdog.check_interval_secs</code></a></li>
+  <li><a href="#watchdog.grace_period_secs" id="toc-watchdog.grace_period_secs" class="nav-link" data-scroll-target="#watchdog.grace_period_secs"><code>watchdog.grace_period_secs</code></a></li>
+  </ul></li>
+  <li><a href="#sentinel-configuration" id="toc-sentinel-configuration" class="nav-link" data-scroll-target="#sentinel-configuration">Sentinel configuration</a>
+  <ul>
+  <li><a href="#sentinel-enabled" id="toc-sentinel-enabled" class="nav-link" data-scroll-target="#sentinel-enabled"><code>sentinel.enabled</code></a></li>
+  <li><a href="#sentinel.interval_minutes" id="toc-sentinel.interval_minutes" class="nav-link" data-scroll-target="#sentinel.interval_minutes"><code>sentinel.interval_minutes</code></a></li>
+  <li><a href="#sentinel.max_concurrent_agents" id="toc-sentinel.max_concurrent_agents" class="nav-link" data-scroll-target="#sentinel.max_concurrent_agents"><code>sentinel.max_concurrent_agents</code></a></li>
+  <li><a href="#sentinel.sources.github_labels.enabled" id="toc-sentinel.sources.github_labels.enabled" class="nav-link" data-scroll-target="#sentinel.sources.github_labels.enabled"><code>sentinel.sources.github_labels.enabled</code></a></li>
+  <li><a href="#sentinel.sources.github_labels.labels" id="toc-sentinel.sources.github_labels.labels" class="nav-link" data-scroll-target="#sentinel.sources.github_labels.labels"><code>sentinel.sources.github_labels.labels</code></a></li>
+  <li><a href="#sentinel.default_agent.model_tier" id="toc-sentinel.default_agent.model_tier" class="nav-link" data-scroll-target="#sentinel.default_agent.model_tier"><code>sentinel.default_agent.model_tier</code></a></li>
+  <li><a href="#sentinel.default_agent.timeout_minutes" id="toc-sentinel.default_agent.timeout_minutes" class="nav-link" data-scroll-target="#sentinel.default_agent.timeout_minutes"><code>sentinel.default_agent.timeout_minutes</code></a></li>
+  <li><a href="#sentinel.default_agent.verify" id="toc-sentinel.default_agent.verify" class="nav-link" data-scroll-target="#sentinel.default_agent.verify"><code>sentinel.default_agent.verify</code></a></li>
+  <li><a href="#sentinel.escalation.enabled" id="toc-sentinel.escalation.enabled" class="nav-link" data-scroll-target="#sentinel.escalation.enabled"><code>sentinel.escalation.enabled</code></a></li>
+  <li><a href="#sentinel.escalation.model_tier" id="toc-sentinel.escalation.model_tier" class="nav-link" data-scroll-target="#sentinel.escalation.model_tier"><code>sentinel.escalation.model_tier</code></a></li>
+  <li><a href="#sentinel.escalation.cooldown_minutes" id="toc-sentinel.escalation.cooldown_minutes" class="nav-link" data-scroll-target="#sentinel.escalation.cooldown_minutes"><code>sentinel.escalation.cooldown_minutes</code></a></li>
+  <li><a href="#sentinel.escalation.max_attempts" id="toc-sentinel.escalation.max_attempts" class="nav-link" data-scroll-target="#sentinel.escalation.max_attempts"><code>sentinel.escalation.max_attempts</code></a></li>
+  <li><a href="#sentinel.escalation.timeout_multiplier_pct" id="toc-sentinel.escalation.timeout_multiplier_pct" class="nav-link" data-scroll-target="#sentinel.escalation.timeout_multiplier_pct"><code>sentinel.escalation.timeout_multiplier_pct</code></a></li>
   </ul></li>
   <li><a href="#how-the-hook-processes-commands" id="toc-how-the-hook-processes-commands" class="nav-link" data-scroll-target="#how-the-hook-processes-commands">How the hook processes commands</a></li>
   <li><a href="#customizing-for-your-stack" id="toc-customizing-for-your-stack" class="nav-link" data-scroll-target="#customizing-for-your-stack">Customizing for your stack</a></li>
@@ -369,7 +431,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 
 <p>Hooks run automatically during agent sessions and rarely need manual configuration. This reference documents the full configuration surface for fine-tuning enforcement behavior.</p>
-<p>Hook behavior is controlled by <code>.crosslink/hook-config.json</code>. This file is created by <code>crosslink init</code> and can be edited to customize enforcement.</p>
+<p>Hook behavior is controlled by <code>.crosslink/hook-config.json</code>. This file is created by <code>crosslink init</code> and can be edited to customize enforcement. For machine-specific overrides that should not be committed, use the <a href="../reference/state-files.html#hook-config-local-json"><code>hook-config.local.json</code> overlay</a> – same schema, shallow-merged on top.</p>
 <section id="configuration-file" class="level2">
 <h2 class="anchored" data-anchor-id="configuration-file">Configuration file</h2>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
@@ -378,25 +440,32 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"cpitd_auto_install"</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"comment_discipline"</span><span class="fu">:</span> <span class="st">"encouraged"</span><span class="fu">,</span></span>
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"kickoff_verification"</span><span class="fu">:</span> <span class="st">"local"</span><span class="fu">,</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"signing_enforcement"</span><span class="fu">:</span> <span class="st">"audit"</span><span class="fu">,</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"auto_steal_stale_locks"</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"reminder_drift_threshold"</span><span class="fu">:</span> <span class="dv">3</span><span class="fu">,</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"blocked_git_commands"</span><span class="fu">:</span> <span class="ot">[</span></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git push"</span><span class="ot">,</span> <span class="st">"git merge"</span><span class="ot">,</span> <span class="st">"git rebase"</span><span class="ot">,</span> <span class="st">"git cherry-pick"</span><span class="ot">,</span></span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git reset"</span><span class="ot">,</span> <span class="st">"git checkout ."</span><span class="ot">,</span> <span class="st">"git restore ."</span><span class="ot">,</span> <span class="st">"git clean"</span><span class="ot">,</span></span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git stash"</span><span class="ot">,</span> <span class="st">"git tag"</span><span class="ot">,</span> <span class="st">"git am"</span><span class="ot">,</span> <span class="st">"git apply"</span><span class="ot">,</span></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git branch -d"</span><span class="ot">,</span> <span class="st">"git branch -D"</span><span class="ot">,</span> <span class="st">"git branch -m"</span></span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span><span class="fu">,</span></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"gated_git_commands"</span><span class="fu">:</span> <span class="ot">[</span><span class="st">"git commit"</span><span class="ot">]</span><span class="fu">,</span></span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"allowed_bash_prefixes"</span><span class="fu">:</span> <span class="ot">[</span></span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="st">"crosslink "</span><span class="ot">,</span></span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git status"</span><span class="ot">,</span> <span class="st">"git diff"</span><span class="ot">,</span> <span class="st">"git log"</span><span class="ot">,</span> <span class="st">"git branch"</span><span class="ot">,</span> <span class="st">"git show"</span><span class="ot">,</span></span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"cargo test"</span><span class="ot">,</span> <span class="st">"cargo build"</span><span class="ot">,</span> <span class="st">"cargo check"</span><span class="ot">,</span> <span class="st">"cargo clippy"</span><span class="ot">,</span> <span class="st">"cargo fmt"</span><span class="ot">,</span></span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="st">"npm test"</span><span class="ot">,</span> <span class="st">"npm run"</span><span class="ot">,</span> <span class="st">"npx "</span><span class="ot">,</span></span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"tsc"</span><span class="ot">,</span> <span class="st">"node "</span><span class="ot">,</span> <span class="st">"python "</span><span class="ot">,</span></span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"ls"</span><span class="ot">,</span> <span class="st">"dir"</span><span class="ot">,</span> <span class="st">"pwd"</span><span class="ot">,</span> <span class="st">"echo"</span></span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"agent"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"provider"</span><span class="fu">:</span> <span class="st">"claude"</span><span class="fu">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"providers"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"claude"</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">"standard_model"</span><span class="fu">:</span> <span class="st">"sonnet"</span><span class="fu">,</span> <span class="dt">"advanced_model"</span><span class="fu">:</span> <span class="st">"opus"</span><span class="fu">},</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"codex"</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">"standard_model"</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">"advanced_model"</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">"sandbox"</span><span class="fu">:</span> <span class="st">"workspace-write"</span><span class="fu">,</span> <span class="dt">"approval"</span><span class="fu">:</span> <span class="st">"never"</span><span class="fu">}</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">},</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"signing_enforcement"</span><span class="fu">:</span> <span class="st">"audit"</span><span class="fu">,</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"auto_steal_stale_locks"</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"reminder_drift_threshold"</span><span class="fu">:</span> <span class="dv">3</span><span class="fu">,</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"blocked_git_commands"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git push"</span><span class="ot">,</span> <span class="st">"git merge"</span><span class="ot">,</span> <span class="st">"git rebase"</span><span class="ot">,</span> <span class="st">"git cherry-pick"</span><span class="ot">,</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git reset"</span><span class="ot">,</span> <span class="st">"git checkout ."</span><span class="ot">,</span> <span class="st">"git restore ."</span><span class="ot">,</span> <span class="st">"git clean"</span><span class="ot">,</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git stash"</span><span class="ot">,</span> <span class="st">"git tag"</span><span class="ot">,</span> <span class="st">"git am"</span><span class="ot">,</span> <span class="st">"git apply"</span><span class="ot">,</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git branch -d"</span><span class="ot">,</span> <span class="st">"git branch -D"</span><span class="ot">,</span> <span class="st">"git branch -m"</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"gated_git_commands"</span><span class="fu">:</span> <span class="ot">[</span><span class="st">"git commit"</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"allowed_bash_prefixes"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"crosslink "</span><span class="ot">,</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"git status"</span><span class="ot">,</span> <span class="st">"git diff"</span><span class="ot">,</span> <span class="st">"git log"</span><span class="ot">,</span> <span class="st">"git branch"</span><span class="ot">,</span> <span class="st">"git show"</span><span class="ot">,</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    <span class="st">"cargo test"</span><span class="ot">,</span> <span class="st">"cargo build"</span><span class="ot">,</span> <span class="st">"cargo check"</span><span class="ot">,</span> <span class="st">"cargo clippy"</span><span class="ot">,</span> <span class="st">"cargo fmt"</span><span class="ot">,</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="st">"npm test"</span><span class="ot">,</span> <span class="st">"npm run"</span><span class="ot">,</span> <span class="st">"npx "</span><span class="ot">,</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="st">"tsc"</span><span class="ot">,</span> <span class="st">"node "</span><span class="ot">,</span> <span class="st">"python "</span><span class="ot">,</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    <span class="st">"ls"</span><span class="ot">,</span> <span class="st">"dir"</span><span class="ot">,</span> <span class="st">"pwd"</span><span class="ot">,</span> <span class="st">"echo"</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -444,6 +513,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="anchored" data-anchor-id="kickoff_verification"><code>kickoff_verification</code></h3>
 <p>Default verification level for kickoff agents. Values: <code>"local"</code>, <code>"ci"</code>, <code>"thorough"</code>. Default: <code>"local"</code>.</p>
 </section>
+<section id="agent.provider" class="level3">
+<h3 class="anchored" data-anchor-id="agent.provider"><code>agent.provider</code></h3>
+<p>Selected runtime protocol: <code>"claude"</code>, <code>"codex"</code>, or <code>"custom"</code>. Default: <code>"claude"</code> for backward compatibility. This is independent from <code>crosslink init --agent-integration</code>, which only chooses repository assets. Local override wins over shared config.</p>
+</section>
+<section id="agent.binary" class="level3">
+<h3 class="anchored" data-anchor-id="agent.binary"><code>agent.binary</code></h3>
+<p>Optional executable-path override for the selected provider. It never changes provider semantics. <code>custom</code> requires a non-empty value. Legacy configurations without <code>agent.provider</code> infer the provider from <code>claude</code>, <code>codex</code>, or another binary name.</p>
+</section>
+<section id="agent.providers" class="level3">
+<h3 class="anchored" data-anchor-id="agent.providers"><code>agent.providers</code></h3>
+<p>Per-provider default, standard, and advanced model mappings plus execution defaults. A null Codex model omits <code>--model</code> and uses the signed-in account’s current default. Codex host sandbox defaults to <code>workspace-write</code>; container execution may use danger-full-access only inside external isolation.</p>
+</section>
 <section id="signing_enforcement" class="level3">
 <h3 class="anchored" data-anchor-id="signing_enforcement"><code>signing_enforcement</code></h3>
 <p>Controls SSH signature verification strictness. Values: <code>"enforce"</code> (reject unsigned), <code>"audit"</code> (warn on unsigned), <code>"off"</code>. Default: <code>"audit"</code>.</p>
@@ -469,6 +550,198 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="anchored" data-anchor-id="allowed_bash_prefixes"><code>allowed_bash_prefixes</code></h3>
 <p>Bash commands that bypass the issue-required check. These are typically read-only or infrastructure commands that don’t require issue tracking.</p>
 <p>The hook splits chained commands (using <code>&amp;&amp;</code>, <code>;</code>, <code>|</code>) and checks that <strong>every</strong> component matches an allowed prefix. A command like <code>crosslink list &amp;&amp; rm -rf /</code> would be blocked because <code>rm -rf /</code> doesn’t match any allowed prefix.</p>
+</section>
+<section id="tracker_remote" class="level3">
+<h3 class="anchored" data-anchor-id="tracker_remote"><code>tracker_remote</code></h3>
+<p>Git remote name used for crosslink’s <code>hub</code> and <code>knowledge</code> coordination branches. String. Default: <code>"origin"</code>. Override when your coordination remote differs from your code remote – e.g.&nbsp;<code>crosslink config set tracker_remote upstream</code>.</p>
+</section>
+<section id="external-cache-ttl" class="level3">
+<h3 class="anchored" data-anchor-id="external-cache-ttl"><code>external-cache-ttl</code></h3>
+<p>TTL in seconds for cached external-repo metadata (used by <code>crosslink issue</code> commands that reach into another project’s hub branch). Integer. Default: <code>300</code> (5 minutes). Lower for fast-moving coordination repos, higher to reduce network round-trips.</p>
+</section>
+<section id="external-url-ttl" class="level3">
+<h3 class="anchored" data-anchor-id="external-url-ttl"><code>external-url-ttl</code></h3>
+<p>TTL in seconds for cached URL → repo resolution results (e.g.&nbsp;parsing <code>https://github.com/owner/repo</code> into the canonical alias). Integer. Default: <code>86400</code> (24 hours).</p>
+</section>
+<section id="repo-alias" class="level3">
+<h3 class="anchored" data-anchor-id="repo-alias"><code>repo-alias</code></h3>
+<p>Map of named aliases for external repositories, used by commands that accept <code>--repo &lt;alias&gt;</code>. Stored as <code>repo-alias.&lt;name&gt;</code> keys – set with <code>crosslink config set repo-alias.upstream https://github.com/owner/repo</code>. Default: <code>{}</code> (none).</p>
+</section>
+<section id="crosslink_binary" class="level3">
+<h3 class="anchored" data-anchor-id="crosslink_binary"><code>crosslink_binary</code></h3>
+<p>Explicit absolute path to the <code>crosslink</code> binary used by the Python hook scripts when shelling out. String. Default: unset (hooks fall back to <code>$PATH</code>, then common install locations like <code>~/.cargo/bin/crosslink</code>). Set this when <code>crosslink</code> lives somewhere unusual or when multiple installs need disambiguating – e.g.&nbsp;<code>crosslink config set crosslink_binary /opt/crosslink/bin/crosslink</code>.</p>
+</section>
+<section id="context_budget_chars" class="level3">
+<h3 class="anchored" data-anchor-id="context_budget_chars"><code>context_budget_chars</code></h3>
+<p>Estimated character budget the <code>prompt-guard.py</code> hook uses to warn before context exhaustion. Integer. Default: <code>1000000</code> (1M chars, roughly aligned with a 200k-token window). Set to <code>0</code> (or any non-positive value) to disable the guard entirely.</p>
+</section>
+<section id="kickoff.allowed_tools" class="level3">
+<h3 class="anchored" data-anchor-id="kickoff.allowed_tools"><code>kickoff.allowed_tools</code></h3>
+<p>Extra tool patterns appended to the kickoff policy. String array. Default: <code>[]</code>. Claude maps these to <code>allowedTools</code>; other providers reject or map only options they can preserve.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> config set kickoff.allowed_tools <span class="st">'["Bash(cargo *)", "Bash(make deploy *)", "mcp__tidewave__execute_sql_query"]'</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Auto-detection already handles <code>Bash(cargo *)</code>, <code>Bash(npm *)</code>, <code>Bash(uv *)</code>, <code>Bash(pytest *)</code>, <code>Bash(go *)</code>, <code>Bash(just *)</code>, and <code>Bash(make *)</code> when the corresponding manifest exists at the repo root or one directory level deep – reach for this key when your layout puts manifests deeper, or when you need a pattern detection doesn’t cover.</p>
+</section>
+<section id="sandbox-command" class="level3">
+<h3 class="anchored" data-anchor-id="sandbox-command"><code>sandbox.command</code></h3>
+<p>Optional sandbox-wrapper command applied to local kickoff launches. String. The structured selected-provider invocation is wrapped only at the tmux shell boundary; the value must be a binary on <code>$PATH</code> accepting a trailing command.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+</section>
+<section id="agent-overrides" class="level2">
+<h2 class="anchored" data-anchor-id="agent-overrides">Agent overrides</h2>
+<p>The <code>agent_overrides</code> object lets kickoff agents run under a different policy from interactive sessions in the same repo. When a key appears under <code>agent_overrides</code>, it shadows the same-named top-level key <strong>only for agent processes</strong> – interactive <code>claude</code> sessions and human shells still see the top-level value. Two additional keys (<code>agent_lint_commands</code>, <code>agent_test_commands</code>) have no top-level counterpart and only exist here.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"agent_overrides"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"tracking_mode"</span><span class="fu">:</span> <span class="st">"relaxed"</span><span class="fu">,</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"blocked_git_commands"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>      <span class="st">"git push --force"</span><span class="ot">,</span> <span class="st">"git push -f"</span><span class="ot">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>      <span class="st">"git reset --hard"</span><span class="ot">,</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>      <span class="st">"git clean -f"</span><span class="ot">,</span> <span class="st">"git clean -fd"</span><span class="ot">,</span> <span class="st">"git clean -fdx"</span><span class="ot">,</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>      <span class="st">"git checkout ."</span><span class="ot">,</span> <span class="st">"git restore ."</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"gated_git_commands"</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">,</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"agent_lint_commands"</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">,</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"agent_test_commands"</span><span class="fu">:</span> <span class="ot">[]</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="agent_overrides.tracking_mode" class="level3">
+<h3 class="anchored" data-anchor-id="agent_overrides.tracking_mode"><code>agent_overrides.tracking_mode</code></h3>
+<p>Tracking mode applied to kickoff agents (overrides the top-level <code>tracking_mode</code>). Values: <code>"strict"</code>, <code>"normal"</code>, <code>"relaxed"</code>. Default: <code>"relaxed"</code>. Agents typically run under <code>"relaxed"</code> so they aren’t blocked by the issue-required check during long autonomous loops, while humans in the same repo stay under <code>"strict"</code>.</p>
+</section>
+<section id="agent_overrides.blocked_git_commands" class="level3">
+<h3 class="anchored" data-anchor-id="agent_overrides.blocked_git_commands"><code>agent_overrides.blocked_git_commands</code></h3>
+<p>Git mutation commands blocked for agents only. Same prefix-matching semantics as the top-level <code>blocked_git_commands</code>. Default: a narrower destructive-only list (<code>git push --force</code>, <code>git reset --hard</code>, <code>git clean -f</code>, <code>git checkout .</code>, <code>git restore .</code>) so agents can still push to feature branches but cannot destroy history or wipe the worktree.</p>
+</section>
+<section id="agent_overrides.gated_git_commands" class="level3">
+<h3 class="anchored" data-anchor-id="agent_overrides.gated_git_commands"><code>agent_overrides.gated_git_commands</code></h3>
+<p>Git commands requiring an active issue for agents only. Default: <code>[]</code> (empty) – the gated-list is intentionally empty for agents since they always run with an active issue claimed.</p>
+</section>
+<section id="agent_overrides.agent_lint_commands" class="level3">
+<h3 class="anchored" data-anchor-id="agent_overrides.agent_lint_commands"><code>agent_overrides.agent_lint_commands</code></h3>
+<p>Lint commands the agent runs as part of its self-validation pass at the end of a kickoff. Auto-populated during <code>crosslink init</code> from detected project conventions (e.g.&nbsp;<code>["cargo clippy", "npm run lint"]</code>); leave empty to disable. Default: <code>[]</code>.</p>
+</section>
+<section id="agent_overrides.agent_test_commands" class="level3">
+<h3 class="anchored" data-anchor-id="agent_overrides.agent_test_commands"><code>agent_overrides.agent_test_commands</code></h3>
+<p>Test commands the agent runs as part of its self-validation pass. Auto-populated during <code>crosslink init</code> from detected project conventions (e.g.&nbsp;<code>["cargo test", "npm test"]</code>); leave empty to disable. Default: <code>[]</code>.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+</section>
+<section id="watchdog-configuration" class="level2">
+<h2 class="anchored" data-anchor-id="watchdog-configuration">Watchdog configuration</h2>
+<p>The <code>watchdog</code> block controls the per-kickoff sidecar that detects stalled local agents and sends a “continue” nudge to their tmux session. It applies only to local (non-container) kickoffs – container agents have their own timeout enforcement via <code>--stop-timeout</code>. The block is read by <code>read_watchdog_config</code> in the kickoff launcher; omitting any sub-key keeps its default.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"watchdog"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"enabled"</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"staleness_secs"</span><span class="fu">:</span> <span class="dv">300</span><span class="fu">,</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"max_nudges"</span><span class="fu">:</span> <span class="dv">5</span><span class="fu">,</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"check_interval_secs"</span><span class="fu">:</span> <span class="dv">120</span><span class="fu">,</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"grace_period_secs"</span><span class="fu">:</span> <span class="dv">300</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="watchdog.enabled" class="level3">
+<h3 class="anchored" data-anchor-id="watchdog.enabled"><code>watchdog.enabled</code></h3>
+<p>Master switch for the per-kickoff watchdog sidecar. Bool. Default: <code>true</code>. When <code>false</code>, no watchdog process is spawned alongside local kickoffs and stalled agents are left alone until the overall <code>--timeout</code> fires.</p>
+</section>
+<section id="watchdog.staleness_secs" class="level3">
+<h3 class="anchored" data-anchor-id="watchdog.staleness_secs"><code>watchdog.staleness_secs</code></h3>
+<p>Seconds without a heartbeat before the watchdog considers an agent stalled and sends a nudge. Integer. Default: <code>300</code> (5 minutes). Heartbeats are written by the <code>PostToolUse</code> hook on every tool call, so a healthy agent refreshes this every few seconds.</p>
+</section>
+<section id="watchdog.max_nudges" class="level3">
+<h3 class="anchored" data-anchor-id="watchdog.max_nudges"><code>watchdog.max_nudges</code></h3>
+<p>Maximum number of “continue” nudges the watchdog will send before giving up and exiting. Integer. Default: <code>5</code>. Once exhausted, the watchdog leaves the tmux session running but stops trying to revive it – the surrounding <code>--timeout</code> will eventually clean up.</p>
+</section>
+<section id="watchdog.check_interval_secs" class="level3">
+<h3 class="anchored" data-anchor-id="watchdog.check_interval_secs"><code>watchdog.check_interval_secs</code></h3>
+<p>Seconds between watchdog poll cycles. Integer. Default: <code>120</code> (2 minutes). Lower values catch stalls faster at the cost of slightly more shell wake-ups; this is rarely worth tuning.</p>
+</section>
+<section id="watchdog.grace_period_secs" class="level3">
+<h3 class="anchored" data-anchor-id="watchdog.grace_period_secs"><code>watchdog.grace_period_secs</code></h3>
+<p>Seconds the watchdog waits after launch before its first check, giving the agent time to start up and write its first heartbeat. Integer. Default: <code>300</code> (5 minutes). If your kickoffs are reliably idle for longer than this at the start (e.g.&nbsp;slow toolchain installs in the worktree), raise it.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+</section>
+<section id="sentinel-configuration" class="level2">
+<h2 class="anchored" data-anchor-id="sentinel-configuration">Sentinel configuration</h2>
+<p>The <code>sentinel</code> block configures the autonomous sentinel daemon, which polls configured sources (e.g.&nbsp;GitHub label changes) and dispatches kickoff agents in response. Disabled by default. The full block:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"sentinel"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"enabled"</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"interval_minutes"</span><span class="fu">:</span> <span class="dv">10</span><span class="fu">,</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"max_concurrent_agents"</span><span class="fu">:</span> <span class="dv">3</span><span class="fu">,</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"sources"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"github_labels"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"enabled"</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"labels"</span><span class="fu">:</span> <span class="ot">[</span><span class="st">"agent-todo: replicate"</span><span class="ot">,</span> <span class="st">"agent-todo: fix"</span><span class="ot">]</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="fu">},</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"default_agent"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"model_tier"</span><span class="fu">:</span> <span class="st">"standard"</span><span class="fu">,</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"timeout_minutes"</span><span class="fu">:</span> <span class="dv">30</span><span class="fu">,</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"verify"</span><span class="fu">:</span> <span class="st">"local"</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">},</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"escalation"</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"enabled"</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"model_tier"</span><span class="fu">:</span> <span class="st">"advanced"</span><span class="fu">,</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"cooldown_minutes"</span><span class="fu">:</span> <span class="dv">30</span><span class="fu">,</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"max_attempts"</span><span class="fu">:</span> <span class="dv">2</span><span class="fu">,</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>      <span class="dt">"timeout_multiplier_pct"</span><span class="fu">:</span> <span class="dv">150</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="sentinel-enabled" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel-enabled"><code>sentinel.enabled</code></h3>
+<p>Master switch for the sentinel daemon. Bool. Default: <code>false</code>. When <code>false</code>, <code>crosslink daemon start</code> will run the heartbeat/coordination loop but skip sentinel polling entirely.</p>
+</section>
+<section id="sentinel.interval_minutes" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.interval_minutes"><code>sentinel.interval_minutes</code></h3>
+<p>Minutes between sentinel poll cycles. Integer (1-1440). Default: <code>10</code>. Lower values pick up new signals faster at the cost of API rate-limit headroom.</p>
+</section>
+<section id="sentinel.max_concurrent_agents" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.max_concurrent_agents"><code>sentinel.max_concurrent_agents</code></h3>
+<p>Maximum number of agents sentinel may have running simultaneously. Integer (1-10). Default: <code>3</code>. Excess signals queue until in-flight agents finish.</p>
+</section>
+<section id="sentinel.sources.github_labels.enabled" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.sources.github_labels.enabled"><code>sentinel.sources.github_labels.enabled</code></h3>
+<p>Enable the GitHub-label polling source. Bool. Default: <code>true</code>. The label source watches the project’s GitHub issues for any of the configured <code>labels</code> and dispatches an agent per matching issue.</p>
+</section>
+<section id="sentinel.sources.github_labels.labels" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.sources.github_labels.labels"><code>sentinel.sources.github_labels.labels</code></h3>
+<p>Labels that trigger sentinel dispatch when applied to a GitHub issue. String array. Default: <code>["agent-todo: replicate", "agent-todo: fix"]</code>. Add a label here, apply it on an issue, and sentinel will pick it up on the next poll cycle.</p>
+</section>
+<section id="sentinel.default_agent.model_tier" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.default_agent.model_tier"><code>sentinel.default_agent.model_tier</code></h3>
+<p>Semantic model tier or explicit provider model used for sentinel’s first attempt. Default: <code>"standard"</code>; it resolves through the selected provider. The legacy key <code>model</code> remains accepted as an alias.</p>
+</section>
+<section id="sentinel.default_agent.timeout_minutes" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.default_agent.timeout_minutes"><code>sentinel.default_agent.timeout_minutes</code></h3>
+<p>Per-agent timeout in minutes for sentinel-dispatched runs. Integer (5-480). Default: <code>30</code>.</p>
+</section>
+<section id="sentinel.default_agent.verify" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.default_agent.verify"><code>sentinel.default_agent.verify</code></h3>
+<p>Verification level for sentinel agents. Values: <code>"local"</code>, <code>"ci"</code>, <code>"thorough"</code>. Default: <code>"local"</code>. Matches the <code>--verify</code> flag on <code>crosslink kickoff run</code>.</p>
+</section>
+<section id="sentinel.escalation.enabled" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.escalation.enabled"><code>sentinel.escalation.enabled</code></h3>
+<p>Enable automatic model escalation on first-attempt failure. Bool. Default: <code>true</code>. When <code>true</code>, sentinel retries failed dispatches with <code>sentinel.escalation.model_tier</code> after the cooldown.</p>
+</section>
+<section id="sentinel.escalation.model_tier" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.escalation.model_tier"><code>sentinel.escalation.model_tier</code></h3>
+<p>Semantic tier or explicit model for escalated retries. Default: <code>"advanced"</code>. The legacy key <code>model</code> remains accepted as an alias.</p>
+</section>
+<section id="sentinel.escalation.cooldown_minutes" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.escalation.cooldown_minutes"><code>sentinel.escalation.cooldown_minutes</code></h3>
+<p>Minutes to wait after a failed attempt before re-dispatching with the escalation model. Integer (5-1440). Default: <code>30</code>. Gives the system time for transient failures (rate limits, flaky CI) to clear.</p>
+</section>
+<section id="sentinel.escalation.max_attempts" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.escalation.max_attempts"><code>sentinel.escalation.max_attempts</code></h3>
+<p>Maximum number of dispatch attempts per signal across initial + escalation runs. Integer (1-5). Default: <code>2</code>. After this many failures, sentinel marks the signal failed and stops retrying.</p>
+</section>
+<section id="sentinel.escalation.timeout_multiplier_pct" class="level3">
+<h3 class="anchored" data-anchor-id="sentinel.escalation.timeout_multiplier_pct"><code>sentinel.escalation.timeout_multiplier_pct</code></h3>
+<p>Timeout multiplier for escalation attempts, expressed as a percentage of the default agent timeout. Integer. Default: <code>150</code> (1.5×). With the default 30-minute base, escalated retries get 45 minutes.</p>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -491,22 +764,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="customizing-for-your-stack" class="level2">
 <h2 class="anchored" data-anchor-id="customizing-for-your-stack">Customizing for your stack</h2>
 <p>Add your project’s build and test commands to <code>allowed_bash_prefixes</code>:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"allowed_bash_prefixes"</span><span class="fu">:</span> <span class="ot">[</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"crosslink "</span><span class="ot">,</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"make "</span><span class="ot">,</span> <span class="st">"cmake "</span><span class="ot">,</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"go test"</span><span class="ot">,</span> <span class="st">"go build"</span><span class="ot">,</span> <span class="st">"go vet"</span><span class="ot">,</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"dotnet test"</span><span class="ot">,</span> <span class="st">"dotnet build"</span><span class="ot">,</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"mvn "</span><span class="ot">,</span> <span class="st">"gradle "</span><span class="ot">,</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"docker "</span><span class="ot">,</span> <span class="st">"docker-compose "</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"allowed_bash_prefixes"</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"crosslink "</span><span class="ot">,</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"make "</span><span class="ot">,</span> <span class="st">"cmake "</span><span class="ot">,</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"go test"</span><span class="ot">,</span> <span class="st">"go build"</span><span class="ot">,</span> <span class="st">"go vet"</span><span class="ot">,</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"dotnet test"</span><span class="ot">,</span> <span class="st">"dotnet build"</span><span class="ot">,</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"mvn "</span><span class="ot">,</span> <span class="st">"gradle "</span><span class="ot">,</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"docker "</span><span class="ot">,</span> <span class="st">"docker-compose "</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
 <section id="resetting-to-defaults" class="level2">
 <h2 class="anchored" data-anchor-id="resetting-to-defaults">Resetting to defaults</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init <span class="at">--force</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> init <span class="at">--force</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>This resets <code>hook-config.json</code> and all rules to their default values.</p>
 
 
@@ -920,27 +1193,27 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       </a>          
   </div>
   <div class="nav-page nav-page-next">
-      <a href="../reference/rules.html" class="pagination-link" aria-label="Rules customization">
-        <span class="nav-page-text">Rules customization</span> <i class="bi bi-arrow-right-short"></i>
+      <a href="../reference/state-files.html" class="pagination-link" aria-label="State and config files">
+        <span class="nav-page-text">State and config files</span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -957,12 +1230,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -975,7 +1248,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -999,7 +1272,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -1026,7 +1299,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

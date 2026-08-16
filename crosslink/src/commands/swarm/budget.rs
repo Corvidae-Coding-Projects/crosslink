@@ -19,8 +19,8 @@ use crate::sync::SyncManager;
 /// Set budget parameters for the swarm.
 ///
 /// `effort` / `budget_usd` are the per-dispatch dials every agent this swarm
-/// launches will carry (gh#61). `None` leaves the corresponding claude flag
-/// off, which is the pre-gh#61 behaviour.
+/// launches will carry (gh#61). `None` leaves the corresponding provider
+/// setting absent, preserving the provider default.
 pub fn config_budget(
     crosslink_dir: &Path,
     budget_window: &str,
@@ -79,9 +79,9 @@ pub fn config_budget(
 /// Default per-agent duration estimates when no historical data exists.
 pub(super) fn default_agent_duration(model: &str) -> u64 {
     match model {
-        "opus" => 5400,   // 90 minutes
-        "sonnet" => 2700, // 45 minutes
-        _ => 3600,        // 60 minutes fallback
+        "advanced" | "opus" => 5400,   // 90 minutes
+        "standard" | "sonnet" => 2700, // 45 minutes
+        _ => 3600,                     // 60 minutes fallback
     }
 }
 
@@ -383,7 +383,7 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
 
         let obs = CostObservation {
             agent_id,
-            model: "opus".to_string(), // default; reports don't track model
+            model: "standard".to_string(), // default; reports don't track model
             duration_s,
             files_changed,
             lines_added,
@@ -411,9 +411,9 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
         cost_log.observations.len()
     );
 
-    if let Some(est) = cost_log.model_estimates.get("opus") {
+    if let Some(est) = cost_log.model_estimates.get("standard") {
         println!(
-            "  opus: median {}, p90 {}",
+            "  standard: median {}, p90 {}",
             kickoff::format_duration(est.median_duration_s),
             kickoff::format_duration(est.p90_duration_s)
         );

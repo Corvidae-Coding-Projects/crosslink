@@ -2,17 +2,23 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Swarm orchestration – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
@@ -69,19 +75,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../guides/kickoff.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b5c7dc03bef746c4d0cbc145488c92f5.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c5493c99ee43b34eaa1c54898169c9c4.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -182,6 +187,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Session workflow</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
   </li>  
@@ -241,6 +250,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  <span class="dropdown-text">Hook configuration</span></a>
   </li>  
         <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
+        <li>
     <a class="dropdown-item" href="../reference/rules.html">
  <span class="dropdown-text">Rules customization</span></a>
   </li>  
@@ -253,7 +266,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -297,6 +310,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
+  <a href="../guides/providers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Claude and Codex providers</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../guides/multi-agent.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Multi-agent coordination</span></a>
   </div>
@@ -383,6 +402,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#checkpointing" id="toc-checkpointing" class="nav-link" data-scroll-target="#checkpointing">Checkpointing</a></li>
   <li><a href="#resuming-after-interruption" id="toc-resuming-after-interruption" class="nav-link" data-scroll-target="#resuming-after-interruption">Resuming after interruption</a></li>
   </ul></li>
+  <li><a href="#managing-multiple-swarms" id="toc-managing-multiple-swarms" class="nav-link" data-scroll-target="#managing-multiple-swarms">Managing multiple swarms</a></li>
+  <li><a href="#editing-the-plan" id="toc-editing-the-plan" class="nav-link" data-scroll-target="#editing-the-plan">Editing the plan</a></li>
+  <li><a href="#explicit-layerphase-headers" id="toc-explicit-layerphase-headers" class="nav-link" data-scroll-target="#explicit-layerphase-headers">Explicit layer/phase headers</a></li>
   <li><a href="#harvesting-cost-data" id="toc-harvesting-cost-data" class="nav-link" data-scroll-target="#harvesting-cost-data">Harvesting cost data</a></li>
   <li><a href="#full-workflow-example" id="toc-full-workflow-example" class="nav-link" data-scroll-target="#full-workflow-example">Full workflow example</a></li>
   <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See also</a></li>
@@ -463,7 +485,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm plan <span class="at">--budget-window</span> 3h</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm config <span class="at">--budget-window</span> 3h <span class="at">--model</span> opus</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm config <span class="at">--budget-window</span> 3h <span class="at">--model</span> standard</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm estimate 1</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Plans phase scheduling, configures the cost model, and estimates wall-clock cost for the first phase.</p>
 </div>
@@ -563,39 +585,92 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <hr>
 </section>
 </section>
+<section id="managing-multiple-swarms" class="level2">
+<h2 class="anchored" data-anchor-id="managing-multiple-swarms">Managing multiple swarms</h2>
+<p>You can run multiple independent swarms simultaneously, each with its own plan and lifecycle:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a new swarm (assigns a UUID)</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm create</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="co"># List all swarms with status</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm list</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Switch active swarm context</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm switch <span class="op">&lt;</span>uuid<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Each swarm tracks its own phases, agents, and budget independently. Use <code>swarm list</code> to see which swarms are active, planned, or complete.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="editing-the-plan" class="level2">
+<h2 class="anchored" data-anchor-id="editing-the-plan">Editing the plan</h2>
+<p>After <code>swarm init</code>, you can restructure the plan before or between phases:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Move an agent to a different phase</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm move <span class="op">&lt;</span>agent<span class="op">&gt;</span> --to-phase 2</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Merge two phases into one</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm merge 2 3</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Split a phase at a boundary</span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm split 1 <span class="at">--after</span> <span class="op">&lt;</span>agent<span class="op">&gt;</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Remove an agent from the plan</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm remove <span class="op">&lt;</span>agent<span class="op">&gt;</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Change agent execution order within a phase</span></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm reorder <span class="op">&lt;</span>agent<span class="op">&gt;</span> --position 1</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Rename a phase</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm rename 1 <span class="at">--name</span> <span class="st">"Database migrations"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Plan editing is useful when gap analysis reveals that the initial decomposition needs adjustment, or when a phase gate exposes dependencies that weren’t visible at init time.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
+<section id="explicit-layerphase-headers" class="level2">
+<h2 class="anchored" data-anchor-id="explicit-layerphase-headers">Explicit layer/phase headers</h2>
+<p>Design documents can specify phases explicitly using H2 headers with <code>Layer:</code> or <code>Phase:</code> prefixes:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">## Phase: Database Migrations</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Add user table schema</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Add session table schema</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="fu">## Phase: API Endpoints</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Add registration endpoint</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Add login endpoint</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>When these headers are present, <code>swarm init</code> uses them directly instead of auto-decomposing.</p>
+<p>&nbsp;</p>
+<hr>
+</section>
 <section id="harvesting-cost-data" class="level2">
 <h2 class="anchored" data-anchor-id="harvesting-cost-data">Harvesting cost data</h2>
 <p>After agents finish, harvest cost data to improve future estimates:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm harvest</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm harvest</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Scans completed agents and updates the cost history. The more phases you complete, the more accurate future <code>estimate</code> calls become.</p>
 <p>&nbsp;</p>
 <hr>
 </section>
 <section id="full-workflow-example" class="level2">
 <h2 class="anchored" data-anchor-id="full-workflow-example">Full workflow example</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Initialize from a design document</span></span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm init <span class="at">--doc</span> DESIGN-AUTH-SYSTEM.md</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Review the plan</span></span>
-<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm plan-show</span>
-<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Launch phase 1</span></span>
-<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm launch 1</span>
-<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. Monitor agents</span></span>
-<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm status</span>
-<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a><span class="co"># 5. Once agents complete, run the gate</span></span>
-<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm gate 1</span>
-<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a><span class="co"># 6. Checkpoint and advance</span></span>
-<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm checkpoint 1 <span class="at">--notes</span> <span class="st">"Auth models and DB migrations done"</span></span>
-<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 7. Launch phase 2</span></span>
-<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm launch 2</span>
-<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a><span class="co"># 8. If interrupted, resume later</span></span>
-<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm resume</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Initialize from a design document</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm init <span class="at">--doc</span> DESIGN-AUTH-SYSTEM.md</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Review the plan</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm plan-show</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Launch phase 1</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm launch 1</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. Monitor agents</span></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm status</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a><span class="co"># 5. Once agents complete, run the gate</span></span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm gate 1</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a><span class="co"># 6. Checkpoint and advance</span></span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm checkpoint 1 <span class="at">--notes</span> <span class="st">"Auth models and DB migrations done"</span></span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 7. Launch phase 2</span></span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm launch 2</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a><span class="co"># 8. If interrupted, resume later</span></span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> swarm resume</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <!-- &nbsp;
 
 ---
@@ -1043,21 +1118,21 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
   // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
     // Insert footer after the page navigation element
@@ -1074,12 +1149,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -1092,7 +1167,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   }
 
   // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
+  // Color distribution matches Crosslink visual palette:
   //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
   var COLOR_TABLE = [
     { color: '#ede2e4', weight: 10 }, // warm grey
@@ -1116,7 +1191,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
   // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
@@ -1143,7 +1218,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();

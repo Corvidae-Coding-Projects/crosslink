@@ -1,0 +1,83 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "description": "crosslink:work-check",
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/work-check.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\work-check.py')\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "description": "crosslink:post-edit-check",
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/post-edit-check.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\post-edit-check.py')\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "description": "crosslink:heartbeat",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/heartbeat.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\heartbeat.py')\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "description": "crosslink:session-start",
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/session-start.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\session-start.py')\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "description": "crosslink:prompt-guard",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/prompt-guard.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\prompt-guard.py')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "description": "crosslink:subagent-context",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/prompt-guard.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\prompt-guard.py')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

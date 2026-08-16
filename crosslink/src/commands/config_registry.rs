@@ -97,6 +97,20 @@ pub static REGISTRY: &[ConfigKey] = &[
         hot_swappable: true,
     },
     ConfigKey {
+        key: "agent.provider",
+        config_type: ConfigType::Enum(&["claude", "codex", "custom"]),
+        description: "Runtime agent protocol; installed integrations are configured separately",
+        group: ConfigGroup::Agents,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "agent.binary",
+        config_type: ConfigType::String,
+        description: "Optional executable-path override for the selected provider",
+        group: ConfigGroup::Agents,
+        hot_swappable: true,
+    },
+    ConfigKey {
         key: "kickoff.allowed_tools",
         config_type: ConfigType::StringArray,
         description: "Extra Bash tool patterns appended to the kickoff agent's --allowedTools list",

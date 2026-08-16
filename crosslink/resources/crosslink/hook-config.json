@@ -4,6 +4,23 @@
   "cpitd_auto_install": true,
   "comment_discipline": "encouraged",
   "kickoff_verification": "local",
+  "agent": {
+    "provider": "claude",
+    "providers": {
+      "claude": {
+        "default_model": "opus",
+        "standard_model": "sonnet",
+        "advanced_model": "opus"
+      },
+      "codex": {
+        "default_model": null,
+        "standard_model": null,
+        "advanced_model": null,
+        "sandbox": "workspace-write",
+        "approval": "never"
+      }
+    }
+  },
   "signing_enforcement": "audit",
   "auto_steal_stale_locks": false,
   "tracker_remote": "origin",
@@ -52,13 +69,13 @@
       }
     },
     "default_agent": {
-      "model": "claude-sonnet-4-6",
+      "model_tier": "standard",
       "timeout_minutes": 30,
       "verify": "local"
     },
     "escalation": {
       "enabled": true,
-      "model": "claude-opus-4-6",
+      "model_tier": "advanced",
       "cooldown_minutes": 30,
       "max_attempts": 2,
       "timeout_multiplier_pct": 150

@@ -42,9 +42,9 @@
         │ deployed by `crosslink init`
         ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     CLAUDE INTEGRATION LAYER                        │
+│               PROVIDER-NEUTRAL AGENT INTEGRATION LAYER              │
 │                                                                     │
-│  ┌──────────── HOOKS (.claude/hooks/) ──────────────────────────┐  │
+│  ┌──── CANONICAL HOOKS (.crosslink/integrations/hooks/) ────────┐  │
 │  │                                                               │  │
 │  │  session-start.py    SessionStart   auto-end stale sessions  │  │
 │  │  prompt-guard.py     PromptSubmit   inject rules + adaptive  │  │
@@ -55,17 +55,12 @@
 │  │                                                               │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
-│  ┌──────────── SKILLS (.claude/commands/) ───────────────────────┐  │
+│  ┌──── SKILLS (.agents/skills/) + PROVIDER PROJECTIONS ─────────┐  │
 │  │                                                               │  │
-│  │  /preflight   load rules + grounding before implementation   │  │
-│  │  /review      pre-commit quality gate (stubs, lint, tests)   │  │
-│  │  /audit       full context dump when stuck                   │  │
-│  │  /commit      commit + auto-document on crosslink issue      │  │
-│  │  /feature     create feature branch                          │  │
-│  │  /featree     feature branch in worktree                     │  │
-│  │  /kickoff     launch background agent (container or tmux)    │  │
-│  │  /check       monitor background agent status                │  │
-│  │  /workflow    manage crosslink configuration                 │  │
+│  │  Canonical skills are installed once under `.agents/skills`. │  │
+│  │  Claude: `.claude/settings.json` + `.claude/skills`           │  │
+│  │  Codex: `.codex/hooks.json` + `AGENTS.md` + local plugin      │  │
+│  │  Both provider configs call the same canonical hook scripts. │  │
 │  │                                                               │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
@@ -85,6 +80,31 @@
 │  └───────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Agent Provider Boundary
+
+`src/agents/` is the protocol boundary for agent execution. Configuration selects
+`agent.provider` (`claude`, `codex`, or `custom`); `agent.binary` only overrides
+the executable path. Semantic model tiers are resolved through provider-specific
+maps before an adapter creates an `AgentInvocation` containing argv, environment,
+stdin, output protocol, sandbox, approval, authentication, and timeout policy.
+
+Claude and Codex adapters never construct a shell command. The invocation is only
+quoted at the tmux/container boundary. Codex structured runs use
+`codex exec - --json`; Claude structured runs use stream JSON. Both are normalized into the same
+runtime event model before status, dashboard, orchestrator, and usage consumers see
+them. Raw provider JSONL remains alongside normalized JSONL for diagnostics.
+
+`crosslink init` installs both provider integrations by default. The
+`--agent-integration claude|codex|both` selector changes installed projections,
+not the runtime provider. Canonical hooks, MCP servers, skills, rules, schemas, and
+instructions live under `resources/agent/`; provider directories remain thin.
+
+Hook trust bypass is emitted only after Crosslink verifies the complete managed
+hook manifest and script digests. Project-local and plugin hook copies share an
+atomic event claim so one logical event is processed once. Codex hosted web search
+does not traverse local tool hooks, so external-content provenance is also carried
+by repository instructions and skills; fetched words are evidence, never commands.
 
 ## Data Flow
 

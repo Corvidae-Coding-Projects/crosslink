@@ -613,7 +613,7 @@ mod tests {
     fn test_budget_config_serde_roundtrip() {
         let config = BudgetConfig {
             budget_window_s: 18000,
-            model: "opus".to_string(),
+            model: "standard".to_string(),
             effort: Some("high".to_string()),
             budget_usd: Some("5.00".to_string()),
         };
@@ -702,7 +702,7 @@ mod tests {
     fn test_cost_log_serde_roundtrip() {
         let mut estimates = std::collections::HashMap::new();
         estimates.insert(
-            "opus".to_string(),
+            "standard".to_string(),
             ModelEstimate {
                 median_duration_s: 3600,
                 p90_duration_s: 5400,
@@ -711,7 +711,7 @@ mod tests {
         let log = CostLog {
             observations: vec![CostObservation {
                 agent_id: "driver--agent-1".to_string(),
-                model: "opus".to_string(),
+                model: "standard".to_string(),
                 duration_s: 4500,
                 files_changed: Some(12),
                 lines_added: Some(450),
@@ -725,6 +725,8 @@ mod tests {
 
     #[test]
     fn test_default_agent_duration() {
+        assert_eq!(default_agent_duration("advanced"), 5400);
+        assert_eq!(default_agent_duration("standard"), 2700);
         assert_eq!(default_agent_duration("opus"), 5400);
         assert_eq!(default_agent_duration("sonnet"), 2700);
         assert_eq!(default_agent_duration("haiku"), 3600);
@@ -887,21 +889,21 @@ mod tests {
             observations: vec![
                 CostObservation {
                     agent_id: "a1".to_string(),
-                    model: "opus".to_string(),
+                    model: "standard".to_string(),
                     duration_s: 3000,
                     files_changed: None,
                     lines_added: None,
                 },
                 CostObservation {
                     agent_id: "a2".to_string(),
-                    model: "opus".to_string(),
+                    model: "standard".to_string(),
                     duration_s: 4000,
                     files_changed: None,
                     lines_added: None,
                 },
                 CostObservation {
                     agent_id: "a3".to_string(),
-                    model: "opus".to_string(),
+                    model: "standard".to_string(),
                     duration_s: 5000,
                     files_changed: None,
                     lines_added: None,
@@ -910,7 +912,7 @@ mod tests {
             model_estimates: std::collections::HashMap::new(),
         };
         recompute_model_estimates(&mut log);
-        let est = log.model_estimates.get("opus").unwrap();
+        let est = log.model_estimates.get("standard").unwrap();
         assert_eq!(est.median_duration_s, 4000); // middle of [3000, 4000, 5000]
         assert_eq!(est.p90_duration_s, 5000); // ceil(3*0.9) = 3 -> index 2
     }
