@@ -344,6 +344,17 @@ impl From<&PtySession> for PtySessionView {
 mod tests {
     use super::*;
 
+    /// ConPTY asks its terminal frontend for the current cursor position before
+    /// it releases the child process. The browser's xterm frontend answers this
+    /// in production; headless Windows tests must emulate the same response.
+    fn answer_windows_cursor_position_query(session: &PtySession) {
+        if cfg!(target_os = "windows") {
+            session
+                .write_stdin(b"\x1b[1;1R")
+                .expect("answer ConPTY cursor-position query");
+        }
+    }
+
     #[tokio::test]
     async fn test_spawn_echo_completes_with_exit_zero() {
         let (shell, args) = if cfg!(target_os = "windows") {
@@ -358,6 +369,7 @@ mod tests {
             )
         };
         let session = spawn_pty(&std::env::temp_dir(), shell, &args, 24, 80).expect("spawn pty");
+        answer_windows_cursor_position_query(&session);
 
         // Wait up to 5s for exit notification.
         let _ = tokio::time::timeout(
@@ -380,6 +392,7 @@ mod tests {
             )
         };
         let session = spawn_pty(&std::env::temp_dir(), shell, &args, 24, 80).expect("spawn pty");
+        answer_windows_cursor_position_query(&session);
 
         // Give the reader thread time to drain.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -399,6 +412,7 @@ mod tests {
             ("/bin/sh", vec!["-c".to_string(), ":".to_string()])
         };
         let s = spawn_pty(&std::env::temp_dir(), shell, &args, 24, 80).expect("spawn");
+        answer_windows_cursor_position_query(&s);
         let id = s.id.clone();
         reg.insert(Arc::clone(&s)).await;
         assert!(reg.get(&id).await.is_some());
