@@ -1,6 +1,6 @@
 // E-ana tablet — kickoff launch: agent launch infrastructure
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -333,7 +333,9 @@ pub(super) fn build_resolved_agent_command(
     }
     let model = agent.resolve_model(Some(model));
     let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
-    let invocation = build_invocation(
+    let grant_git_common_dir =
+        agent.provider == AgentProvider::Codex && policy.sandbox == SandboxPosture::WorkspaceWrite;
+    let mut invocation = build_invocation(
         agent,
         &InvocationRequest {
             cwd: worktree_dir,
@@ -346,6 +348,18 @@ pub(super) fn build_resolved_agent_command(
             claude_config_dir: claude_config_dir.as_deref(),
         },
     )?;
+    // A linked worktree's index lives in the main repository's
+    // `.git/worktrees/<name>` directory, outside Codex's workspace root. Make
+    // that Git-owned common directory available without widening to
+    // danger-full-access; Codex's automatic review still gates protected Git
+    // metadata writes such as staging and committing.
+    if grant_git_common_dir {
+        if let Some(common_dir) = git_common_dir_outside_worktree(worktree_dir) {
+            invocation
+                .args
+                .extend(["--add-dir".into(), common_dir.as_os_str().to_os_string()]);
+        }
+    }
     let mut launch = render_shell_command(&invocation, timeout_cmd);
     if let Some(command) = sandbox_command {
         let prefix = format!("{timeout_cmd} {}s ", timeout.as_secs());
@@ -363,6 +377,37 @@ pub(super) fn build_resolved_agent_command(
     Ok(format!(
         "set -o pipefail; {{ {launch}; }} 2>&1 | tee -a {raw_log_path}; CROSSLINK_AGENT_RC=${{PIPESTATUS[0]}}; if [ \"$CROSSLINK_AGENT_RC\" -eq 124 ]; then printf 'TIMEOUT\\n' > {status_path}; fi; exit \"$CROSSLINK_AGENT_RC\""
     ))
+}
+
+fn git_common_dir_outside_worktree(worktree_dir: &Path) -> Option<PathBuf> {
+    let absolute = Command::new("git")
+        .current_dir(worktree_dir)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success());
+    let output = absolute.or_else(|| {
+        Command::new("git")
+            .current_dir(worktree_dir)
+            .args(["rev-parse", "--git-common-dir"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+    })?;
+    let raw = String::from_utf8(output.stdout).ok()?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let candidate = PathBuf::from(raw);
+    let candidate = if candidate.is_absolute() {
+        candidate
+    } else {
+        worktree_dir.join(candidate)
+    };
+    let common_dir = candidate.canonicalize().ok()?;
+    let canonical_worktree = worktree_dir.canonicalize().ok()?;
+    (!common_dir.starts_with(canonical_worktree)).then_some(common_dir)
 }
 
 /// Build the shell command string for launching a claude agent.
@@ -717,6 +762,7 @@ pub(super) fn init_worktree_agent(
     worktree_dir: &Path,
     crosslink_dir: &Path,
     compact_name: &str,
+    issue_id: Option<i64>,
 ) -> Result<String> {
     // Run `crosslink init` in the worktree. Plain init (no --force) is
     // idempotent: it short-circuits when `.crosslink/` and `.claude/` already
@@ -784,6 +830,36 @@ pub(super) fn init_worktree_agent(
     if let Ok(o) = output {
         if !o.status.success() {
             tracing::warn!("crosslink sync in worktree returned non-zero");
+        }
+    }
+
+    // Kickoff already selected the work item on the driver's behalf. Seed the
+    // child session before the provider starts so strict hooks do not block the
+    // agent's first grounding/read command and ask it to rediscover that issue.
+    if let Some(issue_id) = issue_id {
+        let start = Command::new("crosslink")
+            .current_dir(worktree_dir)
+            .args(["session", "start"])
+            .output()
+            .context("Failed to start kickoff worktree session")?;
+        if !start.status.success() {
+            bail!(
+                "Failed to start kickoff worktree session: {}",
+                String::from_utf8_lossy(&start.stderr).trim()
+            );
+        }
+        let issue = issue_id.to_string();
+        let work = Command::new("crosslink")
+            .current_dir(worktree_dir)
+            .args(["session", "work", &issue])
+            .output()
+            .context("Failed to activate kickoff issue in worktree")?;
+        if !work.status.success() {
+            bail!(
+                "Failed to activate kickoff issue #{} in worktree: {}",
+                issue_id,
+                String::from_utf8_lossy(&work.stderr).trim()
+            );
         }
     }
 
@@ -1117,6 +1193,45 @@ fn format_container_launch_error(runtime_cmd: &str, image: &str, stderr: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linked_worktree_resolves_external_git_common_dir() {
+        let repo = tempfile::tempdir().unwrap();
+        Command::new("git")
+            .current_dir(repo.path())
+            .args(["init", "-q"])
+            .status()
+            .unwrap();
+        Command::new("git")
+            .current_dir(repo.path())
+            .args(["config", "user.name", "Crosslink Test"])
+            .status()
+            .unwrap();
+        Command::new("git")
+            .current_dir(repo.path())
+            .args(["config", "user.email", "test@example.invalid"])
+            .status()
+            .unwrap();
+        Command::new("git")
+            .current_dir(repo.path())
+            .args(["commit", "--allow-empty", "-qm", "seed"])
+            .status()
+            .unwrap();
+        let worktree = repo.path().join("worktree");
+        let created = Command::new("git")
+            .current_dir(repo.path())
+            .args(["worktree", "add", "-qb", "smoke"])
+            .arg(&worktree)
+            .status()
+            .unwrap();
+        assert!(created.success());
+
+        assert_eq!(
+            git_common_dir_outside_worktree(&worktree),
+            Some(repo.path().join(".git").canonicalize().unwrap())
+        );
+        assert_eq!(git_common_dir_outside_worktree(repo.path()), None);
+    }
 
     #[test]
     fn pull_failure_not_found_yields_hint() {

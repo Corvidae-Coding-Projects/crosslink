@@ -271,7 +271,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     }
 
     // 7. Init worktree agent
-    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
+    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug, issue_id)?;
 
     // preflight is guaranteed Some after the dry-run early return above
     let preflight = preflight.context("preflight check was skipped unexpectedly")?;

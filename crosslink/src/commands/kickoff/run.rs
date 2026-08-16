@@ -221,7 +221,8 @@ pub fn run(
     exclude_kickoff_files(&worktree_dir)?;
 
     // 8. Initialize crosslink + agent in worktree (only for real launches)
-    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name)?;
+    let agent_id =
+        init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name, Some(issue_id))?;
 
     // 8b. Record the pipeline run row now that the worktree and agent identity
     //     both exist — this is past the launch's point of no return, so the row

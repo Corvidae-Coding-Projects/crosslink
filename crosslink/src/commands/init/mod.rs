@@ -1572,6 +1572,7 @@ mod tests {
         assert!(merged.contains("[profiles.careful]"));
         assert!(merged.contains("[mcp_servers.user-server]"));
         assert!(merged.contains("[mcp_servers.crosslink-knowledge]"));
+        assert!(merged.contains("command = \"python3\""));
 
         let invalid = b"[broken\nexact bytes\xff".to_vec();
         fs::write(dir.path().join(".codex/config.toml"), &invalid).unwrap();
@@ -2713,6 +2714,21 @@ mod tests {
             servers.contains_key("crosslink-agent-prompt"),
             ".mcp.json missing crosslink-agent-prompt"
         );
+        for (name, server) in servers {
+            assert_eq!(
+                server["command"], "python3",
+                "{name} must use the Python runtime already required by Crosslink hooks"
+            );
+            assert_eq!(server["args"].as_array().map(Vec::len), Some(1));
+        }
+
+        let codex_content = fs::read_to_string(dir.path().join(".codex/config.toml")).unwrap();
+        let codex: toml::Value = toml::from_str(&codex_content).unwrap();
+        for name in ["crosslink-knowledge", "crosslink-agent-prompt"] {
+            let server = &codex["mcp_servers"][name];
+            assert_eq!(server["command"].as_str(), Some("python3"));
+            assert_eq!(server["args"].as_array().map(Vec::len), Some(1));
+        }
     }
 
     #[test]

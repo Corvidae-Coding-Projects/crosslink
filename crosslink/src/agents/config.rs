@@ -84,7 +84,11 @@ impl ProviderOptions {
             AgentProvider::Codex => Self {
                 models: ProviderModels::default(),
                 sandbox: "workspace-write".to_string(),
-                approval: "never".to_string(),
+                // Codex deliberately protects Git metadata even when the
+                // worktree itself is writable. Automatic review permits the
+                // narrowly elevated git add/commit operations required by the
+                // kickoff contract without disabling the host sandbox.
+                approval: "auto-review".to_string(),
             },
             AgentProvider::Custom => Self {
                 models: ProviderModels::default(),
@@ -129,12 +133,24 @@ fn read_json(path: &Path) -> Result<Option<serde_json::Value>> {
 }
 
 fn agent_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    value
+    let nested = value
         .get("agent")
         .and_then(|agent| agent.get(key))
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty());
+
+    // `crosslink config` exposes nested settings as dotted keys. Older
+    // versions wrote that spelling literally at the top level, so accept it
+    // as an equivalent representation while keeping the nested JSON shape
+    // canonical for hand-authored configuration.
+    nested.or_else(|| {
+        value
+            .get(format!("agent.{key}"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
 }
 
 fn provider_value<'a>(
@@ -264,6 +280,21 @@ mod tests {
     }
 
     #[test]
+    fn codex_defaults_to_automatic_review_for_git_metadata_writes() {
+        let dir = tempdir().unwrap();
+        write(
+            dir.path(),
+            "hook-config.json",
+            serde_json::json!({"agent":{"provider":"codex"}}),
+        );
+
+        let resolved = resolve_agent(dir.path()).unwrap();
+        assert_eq!(resolved.provider, AgentProvider::Codex);
+        assert_eq!(resolved.options.sandbox, "workspace-write");
+        assert_eq!(resolved.options.approval, "auto-review");
+    }
+
+    #[test]
     fn local_provider_wins_but_binary_only_overrides_executable() {
         let dir = tempdir().unwrap();
         write(
@@ -279,6 +310,26 @@ mod tests {
         let resolved = resolve_agent(dir.path()).unwrap();
         assert_eq!(resolved.provider, AgentProvider::Codex);
         assert_eq!(resolved.binary, PathBuf::from("/opt/codex-wrapper"));
+    }
+
+    #[test]
+    fn dotted_local_provider_key_written_by_config_cli_is_resolved() {
+        let dir = tempdir().unwrap();
+        write(
+            dir.path(),
+            "hook-config.json",
+            serde_json::json!({"agent":{"provider":"claude"}}),
+        );
+        write(
+            dir.path(),
+            "hook-config.local.json",
+            serde_json::json!({"agent.provider":"codex"}),
+        );
+
+        let resolved = resolve_agent(dir.path()).unwrap();
+        assert_eq!(resolved.provider, AgentProvider::Codex);
+        assert_eq!(resolved.binary, PathBuf::from("codex"));
+        assert!(!resolved.legacy_inferred);
     }
 
     #[test]

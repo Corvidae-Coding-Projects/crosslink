@@ -469,11 +469,26 @@ mod tests {
         let invocation = build_invocation(&agent(AgentProvider::Codex, "codex"), &req).unwrap();
         let args = arg_strings(&invocation);
         assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
-        assert!(args.contains(&"--approve-for-me".to_string()));
+        assert!(!args.contains(&"--approve-for-me".to_string()));
         assert!(!args.contains(&"--model".to_string()));
         assert!(!args
             .iter()
             .any(|arg| arg.contains("model_reasoning_effort")));
+    }
+
+    #[test]
+    fn codex_auto_review_uses_its_implicit_workspace_sandbox() {
+        let cwd = Path::new("/tmp/project");
+        let prompt = Path::new("/tmp/project/KICKOFF.md");
+        let mut req = request(cwd, prompt);
+        req.policy.approval = ApprovalPolicy::AutoReview;
+
+        let invocation = build_invocation(&agent(AgentProvider::Codex, "codex"), &req).unwrap();
+        let args = arg_strings(&invocation);
+        assert!(args.contains(&"--approve-for-me".to_string()));
+        assert!(!args.contains(&"--sandbox".to_string()));
+        assert!(!args.contains(&"approval_policy=\"never\"".to_string()));
+        assert_eq!(invocation.sandbox, SandboxPosture::WorkspaceWrite);
     }
 
     #[test]

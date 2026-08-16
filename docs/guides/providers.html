@@ -463,12 +463,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"standard_model"</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
 <span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"advanced_model"</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
 <span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"sandbox"</span><span class="fu">:</span> <span class="st">"workspace-write"</span><span class="fu">,</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"approval"</span><span class="fu">:</span> <span class="st">"never"</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        <span class="dt">"approval"</span><span class="fu">:</span> <span class="st">"auto-review"</span></span>
 <span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span></span>
 <span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
 <span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
 <span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>A null Codex model leaves the signed-in account’s current default in control. Kickoff, plan, swarm, sentinel, design, orchestrator decomposition, containers, and dashboard monitoring all use the same resolver and invocation adapter.</p>
+<p>A null Codex model leaves the signed-in account’s current default in control. Automatic review keeps the host sandbox enabled while allowing Codex to request the narrowly elevated Git metadata writes needed for kickoff commits; Codex protects <code>.git</code> from ordinary <code>workspace-write</code> commands. Kickoff, plan, swarm, sentinel, design, orchestrator decomposition, containers, and dashboard monitoring all use the same resolver and invocation adapter.</p>
 </section>
 <section id="account-login-and-diagnostics" class="level2">
 <h2 class="anchored" data-anchor-id="account-login-and-diagnostics">Account login and diagnostics</h2>

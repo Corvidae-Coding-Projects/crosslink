@@ -19,7 +19,7 @@ Hook behavior is controlled by `.crosslink/hook-config.json`. This file is creat
     "provider": "claude",
     "providers": {
       "claude": {"standard_model": "sonnet", "advanced_model": "opus"},
-      "codex": {"standard_model": null, "advanced_model": null, "sandbox": "workspace-write", "approval": "never"}
+      "codex": {"standard_model": null, "advanced_model": null, "sandbox": "workspace-write", "approval": "auto-review"}
     }
   },
   "signing_enforcement": "audit",
@@ -93,8 +93,9 @@ binary name.
 
 Per-provider default, standard, and advanced model mappings plus execution
 defaults. A null Codex model omits `--model` and uses the signed-in account's
-current default. Codex host sandbox defaults to `workspace-write`; container
-execution may use danger-full-access only inside external isolation.
+current default. Codex host sandbox defaults to `workspace-write` with automatic
+review so Git metadata writes can be approved without disabling the sandbox;
+container execution may use danger-full-access only inside external isolation.
 
 ### `signing_enforcement`
 

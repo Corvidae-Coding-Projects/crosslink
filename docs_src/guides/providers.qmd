@@ -79,7 +79,7 @@ provider's model names into another provider's command line:
         "standard_model": null,
         "advanced_model": null,
         "sandbox": "workspace-write",
-        "approval": "never"
+        "approval": "auto-review"
       }
     }
   }
@@ -87,6 +87,9 @@ provider's model names into another provider's command line:
 ```
 
 A null Codex model leaves the signed-in account's current default in control.
+Automatic review keeps the host sandbox enabled while allowing Codex to request
+the narrowly elevated Git metadata writes needed for kickoff commits; Codex
+protects `.git` from ordinary `workspace-write` commands.
 Kickoff, plan, swarm, sentinel, design, orchestrator decomposition, containers,
 and dashboard monitoring all use the same resolver and invocation adapter.
 

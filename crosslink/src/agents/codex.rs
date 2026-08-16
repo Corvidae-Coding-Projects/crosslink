@@ -24,10 +24,18 @@ pub(super) fn build(
         Vec::<OsString>::from(["exec".into(), "-".into()])
     };
     args.extend(["--cd".into(), request.cwd.as_os_str().to_os_string()]);
+    let automatic_review = matches!(
+        request.policy.approval,
+        ApprovalPolicy::AutoReview | ApprovalPolicy::Automatic
+    );
     match request.policy.sandbox {
         SandboxPosture::ReadOnly => args.extend(["--sandbox".into(), "read-only".into()]),
         SandboxPosture::WorkspaceWrite => {
-            args.extend(["--sandbox".into(), "workspace-write".into()]);
+            // `--approve-for-me` selects Codex's reviewed workspace-write
+            // posture itself and Clap rejects a simultaneous `--sandbox`.
+            if !automatic_review {
+                args.extend(["--sandbox".into(), "workspace-write".into()]);
+            }
         }
         SandboxPosture::ExternalIsolation => {
             args.push("--dangerously-bypass-approvals-and-sandbox".into());
@@ -47,7 +55,12 @@ pub(super) fn build(
             args.extend(["--config".into(), "approval_policy=\"never\"".into()]);
         }
         ApprovalPolicy::AutoReview | ApprovalPolicy::Automatic => {
-            args.push("--approve-for-me".into());
+            // Read-only planning needs no write escalation, while externally
+            // isolated execution already bypasses the inner sandbox. Only the
+            // host workspace-write posture uses automatic approval review.
+            if request.policy.sandbox == SandboxPosture::WorkspaceWrite {
+                args.push("--approve-for-me".into());
+            }
         }
     }
     if request.verified_hook_trust {

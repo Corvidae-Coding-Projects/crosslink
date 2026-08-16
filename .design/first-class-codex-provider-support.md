@@ -137,7 +137,7 @@ The shared configuration shape is:
         "standard_model": null,
         "advanced_model": null,
         "sandbox": "workspace-write",
-        "approval": "never"
+        "approval": "auto-review"
       }
     }
   }
