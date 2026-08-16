@@ -49,6 +49,36 @@ fn try_create_lock(lock_path: &Path) -> std::io::Result<HubWriteLock> {
     })
 }
 
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+#[cfg(target_os = "windows")]
+fn process_is_alive(pid: u32) -> bool {
+    let filter = format!("PID eq {pid}");
+    std::process::Command::new("tasklist.exe")
+        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| {
+            String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                line.split(',')
+                    .nth(1)
+                    .is_some_and(|field| field.trim().trim_matches('"') == pid.to_string())
+            })
+        })
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn process_is_alive(_pid: u32) -> bool {
+    false
+}
+
 /// Acquire the hub cache write lock at the given path.
 ///
 /// Blocks up to 30 seconds, checking for stale locks via PID liveness.
@@ -74,12 +104,7 @@ fn acquire_hub_lock_with_timeout(lock_path: &Path, max_wait: Duration) -> Result
                 let holder_alive = std::fs::read_to_string(lock_path)
                     .ok()
                     .and_then(|content| content.trim().parse::<u32>().ok())
-                    .is_some_and(|pid| {
-                        std::process::Command::new("kill")
-                            .args(["-0", &pid.to_string()])
-                            .output()
-                            .is_ok_and(|o| o.status.success())
-                    });
+                    .is_some_and(process_is_alive);
 
                 if !holder_alive {
                     // Stale lock — remove and immediately re-attempt in the same

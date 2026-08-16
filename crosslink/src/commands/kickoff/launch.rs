@@ -363,16 +363,13 @@ pub(super) fn build_resolved_agent_command(
     let mut launch = render_shell_command(&invocation, timeout_cmd);
     if let Some(command) = sandbox_command {
         let prefix = format!("{timeout_cmd} {}s ", timeout.as_secs());
-        let escaped_worktree = crate::utils::shell_escape_arg(&worktree_dir.to_string_lossy());
+        let escaped_worktree = crate::utils::shell_escape_path(worktree_dir);
         let wrapper = command.replace("{{worktree}}", &escaped_worktree);
         launch = launch.replacen(&prefix, &format!("{prefix}{wrapper} "), 1);
     }
-    let status_path =
-        crate::utils::shell_escape_arg(&worktree_dir.join(".kickoff-status").to_string_lossy());
-    let raw_log_path = crate::utils::shell_escape_arg(
-        &worktree_dir
-            .join(".crosslink/runtime/agent-events.jsonl")
-            .to_string_lossy(),
+    let status_path = crate::utils::shell_escape_path(&worktree_dir.join(".kickoff-status"));
+    let raw_log_path = crate::utils::shell_escape_path(
+        &worktree_dir.join(".crosslink/runtime/agent-events.jsonl"),
     );
     Ok(format!(
         "set -o pipefail; {{ {launch}; }} 2>&1 | tee -a {raw_log_path}; CROSSLINK_AGENT_RC=${{PIPESTATUS[0]}}; if [ \"$CROSSLINK_AGENT_RC\" -eq 124 ]; then printf 'TIMEOUT\\n' > {status_path}; fi; exit \"$CROSSLINK_AGENT_RC\""
@@ -504,7 +501,7 @@ pub(super) fn build_agent_command(
     let launch = sandbox_command.map_or_else(
         || format!("{timeout_cmd} {timeout_secs}s {agent_cmd}"),
         |cmd| {
-            let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
+            let escaped_worktree = crate::utils::shell_escape_path(worktree_dir);
             let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
             format!("{timeout_cmd} {timeout_secs}s {expanded} {agent_cmd}")
         },
@@ -513,7 +510,7 @@ pub(super) fn build_agent_command(
     // 124 when it killed the wrapped command; without this trailer the
     // sentinel stays RUNNING after a timeout kill and only the wall-clock
     // check ever notices.
-    let status_path = shell_escape_arg(&worktree_dir.join(".kickoff-status").to_string_lossy());
+    let status_path = crate::utils::shell_escape_path(&worktree_dir.join(".kickoff-status"));
     format!("{launch}; if [ $? -eq 124 ]; then printf 'TIMEOUT\\n' > {status_path}; fi")
 }
 

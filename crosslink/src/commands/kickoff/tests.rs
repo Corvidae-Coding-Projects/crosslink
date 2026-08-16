@@ -2361,7 +2361,9 @@ fn test_preflight_check_validates_sandbox_binary() {
         r#"{"sandbox": {"command": "crosslink_nonexistent_sandbox_xyz --isolate --"}}"#,
     )
     .unwrap();
-    let result = preflight_check(&ContainerMode::None, &VerifyLevel::Local, dir.path());
+    // Container mode avoids the intentionally unsupported local tmux path on
+    // Windows while still exercising validation of the configured wrapper.
+    let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
     if let Err(e) = result {
         let msg = e.to_string();
         assert!(msg.contains("crosslink_nonexistent_sandbox_xyz"));

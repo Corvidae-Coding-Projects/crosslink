@@ -2119,7 +2119,12 @@ mod tests {
     fn test_detect_python_prefix_venv() {
         let dir = test_dir();
         fs::create_dir(dir.path().join(".venv")).unwrap();
-        assert_eq!(detect_python_prefix(dir.path()), ".venv/bin/python3");
+        let expected = if cfg!(target_os = "windows") {
+            ".venv\\Scripts\\python.exe"
+        } else {
+            ".venv/bin/python3"
+        };
+        assert_eq!(detect_python_prefix(dir.path()), expected);
     }
 
     #[test]
@@ -2158,7 +2163,12 @@ mod tests {
         let dir = test_dir();
         fs::create_dir(dir.path().join(".venv")).unwrap();
         fs::write(dir.path().join("Pipfile"), "").unwrap();
-        assert_eq!(detect_python_prefix(dir.path()), ".venv/bin/python3");
+        let expected = if cfg!(target_os = "windows") {
+            ".venv\\Scripts\\python.exe"
+        } else {
+            ".venv/bin/python3"
+        };
+        assert_eq!(detect_python_prefix(dir.path()), expected);
     }
 
     #[test]

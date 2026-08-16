@@ -265,7 +265,7 @@ pub fn render_shell_command(invocation: &AgentInvocation, timeout_command: &str)
     let _ = write!(
         command,
         " {}",
-        shell_escape_arg(&invocation.program.to_string_lossy())
+        crate::utils::shell_escape_path(&invocation.program)
     );
     for arg in &invocation.args {
         let _ = write!(command, " {}", shell_escape_arg(&os_to_string(arg)));
@@ -273,13 +273,13 @@ pub fn render_shell_command(invocation: &AgentInvocation, timeout_command: &str)
     match &invocation.stdin {
         StdinSource::None => {}
         StdinSource::File(path) => {
-            let _ = write!(command, " < {}", shell_escape_arg(&path.to_string_lossy()));
+            let _ = write!(command, " < {}", crate::utils::shell_escape_path(path));
         }
         StdinSource::PromptArgumentFile(path) => {
             let _ = write!(
                 command,
                 " -- \"$(cat {})\"",
-                shell_escape_arg(&path.to_string_lossy())
+                crate::utils::shell_escape_path(path)
             );
         }
     }

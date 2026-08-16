@@ -274,6 +274,15 @@ pub fn shell_escape_arg(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Render a filesystem path for a POSIX-compatible shell and quote it as one
+/// argument. Crosslink's launch scripts run through a POSIX shell even when
+/// the host path was assembled with Windows separators.
+#[must_use]
+pub fn shell_escape_path(path: &std::path::Path) -> String {
+    let rendered = path.to_string_lossy().replace('\\', "/");
+    shell_escape_arg(&rendered)
+}
+
 // ── Compact identifiers (base62) ─────────────────────────────────────────
 
 const BASE62_CHARS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";

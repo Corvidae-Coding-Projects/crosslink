@@ -15,7 +15,8 @@
 //! permissions on `~/.crosslink/` and on the DB itself. We document
 //! this posture in the design doc rather than pretending otherwise.
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::rand_core::RngCore;
+use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD as B64;
@@ -75,17 +76,11 @@ fn derive_machine_key(db_path: &std::path::Path) -> [u8; 32] {
         Ok(b) if b.len() >= 32 => b,
         _ => {
             let mut buf = [0u8; 32];
-            #[cfg(unix)]
-            {
-                use std::io::Read;
-                // /dev/urandom is universally available on Unix, but
-                // it has NO EOF — `std::fs::read` would `read_to_end`
-                // forever and OOM the process (tracked in #706). Use
-                // a bounded `read_exact` against an open handle.
-                if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-                    let _ = f.read_exact(&mut buf);
-                }
-            }
+            // `OsRng` delegates to the operating system's cryptographic RNG
+            // on Unix, macOS, and Windows. A failure leaves the fallback
+            // mixed with the machine/user material above rather than making
+            // token persistence unavailable.
+            let _ = OsRng.try_fill_bytes(&mut buf);
             let _ = std::fs::write(&fallback_path, buf);
             #[cfg(unix)]
             {
@@ -118,26 +113,14 @@ pub fn seal(plaintext: &str, db_path: &std::path::Path) -> Result<String> {
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     let cipher = Aes256Gcm::new(key);
 
-    // 12-byte nonce from /dev/urandom. AES-GCM nonces must be unique
-    // AND unpredictable — a zero nonce with key reuse is catastrophic.
-    // We use a bounded `read_exact`: `std::fs::read` on `/dev/urandom`
-    // would loop forever (no EOF) and OOM (#706). We also surface a
-    // read failure as an error instead of falling through to the all-
-    // zeros default — refusing to encrypt beats producing ciphertext
-    // with a predictable nonce.
+    // AES-GCM nonces must be unique and unpredictable. `OsRng` uses the
+    // platform CSPRNG on Unix, macOS, and Windows; refusing to encrypt on a
+    // platform RNG failure beats producing ciphertext with a predictable
+    // nonce.
     let mut nonce_bytes = [0u8; 12];
-    #[cfg(unix)]
-    {
-        use std::io::Read;
-        let mut f = std::fs::File::open("/dev/urandom")
-            .map_err(|e| anyhow::anyhow!("open /dev/urandom for nonce: {e}"))?;
-        f.read_exact(&mut nonce_bytes)
-            .map_err(|e| anyhow::anyhow!("read /dev/urandom for nonce: {e}"))?;
-    }
-    #[cfg(not(unix))]
-    {
-        anyhow::bail!("secure nonce source not wired for this platform");
-    }
+    OsRng
+        .try_fill_bytes(&mut nonce_bytes)
+        .map_err(|e| anyhow::anyhow!("operating-system nonce generation failed: {e}"))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ct = cipher

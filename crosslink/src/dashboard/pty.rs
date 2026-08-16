@@ -346,14 +346,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_echo_completes_with_exit_zero() {
-        let session = spawn_pty(
-            &std::env::temp_dir(),
-            "/bin/sh",
-            &["-c".to_string(), "echo hello && exit 0".to_string()],
-            24,
-            80,
-        )
-        .expect("spawn pty");
+        let (shell, args) = if cfg!(target_os = "windows") {
+            (
+                "cmd.exe",
+                vec!["/C".to_string(), "echo hello && exit /B 0".to_string()],
+            )
+        } else {
+            (
+                "/bin/sh",
+                vec!["-c".to_string(), "echo hello && exit 0".to_string()],
+            )
+        };
+        let session = spawn_pty(&std::env::temp_dir(), shell, &args, 24, 80).expect("spawn pty");
 
         // Wait up to 5s for exit notification.
         let _ = tokio::time::timeout(
@@ -367,14 +371,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe_returns_replay_after_output() {
-        let session = spawn_pty(
-            &std::env::temp_dir(),
-            "/bin/sh",
-            &["-c".to_string(), "printf 'foobar' && sleep 0.1".to_string()],
-            24,
-            80,
-        )
-        .expect("spawn pty");
+        let (shell, args) = if cfg!(target_os = "windows") {
+            ("cmd.exe", vec!["/C".to_string(), "echo foobar".to_string()])
+        } else {
+            (
+                "/bin/sh",
+                vec!["-c".to_string(), "printf 'foobar' && sleep 0.1".to_string()],
+            )
+        };
+        let session = spawn_pty(&std::env::temp_dir(), shell, &args, 24, 80).expect("spawn pty");
 
         // Give the reader thread time to drain.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -388,14 +393,12 @@ mod tests {
         let reg = SessionRegistry::new();
         // Use `sh -c :` instead of `/bin/true`: some macOS/CI runners
         // reject direct `/bin/true` with ENOENT through portable-pty.
-        let s = spawn_pty(
-            &std::env::temp_dir(),
-            "/bin/sh",
-            &["-c".to_string(), ":".to_string()],
-            24,
-            80,
-        )
-        .expect("spawn");
+        let (shell, args) = if cfg!(target_os = "windows") {
+            ("cmd.exe", vec!["/C".to_string(), "exit /B 0".to_string()])
+        } else {
+            ("/bin/sh", vec!["-c".to_string(), ":".to_string()])
+        };
+        let s = spawn_pty(&std::env::temp_dir(), shell, &args, 24, 80).expect("spawn");
         let id = s.id.clone();
         reg.insert(Arc::clone(&s)).await;
         assert!(reg.get(&id).await.is_some());
