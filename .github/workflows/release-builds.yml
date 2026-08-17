@@ -1,8 +1,8 @@
 name: Release Builds
 
-# Builds release binaries for all platforms on tag push and release PRs.
-# Separated from ci.yml so that develop/feature CI skips expensive
-# cross-platform release builds — these only matter for actual releases.
+
+
+
 on:
   push:
     tags:
@@ -21,6 +21,57 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  package-codex-plugin:
+    name: Package Codex Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify generated plugin
+        working-directory: crosslink
+        run: python3 scripts/sync-codex-plugin.py --check
+      - name: Install Codex CLI
+        run: npm install --global @openai/codex@0.147.0
+      - name: Install and inspect plugin through its marketplace
+        working-directory: crosslink
+        env:
+          CODEX_HOME: ${{ runner.temp }}/crosslink-codex-home
+        run: |
+          mkdir -p "$CODEX_HOME"
+          codex plugin marketplace add "$PWD/resources"
+          codex plugin add crosslink-codex@personal
+          codex plugin list | grep -F 'crosslink-codex@personal'
+          codex mcp list | grep -F 'crosslink-knowledge'
+          codex mcp list | grep -F 'crosslink-agent-prompt'
+
+          VERSION=$(python3 -c 'import json; print(json.load(open("resources/plugins/crosslink-codex/.codex-plugin/plugin.json"))["version"])')
+          PLUGIN_CACHE="$CODEX_HOME/plugins/cache/personal/crosslink-codex/$VERSION"
+          test -f "$PLUGIN_CACHE/hooks/hooks.json"
+          test -f "$PLUGIN_CACHE/skills/crosslink-guide/SKILL.md"
+          test -f "$PLUGIN_CACHE/.mcp.json"
+
+          touch "$PLUGIN_CACHE/orphaned-upgrade-sentinel"
+          codex plugin remove crosslink-codex@personal
+          codex plugin add crosslink-codex@personal
+          test ! -e "$PLUGIN_CACHE/orphaned-upgrade-sentinel"
+          test -f "$PLUGIN_CACHE/hooks/hooks.json"
+      - name: Create versioned archive
+        working-directory: crosslink
+        run: |
+          VERSION=$(python3 -c 'import json; print(json.load(open("resources/plugins/crosslink-codex/.codex-plugin/plugin.json"))["version"])')
+          tar -czf "crosslink-codex-plugin-${VERSION}.tar.gz" -C resources/plugins crosslink-codex
+          mkdir -p package/.agents/plugins package/plugins
+          cp resources/.agents/plugins/marketplace.json package/.agents/plugins/marketplace.json
+          cp -R resources/plugins/crosslink-codex package/plugins/crosslink-codex
+          tar -czf "crosslink-codex-marketplace-${VERSION}.tar.gz" -C package .
+      - name: Upload plugin release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosslink-codex-plugin
+          path: |
+            crosslink/crosslink-codex-plugin-*.tar.gz
+            crosslink/crosslink-codex-marketplace-*.tar.gz
+          if-no-files-found: error
+
   build-release:
     name: Build Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

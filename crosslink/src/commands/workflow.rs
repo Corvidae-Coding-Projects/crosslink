@@ -12,13 +12,14 @@ pub fn run(
     crosslink_dir: &Path,
     get_db: impl FnOnce() -> Result<Database>,
 ) -> Result<()> {
-    let claude_dir = crosslink_dir
+    let integrations_dir = crosslink_dir
         .parent()
         .context("Cannot determine project root")?
-        .join(".claude");
+        .join(".crosslink")
+        .join("integrations");
     match command {
         WorkflowCommands::Diff { section, check } => {
-            diff(crosslink_dir, &claude_dir, section.as_deref(), check);
+            diff(crosslink_dir, &integrations_dir, section.as_deref(), check);
             Ok(())
         }
         WorkflowCommands::Trail { id, kind, json } => {
@@ -28,7 +29,6 @@ pub fn run(
     }
 }
 
-/// Hook files to compare: (deployed filename, embedded default)
 const HOOK_FILES: &[(&str, &str)] = &[
     ("prompt-guard.py", init::PROMPT_GUARD_PY),
     ("post-edit-check.py", init::POST_EDIT_CHECK_PY),
@@ -38,20 +38,16 @@ const HOOK_FILES: &[(&str, &str)] = &[
     ("heartbeat.py", init::HEARTBEAT_PY),
 ];
 
-/// The marker comment that acknowledges intentional customization.
 const CUSTOM_MARKER: &str = "# crosslink:custom";
 
-/// Result of comparing a deployed file against its embedded default.
 enum CompareResult {
-    /// File matches the embedded default exactly.
     Matches,
-    /// File differs from the default. Contains a human-readable description.
+
     Customized(String),
-    /// File is missing (not deployed).
+
     Missing,
 }
 
-/// Compare a deployed file against its embedded default.
 fn compare_file(deployed_path: &Path, default_content: &str) -> CompareResult {
     fs::read_to_string(deployed_path).map_or(CompareResult::Missing, |content| {
         if content == default_content {
@@ -72,7 +68,6 @@ fn compare_file(deployed_path: &Path, default_content: &str) -> CompareResult {
     })
 }
 
-/// Format a `CompareResult` as a display string.
 fn compare_display(result: &CompareResult) -> &str {
     match result {
         CompareResult::Matches => "matches default",
@@ -81,20 +76,14 @@ fn compare_display(result: &CompareResult) -> &str {
     }
 }
 
-/// Check whether a deployed file contains the `# crosslink:custom` marker.
 fn has_custom_marker(deployed_path: &Path) -> bool {
     fs::read_to_string(deployed_path).is_ok_and(|content| content.contains(CUSTOM_MARKER))
 }
 
-/// `crosslink workflow diff` — compare deployed policy files against embedded defaults.
-///
-/// When `check` is true, operates in CI mode: exits 0 if all drifted files are
-/// marked with `# crosslink:custom`, exits 1 with a summary otherwise.
-pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, check: bool) {
+pub fn diff(crosslink_dir: &Path, integrations_dir: &Path, section: Option<&str>, check: bool) {
     let show_all = section.is_none();
     let mut drifted: Vec<String> = Vec::new();
 
-    // --- Tracking Mode ---
     if show_all || section == Some("tracking") {
         let config_path = crosslink_dir.join("hook-config.json");
         let result = compare_file(&config_path, init::HOOK_CONFIG_JSON);
@@ -139,7 +128,6 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
         }
     }
 
-    // --- Rules ---
     if show_all || section == Some("rules") || section == Some("languages") {
         if !check {
             println!("=== Rules ===");
@@ -147,13 +135,12 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
         let rules_dir = crosslink_dir.join("rules");
         let rules_local_dir = crosslink_dir.join("rules.local");
         for (filename, default_content) in init::RULE_FILES {
-            // Check if this rule is overridden by rules.local/
             let local_path = rules_local_dir.join(filename);
             if local_path.exists() {
                 if !check {
                     println!("  rules/{filename}: overridden by rules.local/");
                 }
-                // Don't flag drift for files that have a local override
+
                 continue;
             }
             let path = rules_dir.join(filename);
@@ -167,7 +154,7 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
                 }
             }
         }
-        // Show additive local rules
+
         if rules_local_dir.is_dir() {
             let standard_files: std::collections::HashSet<&str> =
                 init::RULE_FILES.iter().map(|(f, _)| *f).collect();
@@ -190,21 +177,24 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
         }
     }
 
-    // --- Hooks ---
     if show_all || section == Some("hooks") {
         if !check {
             println!("=== Hooks ===");
         }
-        let hooks_dir = claude_dir.join("hooks");
+        let hooks_dir = integrations_dir.join("hooks");
         for (filename, default_content) in HOOK_FILES {
             let path = hooks_dir.join(filename);
             let result = compare_file(&path, default_content);
             if !check {
-                println!("  .claude/hooks/{}: {}", filename, compare_display(&result));
+                println!(
+                    "  .crosslink/integrations/hooks/{}: {}",
+                    filename,
+                    compare_display(&result)
+                );
             }
             if let CompareResult::Customized(_) = result {
                 if check && !has_custom_marker(&path) {
-                    drifted.push(format!(".claude/hooks/{filename}"));
+                    drifted.push(format!(".crosslink/integrations/hooks/{filename}"));
                 }
             }
         }
@@ -237,7 +227,6 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
     }
 }
 
-/// `crosslink workflow trail <id>` — show chronological comment trail for an issue.
 pub fn trail(db: &Database, id: i64, kind_filter: Option<&str>, json: bool) -> Result<()> {
     db.require_issue(id)?;
 
@@ -283,7 +272,6 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    /// Create a temp directory with a git repo and initial commit.
     fn test_dir() -> tempfile::TempDir {
         let dir = tempdir().unwrap();
         let init = std::process::Command::new("git")
@@ -292,7 +280,7 @@ mod tests {
             .output()
             .expect("git init failed");
         assert!(init.status.success(), "git init failed");
-        // Use -c flags so identity works even when env vars or global config are absent
+
         let commit = std::process::Command::new("git")
             .current_dir(dir.path())
             .args([
@@ -313,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_compare_file_matches() {
-        let dir = tempdir().unwrap(); // This test doesn't call init — tempdir is fine
+        let dir = tempdir().unwrap();
         let path = dir.path().join("test.txt");
         fs::write(&path, "hello world").unwrap();
         assert!(matches!(
@@ -346,11 +334,11 @@ mod tests {
 
     #[test]
     fn test_diff_defaults_match() {
-        // Init a fresh crosslink dir, then diff — everything should match
         let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -368,7 +356,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
 
-        // Should not error
         diff(&crosslink_dir, &claude_dir, None, false);
     }
 
@@ -378,6 +365,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -392,7 +380,6 @@ mod tests {
         )
         .unwrap();
 
-        // Modify a rule file
         let rule_path = dir.path().join(".crosslink/rules/global.md");
         fs::write(
             &rule_path,
@@ -403,7 +390,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
 
-        // Should not error — just prints customized status
         diff(&crosslink_dir, &claude_dir, Some("rules"), false);
     }
 
@@ -413,6 +399,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -430,7 +417,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
 
-        // Each section should work independently
         diff(&crosslink_dir, &claude_dir, Some("tracking"), false);
         diff(&crosslink_dir, &claude_dir, Some("hooks"), false);
         diff(&crosslink_dir, &claude_dir, Some("languages"), false);
@@ -442,6 +428,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -458,7 +445,9 @@ mod tests {
 
         assert!(dir.path().join(".claude/commands/workflow.md").exists());
         let content = fs::read_to_string(dir.path().join(".claude/commands/workflow.md")).unwrap();
-        assert!(content.contains("policy review"));
+        assert!(content.contains("hook registrations"));
+        assert!(content.contains("active rule files"));
+        assert!(content.contains("zero bytes"));
     }
 
     #[test]
@@ -467,6 +456,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -484,7 +474,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
 
-        // All files match defaults, so --check should pass (exit 0)
         diff(&crosslink_dir, &claude_dir, None, true);
     }
 
@@ -494,6 +483,7 @@ mod tests {
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
+                integrations: crate::commands::init::IntegrationSelection::Both,
                 force: false,
                 update: false,
                 dry_run: false,
@@ -508,7 +498,6 @@ mod tests {
         )
         .unwrap();
 
-        // Modify a rule file but add the custom marker
         let rule_path = dir.path().join(".crosslink/rules/global.md");
         fs::write(
             &rule_path,
@@ -519,7 +508,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
 
-        // Should pass because the file is marked as custom
         diff(&crosslink_dir, &claude_dir, Some("rules"), true);
     }
 
@@ -545,8 +533,6 @@ mod tests {
         let path = dir.path().join("nonexistent.txt");
         assert!(!has_custom_marker(&path));
     }
-
-    // ==================== Trail Tests ====================
 
     fn setup_trail_db() -> (Database, tempfile::TempDir) {
         let dir = test_dir();
@@ -583,7 +569,6 @@ mod tests {
         db.add_comment(id, "A regular note", "note").unwrap();
         db.add_comment(id, "Decision: chose X", "decision").unwrap();
 
-        // Filter to only plan and decision
         let result = trail(&db, id, Some("plan,decision"), false);
         assert!(result.is_ok());
     }

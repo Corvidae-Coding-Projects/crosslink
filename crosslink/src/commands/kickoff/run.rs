@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff run: main entry point for `crosslink kickoff run`
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -10,17 +9,12 @@ use super::launch::*;
 use super::prompt::*;
 use super::types::*;
 
-/// Main entry point: `crosslink kickoff run`.
-///
-/// Returns the compact name (`<repo>-<agent>-<slug>`) used as the agent ID,
-/// branch suffix, and tmux session name.
 pub fn run(
     crosslink_dir: &Path,
     db: &Database,
     writer: Option<&SharedWriter>,
     opts: &KickoffOpts,
 ) -> Result<String> {
-    // 1. Pre-flight: validate all required external commands are present
     let preflight = if opts.dry_run {
         None
     } else {
@@ -32,6 +26,19 @@ pub fn run(
     };
 
     let root = repo_root()?;
+    let validation_agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let mut validation_conventions = detect_conventions(&root);
+    validation_conventions
+        .allowed_tools
+        .extend(read_kickoff_allowed_tools(crosslink_dir));
+    let validation_tools = build_allowed_tools(&validation_conventions, &opts.verify);
+    validate_agent_request(
+        &validation_agent,
+        &root,
+        opts.model,
+        &validation_tools,
+        &opts.policy,
+    )?;
     let base_slug = slugify(opts.description);
     let slug = if base_slug.is_empty() {
         rand_hex_suffix()
@@ -39,21 +46,24 @@ pub fn run(
         format!("{}-{}", base_slug, rand_hex_suffix())
     };
 
-    // Generate compact identifiers for structured naming
     let repo_id = crate::commands::init::read_repo_compact_id(crosslink_dir);
     let agent_compact = crate::utils::generate_compact_id();
     let compact_name = crate::utils::compose_compact_name(&repo_id, &agent_compact, &slug);
     crate::utils::validate_compact_name(&compact_name)?;
 
-    // 2. Create or find the issue
+    let local_writer = if writer.is_none() && !opts.dry_run {
+        prepare_local_kickoff_writer(crosslink_dir, db)?
+    } else {
+        None
+    };
+    let writer = writer.or(local_writer.as_ref());
+
     let issue_id = if let Some(id) = opts.issue {
-        // Verify the issue exists
         if db.get_issue(id)?.is_none() {
             bail!("Issue {} not found", crate::utils::format_issue_id(id));
         }
         id
     } else {
-        // Create a new issue directly
         let id = if let Some(w) = writer {
             w.create_issue(
                 db,
@@ -83,47 +93,64 @@ pub fn run(
         id
     };
 
-    // 3. Create worktree and feature branch (or use existing branch)
-    let (worktree_dir, branch_name) = if let Some(br) = opts.branch {
-        // Use existing branch — check if worktree exists
-        let wt_slug = br.strip_prefix("feature/").unwrap_or(br);
-        let worktree_dir = root.join(".worktrees").join(wt_slug);
-        if worktree_dir.exists() {
-            (worktree_dir, br.to_string())
-        } else {
-            create_worktree(&root, wt_slug, None)?
-        }
-    } else {
-        create_worktree(&root, &compact_name, None)?
-    };
+    let (wt_slug, branch_name) = opts.branch.map_or_else(
+        || (compact_name.clone(), format!("feature/{compact_name}")),
+        |br| {
+            let wt_slug = br.strip_prefix("feature/").unwrap_or(br);
+            (wt_slug.to_string(), br.to_string())
+        },
+    );
+    let worktree_dir = root.join(".worktrees").join(&wt_slug);
 
-    // Write slug sentinel so other commands can identify this worktree
-    std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
-        .context("Failed to write .kickoff-slug sentinel")?;
-
-    // 4. Detect project conventions, then extend with any explicit additions
-    //    from `hook-config.json`'s `kickoff.allowed_tools` array so projects
-    //    can teach the kickoff agent about tools detection doesn't pick up
-    //    automatically. See GH#584.
-    let mut conventions = detect_conventions(&root);
+    let mut conventions = validation_conventions;
     conventions
         .allowed_tools
         .extend(read_kickoff_allowed_tools(crosslink_dir));
 
-    // 5. Build the prompt — check for custom template or no_template first
     let prompt = if crate::utils::read_no_template(crosslink_dir) {
         String::new()
-    } else if let Some(custom) = crate::utils::read_kickoff_template(crosslink_dir) {
-        custom
     } else {
-        build_prompt(opts, issue_id, &branch_name, &conventions)
+        let built = build_prompt(opts, issue_id, &branch_name, &conventions);
+        match crate::utils::resolve_kickoff_template(crosslink_dir, opts.template) {
+            Some(template) => {
+                let allowed_tools = conventions.allowed_tools.join(",");
+                let ctx = TemplateContext {
+                    built_prompt: &built,
+                    issue_id,
+                    branch: &branch_name,
+                    description: opts.description,
+                    model: opts.model,
+                    effort: opts.policy.effort.as_deref(),
+                    doc_path: opts.doc_path,
+                    allowed_tools: &allowed_tools,
+                };
+                interpolate_template(&template, &ctx)
+            }
+            None => built,
+        }
     };
 
-    // 6. Write KICKOFF.md to worktree
+    if opts.dry_run {
+        println!("{prompt}");
+        println!("---");
+        println!("Worktree: {}", worktree_dir.display());
+        println!("Branch:   {branch_name}");
+        println!("Agent:    {compact_name}");
+        return Ok(compact_name);
+    }
+
+    let (worktree_dir, branch_name) = if worktree_dir.exists() && opts.branch.is_some() {
+        (worktree_dir, branch_name)
+    } else {
+        create_worktree(&root, &wt_slug, None)?
+    };
+
+    std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
+        .context("Failed to write .kickoff-slug sentinel")?;
+
     std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
         .context("Failed to write KICKOFF.md")?;
 
-    // 6b. Extract and write criteria if design doc has acceptance criteria
     if let Some(doc) = opts.design_doc {
         if !doc.acceptance_criteria.is_empty() {
             let source = opts.doc_path.unwrap_or("unknown");
@@ -135,49 +162,26 @@ pub fn run(
         }
     }
 
-    // 6c. Write launch metadata (timeout + start time) for status tracking
     {
-        let metadata = KickoffMetadata {
-            started_at: chrono::Utc::now().to_rfc3339(),
-            timeout_secs: opts.timeout.as_secs(),
-        };
+        let mut metadata = KickoffMetadata::for_launch(opts, chrono::Utc::now().to_rfc3339());
+        metadata.provider = Some(validation_agent.provider.to_string());
+        metadata.model = validation_agent.resolve_model(Some(opts.model));
         let json = serde_json::to_string_pretty(&metadata)
             .context("Failed to serialize kickoff metadata")?;
         std::fs::write(worktree_dir.join(".kickoff-metadata.json"), &json)
             .context("Failed to write .kickoff-metadata.json")?;
     }
 
-    // 6d. Protect the canonical design doc passed via `--doc` from agent edits.
-    //     Writes a `.kickoff-doc.json` breadcrumb (consumed by post-run
-    //     validation in monitor::report) and applies chmod 0444 so even
-    //     non-container kickoffs flag accidental rewrites. The container
-    //     mode adds a read-only overlay mount on top. See GH#580.
     let protected_doc_rel = resolve_worktree_relative_doc(opts.doc_path, &root);
     if let Some(rel) = protected_doc_rel.as_deref() {
         protect_design_doc(&worktree_dir, rel)?;
     }
 
-    // 7. Exclude kickoff files from git
     exclude_kickoff_files(&worktree_dir)?;
 
-    // Dry run: print prompt and exit (skip agent init — no launch needed)
-    if opts.dry_run {
-        println!("{prompt}");
-        println!("---");
-        println!("Worktree: {}", worktree_dir.display());
-        println!("Branch:   {branch_name}");
-        println!("Agent:    {compact_name}");
-        return Ok(compact_name);
-    }
+    let agent_id =
+        init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name, Some(issue_id))?;
 
-    // 8. Initialize crosslink + agent in worktree (only for real launches)
-    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name)?;
-
-    // 8b. Record the pipeline run row now that the worktree and agent identity
-    //     both exist — this is past the launch's point of no return, so the row
-    //     carries the real agent_id and worktree path instead of the legacy
-    //     "pending" placeholders (GH#614). Best-effort: a pipeline-state write
-    //     failure must not abort an otherwise-successful launch.
     if let Some(doc_path_str) = opts.doc_path {
         let doc_path = Path::new(doc_path_str);
         if let Err(e) = super::pipeline::mark_running(
@@ -190,40 +194,33 @@ pub fn run(
         }
     }
 
-    // preflight is guaranteed Some after the dry-run early return above
     let preflight = preflight.context("preflight check was skipped unexpectedly")?;
 
-    // 9. Launch the agent
     let allowed_tools = build_allowed_tools(&conventions, &opts.verify);
 
     match &opts.container {
         ContainerMode::None => {
             let mut session_name = tmux_session_name(&compact_name);
             if tmux_session_exists(&session_name) {
-                // Append random suffix
                 let suffix: u32 = rand_suffix();
                 session_name =
                     format!("{}-{}", &session_name[..session_name.len().min(58)], suffix);
             }
 
             launch_local(
-                &opts.agent_binary,
+                &preflight.agent,
                 &worktree_dir,
                 &session_name,
                 opts.model,
                 &allowed_tools,
-                opts.timeout,
                 preflight.timeout_cmd,
                 preflight.sandbox_command.as_deref(),
                 crosslink_dir,
-                opts.skip_permissions,
-                opts.permission_mode,
+                &opts.policy,
             )?;
 
-            // Persist the actual session name so kickoff list can find it
             let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
 
-            // 10. Report
             if opts.quiet {
                 println!("{session_name}");
             } else {
@@ -247,7 +244,7 @@ pub fn run(
         mode @ (ContainerMode::Docker | ContainerMode::Podman) => {
             let container_id = launch_container(
                 mode,
-                &opts.agent_binary,
+                &preflight.agent,
                 &worktree_dir,
                 &root,
                 opts.image,
@@ -256,6 +253,7 @@ pub fn run(
                 &allowed_tools,
                 opts.timeout,
                 protected_doc_rel.as_deref(),
+                &opts.policy,
             )?;
 
             if opts.quiet {
@@ -291,12 +289,31 @@ pub fn run(
     Ok(compact_name)
 }
 
-/// Resolve a `--doc <path>` CLI argument to a path relative to the repo root.
-///
-/// Returns `None` when the doc lies outside the repo or cannot be canonicalized
-/// (e.g. the user passed a path that doesn't exist on disk yet). The container
-/// `:ro` mount and the breadcrumb both need the worktree-relative form because
-/// the worktree mirrors the repo's directory structure.
+fn prepare_local_kickoff_writer(
+    crosslink_dir: &Path,
+    db: &Database,
+) -> Result<Option<SharedWriter>> {
+    if crate::identity::AgentConfig::load(crosslink_dir)?.is_none() {
+        return Ok(None);
+    }
+
+    let sync = crate::sync::SyncManager::new(crosslink_dir)?;
+    if sync.remote_exists() {
+        return Ok(None);
+    }
+    if !sync.is_initialized() {
+        sync.init_cache()
+            .context("Failed to initialize the local coordination hub for kickoff")?;
+    }
+    if !sync.hub_mode().is_v3() {
+        bail!("Local-only kickoff requires a v3 coordination hub");
+    }
+
+    crate::commands::migrate::promote_sqlite_to_v3(crosslink_dir, db, &sync)
+        .context("Failed to share local issues before kickoff")?;
+    SharedWriter::new(crosslink_dir)
+}
+
 fn resolve_worktree_relative_doc(doc_path: Option<&str>, repo_root: &Path) -> Option<PathBuf> {
     let raw = doc_path?;
     let candidate = Path::new(raw);
@@ -313,12 +330,6 @@ fn resolve_worktree_relative_doc(doc_path: Option<&str>, repo_root: &Path) -> Op
         .map(Path::to_path_buf)
 }
 
-/// Stage the design doc as a protected canonical input inside the worktree.
-///
-/// Writes `.kickoff-doc.json` (so post-run validation can detect drift) and
-/// applies chmod 0444 to the doc itself. Both steps are best-effort: if the
-/// worktree doesn't carry the doc yet — e.g. fresh design that wasn't
-/// committed — there's nothing to protect and we return Ok(()).
 fn protect_design_doc(worktree_dir: &Path, rel: &Path) -> Result<()> {
     let worktree_doc = worktree_dir.join(rel);
     if !worktree_doc.is_file() {
@@ -338,9 +349,6 @@ fn protect_design_doc(worktree_dir: &Path, rel: &Path) -> Result<()> {
     std::fs::write(worktree_dir.join(".kickoff-doc.json"), json)
         .context("Failed to write .kickoff-doc.json")?;
 
-    // chmod 0444 is advisory — a determined agent can flip it back — but it
-    // pairs with the KICKOFF.md instruction and the post-run hash check to
-    // make accidental rewrites loud rather than silent.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -348,4 +356,78 @@ fn protect_design_doc(worktree_dir: &Path, rel: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod local_kickoff_tests {
+    use super::*;
+    use std::process::Command;
+
+    fn git(path: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(path)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn local_kickoff_bootstraps_hub_and_promotes_existing_issue() {
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-b", "main"]);
+        git(repo.path(), &["config", "user.email", "test@example.com"]);
+        git(repo.path(), &["config", "user.name", "Test"]);
+        git(repo.path(), &["commit", "--allow-empty", "-m", "init"]);
+
+        let crosslink_dir = repo.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        crate::identity::AgentConfig::init(&crosslink_dir, "local-driver", None).unwrap();
+        let db = Database::open(&crosslink_dir.join("issues.db")).unwrap();
+        let existing = db
+            .create_issue("existing local issue", None, "medium")
+            .unwrap();
+
+        let writer = prepare_local_kickoff_writer(&crosslink_dir, &db)
+            .unwrap()
+            .expect("local kickoff writer");
+        assert!(crate::sync::SyncManager::new(&crosslink_dir)
+            .unwrap()
+            .hub_mode()
+            .is_v3());
+        assert_eq!(
+            db.get_issue(existing).unwrap().unwrap().title,
+            "existing local issue"
+        );
+
+        let created = writer
+            .create_issue(&db, "kickoff issue", None, "medium", None, None)
+            .unwrap();
+        assert_eq!(
+            db.get_issue(created).unwrap().unwrap().title,
+            "kickoff issue"
+        );
+
+        let state = crate::compaction::reduce(
+            &crate::hub_source::RefHubSource::new(
+                crate::sync::SyncManager::new(&crosslink_dir)
+                    .unwrap()
+                    .cache_path(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .state;
+        let titles: std::collections::HashSet<&str> = state
+            .issues
+            .values()
+            .map(|issue| issue.title.as_str())
+            .collect();
+        assert!(titles.contains("existing local issue"));
+        assert!(titles.contains("kickoff issue"));
+    }
 }

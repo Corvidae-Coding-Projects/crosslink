@@ -17,7 +17,7 @@ The hook scripts and the Rust `crosslink config` plumbing both load `hook-config
 ```bash
 # Write to the local overlay instead of the shared file:
 crosslink config set --local tracking_mode relaxed
-crosslink config set --local crosslink_binary /opt/forecast/bin/crosslink
+crosslink config set --local crosslink_binary /opt/crosslink/bin/crosslink
 ```
 
 This file is intentionally ignored by `crosslink init --force` so resets won't clobber your local preferences. Add `.crosslink/hook-config.local.json` to your project `.gitignore` (init does this for you) so it stays out of version control.
@@ -34,7 +34,7 @@ Machine-local agent identity. Written by `crosslink agent init` (and updated by 
 {
   "agent_id": "driver--my-feature-abc123",
   "machine_id": "dollspace",
-  "description": "Driver agent for forecast-bio/crosslink",
+  "description": "Driver agent for Corvidae-Coding-Projects/crosslink",
   "role": "driver",
   "ssh_key_path": "keys/driver_ed25519",
   "ssh_fingerprint": "SHA256:abc123...",
@@ -220,5 +220,5 @@ These exist for completeness; they're internal state with no user-tunable fields
 | `promotion-log.json` | Audit log of `L<n>` → `#<n>` issue promotions across sync. |
 | `.gitignore` | Lists state files that should not be committed (managed by `crosslink init`). |
 | `.hub-cache/`, `hub-cache/`, `.external-cache/`, `.style-cache/` | Read-through caches for hub branches, external repos, and the style sync source. Safe to delete; they rebuild on next sync. |
-| `rules/`, `rules.local/` | Project rules injected into agent context. Edit via `crosslink workflow` or directly as Markdown -- see [Rules reference](rules.qmd). |
+| `rules/`, `rules.local/` | Rule-loader inputs. Bundled files are zero bytes; nonempty local overrides remain wired. See [Rules reference](rules.qmd). |
 | `meta/`, `orchestrator/`, `locks/` | Internal subsystem state managed by `crosslink sync`, `crosslink swarm`, and the lock subsystem respectively. |

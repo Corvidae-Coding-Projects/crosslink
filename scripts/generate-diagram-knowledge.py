@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""
-Generate a Forecast-styled diagram for knowledge management.
 
-Shows: Agents write knowledge → synced via git → searchable by all agents
 
-Usage:
-    python3 scripts/generate-diagram-knowledge.py -o docs_src/assets/img/knowledge-flow.svg
-"""
+
+
+
+
+
+
 
 import argparse
 import random
@@ -29,12 +29,12 @@ def generate():
 
     cx = WIDTH / 2
 
-    # ── Title ─────────────────────────────────────────────────────────────
+
     svg += text(cx, 36, "Knowledge management", cls="heading", size=22, fill=P["black"])
     svg += text(cx, 56, "shared research pages synced via git",
                 cls="subheading", size=14, fill=P["muted"])
 
-    # ── Writers (left column) ─────────────────────────────────────────────
+
     svg += text(115, 95, "Writers", cls="heading", size=16, fill=P["black"])
 
     writers = [
@@ -48,11 +48,11 @@ def generate():
         svg += text(wx, wy - 2, name, cls="body", size=13, fill=color, weight="bold")
         svg += text(wx, wy + 18, desc, cls="body", size=10, fill=P["muted"])
 
-    # ── Arrows: writers → knowledge branch ────────────────────────────────
+
     for wy in [140, 210, 280]:
         svg += arrow_straight(180, wy, 240, 210, P["muted"], stroke_width=1.5)
 
-    # ── Knowledge branch (center) ─────────────────────────────────────────
+
     kb_x, kb_y = 250, 130
     kb_w, kb_h = 200, 175
     svg += rrect(kb_x, kb_y, kb_w, kb_h, P["yellow"], rx=30, opacity=0.12)
@@ -60,7 +60,7 @@ def generate():
     svg += text(kb_x + kb_w / 2, kb_y + 30, "crosslink/knowledge",
                 cls="subheading", size=18, fill=P["black"])
 
-    # Knowledge pages inside
+
     pages = [
         ("api-patterns",    P["blue"]),
         ("auth-design",     P["green"]),
@@ -72,11 +72,11 @@ def generate():
         svg += rrect(kb_x + 15, py, kb_w - 30, 22, color, rx=11, opacity=0.12)
         svg += text(kb_x + kb_w / 2, py + 15, slug, cls="mono", size=11, fill=color)
 
-    # ── Arrows: knowledge → readers ───────────────────────────────────────
+
     for wy in [140, 210, 280]:
         svg += arrow_straight(455, 210, 505, wy, P["muted"], stroke_width=1.5)
 
-    # ── Readers (right column) ────────────────────────────────────────────
+
     svg += text(575, 95, "Readers", cls="heading", size=16, fill=P["black"])
 
     readers = [
@@ -90,10 +90,10 @@ def generate():
         svg += text(rx, ry - 2, name, cls="body", size=13, fill=color, weight="bold")
         svg += text(rx, ry + 18, desc, cls="body", size=10, fill=P["muted"])
 
-    # ── Sync indicator ────────────────────────────────────────────────────
+
     svg += text(cx, 335, "synced via git push/pull", cls="body", size=12, fill=P["muted"])
 
-    # ── Bottom: capabilities row ──────────────────────────────────────────
+
     svg += rrect(50, 365, WIDTH - 100, 85, P["gray"], rx=20)
 
     caps = [
@@ -106,7 +106,7 @@ def generate():
         svg += text(capx, 416, desc, cls="mono", size=10, fill=P["muted"])
         svg += text(capx, 434, "", cls="body", size=10, fill=P["muted"])
 
-    # ── Confetti ──────────────────────────────────────────────────────────
+
     svg += confetti(rng, 10, 80, 40, 60, 4)
     svg += confetti(rng, 630, 80, 40, 60, 4)
 

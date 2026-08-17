@@ -5,10 +5,6 @@ use crate::db::sentinel::SentinelDispatch;
 
 use super::config::NotificationConfig;
 
-/// Send a notification for a completed dispatch.
-///
-/// Supports Slack incoming webhooks and generic HTTP POST endpoints.
-/// Does nothing if notifications are disabled.
 pub fn notify_dispatch_completed(
     config: &NotificationConfig,
     dispatch: &SentinelDispatch,
@@ -28,7 +24,6 @@ pub fn notify_dispatch_completed(
     }
 }
 
-/// Build the notification message payload.
 fn build_notification_message(
     dispatch: &SentinelDispatch,
     outcome: &str,
@@ -87,7 +82,6 @@ struct NotificationMessage {
 }
 
 impl NotificationMessage {
-    /// Format as a Slack Block Kit message.
     fn to_slack_json(&self) -> serde_json::Value {
         serde_json::json!({
             "blocks": [
@@ -119,7 +113,6 @@ impl NotificationMessage {
         })
     }
 
-    /// Format as a generic JSON payload for non-Slack webhooks.
     fn to_generic_json(&self) -> serde_json::Value {
         serde_json::json!({
             "event": "sentinel.dispatch.completed",
@@ -133,10 +126,6 @@ impl NotificationMessage {
     }
 }
 
-/// Send a JSON payload to a webhook URL via curl.
-///
-/// Uses `curl` instead of a Rust HTTP client to avoid adding another async
-/// dependency — sentinel notifications are fire-and-forget, not latency-critical.
 fn send_webhook(url: &str, message: &NotificationMessage, is_slack: bool) -> Result<()> {
     let payload = if is_slack {
         message.to_slack_json()
@@ -172,7 +161,6 @@ fn send_webhook(url: &str, message: &NotificationMessage, is_slack: bool) -> Res
     Ok(())
 }
 
-/// Mask a URL for safe logging (hide everything after the host).
 fn mask_url(url: &str) -> String {
     url.find("//")
         .and_then(|p| url[p + 2..].find('/').map(|q| p + 2 + q))

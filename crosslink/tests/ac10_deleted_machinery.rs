@@ -1,31 +1,15 @@
-//! AC-10 of the hub v3 design (`.design/hub-v3-per-agent-refs.md`):
-//! the v2 conflict/recovery machinery is DELETED, not deprecated.
-//!
-//! This test greps the production source tree for the symbols of the
-//! deleted machinery and fails if any reappear. It is the permanent
-//! regression guard for the 754b teardown: the rebase-retry/recovery
-//! era must never silently return.
-
 use std::path::Path;
 
-/// Symbols of deleted v2 machinery that must not exist in production code.
-///
-/// Each entry is a function/struct/key name unique enough that its presence
-/// anywhere under `src/` (outside this allowlist's own mention in docs)
-/// indicates the machinery returned.
 const FORBIDDEN_SYMBOLS: &[&str] = &[
-    // shared_writer write-path machinery (B1)
     "recover_from_push_conflict",
     "reconcile_display_counter",
     "promote_offline_issues",
     "rewrite_as_offline",
     "set_issue_created_claim_in_log",
-    // dual-write bridge (B1)
     "ShadowStats",
     "dual_write_enabled",
     "check_hubv3_parity",
     "hub_v3.dual_write",
-    // sync repair machinery (B2)
     "clean_dirty_state",
     "hub_health_check",
     "verify_cache_worktree",

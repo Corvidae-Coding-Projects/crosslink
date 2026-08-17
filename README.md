@@ -122,18 +122,31 @@ crosslink init --defaults
 
 The presets configure tracking strictness, comment discipline, lock stealing policy, kickoff verification level, and signing enforcement. Run `crosslink config show` to see current settings, or `crosslink config --reconfigure` to re-run the walkthrough.
 
-### Behavioral Hooks & Rules
-
-Your agents follow the rules without being told.
+### Repository Hooks
 
 - **Issue tracking enforcement** — Hooks block code changes without an active crosslink issue
 - **Comment discipline** — Hooks enforce typed comments before commits and issue close
 - **No-stubs policy** — Post-edit hooks detect `TODO`, `FIXME`, `unimplemented!()` stubs
-- **Drift detection** — Adaptive reminders when agent behavior drifts from project norms
 - **Tracking modes** — Strict, normal, and relaxed enforcement (`crosslink workflow`)
-- **Language-aware rules** — 20+ language-specific rule files auto-injected based on project languages
 - **House style** — `crosslink style` syncs project conventions from a central git repo
-- **Local overrides** — `rules.local/` directory for gitignored per-machine rule customizations
+- **No language injection** — Legacy rule Markdown is installed as empty upgrade placeholders
+
+### Claude Code and Codex
+
+Crosslink has first-class provider adapters for Claude Code and Codex. A normal
+`crosslink init` installs both repository integrations; `agent.provider`
+selects which signed-in CLI runs kickoff, plan, swarm, sentinel, design, and
+orchestrator work. `agent.binary` remains an executable-path override, and
+legacy Claude-only configuration keeps working.
+
+- Shared hooks, MCP servers, skills, and zero-byte rule assets are rendered from canonical sources
+- Codex gets `.codex/hooks.json`, merged `.codex/config.toml`, `.agents/skills/`, and `AGENTS.md`
+- Claude keeps `.claude/settings.json`, `.mcp.json`, commands, and `.claude/skills/`
+- Native provider web search stays enabled; external text is treated as evidence, never instructions
+- Normal account login only—Crosslink does not accept or forward provider API keys
+- `crosslink doctor` reports provider, login, assets, plugin, MCP, and hook-trust readiness
+
+See [Claude and Codex providers](https://corvidae-coding-projects.github.io/crosslink/guides/providers.html) for configuration, plugin installation, containers, policy mapping, and troubleshooting.
 
 ### Terminal Dashboard
 
@@ -156,8 +169,8 @@ and full CLI parity for writes (close issues, comment, label,
 milestones, lock release/steal, send agent control requests).
 
 ```bash
-crosslink dashboard track ~/work/forecast-bio/api
-crosslink dashboard track ~/work/forecast-bio/web
+crosslink dashboard track ~/work/Corvidae-Coding-Projects/api
+crosslink dashboard track ~/work/Corvidae-Coding-Projects/web
 crosslink dashboard list
 crosslink dashboard serve --port 3100
 ```
@@ -208,10 +221,10 @@ serve` for new work.
 ### Other
 
 - **SSH signing** — Agent key generation, per-commit signing, allowed_signers management
-- **Driver intervention tracking** — `crosslink intervene` logs human corrections for agent improvement
+- **Driver intervention tracking** — `crosslink issue intervene` logs human corrections for agent improvement
 - **Typed comments** — Comments carry `kind` (plan, decision, observation, blocker, resolution, result)
 - **Clock skew detection** — Uses git commit timestamps as witness to detect time drift
-- **Context measurement** — `crosslink context` measures and optimizes context injection overhead
+- **Agent asset measurement** — `crosslink context` reports installed hooks, skills, references, and rule-loader inputs
 - **Lazy auto-hydration** — Local database auto-refreshes when the hub branch moves, no manual sync needed
 - **Config presets** — `--team` and `--solo` presets for quick setup; layered config with local overrides
 - **Configurable git remote** — Use any remote for hub/knowledge branches, not just `origin`
@@ -226,40 +239,41 @@ Requires **Rust 1.87+** ([install rustup](https://rustup.rs/)).
 cargo install crosslink
 
 # From source
-git clone https://github.com/dollspace-gay/crosslink.git
+git clone https://github.com/Corvidae-Coding-Projects/crosslink.git
 cd crosslink/crosslink && cargo install --path .
 ```
 
-Also available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).
+Also available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=corvidae-coding-projects.crosslink-issue-tracker).
 
 ## Documentation
 
 **Getting started:**
 
-- [Your First Agent Session](https://forecast-bio.github.io/crosslink/getting-started/quickstart.html) — Get running in under a minute
-- [Installation](https://forecast-bio.github.io/crosslink/getting-started/installation.html) — All install methods and requirements
+- [Your First Agent Session](https://corvidae-coding-projects.github.io/crosslink/getting-started/quickstart.html) — Get running in under a minute
+- [Installation](https://corvidae-coding-projects.github.io/crosslink/getting-started/installation.html) — All install methods and requirements
 
 **Guides:**
 
-- [Session Workflow](https://forecast-bio.github.io/crosslink/guides/session-workflow.html) — Persistent memory across conversations
-- [Multi-Agent Coordination](https://forecast-bio.github.io/crosslink/guides/multi-agent.html) — Distributed locking for parallel AI work
-- [Design Document Workflow](https://forecast-bio.github.io/crosslink/guides/design-workflow.html) — Interactive, codebase-grounded design authoring
-- [Kickoff: Autonomous Agents](https://forecast-bio.github.io/crosslink/guides/kickoff.html) — Launch background agents in worktrees
-- [Swarm Orchestration](https://forecast-bio.github.io/crosslink/guides/swarm.html) — Multi-agent phased builds from design documents
-- [Container-Based Agents](https://forecast-bio.github.io/crosslink/guides/container-agents.html) — Run agents in isolated Docker containers
-- [Knowledge Management](https://forecast-bio.github.io/crosslink/guides/knowledge.html) — Shared research pages synced via git
-- [Terminal Dashboard](https://forecast-bio.github.io/crosslink/guides/tui.html) — Interactive TUI for issues and agents
-- [Web Dashboard](https://forecast-bio.github.io/crosslink/guides/web-dashboard.html) — Browser-based project oversight
-- [Behavioral Hooks](https://forecast-bio.github.io/crosslink/guides/hooks.html) — Guardrails for AI coding agents
-- [Tracking Modes](https://forecast-bio.github.io/crosslink/guides/tracking-modes.html) — Strict, normal, and relaxed enforcement
-- [Maintenance](https://forecast-bio.github.io/crosslink/guides/maintenance.html) — Pruning, health checks, and database compaction
+- [Session Workflow](https://corvidae-coding-projects.github.io/crosslink/guides/session-workflow.html) — Persistent memory across conversations
+- [Claude and Codex Providers](https://corvidae-coding-projects.github.io/crosslink/guides/providers.html) — Runtime selection, integrations, plugin, auth, and diagnostics
+- [Multi-Agent Coordination](https://corvidae-coding-projects.github.io/crosslink/guides/multi-agent.html) — Distributed locking for parallel AI work
+- [Design Document Workflow](https://corvidae-coding-projects.github.io/crosslink/guides/design-workflow.html) — Interactive, codebase-grounded design authoring
+- [Kickoff: Autonomous Agents](https://corvidae-coding-projects.github.io/crosslink/guides/kickoff.html) — Launch background agents in worktrees
+- [Swarm Orchestration](https://corvidae-coding-projects.github.io/crosslink/guides/swarm.html) — Multi-agent phased builds from design documents
+- [Container-Based Agents](https://corvidae-coding-projects.github.io/crosslink/guides/container-agents.html) — Run agents in isolated Docker containers
+- [Knowledge Management](https://corvidae-coding-projects.github.io/crosslink/guides/knowledge.html) — Shared research pages synced via git
+- [Terminal Dashboard](https://corvidae-coding-projects.github.io/crosslink/guides/tui.html) — Interactive TUI for issues and agents
+- [Web Dashboard](https://corvidae-coding-projects.github.io/crosslink/guides/web-dashboard.html) — Browser-based project oversight
+- [Behavioral Hooks](https://corvidae-coding-projects.github.io/crosslink/guides/hooks.html) — Guardrails for AI coding agents
+- [Tracking Modes](https://corvidae-coding-projects.github.io/crosslink/guides/tracking-modes.html) — Strict, normal, and relaxed enforcement
+- [Maintenance](https://corvidae-coding-projects.github.io/crosslink/guides/maintenance.html) — Pruning, health checks, and database compaction
 
 **Reference:**
 
-- [CLI Reference](https://forecast-bio.github.io/crosslink/reference/commands.html) — Full command reference
-- [Hook Configuration](https://forecast-bio.github.io/crosslink/reference/hook-config.html) — Customize enforcement behavior
-- [Rules Customization](https://forecast-bio.github.io/crosslink/reference/rules.html) — Edit behavioral rules
-- [Kickoff Report Schema](https://forecast-bio.github.io/crosslink/reference/kickoff-report.html) — Agent validation report format
+- [CLI Reference](https://corvidae-coding-projects.github.io/crosslink/reference/commands.html) — Full command reference
+- [Hook Configuration](https://corvidae-coding-projects.github.io/crosslink/reference/hook-config.html) — Customize enforcement behavior
+- [Rules Customization](https://corvidae-coding-projects.github.io/crosslink/reference/rules.html) — Edit behavioral rules
+- [Kickoff Report Schema](https://corvidae-coding-projects.github.io/crosslink/reference/kickoff-report.html) — Agent validation report format
 
 ## Development
 

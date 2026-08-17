@@ -1,6 +1,6 @@
-// Coverage for the /settings/webhooks page. Mocks useWebhooks +
-// useSetWebhooks so we can drive the draft/save flow without hitting
-// the real endpoints.
+
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -124,7 +124,7 @@ describe("SettingsWebhooks page", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
-    // Still one row rendered (the existing one), no duplicate appended.
+
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(1);
   });
@@ -171,5 +171,5 @@ describe("SettingsWebhooks page", () => {
   });
 });
 
-// Silence an unused `act` import warning if future refactors drop it.
+
 void act;

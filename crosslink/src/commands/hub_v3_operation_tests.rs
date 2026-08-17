@@ -1,12 +1,3 @@
-//! End-to-end tests for hub-version-routed operation (754a PASS 2).
-//!
-//! These drive the production `migrate hub-v3` command (`super::migrate_hub_v3`)
-//! to build an authentic V3 hub, then operate it through `SharedWriter` /
-//! `SyncManager` in `HubMode::V3`. They cover: mode resolution, the event-only
-//! write lifecycle with no worktree writes, reduction-assigned ids, the
-//! two-writer convergence + no-collision invariant, lock claim-confirm,
-//! offline durability, fetch adoption rules, and heartbeat/request routing.
-
 #![cfg(test)]
 
 use std::path::{Path, PathBuf};
@@ -19,8 +10,6 @@ use crate::hub_v3::{self, agent_ref_name, HubMode};
 use crate::identity::{AgentConfig, AgentRole};
 use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
-
-// ── Fixtures ─────────────────────────────────────────────────────────
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -59,10 +48,6 @@ fn write_agent(crosslink_dir: &Path, id: &str) {
     .unwrap();
 }
 
-/// Populate agent `alpha`'s v2 event log directly (two issues, a label, a
-/// comment, a milestone) so the migration has a populated v2 hub to convert.
-/// The v2 `SharedWriter` write path is deleted (#754); `compaction::compact`
-/// (called by the fixture) materializes the worktree files from these events.
 fn populate_alpha_v2_for_migration(cache_dir: &Path) {
     use crate::events::{append_event, Event, EventEnvelope};
     let i1 = uuid::Uuid::parse_str("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1").unwrap();
@@ -136,7 +121,6 @@ fn populate_alpha_v2_for_migration(cache_dir: &Path) {
         append_event(&log_path, &env).unwrap();
     }
 
-    // Materialize the V2 comment file the genesis reads.
     let comments_dir = cache_dir
         .join("issues")
         .join(i1.to_string())
@@ -158,7 +142,6 @@ fn populate_alpha_v2_for_migration(cache_dir: &Path) {
     crate::issue_file::write_comment_file(&comments_dir.join(format!("{c1}.json")), &cf).unwrap();
 }
 
-/// A migrated V3 hub: a work clone with a bare remote, populated then migrated.
 struct V3Hub {
     work: TempDir,
     remote: TempDir,
@@ -166,8 +149,6 @@ struct V3Hub {
     cache_dir: PathBuf,
 }
 
-/// Build a clone (`agent_id`) sharing `remote`. Returns `(work, crosslink_dir,
-/// cache_dir)`.
 fn clone_for_agent(remote: &Path, agent_id: &str) -> (TempDir, PathBuf, PathBuf) {
     let work = tempfile::tempdir().unwrap();
     let wp = work.path().to_path_buf();
@@ -189,10 +170,7 @@ fn clone_for_agent(remote: &Path, agent_id: &str) -> (TempDir, PathBuf, PathBuf)
     let sync = SyncManager::new(&crosslink_dir).unwrap();
     sync.init_cache().unwrap();
     let cache_dir = sync.cache_path().to_path_buf();
-    // Onboard the clone onto the v3 hub: fetch the marker + agent refs so
-    // `detect_hub_version` (hence `HubMode::resolve`) sees V3. A real v3-aware
-    // bootstrap (754b) does this; here we fetch the refs directly so the clone
-    // discovers the already-migrated hub.
+
     git(
         &cache_dir,
         &[
@@ -204,7 +182,6 @@ fn clone_for_agent(remote: &Path, agent_id: &str) -> (TempDir, PathBuf, PathBuf)
     (work, crosslink_dir, cache_dir)
 }
 
-/// Create a populated v2 hub for `alpha`, then migrate it to v3.
 fn setup_migrated_v3_hub() -> V3Hub {
     let remote = tempfile::tempdir().unwrap();
     let work = tempfile::tempdir().unwrap();
@@ -234,8 +211,7 @@ fn setup_migrated_v3_hub() -> V3Hub {
 
     let sync = SyncManager::new(&crosslink_dir).unwrap();
     let cache_dir = sync.cache_path().to_path_buf();
-    // Since 754b a fresh `init_cache` bootstraps v3, but this fixture migrates
-    // FROM a v2 hub, so build the legacy `crosslink/hub` worktree explicitly.
+
     git(
         &wp,
         &[
@@ -272,16 +248,12 @@ fn setup_migrated_v3_hub() -> V3Hub {
         ],
     );
 
-    // Populate the pre-migration v2 hub by writing the agent event log directly
-    // (the v2 SharedWriter write path is deleted, #754), then materialize with
-    // `compaction::compact` (kept for migration).
     populate_alpha_v2_for_migration(&cache_dir);
 
     let lock = sync.acquire_lock().unwrap();
     crate::compaction::compact(&cache_dir, "alpha", true, &lock).unwrap();
     drop(lock);
 
-    // Migrate to v3 (the real command).
     super::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
     V3Hub {
@@ -292,8 +264,6 @@ fn setup_migrated_v3_hub() -> V3Hub {
     }
 }
 
-/// Fingerprint of the v2 worktree issue files (relative path + size). Lets a
-/// test assert no V3 mutation wrote to the v2 worktree.
 fn issues_dir_fingerprint(cache_dir: &Path) -> Vec<(String, u64)> {
     let issues = cache_dir.join("issues");
     let mut out = Vec::new();
@@ -329,8 +299,6 @@ fn walk_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-// ── Tests ────────────────────────────────────────────────────────────
-
 #[test]
 fn v3_mode_resolves_after_migration() {
     if !git_ok() {
@@ -362,8 +330,6 @@ fn v3_lifecycle_no_worktree_writes() {
     let issue = db.get_issue(new_id).unwrap().expect("issue hydrated");
     assert_eq!(issue.title, "V3 created");
 
-    // Update (priority), label, comment, and close all route through the v3
-    // event-only path.
     writer
         .update_issue(
             &db,
@@ -539,10 +505,6 @@ fn v3_lock_release_works_from_fresh_process() {
         crate::shared_writer::LockClaimResult::Claimed
     );
 
-    // A fresh SharedWriter models a new process (`crosslink locks release`):
-    // its last_v3_state cache starts empty. GH#8: read_lock_v2 returned
-    // Ok(None) from the cold cache, so release reported "was not locked"
-    // while `locks list` (checkpoint read) showed the claim.
     let cold = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
     assert!(
         cold.read_lock_v2(issue_id).unwrap().is_some(),
@@ -569,7 +531,6 @@ fn v3_offline_mutation_durable_then_delivered() {
     let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
     let writer = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
 
-    // Break the remote.
     git(
         hub.work.path(),
         &["remote", "set-url", "origin", "/nonexistent/remote-xyz.git"],
@@ -586,7 +547,6 @@ fn v3_offline_mutation_durable_then_delivered() {
         "event durable on local ref despite push failure"
     );
 
-    // Restore + next op delivers the backlog.
     git(
         hub.work.path(),
         &[
@@ -645,18 +605,11 @@ fn v3_fetch_adopts_other_ref_never_moves_own() {
     let sync_a = SyncManager::new(&hub.crosslink_dir).unwrap();
     sync_a.fetch().unwrap();
 
-    // Fetch must NEVER adopt our own ref FROM the remote tracking tip — the
-    // local own ref is authoritative for the writer. (It may be locally
-    // rewritten by a REQ-11 prune, but is never set to the remote-tracking SHA.)
     let own_after = hub_v3::git_rev_parse_optional(&hub.cache_dir, &alpha_ref).unwrap();
     let own_remote_tracking =
         hub_v3::git_rev_parse_optional(&hub.cache_dir, "refs/crosslink-remote/agents/alpha")
             .unwrap();
     if let Some(rt) = own_remote_tracking {
-        // The own ref carries alpha's authoritative head; if it equals the
-        // remote tracking tip that's only because no local-only events exist.
-        // What must NOT happen is a regression to a stale remote tip — assert
-        // the sequence high-water mark never dropped below what we wrote.
         let _ = rt;
     }
     let seq_after = hub_v3::read_max_event_seq_from_ref(&hub.cache_dir, "alpha").unwrap();
@@ -665,7 +618,6 @@ fn v3_fetch_adopts_other_ref_never_moves_own() {
         "fetch must not regress our own ref's event high-water mark"
     );
 
-    // alpha adopts beta's authoritative ref tip.
     let beta_ref = agent_ref_name("beta").unwrap();
     let beta_local = hub_v3::git_rev_parse_optional(&hub.cache_dir, &beta_ref).unwrap();
     let beta_remote = hub_v3::git_rev_parse_optional(&beta_cache, &beta_ref).unwrap();
@@ -763,9 +715,6 @@ fn v3_dashboard_reader_reroutes_to_refs() {
     }
     let hub = setup_migrated_v3_hub();
 
-    // Claim a lock (event-only) and push a heartbeat so the snapshot has
-    // issues (from the checkpoint), a lock (state.locks), and a heartbeat
-    // (agent ref) all to surface through the ref-based reroute.
     let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
     let writer = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
     let id = writer
@@ -776,13 +725,28 @@ fn v3_dashboard_reader_reroutes_to_refs() {
     let agent = AgentConfig::load(&hub.crosslink_dir).unwrap().unwrap();
     sync.push_heartbeat(&agent, Some(id)).unwrap();
 
-    // The dashboard reader resolves mode per project from the clone path. The
-    // hub-cache dir is where `crosslink/hub` and the v3 refs both resolve.
     assert!(
         HubMode::resolve(&hub.cache_dir).is_v3(),
         "migrated cache must resolve to V3 mode"
     );
     let snap = crate::dashboard::reader::read_snapshot(&hub.cache_dir).unwrap();
+
+    let ckpt_out = Command::new("git")
+        .current_dir(&hub.cache_dir)
+        .args(["rev-parse", crate::hub_v3::CHECKPOINT_REF])
+        .output()
+        .unwrap();
+    assert!(ckpt_out.status.success());
+    let ckpt_tip = String::from_utf8_lossy(&ckpt_out.stdout).trim().to_string();
+    assert_eq!(
+        snap.hub_sha.as_deref(),
+        Some(ckpt_tip.as_str()),
+        "v3 snapshot hub_sha must be the checkpoint tip"
+    );
+    assert!(
+        snap.last_commit_at.is_some(),
+        "v3 snapshot must carry checkpoint freshness"
+    );
 
     assert_eq!(snap.layout_version, 3, "v3 hub reports layout version 3");
     assert!(
@@ -812,7 +776,6 @@ fn v3_dashboard_reader_reroutes_to_refs() {
         "v3 snapshot leaves agent_requests empty (surfaced via the poll path)"
     );
 
-    // derive_counters must operate on the ref-sourced state without panicking.
     let counters = snap.derive_counters(chrono::Utc::now(), 10, 60);
     assert!(counters.open_issues >= 1);
 }
@@ -834,9 +797,6 @@ fn v3_server_agents_handler_reads_from_refs() {
     let agent = AgentConfig::load(&hub.crosslink_dir).unwrap().unwrap();
     sync.push_heartbeat(&agent, Some(id)).unwrap();
 
-    // Build server AppState over the migrated v3 hub and drive the agents/locks
-    // handlers directly. They route through SyncManager::read_*_auto, which is
-    // mode-aware, so a v3 hub must surface refs-sourced agents and locks.
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let handler_db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
@@ -884,9 +844,6 @@ fn v3_locks_cmd_and_stale_detection_over_refs() {
         .unwrap();
     writer.claim_lock_v2(id, None).unwrap();
 
-    // Fresh heartbeat on the agent ref: the lock must NOT be reported stale.
-    // The bug this guards against: `find_stale_locks` read V1-only
-    // `heartbeats/*.json` (empty on a v3 hub) and marked every lock stale.
     let sync = SyncManager::new(&hub.crosslink_dir).unwrap();
     let agent = AgentConfig::load(&hub.crosslink_dir).unwrap().unwrap();
     sync.push_heartbeat(&agent, Some(id)).unwrap();
@@ -902,18 +859,11 @@ fn v3_locks_cmd_and_stale_detection_over_refs() {
         "find_stale_locks_with_age must use ref heartbeats on a v3 hub"
     );
 
-    // `locks check`/`list`/`next` route lock reads through read_locks_auto and
-    // must run without error on a v3 hub.
     super::locks_cmd::check(&hub.crosslink_dir, id).unwrap();
     super::locks_cmd::list(&hub.crosslink_dir, &db, true).unwrap();
     super::next::run(&db, &hub.crosslink_dir).unwrap();
 }
 
-// ── `migrate hub-branches` round-trip (#767) ─────────────────────────
-
-/// Move every NEW-namespace hub ref back to the OLD hidden namespace, locally
-/// and on the bare remote (via the cache's `origin`), to simulate a hub created
-/// before the #767 flip.
 fn demote_to_old_namespace(cache_dir: &Path) {
     let pairs = [
         (
@@ -936,10 +886,10 @@ fn demote_to_old_namespace(cache_dir: &Path) {
             continue;
         }
         let sha = String::from_utf8_lossy(&sha.stdout).trim().to_string();
-        // Local: create old, delete new.
+
         git(cache_dir, &["update-ref", old, &sha]);
         git(cache_dir, &["update-ref", "-d", new]);
-        // Remote (via the cache's `origin`): push old, delete new.
+
         git(cache_dir, &["push", "origin", &format!("{sha}:{old}")]);
         let _ = Command::new("git")
             .current_dir(cache_dir)
@@ -949,10 +899,6 @@ fn demote_to_old_namespace(cache_dir: &Path) {
     }
 }
 
-/// Round-trip: build an OLD-namespace v3 hub, run `migrate hub-branches`, and
-/// assert the new visible branches land at the same SHAs local + remote, the old
-/// refs are gone both sides, the `RefHubSource` reduces identically post-rename,
-/// and a second run is a clean no-op.
 #[test]
 fn hub_branches_rename_round_trip() {
     if !git_ok() {
@@ -960,32 +906,24 @@ fn hub_branches_rename_round_trip() {
     }
     let hub = setup_migrated_v3_hub();
 
-    // Capture the authoritative reduced state BEFORE the demotion/rename.
     let before =
         crate::compaction::reduce(&crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap())
             .unwrap()
             .state;
 
-    // Demote to the OLD hidden namespace (simulate a pre-#767 hub).
     demote_to_old_namespace(&hub.cache_dir);
 
-    // The old hidden refs exist; the new visible ones don't (local).
     let rev =
         |dir: &Path, r: &str| -> Option<String> { hub_v3::git_rev_parse_optional(dir, r).unwrap() };
     assert!(rev(&hub.cache_dir, "refs/crosslink/checkpoint").is_some());
     assert!(rev(&hub.cache_dir, "refs/heads/crosslink/checkpoint").is_none());
 
-    // Record the old SHAs so we can assert SHA-equality after the rename.
     let old_cp = rev(&hub.cache_dir, "refs/crosslink/checkpoint").unwrap();
     let old_meta = rev(&hub.cache_dir, "refs/crosslink/meta").unwrap();
     let old_alpha = rev(&hub.cache_dir, "refs/crosslink/agents/alpha").unwrap();
 
-    // Run the rename migration.
     super::migrate_hub_v3::hub_branches(&hub.crosslink_dir).unwrap();
 
-    // Helper: `new` is the old tip or a descendant of it (the post-rename
-    // compaction can advance the checkpoint by writing the browse tree and the
-    // agent ref by a REQ-11 prune, both as CHILD commits preserving history).
     let same_or_descendant = |old: &str, new: &str| -> bool {
         new == old
             || Command::new("git")
@@ -996,10 +934,8 @@ fn hub_branches_rename_round_trip() {
                 .success()
     };
 
-    // meta is never compacted → exact-SHA rename.
     assert!(rev(&hub.cache_dir, "refs/heads/crosslink/meta").as_deref() == Some(old_meta.as_str()));
-    // The agent ref lands at the old SHA, then the post-rename compaction may
-    // prune it forward (a child commit), so assert old is an ancestor-or-equal.
+
     let new_alpha = rev(&hub.cache_dir, "refs/heads/crosslink/agents/alpha").unwrap();
     assert!(
         same_or_descendant(&old_alpha, &new_alpha),
@@ -1008,15 +944,13 @@ fn hub_branches_rename_round_trip() {
     assert!(rev(&hub.cache_dir, "refs/crosslink/meta").is_none());
     assert!(rev(&hub.cache_dir, "refs/crosslink/checkpoint").is_none());
     assert!(rev(&hub.cache_dir, "refs/crosslink/agents/alpha").is_none());
-    // The renamed checkpoint exists; compaction advances it (browse tree), so the
-    // old tip is an ancestor-or-equal.
+
     let new_cp = rev(&hub.cache_dir, "refs/heads/crosslink/checkpoint").unwrap();
     assert!(
         same_or_descendant(&old_cp, &new_cp),
         "renamed checkpoint must be the old tip or a descendant of it"
     );
 
-    // Remote: new visible branches present, old hidden refs gone.
     let remote_refs: Vec<String> = {
         let out = Command::new("git")
             .current_dir(&hub.cache_dir)
@@ -1037,8 +971,6 @@ fn hub_branches_rename_round_trip() {
         "no old hidden refs remain on the remote, got {remote_refs:?}"
     );
 
-    // RefHubSource reduces to the SAME issue set post-rename (browse-tree commit
-    // does not change the reduced state).
     let after =
         crate::compaction::reduce(&crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap())
             .unwrap()
@@ -1055,13 +987,11 @@ fn hub_branches_rename_round_trip() {
         "reduced issue set must be identical after the rename"
     );
 
-    // The browse tree materialized on the now-visible checkpoint branch.
     let cp_tip = rev(&hub.cache_dir, "refs/heads/crosslink/checkpoint").unwrap();
     let readme =
         hub_v3::git_cat_file_blob_optional(&hub.cache_dir, &format!("{cp_tip}:README.md")).unwrap();
     assert!(readme.is_some(), "browse README materialized after rename");
 
-    // Second run is a clean no-op (idempotent).
     super::migrate_hub_v3::hub_branches(&hub.crosslink_dir).unwrap();
     assert!(rev(&hub.cache_dir, "refs/crosslink/checkpoint").is_none());
     assert!(rev(&hub.cache_dir, "refs/heads/crosslink/checkpoint").is_some());
@@ -1069,10 +999,6 @@ fn hub_branches_rename_round_trip() {
 
 #[test]
 fn v3_import_issues_promotes_batch_to_hub() {
-    // GH#4/GH#5: `SharedWriter::import_issues` emits the whole batch as hub
-    // events in one commit — display ids come from the reduction, the issues
-    // are visible in both the reduced state and SQLite, and children
-    // (labels, comments, closed status, parent, blockers) survive.
     if !git_ok() {
         return;
     }
@@ -1119,7 +1045,6 @@ fn v3_import_issues_promotes_batch_to_hub() {
     let (parent_id, child_id) = (assigned[0].1, assigned[1].1);
     assert!(parent_id > 0 && child_id > 0, "reduction-assigned ids");
 
-    // Visible in SQLite with children intact.
     let parent = db.get_issue(parent_id).unwrap().expect("parent hydrated");
     assert_eq!(parent.title, "imported parent");
     assert!(db
@@ -1132,7 +1057,6 @@ fn v3_import_issues_promotes_batch_to_hub() {
     assert_eq!(child.status, crate::models::IssueStatus::Closed);
     assert_eq!(child.parent_id, Some(parent_id));
 
-    // Visible in the reduced hub state (the whole point of promotion).
     let source = crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap();
     let state = crate::compaction::reduce(&source).unwrap().state;
     assert!(state.issues.contains_key(&parent_uuid));
@@ -1141,11 +1065,6 @@ fn v3_import_issues_promotes_batch_to_hub() {
 
 #[test]
 fn v3_create_after_direct_sqlite_rows_keeps_both_issues() {
-    // GH#5 regression: rows written straight into SQLite (the legacy import
-    // path) occupy the same positive id space the reduction assigns. A
-    // subsequent create must not vanish: the hub issue keeps the
-    // reduction-assigned id, the local-only row is remapped, and the id the
-    // CLI reports must exist in SQLite.
     if !git_ok() {
         return;
     }
@@ -1153,8 +1072,6 @@ fn v3_create_after_direct_sqlite_rows_keeps_both_issues() {
     let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
     let writer = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
 
-    // Hydrate the migrated hub first so the direct row lands after the
-    // existing display ids — exactly where the reduction's next id will land.
     writer.hydrate_with_retry(&db);
     let direct_id = db.create_issue("direct sqlite row", None, "low").unwrap();
 
@@ -1166,15 +1083,12 @@ fn v3_create_after_direct_sqlite_rows_keeps_both_issues() {
         "test precondition: reduction assigns the id the direct row occupied"
     );
 
-    // The reported id must be the hub issue, visible in SQLite (the GH#5
-    // guard makes create fail loudly rather than report a phantom id).
     let hub_issue = db
         .get_issue(created_id)
         .unwrap()
         .expect("hub issue visible");
     assert_eq!(hub_issue.title, "hub created after import");
 
-    // The direct row survives at a remapped negative id.
     let issues = db.list_issues(Some("all"), None, None).unwrap();
     let direct_row = issues
         .iter()
@@ -1195,14 +1109,12 @@ fn v3_to_shared_promotes_sqlite_only_rows() {
     let hub = setup_migrated_v3_hub();
     let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
 
-    // Direct-SQLite rows the hub does not know (the GH#4 stranded population).
     let a = db.create_issue("direct A", None, "medium").unwrap();
     let b = db.create_issue("direct B", None, "low").unwrap();
     db.add_comment(a, "carried comment", "note").unwrap();
 
     crate::commands::migrate::to_shared(&hub.crosslink_dir, &db).unwrap();
 
-    // Promoted into the reduced state with local numbering preserved.
     let source = crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap();
     let state = crate::compaction::reduce(&source).unwrap().state;
     let ids: std::collections::HashSet<i64> =
@@ -1214,7 +1126,6 @@ fn v3_to_shared_promotes_sqlite_only_rows() {
     let titles: Vec<&str> = state.issues.values().map(|i| i.title.as_str()).collect();
     assert!(titles.contains(&"direct A") && titles.contains(&"direct B"));
 
-    // Visible and hub-backed locally after the import's hydration.
     assert!(db.get_issue(a).unwrap().is_some());
     assert_eq!(
         db.get_comments(a).unwrap().len(),
@@ -1222,7 +1133,6 @@ fn v3_to_shared_promotes_sqlite_only_rows() {
         "comment carried through promotion"
     );
 
-    // Idempotent: a second run migrates nothing and changes nothing.
     let before = state.issues.len();
     crate::commands::migrate::to_shared(&hub.crosslink_dir, &db).unwrap();
     let source2 = crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap();

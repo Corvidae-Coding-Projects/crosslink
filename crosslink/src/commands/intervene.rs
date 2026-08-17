@@ -7,11 +7,10 @@ use crate::issue_file::validate_trigger_type;
 use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
 
-/// Check if intervention tracking is enabled in hook-config.json.
 fn is_intervention_tracking_enabled(crosslink_dir: &Path) -> bool {
     let config_path = crosslink_dir.join("hook-config.json");
     let Ok(content) = std::fs::read_to_string(&config_path) else {
-        return true; // default: enabled
+        return true;
     };
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
         return true;
@@ -165,13 +164,11 @@ mod tests {
         let (db, dir) = setup_db();
         let id = db.create_issue("Test", None, "medium").unwrap();
 
-        // Write config that disables intervention tracking
         let config = r#"{"tracking_mode":"strict","intervention_tracking":false}"#;
         std::fs::write(dir.path().join("hook-config.json"), config).unwrap();
 
         run(&db, None, id, "test", "tool_blocked", None, dir.path()).unwrap();
 
-        // No comment should be created
         let comments = db.get_comments(id).unwrap();
         assert!(comments.is_empty());
     }

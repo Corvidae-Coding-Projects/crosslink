@@ -23,9 +23,9 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
-      // Allow `_`-prefixed names (params/vars/caught errors) as the
-      // explicit "intentionally unused" convention, matching the
-      // Rust side of this codebase.
+
+
+
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

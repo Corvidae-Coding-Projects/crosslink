@@ -9,13 +9,6 @@ use super::helpers::issue_from_row;
 use crate::models::Issue;
 
 impl Database {
-    // Issue CRUD
-
-    /// Create a new issue with the given title, optional description, and priority.
-    ///
-    /// # Errors
-    /// Returns an error if the priority is invalid, the title or description
-    /// exceeds maximum length, or the database insert fails.
     pub fn create_issue(
         &self,
         title: &str,
@@ -25,11 +18,6 @@ impl Database {
         self.create_issue_with_parent(title, description, priority, None)
     }
 
-    /// Create a new subissue under the given parent issue.
-    ///
-    /// # Errors
-    /// Returns an error if the priority is invalid, the title or description
-    /// exceeds maximum length, or the database insert fails.
     pub fn create_subissue(
         &self,
         parent_id: i64,
@@ -66,10 +54,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Get all subissues of the given parent issue.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_subissues(&self, parent_id: i64) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at, scheduled_at, due_at FROM issues WHERE parent_id = ?1 ORDER BY id",
@@ -82,9 +66,6 @@ impl Database {
         Ok(issues)
     }
 
-    /// Resolve an issue ID, trying the local equivalent if a positive ID
-    /// isn't found. Users type "1" meaning "the first issue", regardless
-    /// of whether it's stored as #1 (hub) or L1 (local, id=-1 in `SQLite`).
     pub fn resolve_id(&self, id: i64) -> i64 {
         if id > 0 {
             let exists: bool = self
@@ -104,10 +85,6 @@ impl Database {
         id
     }
 
-    /// Get an issue by its display ID, returning `None` if not found.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_issue(&self, id: i64) -> Result<Option<Issue>> {
         let id = self.resolve_id(id);
         let mut stmt = self.conn.prepare(
@@ -117,10 +94,6 @@ impl Database {
         Ok(stmt.query_row([id], issue_from_row).ok())
     }
 
-    /// Look up an issue's display ID by its UUID.
-    ///
-    /// # Errors
-    /// Returns an error if no issue with the given UUID exists.
     pub fn get_issue_id_by_uuid(&self, uuid: &str) -> Result<i64> {
         self.conn
             .query_row(
@@ -131,10 +104,6 @@ impl Database {
             .context("Issue with given UUID not found")
     }
 
-    /// Look up an issue's UUID by its display ID (supports negative local IDs).
-    ///
-    /// # Errors
-    /// Returns an error if no issue with the given ID exists.
     pub fn get_issue_uuid_by_id(&self, id: i64) -> Result<String> {
         self.conn
             .query_row(
@@ -145,21 +114,12 @@ impl Database {
             .with_context(|| format!("Issue with id {id} not found"))
     }
 
-    /// Get an issue by ID, returning an error if not found.
-    /// Use this instead of `get_issue` when you need the issue to exist.
-    ///
-    /// # Errors
-    /// Returns an error if no issue with the given ID exists or the query fails.
     pub fn require_issue(&self, id: i64) -> Result<Issue> {
         let id = self.resolve_id(id);
         self.get_issue(id)?
             .ok_or_else(|| anyhow::anyhow!("Issue {} not found", crate::utils::format_issue_id(id)))
     }
 
-    /// List issues with optional status, label, and priority filters.
-    ///
-    /// # Errors
-    /// Returns an error if a filter value is invalid or the database query fails.
     pub fn list_issues(
         &self,
         status_filter: Option<&str>,
@@ -212,11 +172,6 @@ impl Database {
         Ok(issues)
     }
 
-    /// Update an issue's title, description, and/or priority.
-    ///
-    /// # Errors
-    /// Returns an error if the title or description exceeds maximum length,
-    /// the priority is invalid, or the database update fails.
     pub fn update_issue(
         &self,
         id: i64,
@@ -268,10 +223,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Close an issue by setting its status to `closed`.
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     pub fn close_issue(&self, id: i64) -> Result<bool> {
         let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
@@ -282,10 +233,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Reopen a closed issue by setting its status back to `open`.
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     pub fn reopen_issue(&self, id: i64) -> Result<bool> {
         let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
@@ -296,10 +243,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Delete an issue by its display ID.
-    ///
-    /// # Errors
-    /// Returns an error if the database delete fails.
     pub fn delete_issue(&self, id: i64) -> Result<bool> {
         let id = self.resolve_id(id);
         let rows = self
@@ -308,12 +251,7 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Search issues by query string across titles, descriptions, and comments.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn search_issues(&self, query: &str) -> Result<Vec<Issue>> {
-        // Escape SQL LIKE wildcards to prevent unintended pattern matching
         let escaped = query.replace('%', "\\%").replace('_', "\\_");
         let pattern = format!("%{escaped}%");
         let mut stmt = self.conn.prepare(
@@ -335,10 +273,6 @@ impl Database {
         Ok(issues)
     }
 
-    /// Archive a closed issue.
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     pub fn archive_issue(&self, id: i64) -> Result<bool> {
         let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
@@ -349,10 +283,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Unarchive an issue, setting its status back to `closed`.
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     pub fn unarchive_issue(&self, id: i64) -> Result<bool> {
         let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
@@ -363,10 +293,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// List all archived issues.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn list_archived_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at, scheduled_at, due_at FROM issues WHERE status = 'archived' ORDER BY id DESC",
@@ -379,10 +305,6 @@ impl Database {
         Ok(issues)
     }
 
-    /// Archive all issues closed more than the given number of days ago.
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     pub fn archive_older_than(&self, days: i64) -> Result<i32> {
         let cutoff = Utc::now() - chrono::Duration::days(days);
         let cutoff_str = cutoff.to_rfc3339();
@@ -396,10 +318,6 @@ impl Database {
         Ok(i32::try_from(rows).unwrap_or(i32::MAX))
     }
 
-    /// Update an issue's parent, making it a subissue or a top-level issue.
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
     pub fn update_parent(&self, id: i64, parent_id: Option<i64>) -> Result<bool> {
         let now = chrono::Utc::now().to_rfc3339();
         let rows = self.conn.execute(
@@ -409,12 +327,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    // === Integrity check helpers ===
-
-    /// Get the maximum issue display ID in the database, or 0 if empty.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_max_display_id(&self) -> Result<i64> {
         let max: i64 =
             self.conn
@@ -424,10 +336,6 @@ impl Database {
         Ok(max)
     }
 
-    /// Get the count of issues in the database.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_issue_count(&self) -> Result<i64> {
         let count: i64 = self
             .conn
@@ -435,10 +343,6 @@ impl Database {
         Ok(count)
     }
 
-    /// Count issues created since a given timestamp.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn count_issues_since(&self, since: &str) -> Result<i64> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM issues WHERE created_at >= ?1",
@@ -448,10 +352,6 @@ impl Database {
         Ok(count)
     }
 
-    /// Count comments created since a given timestamp.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn count_comments_since(&self, since: &str) -> Result<i64> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM comments WHERE created_at >= ?1",
@@ -461,10 +361,6 @@ impl Database {
         Ok(count)
     }
 
-    /// Get the uuid and `created_by` metadata for an issue (columns added in migration v10).
-    ///
-    /// # Errors
-    /// Returns an error if the issue is not found or the database query fails.
     pub fn get_issue_export_metadata(
         &self,
         issue_id: i64,

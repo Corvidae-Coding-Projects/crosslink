@@ -1,12 +1,3 @@
-//! Handlers for agent monitoring and lock endpoints.
-//!
-//! Implements:
-//! - `GET /api/v1/agents` — list all agents with latest heartbeat and status
-//! - `GET /api/v1/agents/:id` — single agent detail with heartbeat history, locks, kickoff status
-//! - `GET /api/v1/agents/:id/status` — kickoff status for a specific agent
-//! - `GET /api/v1/locks` — all current locks
-//! - `GET /api/v1/locks/stale` — stale locks with age
-
 use std::path::{Path, PathBuf};
 
 use axum::{
@@ -24,38 +15,22 @@ use crate::server::{
 };
 use crate::sync::SyncManager;
 
-// ---------------------------------------------------------------------------
-// Staleness thresholds
-// ---------------------------------------------------------------------------
-
-/// Heartbeat age below which an agent is considered "active".
 const ACTIVE_THRESHOLD_SECS: i64 = 5 * 60;
-/// Heartbeat age above which an agent is considered "stale" (between this and
-/// `ACTIVE_THRESHOLD` is "idle").
+
 const IDLE_THRESHOLD_SECS: i64 = 30 * 60;
 
-// ---------------------------------------------------------------------------
-// Helper types
-// ---------------------------------------------------------------------------
-
-/// Response for `GET /api/v1/agents/:id/status`.
 #[derive(Debug, Serialize)]
 pub struct AgentStatusResponse {
     pub agent_id: String,
-    /// Content of `.kickoff-status` file, or a derived string when not present.
+
     pub kickoff_status: String,
-    /// Absolute path of the agent's git worktree, if discoverable.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
-    /// Whether the agent's tmux session is currently running.
+
     pub tmux_session_active: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
-/// Classify an agent's status from its heartbeat age in seconds.
 const fn classify_status(age_secs: i64) -> AgentStatus {
     if age_secs < ACTIVE_THRESHOLD_SECS {
         AgentStatus::Active
@@ -66,16 +41,6 @@ const fn classify_status(age_secs: i64) -> AgentStatus {
     }
 }
 
-/// Scan `.worktrees/` for a directory whose name matches the given `agent_id`.
-///
-/// Matching rules (tried in order):
-/// 1. Exact slug match.
-/// 2. Word-boundary match: the `agent_id` contains the slug (or vice versa)
-///    at a word boundary (preceded/followed by start/end or `-`/`_`/`.`).
-///
-/// The word-boundary constraint prevents false positives like agent "a"
-/// matching worktree "abc" or short common substrings matching unrelated
-/// worktrees.
 fn find_worktree_for_agent(root: &Path, agent_id: &str) -> Option<PathBuf> {
     let worktrees_dir = root.join(".worktrees");
     if !worktrees_dir.is_dir() {
@@ -94,10 +59,6 @@ fn find_worktree_for_agent(root: &Path, agent_id: &str) -> Option<PathBuf> {
         .map(|e| e.path())
 }
 
-/// Returns true if `haystack` contains `needle` at a word boundary.
-///
-/// A word boundary means the character immediately before and after the
-/// match is either absent (start/end of string) or a separator (`-`, `_`, `.`).
 const fn is_boundary(c: u8) -> bool {
     matches!(c, b'-' | b'_' | b'.')
 }
@@ -120,35 +81,24 @@ fn contains_at_word_boundary(haystack: &str, needle: &str) -> bool {
     false
 }
 
-/// Read the current git branch from a linked worktree directory.
-///
-/// In a git linked worktree the `.git` entry is a *file* (not a directory)
-/// containing `gitdir: <path>`.  We resolve that path and read the `HEAD`
-/// file from it.
 fn read_worktree_branch(worktree: &Path) -> Option<String> {
     let git_entry = worktree.join(".git");
     let head_content = if git_entry.is_file() {
-        // Linked worktree: .git is a file with "gitdir: <path>"
         let git_file = std::fs::read_to_string(&git_entry).ok()?;
         let gitdir = git_file.strip_prefix("gitdir: ")?.trim();
         let head_path = PathBuf::from(gitdir).join("HEAD");
         std::fs::read_to_string(&head_path).ok()?
     } else if git_entry.is_dir() {
-        // Bare-style: .git/HEAD
         std::fs::read_to_string(git_entry.join("HEAD")).ok()?
     } else {
         return None;
     };
 
-    // HEAD contains either "ref: refs/heads/<branch>" or a detached SHA.
     head_content
         .strip_prefix("ref: refs/heads/")
         .map(|b| b.trim().to_string())
 }
 
-/// Return `true` if the named tmux session is currently running.
-///
-/// Uses `tokio::process::Command` to avoid blocking the async runtime.
 async fn tmux_session_exists(name: &str) -> bool {
     tokio::process::Command::new("tmux")
         .args(["has-session", "-t", name])
@@ -157,16 +107,12 @@ async fn tmux_session_exists(name: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-/// Derive the expected tmux session name for a worktree slug.
-///
-/// Mirrors the logic in `commands::kickoff::tmux_session_name`.
 fn agent_tmux_session(agent_id: &str) -> String {
-    // Strip common prefixes used in agent IDs / branch names
     let slug = agent_id
         .strip_prefix("feature/")
         .or_else(|| agent_id.strip_prefix("feat-"))
         .unwrap_or(agent_id);
-    // Split on "--": agent IDs are "<parent>--<slug>"; we want the last part
+
     let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
     let raw = format!("feat-{wt_slug}");
     let sanitized: String = raw
@@ -180,17 +126,28 @@ fn agent_tmux_session(agent_id: &str) -> String {
     }
 }
 
+fn worktree_runtime_status(worktree: &std::path::Path) -> Option<String> {
+    let sentinel = std::fs::read_to_string(worktree.join(".kickoff-status"))
+        .ok()
+        .map(|value| value.trim().to_string());
+    let runtime = crate::agents::runtime_snapshot(worktree).status;
+    match (sentinel, runtime) {
+        (Some(current), Some(normalized))
+            if current.eq_ignore_ascii_case("running")
+                || matches!(
+                    normalized.as_str(),
+                    "done" | "failed" | "timed-out" | "waiting"
+                ) =>
+        {
+            Some(normalized)
+        }
+        (Some(current), _) => Some(current),
+        (None, runtime) => runtime,
+    }
+}
+
 use crate::server::errors::internal_error;
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/agents` — list all known agents with latest heartbeat and status.
-///
-/// # Errors
-///
-/// Returns an error if the sync manager or heartbeat/lock reads fail.
 pub async fn list_agents(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -244,11 +201,6 @@ pub async fn list_agents(
     })))
 }
 
-/// `GET /api/v1/agents/:id` — detailed view of a single agent.
-///
-/// # Errors
-///
-/// Returns an error if the sync manager or heartbeat/lock reads fail.
 pub async fn get_agent(
     State(state): State<AppState>,
     AxumPath(agent_id): AxumPath<String>,
@@ -290,12 +242,9 @@ pub async fn get_agent(
     let branch = worktree.as_deref().and_then(read_worktree_branch);
     let worktree_path = worktree.as_ref().map(|p| p.to_string_lossy().into_owned());
 
-    let kickoff_status = worktree.as_ref().and_then(|wt| {
-        let path = wt.join(".kickoff-status");
-        std::fs::read_to_string(path)
-            .ok()
-            .map(|s| s.trim().to_string())
-    });
+    let kickoff_status = worktree
+        .as_ref()
+        .and_then(|worktree| worktree_runtime_status(worktree));
 
     let heartbeat_history = hb
         .as_ref()
@@ -326,14 +275,6 @@ pub async fn get_agent(
     }))
 }
 
-/// `GET /api/v1/agents/:id/status` — kickoff status for a specific agent.
-///
-/// Reads the `.kickoff-status` file from the agent's worktree (if present)
-/// and reports whether the agent's tmux session is still running.
-///
-/// # Errors
-///
-/// Returns an error if the agent status cannot be determined.
 pub async fn get_agent_status(
     State(state): State<AppState>,
     AxumPath(agent_id): AxumPath<String>,
@@ -347,17 +288,7 @@ pub async fn get_agent_status(
 
     let kickoff_status = worktree.as_ref().map_or_else(
         || "unknown".to_string(),
-        |wt| {
-            let path = wt.join(".kickoff-status");
-            if path.exists() {
-                std::fs::read_to_string(&path)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string()
-            } else {
-                "running".to_string()
-            }
-        },
+        |worktree| worktree_runtime_status(worktree).unwrap_or_else(|| "running".to_string()),
     );
 
     let session_name = agent_tmux_session(&agent_id);
@@ -371,11 +302,6 @@ pub async fn get_agent_status(
     }))
 }
 
-/// `GET /api/v1/locks` — all active locks with derived metadata.
-///
-/// # Errors
-///
-/// Returns an error if the sync manager or lock reads fail.
 pub async fn list_locks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -417,14 +343,6 @@ pub async fn list_locks(
     })))
 }
 
-/// `GET /api/v1/locks/stale` — locks whose holding agent has gone stale.
-///
-/// Uses `SyncManager::find_stale_locks_with_age` which accounts for the
-/// agent's heartbeat freshness, not just lock claimed-at time.
-///
-/// # Errors
-///
-/// Returns an error if the sync manager or stale lock detection fails.
 pub async fn list_stale_locks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -435,7 +353,6 @@ pub async fn list_stale_locks(
         .find_stale_locks_with_age()
         .map_err(|e| internal_error("Failed to read stale locks", e))?;
 
-    // Re-read the full locks file to get branch/claimed_at/signed_by.
     let locks_file = sync
         .read_locks_auto()
         .unwrap_or_else(|_| crate::locks::LocksFile::empty());
@@ -468,11 +385,6 @@ pub async fn list_stale_locks(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// Lock change notification
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/locks/notify`.
 #[derive(serde::Deserialize)]
 pub struct LockNotifyRequest {
     pub issue_id: i64,
@@ -480,14 +392,6 @@ pub struct LockNotifyRequest {
     pub agent_id: String,
 }
 
-/// `POST /api/v1/locks/notify` — broadcast a lock change event over WebSocket.
-///
-/// Agents call this after claiming or releasing a lock so that all connected
-/// WebSocket clients are notified in real time.
-///
-/// # Errors
-///
-/// Returns an error if the lock action is invalid.
 pub async fn notify_lock_changed(
     State(state): State<AppState>,
     Json(body): Json<LockNotifyRequest>,
@@ -508,7 +412,6 @@ pub async fn notify_lock_changed(
         }
     };
 
-    // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
     let _ = state.ws_tx.send(crate::server::ws::WsEvent::LockChanged(
         crate::server::types::WsLockChangedEvent {
             event_type: crate::server::types::WsEventType::LockChanged,
@@ -520,10 +423,6 @@ pub async fn notify_lock_changed(
 
     Ok(Json(json!({ "ok": true })))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -610,7 +509,7 @@ mod tests {
     #[test]
     fn test_read_worktree_branch_from_file() {
         let dir = tempfile::tempdir().unwrap();
-        // Simulate a linked worktree: .git is a file pointing to a real gitdir
+
         let gitdir = dir.path().join("gitdir");
         std::fs::create_dir_all(&gitdir).unwrap();
         std::fs::write(gitdir.join("HEAD"), "ref: refs/heads/feature/my-branch\n").unwrap();
@@ -629,7 +528,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let gitdir = dir.path().join("gitdir");
         std::fs::create_dir_all(&gitdir).unwrap();
-        // Detached HEAD — just a SHA, no "ref: refs/heads/" prefix
+
         std::fs::write(
             gitdir.join("HEAD"),
             "abc123def456abc123def456abc123def456abc1\n",
@@ -641,7 +540,6 @@ mod tests {
         )
         .unwrap();
 
-        // Detached HEAD has no branch name — should return None
         let branch = read_worktree_branch(dir.path());
         assert!(branch.is_none());
     }
@@ -688,7 +586,6 @@ mod tests {
         let worktrees = dir.path().join(".worktrees");
         std::fs::create_dir_all(worktrees.join("short")).unwrap();
 
-        // agent_id "long-short-name" contains slug "short"
         let result = find_worktree_for_agent(dir.path(), "long-short-name");
         assert!(result.is_some());
     }
@@ -699,31 +596,25 @@ mod tests {
         let worktrees = dir.path().join(".worktrees");
         std::fs::create_dir_all(worktrees.join("my-agent-extended")).unwrap();
 
-        // slug "my-agent-extended" contains agent_id "my-agent"
         let result = find_worktree_for_agent(dir.path(), "my-agent");
         assert!(result.is_some());
     }
 
     #[test]
     fn test_classify_status_boundary_values() {
-        // Exactly at active threshold -> idle
         assert_eq!(classify_status(ACTIVE_THRESHOLD_SECS), AgentStatus::Idle);
-        // One below active threshold -> active
+
         assert_eq!(
             classify_status(ACTIVE_THRESHOLD_SECS - 1),
             AgentStatus::Active
         );
-        // Exactly at idle threshold -> stale
+
         assert_eq!(classify_status(IDLE_THRESHOLD_SECS), AgentStatus::Stale);
-        // One below idle threshold -> idle
+
         assert_eq!(classify_status(IDLE_THRESHOLD_SECS - 1), AgentStatus::Idle);
-        // Negative age (clock skew) -> active
+
         assert_eq!(classify_status(-10), AgentStatus::Active);
     }
-
-    // -----------------------------------------------------------------------
-    // Handler integration tests
-    // -----------------------------------------------------------------------
 
     use crate::db::Database;
     use crate::server::{routes::build_router, state::AppState};
@@ -743,7 +634,6 @@ mod tests {
         (build_router(state, None), dir)
     }
 
-    /// Create a test app with a heartbeat file seeded in the hub cache.
     fn test_app_with_heartbeat(agent_id: &str) -> (axum::Router, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
@@ -751,9 +641,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Seed a v2-layout heartbeat (`agents/<id>/heartbeat.json`) — the bare
-        // cache dir resolves to V2 mode, and `read_heartbeats_v2` reads this
-        // location (retained for frozen / pre-migration hub inspection).
         let agent_dir = crosslink_dir
             .join(".hub-cache")
             .join("agents")
@@ -825,7 +712,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_agent_no_heartbeat_returns_unknown() {
-        // Use the heartbeat test app so sync is initialized, but query a different agent
         let (app, _dir) = test_app_with_heartbeat("existing-agent");
         let resp = app
             .oneshot(
@@ -837,9 +723,7 @@ mod tests {
             )
             .await
             .unwrap();
-        // Agent with no heartbeat returns OK with Unknown status when sync
-        // is available. In test environments where the hub cache may not be
-        // fully initialized, a 500 from SyncManager init is also valid.
+
         let status = resp.status();
         assert!(
             status == StatusCode::OK || status == StatusCode::INTERNAL_SERVER_ERROR,
@@ -867,7 +751,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // AgentDetail uses #[serde(flatten)] on summary, so fields are top-level
+
         assert_eq!(body["agent_id"], "my-agent");
         assert_eq!(body["status"], "active");
         assert!(body["heartbeat_history"].as_array().unwrap().len() == 1);
@@ -1020,7 +904,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Create a worktree directory matching the agent name
         let worktrees_dir = dir.path().join(".worktrees").join("my-wt-agent");
         std::fs::create_dir_all(&worktrees_dir).unwrap();
 
@@ -1040,7 +923,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
         assert_eq!(body["agent_id"], "my-wt-agent");
-        // No .kickoff-status file → defaults to "running"
+
         assert_eq!(body["kickoff_status"], "running");
     }
 
@@ -1052,10 +935,9 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Create a worktree directory matching the agent name
         let worktrees_dir = dir.path().join(".worktrees").join("my-wt-agent2");
         std::fs::create_dir_all(&worktrees_dir).unwrap();
-        // Write a .kickoff-status file
+
         std::fs::write(worktrees_dir.join(".kickoff-status"), "completed\n").unwrap();
 
         let state = AppState::new(db, crosslink_dir);
@@ -1094,8 +976,6 @@ mod tests {
         assert_eq!(json.detail.as_deref(), Some("missing"));
     }
 
-    /// Test app with a seeded heartbeat AND a worktree directory that contains
-    /// a .kickoff-status file, so `get_agent` returns `kickoff_status`.
     fn test_app_with_heartbeat_and_kickoff(
         agent_id: &str,
         kickoff_status: &str,
@@ -1106,7 +986,6 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Seed a v2-layout heartbeat (`agents/<id>/heartbeat.json`).
         let agent_dir = crosslink_dir
             .join(".hub-cache")
             .join("agents")
@@ -1124,7 +1003,6 @@ mod tests {
         )
         .unwrap();
 
-        // Create a matching worktree with a .kickoff-status file.
         let worktrees_dir = dir.path().join(".worktrees").join(agent_id);
         std::fs::create_dir_all(&worktrees_dir).unwrap();
         std::fs::write(
@@ -1153,14 +1031,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
         assert_eq!(body["agent_id"], "kickoff-agent");
-        // kickoff_status should be populated from the .kickoff-status file
+
         assert_eq!(body["kickoff_status"], "completed");
     }
 
-    /// Build a real **v3** hub in a git repo and seed one lock into the
-    /// checkpoint (REQ-5: locks are reduced into the checkpoint, which is what
-    /// `read_locks_v3` reads). When `fresh_heartbeat` is true the holder also
-    /// gets a current heartbeat on its agent ref so the lock is NOT stale.
     fn test_app_with_lock_v3(
         agent_id: &str,
         issue_id: i64,
@@ -1237,7 +1111,7 @@ mod tests {
     async fn test_list_locks_with_one_lock() {
         let Some((app, _dir)) = test_app_with_lock_v3("lock-agent", 42, "feature/test", true)
         else {
-            return; // git unavailable
+            return;
         };
         let resp = app
             .oneshot(
@@ -1259,20 +1133,17 @@ mod tests {
         assert_eq!(items[0]["is_stale"], false);
     }
 
-    /// Build a test app where the v3 checkpoint has a lock whose holder has no
-    /// fresh heartbeat, so `list_stale_locks` returns at least one entry.
     fn test_app_with_stale_lock(
         agent_id: &str,
         issue_id: i64,
     ) -> Option<(axum::Router, tempfile::TempDir)> {
-        // No fresh heartbeat → the lock is stale.
         test_app_with_lock_v3(agent_id, issue_id, "feature/stale-test", false)
     }
 
     #[tokio::test]
     async fn test_list_stale_locks_with_stale_entry() {
         let Some((app, _dir)) = test_app_with_stale_lock("stale-agent", 77) else {
-            return; // git unavailable
+            return;
         };
         let resp = app
             .oneshot(
@@ -1286,7 +1157,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // There should be at least one stale lock entry
+
         let total = body["total"].as_u64().unwrap_or(0);
         assert!(total >= 1, "expected at least one stale lock, got {total}");
         let items = body["items"].as_array().unwrap();
@@ -1295,13 +1166,12 @@ mod tests {
         assert_eq!(entry["agent_id"], "stale-agent");
         assert_eq!(entry["branch"], "feature/stale-test");
         assert_eq!(entry["is_stale"], true);
-        // age_seconds should be positive
+
         assert!(entry["age_seconds"].as_i64().unwrap_or(0) > 0);
     }
 
     #[test]
     fn test_internal_error_helper_detail_none_via_display() {
-        // Verify internal_error formats any Display type correctly
         let (status, json) =
             crate::server::errors::internal_error("db error", std::io::Error::other("disk full"));
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
@@ -1311,7 +1181,6 @@ mod tests {
 
     #[test]
     fn test_not_found_helper_with_owned_string() {
-        // Verify not_found accepts an owned String (exercises the Into<String> bound)
         let msg = format!("agent '{}' not found", "worker-1");
         let (status, json) = crate::server::errors::not_found(msg);
         assert_eq!(status, StatusCode::NOT_FOUND);

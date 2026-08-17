@@ -1,9 +1,9 @@
-# Kickoff — autonomous agent launch and monitoring
-# Output: docs_src/assets/img/kickoff.gif
-#
-# NOTE: This tape simulates the /kickoff output since it requires
-# tmux and a real Claude session. The commands shown demonstrate
-# the agent-driven workflow.
+
+
+
+
+
+
 
 Output ../assets/img/kickoff.gif
 
@@ -17,7 +17,7 @@ Set TypingSpeed 30ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# Orchestrator agent launches a sub-agent
+
 Type "# Orchestrator: spawning agent for batch retry feature"
 Enter
 Sleep 1s
@@ -26,7 +26,7 @@ Type `echo '/kickoff "add batch retry logic" --verify ci'`
 Enter
 Sleep 2s
 
-# Simulate the output
+
 Type "echo ''"
 Enter
 Type `echo "Creating feature branch..."`
@@ -73,7 +73,7 @@ Type `echo "  Check status:   /check feat-add-batch-retry-logic"`
 Enter
 Sleep 3s
 
-# Agent checks on sub-agent later
+
 Type ""
 Enter
 Type "# Orchestrator: checking on sub-agent progress"

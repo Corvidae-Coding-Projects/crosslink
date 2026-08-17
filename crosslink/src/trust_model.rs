@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Trust model configuration, loaded from `.crosslink/swarm.toml`
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TrustConfig {
     #[serde(default)]
@@ -15,10 +14,9 @@ pub struct TrustConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrustProfile {
-    /// Trust model type: "local-only", "multi-tenant", "public-api", "custom"
     #[serde(default = "default_model")]
     pub model: String,
-    /// Description of the trust model for agent context
+
     #[serde(default)]
     pub description: String,
 }
@@ -38,32 +36,30 @@ impl Default for TrustProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IgnoreRules {
-    /// Patterns to match against finding titles — matched findings get "by-design" annotation
     #[serde(default)]
     pub patterns: Vec<String>,
-    /// Reason shown when a finding is triaged as by-design
+
     #[serde(default)]
     pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BoundaryConfig {
-    /// External interfaces: "http", "ws", "grpc", "cli", "file"
     #[serde(default)]
     pub external: Vec<String>,
-    /// Internal/trusted interfaces
+
     #[serde(default)]
     pub internal: Vec<String>,
 }
 
-/// Result of applying trust model to a finding
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriageResult {
-    /// Finding is valid and should be reported
     Valid,
-    /// Finding is by-design per trust model
-    ByDesign { reason: String },
-    /// Finding severity should be adjusted
+
+    ByDesign {
+        reason: String,
+    },
+
     Downgraded {
         original_severity: String,
         new_severity: String,
@@ -71,13 +67,6 @@ pub enum TriageResult {
     },
 }
 
-/// Load trust configuration from `.crosslink/swarm.toml`.
-///
-/// Returns a default configuration if the file does not exist.
-///
-/// # Errors
-///
-/// Returns an error if the config file exists but cannot be read or parsed.
 pub fn load_trust_config(crosslink_dir: &Path) -> Result<TrustConfig> {
     let config_path = crosslink_dir.join("swarm.toml");
     if !config_path.exists() {
@@ -90,15 +79,11 @@ pub fn load_trust_config(crosslink_dir: &Path) -> Result<TrustConfig> {
     Ok(config)
 }
 
-/// Check if a finding matches any ignore pattern (case-insensitive substring match).
-///
-/// Returns `ByDesign` if the finding title matches an ignore pattern, `Valid` otherwise.
 #[must_use]
 pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> TriageResult {
     let title_lower = title.to_lowercase();
     let description_lower = description.to_lowercase();
 
-    // Check ignore patterns — matched findings are triaged as by-design.
     for pattern in &config.ignore.patterns {
         if title_lower.contains(&pattern.to_lowercase()) {
             return TriageResult::ByDesign {
@@ -111,8 +96,6 @@ pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> T
         }
     }
 
-    // Check boundary-based downgrade — findings about internal boundaries get
-    // severity reduced because internal interfaces have implicit trust.
     for boundary in &config.boundaries.internal {
         let boundary_lower = boundary.to_lowercase();
         if title_lower.contains(&boundary_lower) || description_lower.contains(&boundary_lower) {
@@ -129,10 +112,6 @@ pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> T
     TriageResult::Valid
 }
 
-/// Apply triage to a list of findings.
-///
-/// Each finding is a `(title, description, severity)` tuple. Returns each finding
-/// annotated with its `TriageResult`. Findings are never silently dropped.
 #[must_use]
 pub fn apply_trust_model(
     config: &TrustConfig,
@@ -147,7 +126,6 @@ pub fn apply_trust_model(
         .collect()
 }
 
-/// Generate a sensible default config for common trust models.
 #[must_use]
 pub fn generate_default_config(model: &str) -> TrustConfig {
     match model {
@@ -202,11 +180,6 @@ pub fn generate_default_config(model: &str) -> TrustConfig {
     }
 }
 
-/// Write a default `swarm.toml` configuration for the given trust model.
-///
-/// # Errors
-///
-/// Returns an error if serialization or file writing fails.
 pub fn write_default_config(crosslink_dir: &Path, model: &str) -> Result<()> {
     let config = generate_default_config(model);
     let contents =
@@ -454,7 +427,7 @@ internal = ["db"]
             },
             ..Default::default()
         };
-        // Pattern only in description, not title
+
         let result = triage_finding(&config, "Unvalidated input", "goes through message-bus");
         match result {
             TriageResult::Downgraded { .. } => {}

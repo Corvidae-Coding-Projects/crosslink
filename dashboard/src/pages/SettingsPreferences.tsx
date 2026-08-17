@@ -1,10 +1,10 @@
-// /settings/preferences — user-level UI preferences (design doc §14
-// Phase 5 — polish). Covers theme selection + audible-alert config.
-//
-// Values are persisted in localStorage via `lib/preferences.ts`. The
-// theme observer + alert-sound bridge are mounted near the app root
-// (see App.tsx) and react to changes automatically — this page only
-// writes.
+
+
+
+
+
+
+
 
 import type { AlertSeverity } from "@/api/types";
 import {
@@ -33,8 +33,8 @@ export function SettingsPreferences() {
     const next: AlertSeverity[] = has
       ? prefs.audibleSeverities.filter((s) => s !== sev)
       : [...prefs.audibleSeverities, sev];
-    // Keep canonical order (critical > warning > info) so the stored
-    // list stays tidy regardless of click order.
+
+
     const order: AlertSeverity[] = ["critical", "warning", "info"];
     next.sort((a, b) => order.indexOf(a) - order.indexOf(b));
     patchPreferences({ audibleSeverities: next });

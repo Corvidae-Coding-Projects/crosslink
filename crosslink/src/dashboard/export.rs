@@ -1,21 +1,3 @@
-//! Dashboard export endpoints (design doc §14 Phase 5 — Polish).
-//!
-//! Lets the operator snapshot the aggregator's current view as
-//! portable files for status reports, spreadsheet analysis, and
-//! archival. The data matches what the UI sees — same queries as
-//! [`super::api::list_projects`] / [`super::api::list_alerts`] — so
-//! export reflects the panel, not a parallel re-derivation.
-//!
-//! Endpoints (all GET, all auth-gated by the outer router):
-//! - `/api/v1/dashboard/export/projects.csv`
-//! - `/api/v1/dashboard/export/projects.json`
-//! - `/api/v1/dashboard/export/alerts.csv`
-//! - `/api/v1/dashboard/export/alerts.json`
-//!
-//! Screenshot export is intentionally deferred — that's a frontend
-//! concern (`html2canvas` or the browser's native print flow) and
-//! doesn't need a server round-trip.
-
 use std::fmt::Write as _;
 
 use axum::{
@@ -53,9 +35,6 @@ impl IntoResponse for ExportError {
     }
 }
 
-/// Shape of one project row in exports. Kept independent of the
-/// `ProjectListItem` wire type so the JSON/CSV schemas can evolve
-/// without breaking the live tile rendering.
 #[derive(Debug, serde::Serialize)]
 struct ProjectExportRow {
     slug: String,
@@ -194,8 +173,6 @@ async fn load_alerts(
     .map_err(|e| ExportError::Internal(format!("task panicked: {e}")))?
 }
 
-/// RFC 4180 CSV field escaping: wrap in quotes if the value contains a
-/// comma, quote, CR, or LF; double any embedded quotes.
 fn csv_escape(field: &str) -> String {
     let needs_quote = field
         .bytes()
@@ -334,8 +311,7 @@ async fn export_projects_json(State(state): State<AppState>) -> Result<Response,
 
 async fn export_alerts_csv(State(state): State<AppState>) -> Result<Response, ExportError> {
     let db_path = require_db_path(&state)?;
-    // Default: open alerts only. Matches the /alerts API and what the
-    // UI shows. Historical dump lives under ?all=1 in a follow-up.
+
     let rows = load_alerts(db_path, true).await?;
     Ok(csv_response("crosslink-alerts.csv", alerts_to_csv(&rows)))
 }

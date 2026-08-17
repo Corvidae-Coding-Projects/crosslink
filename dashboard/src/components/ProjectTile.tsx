@@ -1,5 +1,5 @@
-// SCADA-style project tile. Dense, colour-coded, scannable at-a-glance.
-// Design §8 "Tile anatomy" for the intended layout.
+
+
 
 import { Link } from "react-router-dom";
 
@@ -93,4 +93,3 @@ export function ProjectTile({ item }: { item: ProjectListItem }) {
     </Link>
   );
 }
-

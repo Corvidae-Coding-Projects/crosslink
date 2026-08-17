@@ -5,17 +5,6 @@ use std::path::Path;
 use crate::signing;
 use crate::utils::is_windows_reserved_name;
 
-/// Session role recorded in `agent.json`.
-///
-/// `Driver` means the identity exists for hub-cache signing on a human-driven
-/// main repo — hooks should apply strict, human-oriented rules. `Agent` means
-/// the identity belongs to an autonomous agent worktree (kickoff, swarm, or
-/// Claude Code sub-agent) and hooks should apply the relaxed agent overrides.
-///
-/// Deserializing an `agent.json` without a `role` field yields `Driver`,
-/// which is the safe default: existing main-repo identities auto-created by
-/// `crosslink init` before this field existed keep their strict hook
-/// treatment. See GH #566.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentRole {
@@ -24,44 +13,27 @@ pub enum AgentRole {
     Agent,
 }
 
-/// Machine-local agent identity. Lives at `.crosslink/agent.json`.
-/// This file is gitignored — each machine has its own.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentConfig {
     pub agent_id: String,
     pub machine_id: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// Session role: `driver` for main-repo signing identity, `agent` for
-    /// autonomous agent worktrees. Missing field defaults to `driver`.
+
     #[serde(default)]
     pub role: AgentRole,
-    /// Path to SSH private key, relative to the **main repo's**
-    /// `.crosslink/` (e.g. "`keys/agent_ed25519`").
-    ///
-    /// GH#610: new agents store keys under the main repo's
-    /// `.crosslink/keys/` so they survive `git worktree remove` of a
-    /// kickoff agent worktree. Legacy agents (pre-#610) wrote this
-    /// path relative to the worktree's own `.crosslink/`; the
-    /// resolver in `sync::trust::resolve_agent_key` tries the host
-    /// path first and falls back to the worktree path for legacy
-    /// keys.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_key_path: Option<String>,
-    /// SSH public key fingerprint (e.g. "SHA256:...").
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_fingerprint: Option<String>,
-    /// Full SSH public key line (e.g. "ssh-ed25519 AAAA... comment").
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_public_key: Option<String>,
 }
 
 impl AgentConfig {
-    /// Load from the .crosslink directory. Returns None if agent.json doesn't exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file exists but cannot be read, parsed, or fails validation.
     pub fn load(crosslink_dir: &Path) -> Result<Option<Self>> {
         let path = crosslink_dir.join("agent.json");
         if !path.exists() {
@@ -75,24 +47,10 @@ impl AgentConfig {
         Ok(Some(config))
     }
 
-    /// Create and write a new agent config with the default `Driver` role.
-    ///
-    /// Used by `crosslink init` to mint a hub-cache signing identity on a
-    /// human-driven main repo. For autonomous agent worktrees use
-    /// [`Self::init_with_role`] with [`AgentRole::Agent`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the agent ID fails validation or the config file cannot be written.
     pub fn init(crosslink_dir: &Path, agent_id: &str, description: Option<&str>) -> Result<Self> {
         Self::init_with_role(crosslink_dir, agent_id, description, AgentRole::Driver)
     }
 
-    /// Create and write a new agent config with an explicit role.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the agent ID fails validation or the config file cannot be written.
     pub fn init_with_role(
         crosslink_dir: &Path,
         agent_id: &str,
@@ -117,10 +75,6 @@ impl AgentConfig {
         Ok(config)
     }
 
-    /// Create an anonymous agent config for pre-init hub writes.
-    ///
-    /// Uses a stable hash of the crosslink directory path so each worktree
-    /// gets a consistent anonymous identity without collisions.
     #[must_use]
     pub fn anonymous(crosslink_dir: &Path) -> Self {
         use std::collections::hash_map::DefaultHasher;
@@ -167,17 +121,15 @@ impl AgentConfig {
     }
 }
 
-/// Detect the hostname of the current machine.
 fn detect_hostname() -> String {
-    // Windows: COMPUTERNAME env var
     if let Ok(name) = std::env::var("COMPUTERNAME") {
         return name;
     }
-    // Unix: HOSTNAME env var
+
     if let Ok(name) = std::env::var("HOSTNAME") {
         return name;
     }
-    // Fallback: run hostname command
+
     if let Ok(output) = std::process::Command::new("hostname").output() {
         if output.status.success() {
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -189,9 +141,6 @@ fn detect_hostname() -> String {
     "unknown".to_string()
 }
 
-/// Resolve the current driver's SSH key fingerprint from `.crosslink/driver-key.pub`.
-///
-/// Returns `None` if the driver key file doesn't exist or the fingerprint can't be computed.
 #[must_use]
 pub fn resolve_driver_fingerprint(crosslink_dir: &Path) -> Option<String> {
     let driver_pub = crosslink_dir.join("driver-key.pub");
@@ -236,7 +185,6 @@ mod tests {
         assert!(config.description.is_none());
     }
 
-    /// Helper to build a minimal `AgentConfig` for tests.
     fn test_config(agent_id: &str) -> AgentConfig {
         AgentConfig {
             agent_id: agent_id.to_string(),
@@ -322,7 +270,6 @@ mod tests {
 
     #[test]
     fn test_json_backward_compat_no_ssh_fields() {
-        // Old agent.json without SSH fields should deserialize fine
         let json = r#"{"agent_id": "worker-1", "machine_id": "host", "description": "old agent"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -331,9 +278,6 @@ mod tests {
 
     #[test]
     fn test_json_backward_compat_no_role_field_defaults_driver() {
-        // agent.json written before the role field existed (e.g. by crosslink
-        // init on 2026-03-30..2026-04-20) must load as Driver so hooks don't
-        // silently classify main-repo sessions as agents. See GH #566.
         let json = r#"{"agent_id": "worker-1", "machine_id": "host"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.role, AgentRole::Driver);
@@ -412,7 +356,7 @@ mod tests {
     fn test_resolve_driver_fingerprint_invalid_content() {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("driver-key.pub"), "not a key").unwrap();
-        // ssh-keygen will fail on invalid content
+
         assert!(resolve_driver_fingerprint(dir.path()).is_none());
     }
 
@@ -446,17 +390,12 @@ mod tests {
         let dir2 = tempdir().unwrap();
         let config1 = AgentConfig::anonymous(dir1.path());
         let config2 = AgentConfig::anonymous(dir2.path());
-        // Different paths should (almost certainly) yield different IDs
-        // (hash collision possible but astronomically unlikely)
+
         assert_ne!(config1.agent_id, config2.agent_id);
     }
 
     #[test]
     fn test_detect_hostname_with_computername_env() {
-        // Temporarily set COMPUTERNAME to verify it's picked up
-        // We can't unset the existing value safely cross-platform, so
-        // we just verify detect_hostname returns something non-empty
-        // and that setting the env var works.
         std::env::set_var("COMPUTERNAME", "test-host-win");
         let hostname = detect_hostname();
         assert_eq!(hostname, "test-host-win");
@@ -465,20 +404,14 @@ mod tests {
 
     #[test]
     fn test_detect_hostname_from_hostname_env() {
-        // Env var tests are inherently racy in parallel test suites.
-        // Instead of mutating the process env and calling detect_hostname(),
-        // verify the function's logic directly: if HOSTNAME is set, it's returned.
-        // This avoids races with test_detect_hostname_returns_non_empty which
-        // removes HOSTNAME.
         let hostname = detect_hostname();
-        // detect_hostname always returns a non-empty string
+
         assert!(
             !hostname.is_empty(),
             "detect_hostname should never return empty"
         );
-        // If HOSTNAME env var is set, detect_hostname should return it
+
         if let Ok(env_val) = std::env::var("HOSTNAME") {
-            // Only assert if COMPUTERNAME isn't also set (which takes priority)
             if std::env::var("COMPUTERNAME").is_err() {
                 assert_eq!(hostname, env_val);
             }
@@ -487,9 +420,6 @@ mod tests {
 
     #[test]
     fn test_detect_hostname_returns_non_empty() {
-        // Without forcing any particular env var, detect_hostname falls back to
-        // the `hostname` command (or returns "unknown"). Either way it should
-        // be non-empty.
         std::env::remove_var("COMPUTERNAME");
         std::env::remove_var("HOSTNAME");
         let hostname = detect_hostname();
@@ -499,9 +429,9 @@ mod tests {
     proptest! {
         #[test]
         fn prop_valid_ids_roundtrip(id in "[a-zA-Z0-9_-]{3,64}") {
-            // The alphanumeric regex can produce Windows-reserved names
-            // ("NUL", "CON", "NuL", ...) which validate() rejects by design.
-            // Skip those — this test is about roundtrip of *valid* ids.
+
+
+
             prop_assume!(!is_windows_reserved_name(&id));
             let config = test_config(&id);
             prop_assert!(config.validate().is_ok());

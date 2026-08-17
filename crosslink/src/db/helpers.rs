@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 
 use crate::models::{Issue, Session};
 
-/// Parse an RFC3339 datetime string, falling back to the current time on error.
 pub fn parse_datetime(s: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(s).map_or_else(
         |e| {
@@ -17,8 +16,6 @@ pub fn parse_datetime(s: &str) -> DateTime<Utc> {
     )
 }
 
-/// Maps a database row to a Session struct.
-/// Expects columns in order: id, `started_at`, `ended_at`, `active_issue_id`, `handoff_notes`, `last_action`, `agent_id`
 pub fn session_from_row(row: &rusqlite::Row) -> rusqlite::Result<Session> {
     Ok(Session {
         id: row.get(0)?,
@@ -31,9 +28,6 @@ pub fn session_from_row(row: &rusqlite::Row) -> rusqlite::Result<Session> {
     })
 }
 
-/// Maps a database row to an Issue struct.
-/// Expects columns in order: id, title, description, status, priority, `parent_id`,
-/// `created_at`, `updated_at`, `closed_at`, `scheduled_at`, `due_at`.
 pub fn issue_from_row(row: &rusqlite::Row) -> rusqlite::Result<Issue> {
     Ok(Issue {
         id: row.get(0)?,

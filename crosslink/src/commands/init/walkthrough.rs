@@ -1,5 +1,3 @@
-//! TUI walkthrough for `crosslink init` — registry-driven interactive setup.
-
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
@@ -17,20 +15,17 @@ use std::io::{self, IsTerminal};
 use super::{InitUI, TuiChoices, HOOK_CONFIG_JSON};
 use crate::commands::config_registry::{WalkthroughCore, REGISTRY};
 
-// ── Ratatui TUI walkthrough (registry-driven, REQ-5) ────────────────────────
-
 struct InitWalkthroughApp {
     core: WalkthroughCore,
-    /// Shell alias question
-    alias_selected: usize, // 0=Yes, 1=No
+
+    alias_selected: usize,
     shell_config_file: String,
 }
 
 impl InitWalkthroughApp {
     fn new(existing: &serde_json::Value) -> Self {
-        let core = WalkthroughCore::new(existing, 1); // 1 extra screen: alias
+        let core = WalkthroughCore::new(existing, 1);
 
-        // Detect shell for alias question
         let shell_env = std::env::var("SHELL").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let (shell_name, shell_config_file) = if shell_env.ends_with("fish") {
@@ -46,7 +41,6 @@ impl InitWalkthroughApp {
             ("unknown".to_string(), String::new())
         };
 
-        // Check if alias already installed
         let alias_already = if shell_config_file.is_empty() {
             false
         } else {
@@ -117,7 +111,6 @@ fn draw_init_walkthrough(frame: &mut Frame, app: &InitWalkthroughApp) {
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    // Progress dots
     let total = app.core.total_screens();
     let progress_spans: Vec<Span> = (0..total)
         .map(|i| match i.cmp(&app.core.screen) {
@@ -292,7 +285,6 @@ fn draw_init_group(
     let mut state = ListState::default().with_selected(Some(app.core.group_cursor));
     frame.render_stateful_widget(list, chunks[4], &mut state);
 
-    // Description pane
     if app.core.group_cursor < keys.len() {
         let reg_idx = keys[app.core.group_cursor];
         let entry = &REGISTRY[reg_idx];
@@ -493,8 +485,6 @@ fn draw_init_confirm(
     );
 }
 
-/// Run the interactive TUI walkthrough using ratatui, returning user choices.
-/// Falls back to defaults if stdin is not a TTY.
 pub(super) fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoices> {
     if !std::io::stdin().is_terminal() {
         println!("Non-interactive environment detected, using defaults.");
@@ -546,7 +536,6 @@ pub(super) fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Resul
                             && !app.core.is_confirm_screen()
                             && !app.is_alias_screen() =>
                     {
-                        // Cycle backwards
                         if let Some(gi) = app.core.current_group_idx() {
                             if app.core.group_cursor < app.core.group_keys[gi].len() {
                                 let reg_idx = app.core.group_keys[gi][app.core.group_cursor];
@@ -569,7 +558,6 @@ pub(super) fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Resul
                             && !app.core.is_confirm_screen()
                             && !app.is_alias_screen()
                         {
-                            // On group screens, Enter advances to next key or next screen
                             if let Some(gi) = app.core.current_group_idx() {
                                 if app.core.group_cursor + 1 < app.core.group_keys[gi].len() {
                                     app.core.group_cursor += 1;
@@ -605,7 +593,6 @@ pub(super) fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Resul
         Ok(())
     })();
 
-    // Clear inline viewport
     {
         let area = terminal.get_frame().area();
         let backend = terminal.backend_mut();
@@ -632,7 +619,6 @@ pub(super) fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Resul
     Ok(app.build_choices())
 }
 
-/// Apply TUI choices onto a config JSON value, preserving fields not covered by the TUI.
 pub(super) fn apply_tui_choices(
     config: &mut serde_json::Value,
     choices: &TuiChoices,
@@ -646,7 +632,6 @@ pub(super) fn apply_tui_choices(
     Ok(())
 }
 
-/// Install the `xl` shell alias if requested by the user during init.
 pub(super) fn setup_shell_alias(ui: &InitUI, choices: &TuiChoices) {
     if !choices.install_alias {
         return;
@@ -671,7 +656,6 @@ pub(super) fn setup_shell_alias(ui: &InitUI, choices: &TuiChoices) {
 
     let path = std::path::Path::new(&config_file);
 
-    // Idempotent: check if already present
     if let Ok(content) = fs::read_to_string(path) {
         if content.lines().any(|line| line.trim() == alias_line) {
             ui.step_skip("xl alias already installed");
@@ -679,7 +663,6 @@ pub(super) fn setup_shell_alias(ui: &InitUI, choices: &TuiChoices) {
         }
     }
 
-    // Append the alias
     ui.step_start("Installing xl alias");
     let line_to_append = format!("\n# crosslink shortcut\n{alias_line}\n");
     match fs::OpenOptions::new().append(true).open(path) {

@@ -1,73 +1,30 @@
-//! SSH signing and verification for crosslink.
-//!
-//! Provides Ed25519 key generation, commit signing configuration,
-//! detached entry signing, and the `AllowedSigners` trust store.
-
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Metadata for a generated SSH key pair.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SshKeyPair {
-    /// Path to the private key file.
     pub private_key_path: PathBuf,
-    /// Path to the public key file (.pub).
+
     pub public_key_path: PathBuf,
-    /// SSH key fingerprint (e.g. "SHA256:...").
+
     pub fingerprint: String,
-    /// Full public key line (e.g. "ssh-ed25519 AAAA... comment").
+
     pub public_key: String,
 }
 
-/// Result of signature verification on a commit.
-///
-/// Replaces the old `GpgVerification` enum with SSH-aware variants.
-/// Outcome of verifying a commit's signature.
-///
-/// Carries only the discriminant: the sole consumer (the dashboard signature
-/// badge) maps it to a `Valid` / `Unsigned` / `Invalid` / `Unknown` state and
-/// does not surface the commit hash, signer, or failure reason. The richer
-/// payload (commit / fingerprint / principal / reason) was consumed by the v2
-/// hub-commit signing-enforcement report, which is gone with the v2 write path
-/// (#754); reintroduce fields here when a consumer needs them again.
 #[derive(Debug)]
 pub enum SignatureVerification {
-    /// Signature is valid.
     Valid,
-    /// Commit exists but is not signed.
+
     Unsigned,
-    /// Signature verification failed.
+
     Invalid,
-    /// No commits exist on the branch yet.
+
     NoCommits,
 }
 
-// ── Key generation ──────────────────────────────────────────────────
-
-/// Resolve the *host* (main-repo) crosslink directory for storing
-/// agent signing keys.
-///
-/// Agent keys live under the main repo's `.crosslink/keys/` rather
-/// than each agent worktree's own `.crosslink/keys/` so that the
-/// key file survives `git worktree remove` when a kickoff agent is
-/// cleaned up (GH#610). Without this, the worktree-scoped
-/// `user.signingkey` reference on the hub-cache outlives the file
-/// it points at, breaking every subsequent `crosslink sync` until
-/// a human re-points it (see also GH#565 for the C-path repair
-/// that catches the residual breakage).
-///
-/// Behaviour:
-///
-/// - When `crosslink_dir` is inside a git worktree, walks up via
-///   [`crate::utils::resolve_main_repo_root`] and returns
-///   `<main-repo>/.crosslink`.
-/// - When `crosslink_dir` is already the main repo's crosslink dir
-///   (the driver case), returns it unchanged.
-/// - When git can't resolve a repo (e.g. unit-test temp dirs with
-///   no `git init`), returns `crosslink_dir` unchanged so callers
-///   continue to behave as if there were no worktree.
 #[must_use]
 pub fn host_crosslink_dir(crosslink_dir: &Path) -> PathBuf {
     let worktree_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
@@ -77,14 +34,6 @@ pub fn host_crosslink_dir(crosslink_dir: &Path) -> PathBuf {
     )
 }
 
-/// Generate a new Ed25519 SSH key pair for an agent.
-///
-/// Keys are stored at `{keys_dir}/{agent_id}_ed25519` (.pub for public).
-///
-/// # Errors
-///
-/// Returns an error if key generation fails, the key already exists,
-/// or filesystem permissions cannot be set.
 pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> Result<SshKeyPair> {
     std::fs::create_dir_all(keys_dir)?;
 
@@ -106,7 +55,7 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
             "-f",
             &private_path.to_string_lossy(),
             "-N",
-            "", // no passphrase
+            "",
             "-C",
             &comment,
         ])
@@ -118,7 +67,6 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
         bail!("ssh-keygen failed: {}", stderr.trim());
     }
 
-    // Enforce restrictive permissions on keys directory and private key
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -128,16 +76,16 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
             .context("Failed to set permissions on private key")?;
     }
 
-    // On Windows, use icacls to restrict permissions via ACLs
     #[cfg(windows)]
     {
         let username = std::env::var("USERNAME").unwrap_or_default();
-        if !username.is_empty() {
-            // Restrict the keys directory: remove inheritance, grant full control to current user
+        if username.is_empty() {
+            tracing::warn!("USERNAME not set, skipping Windows ACL permissions for SSH keys");
+        } else {
             let dir_result = Command::new("icacls")
-                .arg(&keys_dir.to_string_lossy().as_ref())
+                .arg(keys_dir.as_os_str())
                 .args(["/inheritance:r", "/grant:r"])
-                .arg(format!("{}:(OI)(CI)(F)", username))
+                .arg(format!("{username}:(OI)(CI)(F)"))
                 .output();
             match dir_result {
                 Ok(output) if !output.status.success() => {
@@ -153,11 +101,10 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
                 _ => {}
             }
 
-            // Restrict the private key: remove inheritance, grant read-only to current user
             let key_result = Command::new("icacls")
-                .arg(&private_path.to_string_lossy().as_ref())
+                .arg(private_path.as_os_str())
                 .args(["/inheritance:r", "/grant:r"])
-                .arg(format!("{}:(R)", username))
+                .arg(format!("{username}:(R)"))
                 .output();
             match key_result {
                 Ok(output) if !output.status.success() => {
@@ -172,8 +119,6 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
                 }
                 _ => {}
             }
-        } else {
-            tracing::warn!("USERNAME not set, skipping Windows ACL permissions for SSH keys");
         }
     }
 
@@ -192,11 +137,6 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
     })
 }
 
-/// Get the fingerprint of an SSH public key file (e.g. "SHA256:xxxx").
-///
-/// # Errors
-///
-/// Returns an error if `ssh-keygen -l` fails or produces unexpected output.
 pub fn get_key_fingerprint(public_key_path: &Path) -> Result<String> {
     let output = Command::new("ssh-keygen")
         .args(["-l", "-f", &public_key_path.to_string_lossy()])
@@ -208,7 +148,6 @@ pub fn get_key_fingerprint(public_key_path: &Path) -> Result<String> {
         bail!("ssh-keygen -l failed: {}", stderr.trim());
     }
 
-    // Output format: "256 SHA256:xxxx comment (ED25519)"
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parts: Vec<&str> = stdout.split_whitespace().collect();
     if parts.len() >= 2 {
@@ -218,14 +157,8 @@ pub fn get_key_fingerprint(public_key_path: &Path) -> Result<String> {
     }
 }
 
-// ── Key discovery ───────────────────────────────────────────────────
-
-/// Well-known SSH key filenames to check, in priority order.
 const SSH_KEY_NAMES: &[&str] = &["id_ed25519.pub", "id_ecdsa.pub", "id_rsa.pub"];
 
-/// Find the user's default SSH public key, if one exists.
-///
-/// Checks `~/.ssh/` for common key names.
 pub fn find_default_ssh_key() -> Option<PathBuf> {
     let home = dirs_next().or_else(home_dir_fallback)?;
     let ssh_dir = home.join(".ssh");
@@ -239,7 +172,6 @@ pub fn find_default_ssh_key() -> Option<PathBuf> {
     None
 }
 
-/// Find git's configured signing key for the current user.
 #[must_use]
 pub fn find_git_signing_key() -> Option<PathBuf> {
     let output = Command::new("git")
@@ -257,7 +189,7 @@ pub fn find_git_signing_key() -> Option<PathBuf> {
     }
 
     let path = PathBuf::from(&key_path);
-    // If the path exists as-is, use it; otherwise check for .pub variant
+
     if path.exists() {
         return Some(path);
     }
@@ -268,11 +200,6 @@ pub fn find_git_signing_key() -> Option<PathBuf> {
     None
 }
 
-/// Read a public key file and return the full key line.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read or does not look like an SSH public key.
 pub fn read_public_key(path: &Path) -> Result<String> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read public key at {}", path.display()))?;
@@ -286,12 +213,6 @@ pub fn read_public_key(path: &Path) -> Result<String> {
     Ok(line)
 }
 
-// ── Git signing configuration ───────────────────────────────────────
-
-/// Check whether `repo_dir` is a linked git worktree (not the main repo).
-///
-/// Compares `git rev-parse --git-dir` vs `--git-common-dir`. When they
-/// differ, `--local` config writes leak into the shared `.git/config`.
 #[must_use]
 pub fn is_linked_worktree(repo_dir: &Path) -> bool {
     let git_dir = Command::new("git")
@@ -330,13 +251,6 @@ pub fn is_linked_worktree(repo_dir: &Path) -> bool {
     gd_canonical != cd_canonical
 }
 
-/// Enable `extensions.worktreeConfig` in the shared git config.
-///
-/// Required before `git config --worktree` will work. Idempotent.
-///
-/// # Errors
-///
-/// Returns an error if the git config command fails.
 pub fn enable_worktree_config(repo_dir: &Path) -> Result<()> {
     let output = Command::new("git")
         .current_dir(repo_dir)
@@ -354,12 +268,7 @@ pub fn enable_worktree_config(repo_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Remove agent signing keys that leaked into the shared `.git/config`.
-///
-/// Only unsets values whose path contains `.crosslink/keys/` (agent keys).
-/// User-set keys (e.g. `~/.ssh/id_ecdsa_signing`) are left untouched.
 fn cleanup_leaked_signing_config(repo_dir: &Path) {
-    // Read the current user.signingkey from --local (shared config)
     let output = Command::new("git")
         .current_dir(repo_dir)
         .args(["config", "--local", "user.signingkey"])
@@ -369,18 +278,14 @@ fn cleanup_leaked_signing_config(repo_dir: &Path) {
         return;
     };
     if !output.status.success() {
-        // No signing key in shared config — nothing to clean
         return;
     }
 
     let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !value.contains(".crosslink/keys/") && !value.contains(".crosslink\\keys\\") {
-        // Not an agent key — leave it alone
         return;
     }
 
-    // Unset the leaked agent signing config from shared config
-    // INTENTIONAL: git config --unset returns non-zero when the key doesn't exist, which is fine
     for key in &[
         "user.signingkey",
         "gpg.format",
@@ -394,16 +299,6 @@ fn cleanup_leaked_signing_config(repo_dir: &Path) {
     }
 }
 
-/// Configure git to use SSH signing in a repository.
-///
-/// Sets `gpg.format=ssh`, `user.signingkey`, and `commit.gpgsign=true`.
-///
-/// Automatically detects linked worktrees and uses `--worktree` scope
-/// to avoid leaking agent signing config into the shared `.git/config`.
-///
-/// # Errors
-///
-/// Returns an error if any git config command fails.
 pub fn configure_git_ssh_signing(
     repo_dir: &Path,
     private_key_path: &Path,
@@ -456,14 +351,6 @@ fn run_git_config(repo_dir: &Path, key: &str, value: &str, worktree_scope: bool)
     Ok(())
 }
 
-/// Disable git signing in a repository.
-///
-/// Unsets signing-related config so commits proceed unsigned rather than
-/// failing due to a missing key. Uses worktree scope when appropriate.
-///
-/// # Errors
-///
-/// Returns an error if enabling worktree config fails.
 pub fn disable_git_signing(repo_dir: &Path) -> Result<()> {
     let use_worktree = is_linked_worktree(repo_dir);
 
@@ -483,7 +370,6 @@ pub fn disable_git_signing(repo_dir: &Path) -> Result<()> {
         "commit.gpgsign",
         "gpg.ssh.allowedSignersFile",
     ] {
-        // --unset returns non-zero if key doesn't exist, which is fine
         let _ = Command::new("git")
             .current_dir(repo_dir)
             .args(["config", scope_flag, "--unset", key])
@@ -493,32 +379,22 @@ pub fn disable_git_signing(repo_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ── Allowed signers ─────────────────────────────────────────────────
-
-/// An entry in the `trust/allowed_signers` file (git's native format).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AllowedSignerEntry {
-    /// Principal identifier (e.g. "agent-id@crosslink" or "driver@example.com").
     pub principal: String,
-    /// Full public key line ("ssh-ed25519 AAAA... comment").
+
     pub public_key: String,
-    /// Optional metadata comment rendered above the entry (e.g. "approved by max at 2026-02-28").
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_comment: Option<String>,
 }
 
-/// Manages the `trust/allowed_signers` file.
 #[derive(Debug, Clone, Default)]
 pub struct AllowedSigners {
     pub entries: Vec<AllowedSignerEntry>,
 }
 
 impl AllowedSigners {
-    /// Load from a file. Returns empty if the file doesn't exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file exists but cannot be read.
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
@@ -528,7 +404,6 @@ impl AllowedSigners {
         Ok(Self::parse(&content))
     }
 
-    /// Known SSH public key type prefixes.
     const KNOWN_KEY_TYPES: &'static [&'static str] = &[
         "ssh-ed25519",
         "ssh-rsa",
@@ -538,11 +413,9 @@ impl AllowedSigners {
         "sk-ecdsa-sha2-",
     ];
 
-    /// Parse the `allowed_signers` content.
     fn parse(content: &str) -> Self {
         let mut entries = Vec::new();
-        // Track metadata comments (lines starting with "# approved" or "# revoked")
-        // that immediately precede an entry
+
         let mut pending_metadata: Option<String> = None;
 
         for line in content.lines() {
@@ -552,7 +425,6 @@ impl AllowedSigners {
                 continue;
             }
             if trimmed.starts_with('#') {
-                // Check if this is a metadata comment (not the file header)
                 let comment_text = trimmed.trim_start_matches('#').trim();
                 if comment_text.starts_with("approved ") || comment_text.starts_with("revoked ") {
                     pending_metadata = Some(comment_text.to_string());
@@ -560,7 +432,6 @@ impl AllowedSigners {
                 continue;
             }
 
-            // Format: <principal> <key-type> <base64> [comment]
             let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
             if parts.len() < 2 {
                 eprintln!("warning: skipping malformed allowed_signers line (no space): {line}");
@@ -571,7 +442,6 @@ impl AllowedSigners {
             let principal = parts[0];
             let public_key = parts[1];
 
-            // Validate principal: non-empty, no control characters
             if principal.is_empty() || principal.chars().any(char::is_control) {
                 eprintln!(
                     "warning: skipping allowed_signers entry with invalid principal: {principal}"
@@ -580,7 +450,6 @@ impl AllowedSigners {
                 continue;
             }
 
-            // Validate public key starts with a known SSH key type
             if !Self::KNOWN_KEY_TYPES
                 .iter()
                 .any(|prefix| public_key.starts_with(prefix))
@@ -603,11 +472,6 @@ impl AllowedSigners {
         Self { entries }
     }
 
-    /// Save to a file in git's `allowed_signers` format.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be written.
     pub fn save(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -616,7 +480,6 @@ impl AllowedSigners {
         std::fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))
     }
 
-    /// Render as the file content string.
     fn render(&self) -> String {
         let mut lines = vec!["# Crosslink trusted signers".to_string()];
         lines.push("# Format: <principal> <key-type> <base64-key> [comment]".to_string());
@@ -626,11 +489,10 @@ impl AllowedSigners {
             }
             lines.push(format!("{} {}", entry.principal, entry.public_key));
         }
-        lines.push(String::new()); // trailing newline
+        lines.push(String::new());
         lines.join("\n")
     }
 
-    /// Add an entry. Returns false if the principal already exists.
     pub fn add_entry(&mut self, entry: AllowedSignerEntry) -> bool {
         if self.entries.iter().any(|e| e.principal == entry.principal) {
             return false;
@@ -639,25 +501,17 @@ impl AllowedSigners {
         true
     }
 
-    /// Remove an entry by principal. Returns true if removed.
     pub fn remove_by_principal(&mut self, principal: &str) -> bool {
         let before = self.entries.len();
         self.entries.retain(|e| e.principal != principal);
         self.entries.len() < before
     }
 
-    /// Check if a principal is trusted.
     #[must_use]
     pub fn is_trusted(&self, principal: &str) -> bool {
         self.entries.iter().any(|e| e.principal == principal)
     }
 
-    /// Check if a public key is already trusted under any principal.
-    ///
-    /// Compares by the `<type> <base64>` body, ignoring trailing
-    /// comments. Used by signing self-registration (GH#585) to make
-    /// "ensure my key is trusted" idempotent regardless of what
-    /// principal it was previously registered under.
     #[must_use]
     pub fn contains_key(&self, public_key: &str) -> bool {
         let target = key_body(public_key);
@@ -667,8 +521,6 @@ impl AllowedSigners {
     }
 }
 
-/// Extract the `<type> <base64>` portion of an SSH public-key line,
-/// dropping any trailing comment / principal data.
 fn key_body(line: &str) -> String {
     line.split_whitespace()
         .take(2)
@@ -676,13 +528,6 @@ fn key_body(line: &str) -> String {
         .join(" ")
 }
 
-// ── SSH verify-commit output parsing ────────────────────────────────
-
-// ── Per-entry signing ────────────────────────────────────────────────
-
-/// Canonicalize fields into a deterministic byte string for signing.
-///
-/// Fields are sorted by key, joined as `key=value\n`.
 #[must_use]
 pub fn canonicalize_for_signing(fields: &[(&str, &str)]) -> Vec<u8> {
     let mut sorted: Vec<(&str, &str)> = fields.to_vec();
@@ -697,13 +542,6 @@ pub fn canonicalize_for_signing(fields: &[(&str, &str)]) -> Vec<u8> {
     out
 }
 
-/// Sign content using SSH private key (`ssh-keygen -Y sign`).
-///
-/// Returns the base64-encoded signature (the content between the PEM markers).
-///
-/// # Errors
-///
-/// Returns an error if `ssh-keygen -Y sign` fails or the signature file cannot be read.
 pub fn sign_content(private_key_path: &Path, content: &[u8], namespace: &str) -> Result<String> {
     let tmp = TempDirGuard::new("crosslink-sign")?;
     let content_path = tmp.path().join("content");
@@ -729,11 +567,9 @@ pub fn sign_content(private_key_path: &Path, content: &[u8], namespace: &str) ->
         bail!("ssh-keygen sign failed: {}", stderr.trim());
     }
 
-    // Read the signature file
     let sig_content =
         std::fs::read_to_string(&sig_path).context("Failed to read signature file")?;
 
-    // Extract just the base64 content between the PEM markers
     let sig = sig_content
         .lines()
         .filter(|l| !l.starts_with("-----"))
@@ -743,13 +579,6 @@ pub fn sign_content(private_key_path: &Path, content: &[u8], namespace: &str) ->
     Ok(sig)
 }
 
-/// Verify content against an SSH signature using `ssh-keygen -Y verify`.
-///
-/// Returns `true` if the signature is valid and the principal is trusted.
-///
-/// # Errors
-///
-/// Returns an error if temporary file creation or the `ssh-keygen` subprocess fails.
 pub fn verify_content(
     allowed_signers_path: &Path,
     principal: &str,
@@ -763,12 +592,10 @@ pub fn verify_content(
 
     std::fs::write(&content_path, content)?;
 
-    // Reconstruct PEM-wrapped signature
     let pem_sig =
         format!("-----BEGIN SSH SIGNATURE-----\n{signature_b64}\n-----END SSH SIGNATURE-----\n");
     std::fs::write(&sig_path, pem_sig)?;
 
-    // ssh-keygen -Y verify reads the data to verify from stdin
     let mut child = Command::new("ssh-keygen")
         .args([
             "-Y",
@@ -790,13 +617,12 @@ pub fn verify_content(
 
     if let Some(ref mut stdin) = child.stdin {
         use std::io::Write;
-        // INTENTIONAL: write failure is handled by checking ssh-keygen's exit status below
+
         let _ = stdin.write_all(content);
     }
-    // Drop stdin to close it so ssh-keygen can proceed
+
     drop(child.stdin.take());
 
-    // Wait with timeout to prevent hanging on malformed input
     {
         use std::time::{Duration, Instant};
         let start = Instant::now();
@@ -806,7 +632,6 @@ pub fn verify_content(
                 break;
             }
             if start.elapsed() > timeout {
-                // INTENTIONAL: kill is best-effort on timeout — tmp cleanup handled by TempDirGuard drop
                 let _ = child.kill();
                 bail!("ssh-keygen verification timed out after 30 seconds");
             }
@@ -815,15 +640,11 @@ pub fn verify_content(
     }
 
     let output = child.wait_with_output()?;
-    // tmp cleanup handled by TempDirGuard drop
 
     if !output.status.success() {
         return Ok(false);
     }
 
-    // Parse output to confirm "Good signature" message from ssh-keygen.
-    // On success, ssh-keygen outputs: Good "namespace" signature for principal ...
-    // Note: macOS emits this on stdout, while some Linux builds use stderr.
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stdout.contains("Good") && !stderr.contains("Good") {
@@ -833,10 +654,6 @@ pub fn verify_content(
     Ok(true)
 }
 
-// ── Platform helpers ────────────────────────────────────────────────
-
-/// RAII guard for a temporary directory. Removes the directory and all
-/// contents on drop, ensuring cleanup on all exit paths including panics.
 struct TempDirGuard(PathBuf);
 
 impl TempDirGuard {
@@ -849,7 +666,7 @@ impl TempDirGuard {
         let dir = std::env::temp_dir().join(format!("{prefix}-{id}-{ts}"));
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create temp dir {}", dir.display()))?;
-        // Restrict permissions to owner-only (0o700) on Unix
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -872,7 +689,6 @@ impl Drop for TempDirGuard {
     }
 }
 
-/// Get the user's home directory (cross-platform).
 fn dirs_next() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -885,7 +701,6 @@ fn dirs_next() -> Option<PathBuf> {
 }
 
 fn home_dir_fallback() -> Option<PathBuf> {
-    // Last resort — mirror the platform preference used in dirs_next()
     #[cfg(target_os = "windows")]
     {
         std::env::var("USERPROFILE")
@@ -901,8 +716,6 @@ fn home_dir_fallback() -> Option<PathBuf> {
             .map(PathBuf::from)
     }
 }
-
-// ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -1043,10 +856,6 @@ mod tests {
         assert!(read_public_key(&path).is_err());
     }
 
-    // ── host_crosslink_dir (GH#610) ──────────────────────────────────
-
-    /// In a temp dir with no git metadata, `resolve_main_repo_root`
-    /// returns `None`; `host_crosslink_dir` falls back to the input.
     #[test]
     fn test_host_crosslink_dir_no_git_returns_input() {
         let dir = tempdir().unwrap();
@@ -1056,8 +865,6 @@ mod tests {
         assert_eq!(resolved, crosslink_dir);
     }
 
-    /// In a plain (non-worktree) git repo, `host_crosslink_dir`
-    /// returns the same `.crosslink/` it was given.
     #[test]
     fn test_host_crosslink_dir_main_repo_is_identity() {
         let dir = tempdir().unwrap();
@@ -1069,22 +876,17 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         let resolved = host_crosslink_dir(&crosslink_dir);
-        // Canonicalize both sides — macOS resolves /tmp through /private/tmp,
-        // and `resolve_main_repo_root` canonicalises internally.
+
         let expected = crosslink_dir.canonicalize().unwrap_or(crosslink_dir);
         let actual = resolved.canonicalize().unwrap_or(resolved);
         assert_eq!(actual, expected);
     }
 
-    /// In a linked git worktree, `host_crosslink_dir` walks back up to
-    /// the main repo's `.crosslink/` (the whole point of the helper).
     #[test]
     fn test_host_crosslink_dir_worktree_resolves_to_main() {
         let main = tempdir().unwrap();
         let main_root = main.path();
 
-        // Build a main repo with one commit so `git worktree add` has
-        // something to branch from.
         Command::new("git")
             .current_dir(main_root)
             .args(["init", "-b", "main"])
@@ -1112,11 +914,9 @@ mod tests {
             .output()
             .unwrap();
 
-        // The main repo's crosslink dir — the answer we expect.
         let main_crosslink = main_root.join(".crosslink");
         std::fs::create_dir_all(&main_crosslink).unwrap();
 
-        // Add a linked worktree under the main repo on a fresh branch.
         let wt_root = main_root.join(".worktrees").join("agent-abcd");
         Command::new("git")
             .current_dir(main_root)
@@ -1133,7 +933,7 @@ mod tests {
         std::fs::create_dir_all(&wt_crosslink).unwrap();
 
         let resolved = host_crosslink_dir(&wt_crosslink);
-        // Canonicalise so /tmp ↔ /private/tmp on macOS doesn't trip us.
+
         let expected = main_crosslink.canonicalize().unwrap_or(main_crosslink);
         let actual = resolved.canonicalize().unwrap_or(resolved);
         assert_eq!(
@@ -1142,7 +942,6 @@ mod tests {
         );
     }
 
-    // Integration tests requiring ssh-keygen on PATH
     #[test]
     fn test_generate_agent_key() {
         if Command::new("ssh-keygen").arg("--help").output().is_err() {
@@ -1199,7 +998,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let repo = dir.path();
 
-        // Init a git repo
         Command::new("git")
             .current_dir(repo)
             .args(["init", "-q"])
@@ -1211,7 +1009,6 @@ mod tests {
 
         configure_git_ssh_signing(repo, &key_path, None).unwrap();
 
-        // Verify the config was set
         let output = Command::new("git")
             .current_dir(repo)
             .args(["config", "--local", "gpg.format"])
@@ -1227,7 +1024,6 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "true");
     }
 
-    /// Helper to init a git repo with a dummy commit (needed for worktree creation).
     fn init_git_repo_with_commit(path: &Path) {
         Command::new("git")
             .current_dir(path)
@@ -1258,7 +1054,6 @@ mod tests {
         std::fs::create_dir_all(&main_root).unwrap();
         init_git_repo_with_commit(&main_root);
 
-        // Set a user signing key in the main repo's shared config
         Command::new("git")
             .current_dir(&main_root)
             .args([
@@ -1270,7 +1065,6 @@ mod tests {
             .output()
             .unwrap();
 
-        // Create a branch and linked worktree
         Command::new("git")
             .current_dir(&main_root)
             .args(["branch", "wt-test"])
@@ -1283,14 +1077,12 @@ mod tests {
             .output()
             .unwrap();
 
-        // Configure signing in the linked worktree with a fake agent key path
         let agent_key = wt_path.join(".crosslink/keys/agent_ed25519");
         std::fs::create_dir_all(agent_key.parent().unwrap()).unwrap();
         std::fs::write(&agent_key, "fake-agent-key").unwrap();
 
         configure_git_ssh_signing(&wt_path, &agent_key, None).unwrap();
 
-        // Verify: agent key is in the worktree-scoped config
         let output = Command::new("git")
             .current_dir(&wt_path)
             .args(["config", "--worktree", "user.signingkey"])
@@ -1303,7 +1095,6 @@ mod tests {
             "agent key should be in worktree config"
         );
 
-        // Verify: user's signing key is preserved in shared config
         let output = Command::new("git")
             .current_dir(&main_root)
             .args(["config", "--local", "user.signingkey"])
@@ -1315,7 +1106,6 @@ mod tests {
             "user's signing key must not be overwritten in shared config"
         );
 
-        // Verify: extensions.worktreeConfig was enabled
         let output = Command::new("git")
             .current_dir(&main_root)
             .args(["config", "extensions.worktreeConfig"])
@@ -1344,7 +1134,6 @@ mod tests {
 
         configure_git_ssh_signing(repo, &key_path, None).unwrap();
 
-        // Verify config is in --local scope
         let output = Command::new("git")
             .current_dir(repo)
             .args(["config", "--local", "user.signingkey"])
@@ -1355,7 +1144,6 @@ mod tests {
             "signing key should be in local config for standalone repos"
         );
 
-        // Verify extensions.worktreeConfig is NOT set
         let output = Command::new("git")
             .current_dir(repo)
             .args(["config", "extensions.worktreeConfig"])
@@ -1366,8 +1154,6 @@ mod tests {
             "extensions.worktreeConfig should not be set for standalone repos"
         );
     }
-
-    // ── Additional coverage tests ──────────────────────────────────
 
     #[test]
     fn test_read_public_key_valid_ssh_ed25519() {
@@ -1760,9 +1546,6 @@ mod tests {
 
     #[test]
     fn test_allowed_signers_parse_empty_principal_via_leading_space() {
-        // Trimmed line becomes "ssh-ed25519 AAAA"
-        // principal = "ssh-ed25519", public_key = "AAAA"
-        // "AAAA" doesn't start with any known key type, so rejected
         let content = " ssh-ed25519 AAAA\n";
         let signers = AllowedSigners::parse(content);
         assert!(signers.entries.is_empty());
@@ -2147,51 +1930,26 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         assert!(AllowedSigners::KNOWN_KEY_TYPES.contains(&"sk-ecdsa-sha2-"));
     }
 
-    // Coverage for find_default_ssh_key returning None when no known keys exist (line 195)
     #[test]
     fn test_find_default_ssh_key_no_keys_in_dir() {
-        // We can't easily control $HOME, but we can verify the return type is Option
-        // and exercise the None branch by checking against a dir with no SSH keys.
-        // The function returns None when no known key names exist in ~/.ssh/.
-        // Call it and accept either outcome — we're just ensuring it runs the loop.
         let _result: Option<PathBuf> = find_default_ssh_key();
-        // If no keys exist the None branch (line 195) is hit; if keys exist Some is returned.
-        // Either way the code is exercised. The None branch is covered when running on
-        // a CI machine with no SSH keys.
     }
 
-    // Coverage for find_git_signing_key returning None when key_path is empty (line 211)
-    // and when the path doesn't exist but pub variant may exist (lines 219-223)
     #[test]
     fn test_find_git_signing_key_nonexistent_path() {
-        // Call find_git_signing_key() to ensure execution paths are covered.
-        // On most machines the global signing key either doesn't exist (returning None at line 206)
-        // or points to a path that may or may not exist (covering lines 219-223).
         let _result: Option<PathBuf> = find_git_signing_key();
     }
 
-    // Coverage for find_git_signing_key path-exists and pub-path branches (lines 219-221, 223)
-    // We test the function body logic with temporary keys to ensure the branch is covered.
     #[test]
     fn test_get_key_fingerprint_unexpected_output_format() {
-        // Create a file that is accepted by ssh-keygen as a key file path but produces
-        // unexpected output -- we check the error path on line 173.
-        // ssh-keygen -l fails on non-key files, so we rely on test_get_key_fingerprint_invalid_key_file
-        // for the `bail!` at line 173. That test already covers it via the ssh-keygen error path.
-        // This test exercises the same code path explicitly.
         let dir = tempdir().unwrap();
         let path = dir.path().join("not_a_key.pub");
         std::fs::write(&path, "hello world").unwrap();
         let result = get_key_fingerprint(&path);
-        // Either Err (ssh-keygen -l fails) or Err (unexpected format) — both hit the error path
+
         assert!(result.is_err());
     }
 
-    // Coverage for verify_content when process succeeds but lacks "Good" in output (line 754).
-    // This is tested indirectly via test_verify_content_malformed_signature — when the
-    // signature is garbage but ssh-keygen may or may not return success. To specifically
-    // exercise line 754, we need a case where exit code = 0 but stdout/stderr lacks "Good".
-    // In practice ssh-keygen always prints "Good" on success, so we test the integration path.
     #[test]
     fn test_verify_content_with_valid_sig_passes_good_check() {
         if Command::new("ssh-keygen").arg("--help").output().is_err() {
@@ -2215,7 +1973,6 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         let content = b"content for good check test";
         let sig = sign_content(&keypair.private_key_path, content, "crosslink").unwrap();
 
-        // Valid verification exercises the success path including the "Good" check (line 754 not hit)
         let valid = verify_content(
             &signers_path,
             "good-check-test@crosslink",
@@ -2324,7 +2081,6 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         let content = b"original content";
         let sig = sign_content(&keypair.private_key_path, content, "sign-rt2@crosslink").unwrap();
 
-        // Verify with wrong content should fail
         let invalid = verify_content(
             &signers_path,
             "sign-rt2@crosslink",
@@ -2335,10 +2091,6 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         .unwrap();
         assert!(!invalid, "Tampered content should fail verification");
     }
-
-    // ========================================================================
-    // GH#585: AllowedSigners::contains_key
-    // ========================================================================
 
     fn signers_with(entries: &[(&str, &str, Option<&str>)]) -> AllowedSigners {
         AllowedSigners {
@@ -2365,8 +2117,6 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
 
     #[test]
     fn test_contains_key_matches_ignoring_trailing_comment() {
-        // The same key under different principals / with different trailing
-        // comments should still match — what matters is the cryptographic body.
         let signers = signers_with(&[(
             "agent@crosslink",
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@host-A",
@@ -2385,7 +2135,7 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@host",
             None,
         )]);
-        // Same type, different base64 body — must NOT match.
+
         assert!(!signers.contains_key("ssh-ed25519 AAAADifferent agent@host"));
     }
 
@@ -2396,8 +2146,7 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample",
             None,
         )]);
-        // Same base64 body (highly unlikely in real keys, but) different type
-        // — different cryptographic key.
+
         assert!(!signers.contains_key("ssh-rsa AAAAC3NzaC1lZDI1NTE5AAAAIExample"));
     }
 

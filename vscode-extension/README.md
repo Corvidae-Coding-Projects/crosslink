@@ -120,30 +120,20 @@ AI behavior is controlled by `.crosslink/hook-config.json` in your project:
 
 | Mode | Behavior | Best For |
 |------|----------|----------|
-| `strict` | **Blocks** code changes without an active issue. Forceful prompt language. | Every change must be tracked |
-| `normal` | **Reminds** but doesn't block. Gentle prompt language. | Balanced — tracks most work |
+| `strict` | **Blocks** code changes without an active issue. | Every change must be tracked |
+| `normal` | **Reminds** but doesn't block. | Balanced — tracks most work |
 | `relaxed` | **No enforcement**. Only git mutation blocks apply. | Opt-in tracking only |
 
-Each mode loads its wording from `.crosslink/rules/tracking-{mode}.md` — edit these files to customize the prompt language.
+The hook reads `tracking_mode` directly from `.crosslink/hook-config.json`.
 
 #### Git Command Blocking
 
 Git mutation commands (push, commit, merge, rebase, etc.) are **permanently blocked in all modes**. Read-only commands (status, diff, log) are always allowed. Both lists are customizable in `hook-config.json`.
 
-### Customizable Rules
+### Zeroed Rule Paths
 
-Rules in `.crosslink/rules/` control what gets injected into AI prompts:
-
-| File | Purpose |
-|------|---------|
-| `global.md` | Security, correctness, and style rules |
-| `tracking-strict.md` | Strict mode issue tracking instructions |
-| `tracking-normal.md` | Normal mode issue tracking instructions |
-| `tracking-relaxed.md` | Relaxed mode tracking reference |
-| `project.md` | Your project-specific rules |
-| `rust.md`, `python.md`, etc. | Language-specific best practices |
-
-Edit any file and changes take effect on the next prompt. Reset with `crosslink init --force`.
+`.crosslink/rules/*.md` files remain connected to Crosslink's rule loader. The
+bundled files are zero bytes, so they contribute no Markdown text by default.
 
 ## Development
 
@@ -227,7 +217,7 @@ This script generates intelligent context including:
 - Current session state and handoff notes
 - Open/ready issues
 - Project structure
-- Language-specific coding rules
+- Any non-empty repository-local rule overrides
 
 ### Shell Aliases
 
@@ -263,7 +253,7 @@ python .crosslink/integrations/context-provider.py
 # Markdown format (human readable)
 python .crosslink/integrations/context-provider.py --format md
 
-# Just coding rules
+# Only locally authored rule overrides
 python .crosslink/integrations/context-provider.py --rules
 
 # Copy to clipboard for web UIs
@@ -282,6 +272,7 @@ python .crosslink/integrations/context-provider.py --format md --rules > .cursor
 | **Continue.dev** | Add exec context provider in `.continue/config.json` |
 | **Web UIs** | `--clipboard` then paste as first message |
 | **Claude Code** | Built-in hooks, no setup needed |
+| **Codex** | Built-in hooks and skills, or the Crosslink Codex plugin |
 
 ### What Gets Injected
 
@@ -295,15 +286,9 @@ Working on: #12 Fix authentication bug
 Ready issues (unblocked):
   #12   high     Fix authentication bug
 </crosslink-issues>
-
-<coding-rules>
-### Rust Best Practices
-- Use `?` operator over `.unwrap()`
-...
-</coding-rules>
 ```
 
-For full documentation, see the [main README](https://github.com/dollspace-gay/crosslink#using-crosslink-with-any-ai-agent).
+For full documentation, see the [main README](https://github.com/Corvidae-Coding-Projects/crosslink#using-crosslink-with-any-ai-agent).
 
 ## License
 

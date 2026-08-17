@@ -1,8 +1,5 @@
-// Swarm lifecycle: reset, archive, list, retry-failed, adopt, sync-status,
-// resume, launch, gate, checkpoint.
-
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::io::*;
 use super::status::{probe_agent_status, resolve_agents};
@@ -12,11 +9,6 @@ use crate::db::Database;
 use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
 
-// ---------------------------------------------------------------------------
-// swarm reset / archive / list
-// ---------------------------------------------------------------------------
-
-/// Archive the current swarm plan to swarm/archive/{timestamp}/ and clear the active slot.
 pub fn archive(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -34,11 +26,9 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
     let plan: SwarmPlan =
         read_hub_json(&sync, &plan_path_str).context("Failed to read swarm plan")?;
 
-    // Create archive directory with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let archive_prefix = format!("swarm/archive/{timestamp}");
 
-    // Copy plan.json to archive
     let plan_json = std::fs::read_to_string(&plan_path)?;
     let archive_plan = sync
         .cache_path()
@@ -48,7 +38,6 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
     }
     std::fs::write(&archive_plan, &plan_json)?;
 
-    // Copy phase files to archive
     let phases_dir = sync.cache_path().join(format!("{}/phases", ctx.base));
     if phases_dir.is_dir() {
         let archive_phases = sync.cache_path().join(format!("{archive_prefix}/phases"));
@@ -57,13 +46,12 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let dest = archive_phases.join(&name);
-                // INTENTIONAL: archive copy is best-effort — partial archive is acceptable
+
                 let _ = std::fs::copy(entry.path(), dest);
             }
         }
     }
 
-    // Copy checkpoints to archive
     let checkpoints_dir = sync.cache_path().join(ctx.checkpoints_dir());
     if checkpoints_dir.is_dir() {
         let archive_cp = sync
@@ -74,25 +62,21 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let dest = archive_cp.join(&name);
-                // INTENTIONAL: archive copy is best-effort — partial archive is acceptable
+
                 let _ = std::fs::copy(entry.path(), dest);
             }
         }
     }
 
-    // INTENTIONAL: swarm file cleanup is best-effort — partial removal is acceptable, git commit tracks the state
     let _ = std::fs::remove_file(&plan_path);
     let _ = std::fs::remove_dir_all(&phases_dir);
     let _ = std::fs::remove_dir_all(&checkpoints_dir);
     let _ = std::fs::remove_file(sync.cache_path().join("swarm/active.json"));
-    // For multi-swarm, remove the UUID directory itself if empty
+
     if !ctx.is_legacy {
         let _ = std::fs::remove_dir_all(sync.cache_path().join(ctx.base));
     }
 
-    // Stage all swarm/ changes (additions, modifications, and deletions) on the
-    // hub branch cache. This is safe because the cache is a dedicated worktree
-    // for crosslink/hub, not the user's working tree.
     let cache = sync.cache_path();
     if let Ok(o) = std::process::Command::new("git")
         .current_dir(cache)
@@ -141,7 +125,6 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Reset the active swarm. Archives first unless --no-archive.
 pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
     if !no_archive {
         return archive(crosslink_dir);
@@ -159,7 +142,6 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
         bail!("No active swarm plan to reset.");
     }
 
-    // INTENTIONAL: swarm file cleanup is best-effort — partial removal is acceptable, git commit tracks the state
     let _ = std::fs::remove_file(&plan_path);
     let _ = std::fs::remove_dir_all(sync.cache_path().join(format!("{}/phases", ctx.base)));
     let _ = std::fs::remove_dir_all(sync.cache_path().join(ctx.checkpoints_dir()));
@@ -168,7 +150,6 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
         let _ = std::fs::remove_dir_all(sync.cache_path().join(ctx.base));
     }
 
-    // Stage all swarm/ changes on the hub branch cache (see archive() comment).
     let cache = sync.cache_path();
     if let Ok(o) = std::process::Command::new("git")
         .current_dir(cache)
@@ -212,7 +193,6 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
     Ok(())
 }
 
-/// List active and archived swarms.
 pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -263,11 +243,6 @@ pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// swarm launch --retry-failed
-// ---------------------------------------------------------------------------
-
-/// Relaunch agents that previously failed in a phase.
 pub fn launch_retry_failed(
     crosslink_dir: &Path,
     db: &Database,
@@ -287,7 +262,6 @@ pub fn launch_retry_failed(
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
     let resolved = resolve_agents(&phase, root);
 
-    // Find failed agents and reset them to planned
     let mut retry_count = 0;
     for agent in &mut phase.agents {
         let live = resolved
@@ -320,18 +294,9 @@ pub fn launch_retry_failed(
     launch(crosslink_dir, db, writer, phase_slug, quiet)
 }
 
-// ---------------------------------------------------------------------------
-// swarm adopt
-// ---------------------------------------------------------------------------
-
-/// Associate an external agent/branch with a swarm phase slot.
-///
-/// When an agent is launched manually (outside `swarm launch`), this command
-/// lets you link it to a swarm slot so status/gate/merge see it correctly.
 pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<()> {
     let (sync, plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
 
-    // Find the slot
     let mut found = false;
     for (_path, phase) in &mut phases {
         for agent in &mut phase.agents {
@@ -370,14 +335,6 @@ pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// swarm sync-status
-// ---------------------------------------------------------------------------
-
-/// Sync live agent statuses from worktree probes back into phase JSON files.
-///
-/// Bridges the gap between `swarm status` (reads live state) and
-/// `swarm merge`/`swarm gate` (reads phase JSON).
 pub fn sync_status(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -473,11 +430,6 @@ pub fn sync_status(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// swarm resume
-// ---------------------------------------------------------------------------
-
-/// Reconstruct swarm state and output structured next-steps.
 pub fn resume(crosslink_dir: &Path) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
@@ -492,7 +444,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
 
-    // Find the latest checkpoint
     let checkpoint_dir = sync.cache_path().join(ctx.checkpoints_dir());
     let latest_checkpoint = find_latest_checkpoint(&checkpoint_dir);
 
@@ -504,7 +455,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         println!();
     }
 
-    // Find the active phase (first non-completed phase)
     let mut active_phase: Option<PhaseDefinition> = None;
     let mut active_phase_name: Option<String> = None;
     let mut completed_count = 0;
@@ -542,12 +492,10 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
     );
     println!();
 
-    // Categorize agents by live status
     let resolved = resolve_agents(&phase, root);
     let mut actions: Vec<String> = Vec::new();
     let mut action_num = 1;
 
-    // Agents completed but not merged
     let ready_to_merge: Vec<&ResolvedAgent> = resolved
         .iter()
         .filter(|a| a.live_status == "DONE" && a.defined_status != AgentStatus::Merged)
@@ -564,7 +512,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // Agents still running
     let running: Vec<&ResolvedAgent> = resolved
         .iter()
         .filter(|a| a.live_status.starts_with("running"))
@@ -580,7 +527,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // Agents that failed
     let failed: Vec<&ResolvedAgent> = resolved
         .iter()
         .filter(|a| a.live_status == "FAILED" || a.live_status == "failed")
@@ -596,7 +542,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // Agents not yet started
     let planned: Vec<&ResolvedAgent> = resolved
         .iter()
         .filter(|a| a.live_status == "planned")
@@ -612,7 +557,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         action_num += 1;
     }
 
-    // Unknown/stale agents
     let unknown: Vec<&ResolvedAgent> = resolved
         .iter()
         .filter(|a| a.live_status.starts_with("unknown"))
@@ -628,7 +572,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // If all agents are done/merged, suggest gate
     let all_agents_resolved = ready_to_merge.is_empty()
         && running.is_empty()
         && failed.is_empty()
@@ -645,7 +588,6 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
             "{action_num}. If gate passes: crosslink swarm checkpoint {phase_slug}"
         ));
     } else if ready_to_merge.is_empty() && running.is_empty() && planned.is_empty() {
-        // Only failed/unknown agents remain
         actions.push(format!(
             "{action_num}. After resolving failures: crosslink swarm gate {phase_slug}"
         ));
@@ -669,11 +611,35 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// swarm launch
-// ---------------------------------------------------------------------------
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DispatchDials {
+    pub model: String,
+    pub effort: Option<String>,
+    pub budget_usd: Option<String>,
+}
 
-/// Launch all planned agents for a phase via `kickoff run`.
+pub(super) fn resolve_dispatch_dials(config: Option<&BudgetConfig>) -> DispatchDials {
+    let fallback = BudgetConfig::default();
+    let cfg = config.unwrap_or(&fallback);
+    let model = if cfg.model.trim().is_empty() {
+        fallback.model.clone()
+    } else {
+        cfg.model.clone()
+    };
+    DispatchDials {
+        model,
+        effort: cfg.effort.clone().filter(|v| !v.is_empty()),
+        budget_usd: cfg.budget_usd.clone().filter(|v| !v.is_empty()),
+    }
+}
+
+pub(super) fn resolve_phase_template(crosslink_dir: &Path, phase_slug: &str) -> Option<PathBuf> {
+    let candidate = crosslink_dir
+        .join("swarm-templates")
+        .join(format!("{phase_slug}.md"));
+    candidate.is_file().then_some(candidate)
+}
+
 pub fn launch(
     crosslink_dir: &Path,
     db: &Database,
@@ -710,6 +676,13 @@ pub fn launch(
 
     let now = chrono::Utc::now().to_rfc3339();
 
+    let budget_config: Option<BudgetConfig> = resolve_swarm(&sync)
+        .ok()
+        .and_then(|ctx| read_hub_json::<BudgetConfig>(&sync, &ctx.budget_path()).ok());
+    let dials = resolve_dispatch_dials(budget_config.as_ref());
+
+    let phase_template = resolve_phase_template(crosslink_dir, phase_slug);
+
     if !quiet {
         println!(
             "Launching {} agent{} for {}...",
@@ -726,22 +699,32 @@ pub fn launch(
         let issue_id = phase.agents[*idx].issue_id;
         let branch = phase.agents[*idx].branch.clone();
 
+        let timeout = std::time::Duration::from_secs(3600);
+        let agent = crate::agents::resolve_agent(crosslink_dir)?;
+        let policy = kickoff::resolve_execution_policy(
+            &agent,
+            None,
+            false,
+            dials.effort.as_deref(),
+            dials.budget_usd.as_deref(),
+            timeout,
+            None,
+        )?;
         let opts = KickoffOpts {
             description: &description,
             issue: issue_id,
             container: ContainerMode::None,
             verify: VerifyLevel::Local,
-            model: "opus",
+            model: &dials.model,
             image: kickoff::DEFAULT_AGENT_IMAGE,
-            timeout: std::time::Duration::from_secs(3600),
+            timeout,
             dry_run: false,
             branch: branch.as_deref(),
             quiet,
             design_doc: None,
             doc_path: None,
-            skip_permissions: false,
-            permission_mode: None,
-            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+            policy,
+            template: phase_template.as_deref(),
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {
@@ -792,13 +775,7 @@ pub fn launch(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// swarm gate
-// ---------------------------------------------------------------------------
-
-/// Run the project gate (test suite) for a phase and record the result.
 pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
-    // Auto-sync agent statuses before gating so phase JSON reflects live state
     if let Err(e) = sync_status(crosslink_dir) {
         tracing::warn!("could not sync agent statuses: {}", e);
     }
@@ -810,7 +787,6 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
 
     let (mut phase, phase_file) = load_phase(&sync, phase_slug)?;
 
-    // Check that agents are resolved (all completed/merged/failed)
     let root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
@@ -840,7 +816,6 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
         }
     }
 
-    // Detect project conventions and get test command
     let conventions = kickoff::detect_conventions(root);
     let test_cmd = conventions.test_command.as_deref().unwrap_or("cargo test");
 
@@ -863,7 +838,6 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     let gate_passed = output.status.success();
     let now = chrono::Utc::now().to_rfc3339();
 
-    // Try to parse test counts from output (Rust cargo test format)
     let (tests_total, tests_passed) = parse_test_counts(&stdout, &stderr);
 
     let gate_result = GateResult {
@@ -915,9 +889,7 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     Ok(())
 }
 
-/// Parse test counts from combined stdout/stderr (supports cargo test output).
 pub(super) fn parse_test_counts(stdout: &str, stderr: &str) -> (Option<u64>, Option<u64>) {
-    // cargo test format: "test result: ok. 142 passed; 0 failed; 0 ignored; ..."
     for text in [stdout, stderr] {
         for line in text.lines() {
             if line.starts_with("test result:") {
@@ -942,11 +914,6 @@ pub(super) fn parse_test_counts(stdout: &str, stderr: &str) -> (Option<u64>, Opt
     (None, None)
 }
 
-// ---------------------------------------------------------------------------
-// swarm checkpoint
-// ---------------------------------------------------------------------------
-
-/// Record a checkpoint after a phase completes.
 pub fn checkpoint(
     crosslink_dir: &Path,
     phase_slug: &str,
@@ -960,7 +927,6 @@ pub fn checkpoint(
 
     let (mut phase, phase_file) = load_phase(&sync, phase_slug)?;
 
-    // Verify gate passed (unless --force)
     if !force {
         match &phase.gate {
             Some(g) if g.status == "passed" => {}
@@ -976,7 +942,6 @@ pub fn checkpoint(
 
     let now = chrono::Utc::now().to_rfc3339();
 
-    // Get current dev branch SHA
     let dev_sha = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .output()
@@ -1025,7 +990,6 @@ pub fn checkpoint(
     let cp_path = ctx.checkpoint_path(&cp_slug);
     write_hub_json(&sync, &cp_path, &cp)?;
 
-    // Mark phase completed
     phase.status = PhaseStatus::Completed;
     phase.checkpoint = Some(cp_slug);
     for agent in &mut phase.agents {
@@ -1047,7 +1011,6 @@ pub fn checkpoint(
         println!("  Notes: {n}");
     }
 
-    // Check if there's a next phase
     let plan: SwarmPlan = read_hub_json(&sync, &ctx.plan_path())?;
     let current_idx = plan
         .phases
@@ -1072,11 +1035,6 @@ pub fn checkpoint(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-/// Find the latest checkpoint file by modification time.
 pub(super) fn find_latest_checkpoint(dir: &Path) -> Option<Checkpoint> {
     if !dir.is_dir() {
         return None;

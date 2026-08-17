@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff wizard: interactive ratatui TUI for design→plan→run pipeline
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
@@ -11,25 +10,19 @@ use std::path::{Path, PathBuf};
 
 use super::pipeline::{self, PipelineState};
 
-// ── Data types ──────────────────────────────────────────────────────────────
-
-/// Source for the kickoff pipeline.
 #[derive(Debug, Clone)]
 pub enum WizardSource {
-    /// A `.design/*.md` file with optional pipeline state.
     DesignDoc(PathBuf),
-    /// Free-text feature description (no design doc).
+
     QuickDescription(String),
 }
 
-/// Stage selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WizardStage {
     Plan,
     Run,
 }
 
-/// Configuration for a plan run.
 #[derive(Debug, Clone)]
 pub struct PlanConfig {
     pub model: String,
@@ -39,13 +32,12 @@ pub struct PlanConfig {
 impl Default for PlanConfig {
     fn default() -> Self {
         Self {
-            model: "opus".to_string(),
+            model: "standard".to_string(),
             timeout: "30m".to_string(),
         }
     }
 }
 
-/// Configuration for an implementation run.
 #[derive(Debug, Clone)]
 pub struct RunConfig {
     pub verify: String,
@@ -59,7 +51,7 @@ impl Default for RunConfig {
     fn default() -> Self {
         Self {
             verify: "local".to_string(),
-            model: "opus".to_string(),
+            model: "standard".to_string(),
             timeout: "1h".to_string(),
             container: "none".to_string(),
             issue: None,
@@ -67,7 +59,6 @@ impl Default for RunConfig {
     }
 }
 
-/// Final wizard choices ready for dispatch.
 #[derive(Debug, Clone)]
 pub struct WizardChoices {
     pub source: WizardSource,
@@ -76,8 +67,6 @@ pub struct WizardChoices {
     pub run_config: Option<RunConfig>,
 }
 
-// ── Design doc entry for source selection ───────────────────────────────────
-
 struct DesignDocEntry {
     path: PathBuf,
     filename: String,
@@ -85,8 +74,6 @@ struct DesignDocEntry {
     stage_display: String,
     gaps_display: String,
 }
-
-// ── Wizard screens ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Screen {
@@ -98,22 +85,22 @@ enum Screen {
 
 struct WizardApp {
     screen: Screen,
-    // Source screen
+
     design_docs: Vec<DesignDocEntry>,
     source_selected: usize,
     quick_description: String,
     editing_quick: bool,
-    // Stage screen
-    stage_selected: usize, // 0 = Plan, 1 = Run
-    // Configure screen
+
+    stage_selected: usize,
+
     config_options: Vec<ConfigOption>,
     config_selected: usize,
-    // State
+
     source: Option<WizardSource>,
     stage: Option<WizardStage>,
     plan_config: PlanConfig,
     run_config: RunConfig,
-    // Control
+
     finished: bool,
     cancelled: bool,
 }
@@ -132,7 +119,7 @@ impl WizardApp {
             source_selected: 0,
             quick_description: String::new(),
             editing_quick: false,
-            stage_selected: 1, // Default to Run
+            stage_selected: 1,
             config_options: Vec::new(),
             config_selected: 0,
             source: None,
@@ -145,7 +132,7 @@ impl WizardApp {
     }
 
     const fn total_source_items(&self) -> usize {
-        self.design_docs.len() + 1 // +1 for quick description
+        self.design_docs.len() + 1
     }
 
     fn confirm_source(&mut self) {
@@ -157,28 +144,26 @@ impl WizardApp {
                 self.quick_description.trim().to_string(),
             ));
         } else {
-            return; // Don't advance with empty description
+            return;
         }
         self.screen = Screen::Stage;
         self.build_stage_defaults();
     }
 
     fn build_stage_defaults(&mut self) {
-        // If source is a design doc with no plan yet, default to Plan
         if let Some(WizardSource::DesignDoc(ref path)) = self.source {
             if let Some(entry) = self.design_docs.iter().find(|e| e.path == *path) {
                 if let Some(ref pipeline) = entry.pipeline {
                     match pipeline.stage.as_str() {
-                        "designed" => self.stage_selected = 0, // Plan first
-                        // "planned" and all other stages are ready to run
+                        "designed" => self.stage_selected = 0,
+
                         _ => self.stage_selected = 1,
                     }
                 } else {
-                    self.stage_selected = 0; // No pipeline — plan first
+                    self.stage_selected = 0;
                 }
             }
         } else {
-            // Quick description — default to Run
             self.stage_selected = 1;
         }
     }
@@ -201,7 +186,7 @@ impl WizardApp {
             Some(WizardStage::Plan) => {
                 self.config_options.push(ConfigOption {
                     label: "Model",
-                    values: vec!["opus", "sonnet"],
+                    values: vec!["standard", "advanced", "default"],
                     selected: 0,
                 });
                 self.config_options.push(ConfigOption {
@@ -218,7 +203,7 @@ impl WizardApp {
                 });
                 self.config_options.push(ConfigOption {
                     label: "Model",
-                    values: vec!["opus", "sonnet"],
+                    values: vec!["standard", "advanced", "default"],
                     selected: 0,
                 });
                 self.config_options.push(ConfigOption {
@@ -237,7 +222,6 @@ impl WizardApp {
     }
 
     fn confirm_config(&mut self) {
-        // Apply config selections
         match self.stage {
             Some(WizardStage::Plan) => {
                 if let Some(opt) = self.config_options.first() {
@@ -272,7 +256,7 @@ impl WizardApp {
 
     const fn go_back(&mut self) {
         match self.screen {
-            Screen::Source => {} // Can't go back from first screen
+            Screen::Source => {}
             Screen::Stage => self.screen = Screen::Source,
             Screen::Configure => self.screen = Screen::Stage,
             Screen::Launch => self.screen = Screen::Configure,
@@ -298,8 +282,6 @@ impl WizardApp {
         })
     }
 }
-
-// ── Drawing ─────────────────────────────────────────────────────────────────
 
 fn draw_wizard(frame: &mut Frame, app: &WizardApp) {
     let area = frame.area();
@@ -371,23 +353,21 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
 
     let doc_list_height = (app.design_docs.len() as u16).max(1);
     let chunks = Layout::vertical([
-        Constraint::Length(1),               // progress
-        Constraint::Length(1),               // spacer
-        Constraint::Length(1),               // title
-        Constraint::Length(1),               // description
-        Constraint::Length(1),               // spacer
-        Constraint::Length(doc_list_height), // design docs
-        Constraint::Length(1),               // separator
-        Constraint::Length(1),               // quick description
-        Constraint::Min(1),                  // fill
-        Constraint::Length(1),               // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(doc_list_height),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(1),
     ])
     .split(inner);
 
-    // Progress
     frame.render_widget(Paragraph::new(progress_line(Screen::Source)), chunks[0]);
 
-    // Title
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "Select a source",
@@ -398,7 +378,6 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[2],
     );
 
-    // Description
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "Choose a design document or enter a quick feature description",
@@ -407,7 +386,6 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[3],
     );
 
-    // Design doc list
     if app.design_docs.is_empty() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -459,7 +437,6 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         frame.render_stateful_widget(list, chunks[5], &mut state);
     }
 
-    // Separator
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "  \u{2014} or \u{2014}",
@@ -468,7 +445,6 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[6],
     );
 
-    // Quick description input
     let is_quick_selected = app.source_selected >= app.design_docs.len();
     let (marker, input_style) = if is_quick_selected {
         (
@@ -497,7 +473,6 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[7],
     );
 
-    // Help bar
     let help = if app.editing_quick {
         "Type description  Enter confirm  Esc cancel"
     } else {
@@ -518,24 +493,22 @@ fn draw_stage_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     frame.render_widget(block, area);
 
     let chunks = Layout::vertical([
-        Constraint::Length(1), // progress
-        Constraint::Length(1), // spacer
-        Constraint::Length(1), // source summary
-        Constraint::Length(1), // spacer
-        Constraint::Length(1), // title
-        Constraint::Length(1), // spacer
-        Constraint::Length(3), // plan option
-        Constraint::Length(1), // spacer
-        Constraint::Length(3), // run option
-        Constraint::Min(1),    // fill
-        Constraint::Length(1), // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Min(1),
+        Constraint::Length(1),
     ])
     .split(inner);
 
-    // Progress
     frame.render_widget(Paragraph::new(progress_line(Screen::Stage)), chunks[0]);
 
-    // Source summary
     let source_text = match &app.source {
         Some(WizardSource::DesignDoc(path)) => {
             format!(
@@ -558,7 +531,6 @@ fn draw_stage_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[2],
     );
 
-    // Title
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "Select stage",
@@ -569,7 +541,6 @@ fn draw_stage_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[4],
     );
 
-    // Plan option
     let plan_selected = app.stage_selected == 0;
     let plan_style = if plan_selected {
         Style::default()
@@ -580,7 +551,6 @@ fn draw_stage_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     };
     let plan_marker = if plan_selected { "\u{276f} " } else { "  " };
 
-    // Get plan status from pipeline
     let plan_status = get_plan_status_text(app);
 
     let plan_lines = vec![
@@ -599,7 +569,6 @@ fn draw_stage_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     ];
     frame.render_widget(Paragraph::new(plan_lines), chunks[6]);
 
-    // Run option
     let run_selected = app.stage_selected == 1;
     let run_style = if run_selected {
         Style::default()
@@ -628,7 +597,6 @@ fn draw_stage_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     ];
     frame.render_widget(Paragraph::new(run_lines), chunks[8]);
 
-    // Help
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "\u{2191}\u{2193} select  Enter confirm  Backspace back  Esc cancel",
@@ -699,22 +667,20 @@ fn draw_configure_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
 
     let opt_count = app.config_options.len() as u16;
     let chunks = Layout::vertical([
-        Constraint::Length(1),             // progress
-        Constraint::Length(1),             // spacer
-        Constraint::Length(2),             // source + stage summary
-        Constraint::Length(1),             // spacer
-        Constraint::Length(1),             // title
-        Constraint::Length(1),             // spacer
-        Constraint::Length(opt_count * 2), // config options (2 lines each)
-        Constraint::Min(1),                // fill
-        Constraint::Length(1),             // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(opt_count * 2),
+        Constraint::Min(1),
+        Constraint::Length(1),
     ])
     .split(inner);
 
-    // Progress
     frame.render_widget(Paragraph::new(progress_line(Screen::Configure)), chunks[0]);
 
-    // Summaries
     let source_name = match &app.source {
         Some(WizardSource::DesignDoc(p)) => p
             .file_name()
@@ -741,7 +707,6 @@ fn draw_configure_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     ];
     frame.render_widget(Paragraph::new(summary_lines), chunks[2]);
 
-    // Title
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "Configure",
@@ -752,7 +717,6 @@ fn draw_configure_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[4],
     );
 
-    // Config options
     let mut option_lines: Vec<Line> = Vec::new();
     for (i, opt) in app.config_options.iter().enumerate() {
         let is_selected = i == app.config_selected;
@@ -765,13 +729,11 @@ fn draw_configure_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         };
         let marker = if is_selected { "\u{276f} " } else { "  " };
 
-        // Label line
         option_lines.push(Line::from(vec![
             Span::styled(marker, label_style),
             Span::styled(opt.label, label_style),
         ]));
 
-        // Values line
         let value_spans: Vec<Span> = opt
             .values
             .iter()
@@ -806,7 +768,6 @@ fn draw_configure_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     }
     frame.render_widget(Paragraph::new(option_lines), chunks[6]);
 
-    // Help
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "\u{2191}\u{2193} navigate  \u{2190}\u{2192} change value  Enter confirm  Backspace back  Esc cancel",
@@ -822,17 +783,16 @@ fn draw_launch_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     frame.render_widget(block, area);
 
     let chunks = Layout::vertical([
-        Constraint::Length(1), // progress
-        Constraint::Length(1), // spacer
-        Constraint::Length(1), // title
-        Constraint::Length(1), // spacer
-        Constraint::Length(5), // summary
-        Constraint::Min(1),    // fill
-        Constraint::Length(1), // help
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(5),
+        Constraint::Min(1),
+        Constraint::Length(1),
     ])
     .split(inner);
 
-    // Progress (all green)
     let all_green: Vec<Span> = ["Source", "Stage", "Configure", "Launch"]
         .iter()
         .enumerate()
@@ -848,7 +808,6 @@ fn draw_launch_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         .collect();
     frame.render_widget(Paragraph::new(Line::from(all_green)), chunks[0]);
 
-    // Title
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "Ready to launch?",
@@ -859,7 +818,6 @@ fn draw_launch_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
         chunks[2],
     );
 
-    // Summary
     let source_name = match &app.source {
         Some(WizardSource::DesignDoc(p)) => p
             .file_name()
@@ -924,7 +882,6 @@ fn draw_launch_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     ];
     frame.render_widget(Paragraph::new(summary_lines), chunks[4]);
 
-    // Help
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "Enter confirm  Backspace go back  Esc cancel",
@@ -934,11 +891,6 @@ fn draw_launch_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
     );
 }
 
-// ── Event loop ──────────────────────────────────────────────────────────────
-
-/// Launch the interactive wizard and return user choices.
-///
-/// Returns `None` if the user cancels.
 pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
     use ratatui::TerminalOptions;
     use ratatui::Viewport;
@@ -953,12 +905,10 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
 
-    // Discover design docs and their pipeline state
     let design_docs = build_design_doc_entries(root, crosslink_dir);
 
     let mut app = WizardApp::new(design_docs);
 
-    // Inline viewport (20 lines below cursor)
     const WIZARD_HEIGHT: u16 = 22;
     enable_raw_mode().context("Failed to enable raw mode")?;
     let stdout = std::io::stdout();
@@ -980,7 +930,6 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
                     continue;
                 }
 
-                // Handle text editing mode for quick description
                 if app.editing_quick {
                     match key.code {
                         KeyCode::Enter => {
@@ -1013,7 +962,6 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
                         }
                         KeyCode::Enter | KeyCode::Char(' ') => {
                             if app.source_selected >= app.design_docs.len() {
-                                // Quick description — enter edit mode
                                 app.editing_quick = true;
                             } else {
                                 app.confirm_source();
@@ -1099,7 +1047,6 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
         Ok(())
     })();
 
-    // Clear the inline viewport
     {
         let area = terminal.get_frame().area();
         let backend = terminal.backend_mut();
@@ -1114,7 +1061,6 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
         crossterm::execute!(backend, crossterm::cursor::MoveTo(0, area.y)).ok();
     }
 
-    // Restore terminal
     disable_raw_mode().ok();
     terminal.show_cursor().ok();
 
@@ -1127,13 +1073,9 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
     Ok(app.into_choices())
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
 fn build_design_doc_entries(repo_root: &Path, crosslink_dir: &Path) -> Vec<DesignDocEntry> {
     let docs = pipeline::scan_design_docs(repo_root);
 
-    // Live agent ids (session/container still up) so reconcile leaves genuinely
-    // active runs untouched while collapsing stale "running" rows (GH#614).
     let live_ids: Vec<String> = super::monitor::discover_agents(crosslink_dir)
         .unwrap_or_default()
         .into_iter()

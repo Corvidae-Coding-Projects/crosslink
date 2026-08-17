@@ -1,24 +1,3 @@
-//! Hub-branch reader — reads tracked-project state from a local clone.
-//!
-//! Given a path to a cache clone (typically
-//! `~/.crosslink/dashboard-cache/<owner>/<repo>/`) that has `crosslink/hub`
-//! checked out, produces a [`HubSnapshot`] capturing issues, agent
-//! heartbeats, locks, and metadata. The dashboard poll loop (P1.2.C)
-//! calls this reader on every tick and diffs the result into the
-//! per-user `SQLite` index.
-//!
-//! Parsers are reused from the rest of the crosslink crate:
-//! - [`crate::issue_file::read_all_issue_files`] for issues (handles
-//!   both V2 `issues/<uuid>/issue.json` and legacy flat V1 layouts)
-//! - [`crate::locks::LocksFile`] for V1 `locks.json` and
-//!   [`crate::locks::Heartbeat`] for per-agent heartbeat files
-//! - [`crate::issue_file::read_layout_version`] for the hub's v1/v2 tag
-//!
-//! Items here are not called from non-test code yet — the poll loop
-//! (P1.2.C) is the sole consumer once it lands. The module-level
-//! `allow(dead_code)` prevents that intermediate state from breaking
-//! the strict `-D warnings` CI gate.
-
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
@@ -26,54 +5,33 @@ use chrono::{DateTime, Utc};
 use std::path::Path;
 use std::process::Command;
 
-/// Snapshot of a tracked project's `crosslink/hub` branch at a point in time.
 #[derive(Debug, Clone)]
 pub struct HubSnapshot {
-    /// Commit SHA at the tip of `crosslink/hub`, or `None` if the ref
-    /// can't be resolved (fresh clone that hasn't fetched, etc.).
     pub hub_sha: Option<String>,
-    /// Hub layout version (1 or 2). Used by downstream consumers that
-    /// care about which schema the checked-out files follow.
+
     pub layout_version: u32,
-    /// All issue files on the hub branch.
+
     pub issues: Vec<crate::issue_file::IssueFile>,
-    /// One entry per agent that has written a heartbeat.
+
     pub agents: Vec<crate::locks::Heartbeat>,
-    /// Lock entries, keyed by issue display ID.
+
     pub locks: Vec<LockRecord>,
-    /// Agent control requests keyed by target agent ID. Each entry
-    /// pairs a request with its ack (if written). Empty when no
-    /// requests have been issued.
+
     pub agent_requests: Vec<AgentRequestsForAgent>,
-    /// CI status for the current hub-tip commit, if a pipeline wrote
-    /// `meta/ci-status.json` and its sha matches `hub_sha`. `None`
-    /// means we have no signal — render as neutral on the tile.
+
     pub ci_status: Option<CiStatus>,
-    /// Result of verifying the hub-tip commit's signature. `Unknown`
-    /// when verification is unavailable (no `allowed_signers`, no commits,
-    /// etc.) — distinguish from `Unsigned` so the alert engine doesn't
-    /// fire on tooling gaps.
+
     pub signature_state: SignatureState,
-    /// Timestamp of the most recent git commit on the hub branch
-    /// (a rough "last change" indicator used for tile freshness).
+
     pub last_commit_at: Option<DateTime<Utc>>,
 }
 
-/// A target agent's request stream, surfaced to dashboard consumers.
 #[derive(Debug, Clone)]
 pub struct AgentRequestsForAgent {
     pub agent_id: String,
     pub requests: Vec<crate::agent_requests::RequestWithAck>,
 }
 
-/// CI status for the current hub-tip commit. Sourced from
-/// `meta/ci-status.json` on the hub branch — pipelines that want to
-/// surface CI state on the dashboard write that file as part of their
-/// post-build hook. Schema:
-/// ```json
-/// { "sha": "abc...", "state": "passing|failing|pending", "url": "..." }
-/// ```
-/// Entries whose `sha` doesn't match `hub_sha` are ignored (stale).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct CiStatus {
     pub sha: String,
@@ -82,9 +40,6 @@ pub struct CiStatus {
     pub url: Option<String>,
 }
 
-/// Coarse signature state for the hub-tip commit. Mirrors
-/// [`crate::signing::SignatureVerification`] but flattens to a wire-
-/// friendly enum so the dashboard JSON layer stays simple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureState {
     Valid,
@@ -105,31 +60,12 @@ impl SignatureState {
     }
 }
 
-/// Flattened lock record (`LocksFile`'s `HashMap` -> `Vec` for easier iteration).
 #[derive(Debug, Clone)]
 pub struct LockRecord {
     pub issue_id: i64,
     pub lock: crate::locks::Lock,
 }
 
-/// Read a snapshot of the hub branch from the given clone path.
-///
-/// `clone_path` is a crosslink workspace: the user's own working copy
-/// of the repo, which holds `.crosslink/.hub-cache/` as a worktree of
-/// the `crosslink/hub` branch. The reader prefers that cache (because
-/// the working tree might be on `develop` or another feature branch
-/// at any moment) and falls back to scanning `clone_path` directly
-/// for test fixtures / legacy setups that seed hub files at the root.
-///
-/// `git rev-parse` and `git log` operate against git refs so they work
-/// regardless of which branch the working tree is on — hub SHA and
-/// last-commit timestamp are accurate even when the working tree is
-/// on a feature branch.
-///
-/// # Errors
-/// Returns an error only for structural failures that would make the
-/// snapshot meaningless: the clone path doesn't exist, or a JSON
-/// parser encounters malformed data that isn't "missing file."
 pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
     anyhow::ensure!(
         clone_path.is_dir(),
@@ -137,22 +73,15 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
         clone_path.display()
     );
 
-    let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
-    let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
-
-    // Mode-route PER PROJECT: the dashboard aggregates many tracked repos,
-    // each independently v2 or v3. A v3 hub keeps no worktree files (issues,
-    // locks, heartbeats all live on per-agent refs + the checkpoint ref), so
-    // the file-scanning path below would read nothing. Resolve the mode from
-    // this project's repo and take the ref-based path when it is v3.
     if crate::hub_v3::HubMode::resolve(clone_path).is_v3() {
+        let hub_sha = git_rev_parse(clone_path, crate::hub_v3::CHECKPOINT_REF);
+        let last_commit_at = git_last_commit_at(clone_path, crate::hub_v3::CHECKPOINT_REF);
         return read_snapshot_v3(clone_path, hub_sha, last_commit_at);
     }
 
-    // Prefer the hub-cache worktree (`.crosslink/.hub-cache/`) when it
-    // exists — that's where `crosslink sync` keeps `crosslink/hub`
-    // checked out. If it's missing we scan clone_path as a fallback
-    // (test fixtures + legacy setups live here).
+    let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
+    let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
+
     let hub_root = resolve_hub_root(clone_path);
 
     let meta_dir = hub_root.join("meta");
@@ -188,21 +117,6 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
     })
 }
 
-/// Read a snapshot from a v3 hub (per-agent refs + checkpoint ref).
-///
-/// A v3 hub stores no worktree files: issues/comments live in the reduced
-/// `CheckpointState` on `refs/heads/crosslink/checkpoint`, locks in `state.locks`,
-/// and heartbeats on each agent ref's `heartbeat.json`. This reads the LAST
-/// MATERIALIZED checkpoint directly (no full `reduce`), which is the exact
-/// v2-equivalent freshness: the v2 file path equally reflects the last
-/// `compact`, lagging any un-compacted events until the next fetch/compact.
-///
-/// `meta/ci-status.json` has no v3 ref home and the v2 worktree path is gone,
-/// so `ci_status` is `None`; `signature_state` reuses the shared
-/// [`read_signature_state`] (mode-agnostic — it verifies the hub-tip commit
-/// signature via `SyncManager`). `agent_requests` stays empty: the v3
-/// request/ack streams live on refs and are surfaced through the agent poll
-/// path, not this snapshot reader.
 fn read_snapshot_v3(
     clone_path: &Path,
     hub_sha: Option<String>,
@@ -235,24 +149,27 @@ fn read_snapshot_v3(
             .collect();
     agents.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
 
+    let agent_requests: Vec<AgentRequestsForAgent> =
+        crate::hub_v3::read_all_agent_requests(clone_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(agent_id, requests)| AgentRequestsForAgent { agent_id, requests })
+            .collect();
+
     Ok(HubSnapshot {
         hub_sha,
-        // v3 retires the v1/v2 worktree layout marker; report 3 so downstream
-        // consumers can distinguish the ref-based hub from a v1/v2 file hub.
+
         layout_version: 3,
         issues,
         agents,
         locks,
-        agent_requests: Vec::new(),
+        agent_requests,
         ci_status: None,
         signature_state: read_signature_state(clone_path),
         last_commit_at,
     })
 }
 
-/// Read the reduced [`crate::checkpoint::CheckpointState`] from the local v3
-/// checkpoint ref. Returns the default (empty) state when the ref or its
-/// `state.json` blob is absent (fresh v3 hub that hasn't compacted yet).
 fn read_checkpoint_state(repo_dir: &Path) -> Result<crate::checkpoint::CheckpointState> {
     let Some(tip) = crate::hub_v3::git_rev_parse_optional(repo_dir, crate::hub_v3::CHECKPOINT_REF)?
     else {
@@ -266,10 +183,6 @@ fn read_checkpoint_state(repo_dir: &Path) -> Result<crate::checkpoint::Checkpoin
         .context("failed to parse v3 checkpoint state.json for dashboard snapshot")
 }
 
-/// Map a reduced [`crate::checkpoint::CompactIssue`] to the [`IssueFile`] shape
-/// the snapshot consumers (and `derive_counters`) already expect. The
-/// `BTreeSet`/`BTreeMap` collections become the `Vec` fields of `IssueFile`,
-/// preserving deterministic order.
 fn compact_issue_to_file(issue: &crate::checkpoint::CompactIssue) -> crate::issue_file::IssueFile {
     let comments = issue
         .comments
@@ -320,9 +233,6 @@ fn compact_issue_to_file(issue: &crate::checkpoint::CompactIssue) -> crate::issu
     }
 }
 
-/// Load `meta/ci-status.json` and confirm it matches `hub_sha`. Stale
-/// entries (sha mismatch) are dropped so the dashboard never alerts on
-/// CI for a commit that's been superseded.
 fn read_ci_status(hub_root: &Path, hub_sha: Option<&str>) -> Option<CiStatus> {
     let path = hub_root.join("meta").join("ci-status.json");
     if !path.is_file() {
@@ -332,20 +242,14 @@ fn read_ci_status(hub_root: &Path, hub_sha: Option<&str>) -> Option<CiStatus> {
     let status: CiStatus = serde_json::from_str(&raw).ok()?;
     match hub_sha {
         Some(sha) if status.sha == sha => Some(status),
-        // No hub_sha available — accept the file at face value.
+
         None => Some(status),
-        // Stale CI signal; ignore.
+
         Some(_) => None,
     }
 }
 
-/// Verify the most recent hub commit's signature. Returns `Unknown`
-/// if the verification path isn't available — `crosslink/hub` not
-/// fetched yet, no `allowed_signers` configured, anything that would
-/// otherwise produce false-positive alerts.
 fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
-    // Locate the .crosslink dir for this workspace so SyncManager can
-    // load. If it's missing, signature verification is impossible.
     let candidates = [
         crosslink_workspace.join("crosslink").join(".crosslink"),
         crosslink_workspace.join(".crosslink"),
@@ -359,7 +263,7 @@ fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
     if !sync.is_initialized() {
         return SignatureState::Unknown;
     }
-    match sync.verify_locks_signature() {
+    match sync.verify_hub_signature_auto() {
         Ok(crate::signing::SignatureVerification::Valid) => SignatureState::Valid,
         Ok(crate::signing::SignatureVerification::Unsigned) => SignatureState::Unsigned,
         Ok(crate::signing::SignatureVerification::Invalid) => SignatureState::Invalid,
@@ -367,24 +271,6 @@ fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
     }
 }
 
-/// Pick the directory that contains hub-branch content for this
-/// workspace. Order:
-/// 1. `<clone>/.crosslink/.hub-cache/` — canonical project layout.
-///    This is where the dashboard's poll loop materialises the hub
-///    branch AND where `crosslink issue close` et al write their
-///    pending changes. Prefer it over #2 so dashboard writes become
-///    visible to the reader immediately, without waiting for a
-///    `crosslink sync` to flush them to the shared state.
-/// 2. `<clone>/crosslink/.crosslink/.hub-cache/` — legacy nested
-///    workspace layout. Kept as a fallback for historical setups
-///    where the crosslink state lives at a subpath of the repo
-///    (e.g. crosslink's own repo before the dashboard existed).
-/// 3. `<clone>/` — bare clone or test fixture that seeds hub files
-///    at the root.
-///
-/// Only directories that actually have `issues/` or `agents/` content
-/// are considered valid hub roots; an empty `.hub-cache` (fresh clone
-/// before `crosslink sync` ran) falls through to the working tree.
 fn resolve_hub_root(clone_path: &Path) -> std::path::PathBuf {
     let candidates = [
         clone_path.join(".crosslink").join(".hub-cache"),
@@ -403,8 +289,6 @@ fn resolve_hub_root(clone_path: &Path) -> std::path::PathBuf {
     clone_path.to_path_buf()
 }
 
-/// Scan `agents/<id>/requests/` for every agent visible in the snapshot.
-/// Returns only agents with at least one request on disk.
 fn read_agent_requests(
     clone_path: &Path,
     agents: &[crate::locks::Heartbeat],
@@ -414,9 +298,6 @@ fn read_agent_requests(
         return Vec::new();
     }
 
-    // Union of heartbeat-visible agents plus any agent directory that
-    // exists on disk (a driver may have written a request to an agent
-    // that hasn't heartbeated on this hub yet).
     let mut ids: std::collections::BTreeSet<String> =
         agents.iter().map(|a| a.agent_id.clone()).collect();
     if let Ok(entries) = std::fs::read_dir(&agents_dir) {
@@ -441,12 +322,6 @@ fn read_agent_requests(
     out
 }
 
-/// Read `agents/<id>/heartbeat.json` files (V2 layout).
-///
-/// Falls back gracefully — repos with no `agents/` directory and repos
-/// with malformed heartbeat files both yield an empty list. Readers
-/// should treat "no heartbeats" as a distinct state from "all agents
-/// silent."
 fn read_agent_heartbeats(clone_path: &Path) -> Vec<crate::locks::Heartbeat> {
     let agents_dir = clone_path.join("agents");
     if !agents_dir.is_dir() {
@@ -476,9 +351,6 @@ fn read_agent_heartbeats(clone_path: &Path) -> Vec<crate::locks::Heartbeat> {
     out
 }
 
-/// Read locks from whichever layout the repo uses (V2 per-lock files
-/// under `locks/` OR V1 flat `locks.json`). V2 takes precedence when
-/// both exist.
 fn read_locks(clone_path: &Path) -> Vec<LockRecord> {
     let v2_dir = clone_path.join("locks");
     if v2_dir.is_dir() {
@@ -518,7 +390,7 @@ fn read_locks_v2(dir: &Path) -> Vec<LockRecord> {
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
-        // V2 per-lock files are named after the issue display ID.
+
         let Ok(issue_id) = stem.parse::<i64>() else {
             continue;
         };
@@ -566,9 +438,6 @@ fn git_last_commit_at(clone_path: &Path, revision: &str) -> Option<DateTime<Utc>
         .map(|dt| dt.with_timezone(&Utc))
 }
 
-/// Convenience summary derived from a snapshot — the counters the
-/// dashboard tile needs. Decouples the `project_state` DB writes in
-/// the poll loop from the raw parser output.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProjectCounters {
     pub open_issues: i64,
@@ -580,18 +449,6 @@ pub struct ProjectCounters {
 }
 
 impl HubSnapshot {
-    /// Derive the counters displayed on a project tile.
-    ///
-    /// - `open_issues`: issues with status = open.
-    /// - `overdue_issues`: open issues whose `due_at < now`.
-    /// - `due_soon_issues`: open issues whose `due_at` is in the next
-    ///   24 hours.
-    /// - `blocked_issues`: open issues with at least one blocker that
-    ///   is itself still open.
-    /// - `active_agents`: agents whose `last_heartbeat` is within
-    ///   `agent_active_window_minutes` of now.
-    /// - `stale_locks`: locks whose `claimed_at` is older than
-    ///   `stale_lock_minutes` of now.
     #[must_use]
     pub fn derive_counters(
         &self,
@@ -889,7 +746,6 @@ mod tests {
             hub_sha: None,
             layout_version: 2,
             issues: vec![
-                // Open blocker — the dependent issue counts as blocked.
                 make_issue(
                     blocker_open,
                     10,
@@ -897,7 +753,6 @@ mod tests {
                     None,
                     vec![],
                 ),
-                // Closed blocker — dependent does NOT count as blocked.
                 make_issue(
                     blocker_closed,
                     11,
@@ -905,7 +760,6 @@ mod tests {
                     None,
                     vec![],
                 ),
-                // Dependent with open blocker.
                 make_issue(
                     Uuid::new_v4(),
                     20,
@@ -913,7 +767,6 @@ mod tests {
                     None,
                     vec![blocker_open],
                 ),
-                // Dependent with only closed blocker.
                 make_issue(
                     Uuid::new_v4(),
                     21,

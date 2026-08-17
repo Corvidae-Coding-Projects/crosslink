@@ -45,7 +45,6 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
             }
         );
 
-        // Show snippet of description if it contains the query
         if let Some(ref desc) = issue.description {
             if desc.to_lowercase().contains(&query.to_lowercase()) {
                 let flat = desc.replace('\n', " ");
@@ -68,8 +67,6 @@ mod tests {
         let db = Database::open(&db_path).unwrap();
         (db, dir)
     }
-
-    // ==================== Unit Tests ====================
 
     #[test]
     fn test_search_finds_by_title() {
@@ -144,8 +141,6 @@ mod tests {
 
         run(&db, "").unwrap();
         let _results = db.search_issues("").unwrap();
-        // Empty query behavior: may match all or none depending on implementation
-        // Just verify it doesn't error
     }
 
     #[test]
@@ -196,7 +191,7 @@ mod tests {
 
         run(&db, "%pattern%").unwrap();
         let results = db.search_issues("%pattern%").unwrap();
-        // SQL wildcards should be escaped -- literal "%pattern%" should NOT match "pattern"
+
         assert!(
             results.is_empty(),
             "Literal SQL wildcards should be escaped and not match"
@@ -248,8 +243,6 @@ mod tests {
         assert_eq!(results.len(), 1, "Search should find closed issues too");
         assert_eq!(results[0].status, "closed");
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

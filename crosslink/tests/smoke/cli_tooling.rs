@@ -1,24 +1,8 @@
-//! Smoke tests for crosslink tooling commands: cpitd, workflow, context, style.
-
 use super::harness::{assert_stdout_contains, SmokeHarness};
 
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
-/// Create a harness with a local-only git repo (no remote).
-///
-/// The standard `SmokeHarness::new()` sets up a bare remote and runs
-/// `crosslink init`, which auto-initializes the hub cache.  When the
-/// SharedWriter is active, there is a known comment-ID counter bug that
-/// causes UNIQUE constraint violations on the second comment.
-///
-/// This helper creates a git repo without any remote, then inits crosslink,
-/// so the SharedWriter never activates.
 fn harness_local_only() -> SmokeHarness {
     let h = SmokeHarness::new_bare();
 
-    // Initialize a git repo (new_bare skips this)
     let out = std::process::Command::new("git")
         .current_dir(h.temp_dir.path())
         .args(["init", "-b", "main"])
@@ -26,7 +10,6 @@ fn harness_local_only() -> SmokeHarness {
         .expect("git init failed");
     assert!(out.status.success(), "git init failed");
 
-    // Configure git identity
     for args in [
         vec!["config", "user.email", "smoke@test.local"],
         vec!["config", "user.name", "Smoke Test"],
@@ -39,7 +22,6 @@ fn harness_local_only() -> SmokeHarness {
         assert!(out.status.success(), "git config {args:?} failed");
     }
 
-    // Initial commit (crosslink init needs a git repo with at least one commit)
     std::fs::write(h.temp_dir.path().join("README.md"), "# smoke\n")
         .expect("failed to write README.md");
     let _ = std::process::Command::new("git")
@@ -53,19 +35,13 @@ fn harness_local_only() -> SmokeHarness {
         .expect("git commit failed");
     assert!(out.status.success(), "initial git commit failed");
 
-    // Run crosslink init (no remote means no SharedWriter)
     h.run_ok(&["init", "--defaults", "--skip-cpitd", "--skip-signing"]);
 
     h
 }
 
-/// Extract the issue ID from crosslink output.
-///
-/// Handles both online (`Created issue #1`) and offline (`Created issue L1`)
-/// output formats.
 fn extract_issue_id(stdout: &str) -> String {
     for line in stdout.lines() {
-        // Handle "Created issue L1" (offline local ID)
         if let Some(pos) = line.find('L') {
             let id_str: String = line[pos..]
                 .chars()
@@ -75,7 +51,7 @@ fn extract_issue_id(stdout: &str) -> String {
                 return id_str;
             }
         }
-        // Handle "Created issue #1" (online display ID)
+
         if let Some(pos) = line.find('#') {
             let id_str: String = line[pos + 1..]
                 .chars()
@@ -89,15 +65,11 @@ fn extract_issue_id(stdout: &str) -> String {
     panic!("Could not extract issue ID from output:\n{stdout}");
 }
 
-// ===========================================================================
-// CPITD (Clone Detection)
-// ===========================================================================
-
 #[test]
 fn test_cpitd_status_no_scan() {
     let h = SmokeHarness::new();
     let result = h.run_ok(&["cpitd", "status"]);
-    // No prior scan means no open cpitd issues
+
     assert!(
         result.stdout_contains("No open cpitd clone issues")
             || result.stdout_contains("0 open clone issue"),
@@ -109,7 +81,7 @@ fn test_cpitd_status_no_scan() {
 #[test]
 fn test_cpitd_clear_idempotent() {
     let h = SmokeHarness::new();
-    // Clear with nothing to clear should exit 0
+
     let result = h.run_ok(&["cpitd", "clear"]);
     assert!(
         result.stdout_contains("No open cpitd clone issues to close")
@@ -117,7 +89,7 @@ fn test_cpitd_clear_idempotent() {
         "expected idempotent clear message, got stdout:\n{}",
         result.stdout,
     );
-    // Running clear a second time should also succeed
+
     h.run_ok(&["cpitd", "clear"]);
 }
 
@@ -125,7 +97,6 @@ fn test_cpitd_clear_idempotent() {
 fn test_cpitd_scan_dry_run() {
     let h = SmokeHarness::new();
 
-    // Create a small source file to scan
     let src_dir = h.temp_dir.path().join("src");
     std::fs::create_dir_all(&src_dir).expect("failed to create src dir");
     std::fs::write(
@@ -142,14 +113,9 @@ fn goodbye() {
     )
     .expect("failed to write example.rs");
 
-    // Run cpitd scan with --dry-run.
-    // cpitd may or may not be installed; if not installed, the command
-    // should fail with an installation hint rather than panic.
     let result = h.run(&["cpitd", "scan", "src", "--dry-run"]);
 
     if result.success {
-        // If cpitd is installed and ran successfully:
-        // dry-run should not create any issues
         let status = h.run_ok(&["cpitd", "status"]);
         assert!(
             status.stdout_contains("No open cpitd clone issues"),
@@ -157,7 +123,6 @@ fn goodbye() {
             status.stdout,
         );
     } else {
-        // cpitd not installed — verify we get a helpful error, not a panic
         let combined = format!("{}{}", result.stdout, result.stderr);
         assert!(
             combined.contains("cpitd")
@@ -171,16 +136,12 @@ fn goodbye() {
     }
 }
 
-// ===========================================================================
-// Workflow
-// ===========================================================================
-
 #[test]
 fn test_workflow_diff_clean() {
     let h = SmokeHarness::new();
-    // Fresh init should have no drift (all files match defaults)
+
     let result = h.run_ok(&["workflow", "diff"]);
-    // The output should show sections like "=== Tracking Mode ===" etc.
+
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
         combined.contains("Tracking Mode")
@@ -197,11 +158,9 @@ fn test_workflow_diff_clean() {
 fn test_workflow_trail_basic() {
     let h = harness_local_only();
 
-    // Create an issue
     let create_result = h.run_ok(&["issue", "create", "Trail test issue"]);
     let issue_id = extract_issue_id(&create_result.stdout);
 
-    // Add typed comments
     h.run_ok(&[
         "issue",
         "comment",
@@ -227,7 +186,6 @@ fn test_workflow_trail_basic() {
         "result",
     ]);
 
-    // Trail should show all comments
     let trail = h.run_ok(&["workflow", "trail", &issue_id]);
     assert!(
         trail.stdout_contains("Planning the approach"),
@@ -250,7 +208,6 @@ fn test_workflow_trail_basic() {
 fn test_workflow_trail_kind_filter() {
     let h = harness_local_only();
 
-    // Create issue and add mixed comments
     let create_result = h.run_ok(&["issue", "create", "Filter test issue"]);
     let issue_id = extract_issue_id(&create_result.stdout);
 
@@ -279,7 +236,6 @@ fn test_workflow_trail_kind_filter() {
         "decision",
     ]);
 
-    // Filter to only plan comments
     let trail = h.run_ok(&["workflow", "trail", &issue_id, "--kind", "plan"]);
     assert!(
         trail.stdout_contains("Plan: do the thing"),
@@ -301,7 +257,7 @@ fn test_workflow_trail_kind_filter() {
 #[test]
 fn test_workflow_trail_nonexistent() {
     let h = SmokeHarness::new();
-    // Nonexistent issue should fail
+
     let result = h.run_err(&["workflow", "trail", "99999"]);
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
@@ -318,11 +274,9 @@ fn test_workflow_trail_nonexistent() {
 fn test_workflow_trail_empty() {
     let h = harness_local_only();
 
-    // Create an issue but don't add any comments
     let create_result = h.run_ok(&["issue", "create", "Empty trail issue"]);
     let issue_id = extract_issue_id(&create_result.stdout);
 
-    // Trail should succeed but show no comments
     let trail = h.run_ok(&["workflow", "trail", &issue_id]);
     assert!(
         trail.stdout_contains("No comments found"),
@@ -331,16 +285,11 @@ fn test_workflow_trail_empty() {
     );
 }
 
-// ===========================================================================
-// Context
-// ===========================================================================
-
 #[test]
 fn test_context_measure_basic() {
     let h = SmokeHarness::new();
     let result = h.run_ok(&["context", "measure"]);
 
-    // Should report section sizes with known headers
     assert_stdout_contains(&result, "Context injection measurement");
     assert!(
         result.stdout_contains("Rule files") || result.stdout_contains("rules"),
@@ -359,7 +308,7 @@ fn test_context_measure_basic() {
 #[test]
 fn test_context_check_clean() {
     let h = SmokeHarness::new();
-    // After a fresh init, all files should be valid
+
     let result = h.run_ok(&["context", "check"]);
     assert!(
         result.stdout_contains("All checks passed") || result.stdout_contains("OK"),
@@ -368,15 +317,11 @@ fn test_context_check_clean() {
     );
 }
 
-// ===========================================================================
-// Style
-// ===========================================================================
-
 #[test]
 fn test_style_show_none() {
     let h = SmokeHarness::new();
     let result = h.run_ok(&["style", "show"]);
-    // No style configured -> informative message
+
     assert!(
         result.stdout_contains("No house style configured")
             || result.stdout_contains("not configured"),
@@ -388,7 +333,7 @@ fn test_style_show_none() {
 #[test]
 fn test_style_unset_idempotent() {
     let h = SmokeHarness::new();
-    // Unset when nothing is set should exit 0 (or print informative message)
+
     let result = h.run_ok(&["style", "unset"]);
     assert!(
         result.stdout_contains("No house style configured")
@@ -397,6 +342,6 @@ fn test_style_unset_idempotent() {
         "style unset with no config should be informative, got:\n{}",
         result.stdout,
     );
-    // Running unset again should also succeed
+
     h.run_ok(&["style", "unset"]);
 }

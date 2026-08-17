@@ -9,7 +9,6 @@ use crate::issue_file::IssueFile;
 use crate::shared_writer::{ImportedCommentSpec, ImportedIssueSpec, SharedWriter};
 use crate::utils::format_issue_id;
 
-/// Maximum import file size (10 MB).
 const MAX_IMPORT_SIZE: u64 = 10 * 1024 * 1024;
 
 pub fn run_json(db: &Database, writer: Option<&SharedWriter>, input_path: &Path) -> Result<()> {
@@ -23,11 +22,7 @@ pub fn run_json(db: &Database, writer: Option<&SharedWriter>, input_path: &Path)
     }
     let content = fs::read_to_string(input_path).context("Failed to read import file")?;
 
-    // Try new IssueFile array format first, then fall back to legacy ExportData envelope.
     if let Ok(issue_files) = serde_json::from_str::<Vec<IssueFile>>(&content) {
-        // GH#4/GH#5: on a v3 hub, promote imported issues through the event
-        // log so the reduction assigns their display ids. Direct-SQLite rows
-        // stay invisible to the reduction and shadow future display ids.
         if let Some(w) = writer.filter(|w| w.is_v3_public()) {
             let specs: Vec<ImportedIssueSpec> =
                 issue_files.iter().map(spec_from_issue_file).collect();
@@ -44,8 +39,6 @@ pub fn run_json(db: &Database, writer: Option<&SharedWriter>, input_path: &Path)
     import_legacy(db, &data, input_path)
 }
 
-/// Lower an `IssueFile` into an [`ImportedIssueSpec`], preserving its uuid
-/// (and therefore parent/blocker references, which are uuid-keyed already).
 fn spec_from_issue_file(issue: &IssueFile) -> ImportedIssueSpec {
     ImportedIssueSpec {
         uuid: issue.uuid,
@@ -70,9 +63,6 @@ fn spec_from_issue_file(issue: &IssueFile) -> ImportedIssueSpec {
     }
 }
 
-/// Lower a legacy `ExportData` envelope into specs. Legacy issues have no
-/// uuids, so fresh ones are generated; parent references (old display ids)
-/// are resolved through the generated uuids.
 fn specs_from_legacy(data: &ExportData) -> Vec<ImportedIssueSpec> {
     let old_id_to_uuid: HashMap<i64, uuid::Uuid> = data
         .issues
@@ -111,8 +101,6 @@ fn specs_from_legacy(data: &ExportData) -> Vec<ImportedIssueSpec> {
         .collect()
 }
 
-/// Import via the shared writer: one hub commit for the whole batch, display
-/// ids assigned by the reduction (GH#4, GH#5).
 fn import_shared(
     db: &Database,
     writer: &SharedWriter,
@@ -141,10 +129,8 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
     );
 
     let count = db.transaction(|| {
-        // Map uuid -> new display_id for parent/blocker resolution
         let mut uuid_to_new_id: HashMap<uuid::Uuid, i64> = HashMap::new();
 
-        // First pass: create all issues without parent relationships
         for issue in issues {
             let new_id = db.create_issue(
                 &issue.title,
@@ -152,17 +138,14 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
                 issue.priority.as_str(),
             )?;
 
-            // Add labels
             for label in &issue.labels {
                 db.add_label(new_id, label)?;
             }
 
-            // Add comments
             for comment in &issue.comments {
                 db.add_comment(new_id, &comment.content, "note")?;
             }
 
-            // Close if needed
             if issue.status == crate::models::IssueStatus::Closed {
                 db.close_issue(new_id)?;
             }
@@ -179,7 +162,6 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
             );
         }
 
-        // Second pass: update parent relationships
         for issue in issues {
             if let Some(parent_uuid) = issue.parent_uuid {
                 if let (Some(&new_id), Some(&new_parent_id)) = (
@@ -191,12 +173,10 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
             }
         }
 
-        // Third pass: restore blocker dependencies
         for issue in issues {
             if let Some(&new_blocked_id) = uuid_to_new_id.get(&issue.uuid) {
                 for blocker_uuid in &issue.blockers {
                     if let Some(&new_blocker_id) = uuid_to_new_id.get(blocker_uuid) {
-                        // INTENTIONAL: dependency failure is non-fatal — import proceeds without the graph edge
                         let _ = db.add_dependency(new_blocked_id, new_blocker_id);
                     }
                 }
@@ -258,17 +238,14 @@ fn import_issue(db: &Database, issue: &ExportedIssue, parent_id: Option<i64>) ->
         )?
     };
 
-    // Add labels
     for label in &issue.labels {
         db.add_label(id, label)?;
     }
 
-    // Add comments
     for comment in &issue.comments {
         db.add_comment(id, &comment.content, "note")?;
     }
 
-    // Close if needed
     if issue.status == crate::models::IssueStatus::Closed {
         db.close_issue(id)?;
     }

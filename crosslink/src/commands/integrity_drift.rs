@@ -1,88 +1,27 @@
-//! Content-level drift detection between `SQLite` and `JSON`, plus re-emit
-//! paths that close the gap by writing `SQLite`-only rows back to the
-//! `JSON` event log via `SharedWriter` (#602).
-//!
-//! The existing count-based check in `integrity_cmd::check_hydration`
-//! only catches divergence at the issue/milestone-count level. It misses
-//! cases where the two sides have the same row counts but different
-//! contents — most importantly: `SQLite` has a row (a label, a blocker,
-//! a relation) that no `JSON` file represents. The repair path used to
-//! silently delete those rows during the clear-then-rehydrate cycle.
-//!
-//! This module provides the structural primitives:
-//!
-//! - [`detect`] — diffs every shared table between `SQLite` and a fresh
-//!   hydration from `JSON`, returning a [`HydrationDriftReport`].
-//! - [`re_emit`] — for each re-emittable category, writes the
-//!   `SQLite`-only rows back to the `JSON` / git event log via
-//!   `SharedWriter`.
-//!
-//! Some categories (comments, time entries) have no `JSON` representation
-//! and cannot be re-emitted; they are reported but require the snapshot
-//! (`db::snapshot`) for recovery.
-
 use anyhow::{Context, Result};
 use std::path::Path;
 
 use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 
-/// Categorized record of every `SQLite` row that is not represented in
-/// the hydrated-from-`JSON` view of state.
-///
-/// The two checks that operate on this report are:
-///
-/// - [`HydrationDriftReport::is_empty`] — anything diverges?
-/// - [`HydrationDriftReport::has_unrecoverable_loss`] — would a clear /
-///   re-hydrate destroy state that re-emit cannot put back?
 #[derive(Debug, Default, Clone)]
 pub struct HydrationDriftReport {
-    /// Issues (by display id) whose UUID is not present in any JSON file.
-    /// The existing #427 self-heal logic in `hydrate_to_sqlite` already
-    /// preserves these (along with their child rows) for `created_by IS
-    /// NULL` issues; the field is populated for reporting only.
     pub sqlite_only_issues: Vec<i64>,
 
-    /// `(issue_display_id, label)` pairs present in `SQLite` but not in
-    /// `JSON`, restricted to issues that DO appear in `JSON`.
-    /// Re-emittable via `SharedWriter::add_label`.
     pub sqlite_only_labels: Vec<(i64, String)>,
 
-    /// `(blocker_display_id, blocked_display_id)` — blocker
-    /// dependencies in `SQLite` but not in `JSON`, restricted to
-    /// `JSON`-known issues on both sides. Re-emittable via
-    /// `SharedWriter::add_blocker`.
     pub sqlite_only_dependencies: Vec<(i64, i64)>,
 
-    /// `(issue_a_display_id, issue_b_display_id)` — relations in
-    /// `SQLite` but not in `JSON`, canonicalized as `(min, max)`
-    /// because `SQLite` stores both directions while `JSON` stores one.
-    /// Re-emittable via `SharedWriter::add_relation`.
     pub sqlite_only_relations: Vec<(i64, i64)>,
 
-    /// `(milestone_display_id, issue_display_id)` — milestone
-    /// assignments in `SQLite` that don't appear as `milestone_uuid` on
-    /// the `JSON` issue. Re-emittable via
-    /// `SharedWriter::set_milestone_on_issues`.
     pub sqlite_only_milestone_issues: Vec<(i64, i64)>,
 
-    /// `SQLite` comment ids whose UUIDs are not present in any `JSON`
-    /// comment file or embedded `issue.comments` array. NOT re-emittable
-    /// — re-emit would create a new comment with a fresh UUID and a
-    /// new event, losing the original identity. Recovery relies on the
-    /// snapshot file.
     pub sqlite_only_comments: Vec<i64>,
 
-    /// Time-entry ids in `SQLite` (on `JSON`-known issues) that would
-    /// be destroyed by `clear_shared_data`. Time entries have no `JSON`
-    /// representation, so they cannot be re-emitted; recovery relies on
-    /// the snapshot file.
     pub sqlite_only_time_entries: Vec<i64>,
 }
 
 impl HydrationDriftReport {
-    /// True when `SQLite` and the `JSON`-derived view agree on every row
-    /// of every shared table.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.sqlite_only_issues.is_empty()
@@ -94,23 +33,12 @@ impl HydrationDriftReport {
             && self.sqlite_only_time_entries.is_empty()
     }
 
-    /// True when running `clear_shared_data` would destroy `SQLite`-only
-    /// state that [`re_emit`] cannot represent in `JSON`.
-    ///
-    /// Currently: comments and time entries on `JSON`-known issues.
-    /// Issue rows with `created_by = NULL` are preserved by the existing
-    /// `hydrate_to_sqlite` self-heal path; they are not counted as
-    /// "unrecoverable" here.
     #[must_use]
     pub const fn has_unrecoverable_loss(&self) -> bool {
         !self.sqlite_only_comments.is_empty() || !self.sqlite_only_time_entries.is_empty()
     }
 
-    /// True when every divergent row falls in a category that [`re_emit`]
-    /// can write back to `JSON` (labels, deps, relations, milestone
-    /// assignments). Used to decide whether `--repair` can proceed
-    /// without `--accept-data-loss`.
-    #[allow(dead_code)] // Exposed for callers reasoning about drift outside check_hydration.
+    #[allow(dead_code)]
     #[must_use]
     pub const fn is_fully_re_emittable(&self) -> bool {
         !self.is_empty()
@@ -119,8 +47,6 @@ impl HydrationDriftReport {
             && self.sqlite_only_issues.is_empty()
     }
 
-    /// Human-readable summary suitable for the integrity check status
-    /// line. Empty drift produces an empty string.
     #[must_use]
     pub fn summary(&self) -> String {
         if self.is_empty() {
@@ -155,30 +81,11 @@ impl HydrationDriftReport {
     }
 }
 
-/// Diff every shared `SQLite` table against the `JSON`-derived view of
-/// the same state. Returns a categorized record of every row that exists
-/// in `SQLite` but not in `JSON`.
-///
-/// The `JSON`-derived view is built by hydrating into an isolated temp
-/// `SQLite` file (reusing the production `hydrate_to_sqlite` path), then
-/// `ATTACH`-ing that file to `main_db`'s connection so the diff is a
-/// set of cross-database SQL queries — no manual `JSON` walking, no
-/// duplicate parsing logic.
-///
-/// # Errors
-///
-/// Returns an error if the temp database cannot be created, hydration
-/// from JSON fails, ATTACH fails, or any diff query fails.
 pub fn detect(
     cache_dir: &Path,
     main_db: &Database,
     v3_state: Option<&crate::checkpoint::CheckpointState>,
 ) -> Result<HydrationDriftReport> {
-    // 1. Build the JSON-derived view in an isolated temp database. On a v3
-    // hub the worktree has no issue files — the view must come from the
-    // reduced checkpoint state or every hydrated row reports sqlite-only
-    // (GH#7). The temp database starts empty, so hydrate_from_state's
-    // preservation pass has nothing to preserve and the view is pure state.
     let temp_dir = tempfile::tempdir().context("create temp dir for drift detection")?;
     let temp_db_path = temp_dir.path().join("hydrated-view.sqlite");
     {
@@ -191,22 +98,16 @@ pub fn detect(
             hydrate_to_sqlite(cache_dir, &temp_db)
                 .context("hydrate JSON into temp database for drift detection")?;
         }
-        // Explicit drop so the connection releases the file before ATTACH.
     }
 
-    // 2. ATTACH the temp file to the main connection.
     let escaped = temp_db_path.to_string_lossy().replace('\'', "''");
     main_db
         .conn
         .execute(&format!("ATTACH DATABASE '{escaped}' AS json_view"), [])
         .context("attach JSON-view database")?;
 
-    // Run the diff inside a closure so we can ALWAYS detach, even on
-    // error from any individual query.
     let result = run_diff_queries(main_db);
 
-    // 3. DETACH — best-effort. If detach fails the connection is still
-    // usable for subsequent commands; tracing makes the failure visible.
     if let Err(e) = main_db.conn.execute("DETACH DATABASE json_view", []) {
         tracing::warn!("detach json_view database failed: {e}");
     }
@@ -214,12 +115,9 @@ pub fn detect(
     result
 }
 
-/// Execute the per-table diff queries. Separated so the caller can wrap
-/// it in a DETACH-guard.
 fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
     let mut report = HydrationDriftReport::default();
 
-    // --- Issues (sqlite-only by uuid) ---
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT id FROM main.issues \
@@ -232,7 +130,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
             .collect::<std::result::Result<Vec<_>, _>>()?;
     }
 
-    // --- Labels (sqlite-only on JSON-known issues) ---
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT issue_id, label FROM main.labels \
@@ -248,7 +145,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
             .collect::<std::result::Result<Vec<_>, _>>()?;
     }
 
-    // --- Dependencies (sqlite-only on JSON-known issues, both sides) ---
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT blocker_id, blocked_id FROM main.dependencies \
@@ -263,12 +159,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
             .collect::<std::result::Result<Vec<_>, _>>()?;
     }
 
-    // --- Relations (canonical (min, max); both directions in SQLite) ---
-    // The relations table stores both (a, b) and (b, a). Canonicalize
-    // to (min, max) on both sides so the comparison sees one row per
-    // logical relation. Then return canonicalized SQLite-only pairs.
-    //
-    // Note: SQLite column names are `issue_id_1` / `issue_id_2`.
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT DISTINCT \
@@ -287,7 +177,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
             .collect::<std::result::Result<Vec<_>, _>>()?;
     }
 
-    // --- Milestone assignments (sqlite-only on JSON-known issues) ---
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT milestone_id, issue_id FROM main.milestone_issues \
@@ -301,10 +190,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
             .collect::<std::result::Result<Vec<_>, _>>()?;
     }
 
-    // --- Comments (sqlite-only by UUID, on JSON-known issues) ---
-    // Comments without UUIDs (legacy or transient) are excluded — there
-    // is no stable identity to diff on, and re-emit cannot bring them
-    // back regardless.
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT id FROM main.comments \
@@ -319,9 +204,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
             .collect::<std::result::Result<Vec<_>, _>>()?;
     }
 
-    // --- Time entries (sqlite-only on JSON-known issues) ---
-    // Time entries have no JSON representation, so EVERY time entry on
-    // a JSON-known issue would be destroyed by clear_shared_data.
     {
         let mut stmt = main_db.conn.prepare(
             "SELECT id FROM main.time_entries \
@@ -336,8 +218,6 @@ fn run_diff_queries(main_db: &Database) -> Result<HydrationDriftReport> {
     Ok(report)
 }
 
-/// Summary of how many SQLite-only rows were successfully written back
-/// to the JSON event log via `SharedWriter`. Returned by [`re_emit`].
 #[derive(Debug, Default, Clone)]
 pub struct ReEmitStats {
     pub labels: usize,
@@ -353,22 +233,6 @@ impl ReEmitStats {
     }
 }
 
-/// Write every re-emittable SQLite-only row in `drift` back to the JSON
-/// event log via `writer`. Each `add_*` call short-circuits if the row
-/// is already present (per #600), so this is safe to invoke even if the
-/// JSON side raced ahead between detection and re-emit.
-///
-/// Categories without a JSON representation (`sqlite_only_comments`,
-/// `sqlite_only_time_entries`, `sqlite_only_issues`) are NOT touched —
-/// the caller is responsible for either accepting their loss or
-/// recovering them from a snapshot.
-///
-/// # Errors
-///
-/// Returns an error from the first failing `SharedWriter` mutation.
-/// Partial progress IS persisted: each mutation is its own git commit,
-/// so any rows that succeeded before the failure remain in the JSON
-/// event log and are no longer drift.
 pub fn re_emit(
     drift: &HydrationDriftReport,
     writer: &crate::shared_writer::SharedWriter,
@@ -394,9 +258,6 @@ pub fn re_emit(
         }
     }
 
-    // Group milestone_issues by milestone_id so set_milestone_on_issues
-    // can write a single batch per milestone (matches its existing
-    // call shape).
     if !drift.sqlite_only_milestone_issues.is_empty() {
         use std::collections::BTreeMap;
         let mut by_milestone: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
@@ -417,9 +278,6 @@ mod tests {
     use super::*;
     use crate::sync::HUB_CACHE_DIR;
 
-    /// Minimal `cache_dir` setup: an empty `issues/` directory under
-    /// `crosslink_dir/.hub-cache/`. Enough to satisfy
-    /// `hydrate_to_sqlite`'s "no JSON files" early-return.
     fn setup_empty_cache(crosslink_dir: &std::path::Path) {
         let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
         std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
@@ -498,8 +356,6 @@ mod tests {
 
     #[test]
     fn test_detect_sqlite_only_dependency_on_json_known_issues() {
-        // The bug-report reproducer: two issues exist in JSON, but a
-        // dependency row exists only in SQLite.
         use crate::issue_file::write_issue_file;
 
         let dir = tempfile::tempdir().unwrap();
@@ -524,8 +380,6 @@ mod tests {
         )
         .unwrap();
 
-        // Hydrate the JSON view into the real db, then add a SQLite-only
-        // dependency row that was never written through SharedWriter.
         let db = Database::open(&dir.path().join("test.db")).unwrap();
         hydrate_to_sqlite(&cache_dir, &db).unwrap();
         db.add_dependency(2, 1).unwrap();

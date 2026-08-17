@@ -8,7 +8,6 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-  <!-- no background rect — page bg shows through -->
   <text x="350.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Design document workflow</text>
   <text x="350.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">from idea to validated, codebase-grounded spec</text>
   <ellipse cx="100" cy="155" rx="65" ry="45" fill="#00A6DB" opacity="0.12"/>

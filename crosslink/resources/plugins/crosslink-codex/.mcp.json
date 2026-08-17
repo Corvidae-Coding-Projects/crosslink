@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "crosslink-knowledge": {
+      "command": "uv",
+      "args": [
+        "run",
+        "${PLUGIN_ROOT}/mcp/knowledge-server.py"
+      ]
+    },
+    "crosslink-agent-prompt": {
+      "command": "uv",
+      "args": [
+        "run",
+        "${PLUGIN_ROOT}/mcp/agent-prompt-server.py"
+      ]
+    }
+  }
+}

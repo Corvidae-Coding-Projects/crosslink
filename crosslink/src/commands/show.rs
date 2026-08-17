@@ -200,8 +200,6 @@ mod tests {
         (db, dir)
     }
 
-    // ==================== Unit Tests ====================
-
     #[test]
     fn test_show_existing_issue() {
         let (db, _dir) = setup_test_db();
@@ -385,8 +383,6 @@ mod tests {
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.description, Some(String::new()));
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

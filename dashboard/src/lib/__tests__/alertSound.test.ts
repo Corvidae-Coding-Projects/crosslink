@@ -1,7 +1,7 @@
-// Coverage for the audible-alert bridge. We stub AudioContext so the
-// test environment doesn't need a real audio device, then drive
-// synthetic WS events through __emitAlertOpenForTests and assert the
-// bridge called playToneFor / obeyed the preferences filter.
+
+
+
+
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,14 +62,16 @@ function stubAudioContext(state: "running" | "suspended" = "running"): {
   });
 
   (globalThis as unknown as { AudioContext: unknown }).AudioContext =
-    vi.fn().mockImplementation(() => ({
+    vi.fn().mockImplementation(function audioContextStub() {
+      return {
       state,
       currentTime: 0,
       destination: {},
       resume: vi.fn().mockResolvedValue(undefined),
       createOscillator: wrapper.createOscillator,
       createGain: wrapper.createGain,
-    }));
+      };
+    });
 
   return wrapper;
 }
@@ -92,7 +94,7 @@ describe("alertSound bridge", () => {
     __emitAlertOpenForTests({ slug: "owner/repo", opened: 1, resolved: 0 });
 
     expect(audio.createOscillator).toHaveBeenCalledTimes(1);
-    // Default worstSeverity is "critical" — the G5 tone.
+
     expect(audio.lastOsc?.frequency.value).toBe(784);
 
     dispose();
@@ -122,7 +124,7 @@ describe("alertSound bridge", () => {
     });
     const dispose = installAlertSoundBridge();
 
-    // Default worstSeverity fallback is "critical" — not in the list.
+
     __emitAlertOpenForTests({ slug: "owner/repo", opened: 1, resolved: 0 });
 
     expect(audio.createOscillator).not.toHaveBeenCalled();

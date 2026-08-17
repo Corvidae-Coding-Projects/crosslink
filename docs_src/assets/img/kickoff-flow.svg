@@ -8,7 +8,6 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-  <!-- no background rect — page bg shows through -->
   <text x="450.0" y="38" class="heading" font-size="22" fill="#000000" text-anchor="middle">Kickoff agent lifecycle</text>
   <text x="450.0" y="58" class="subheading" font-size="14" fill="#666666" text-anchor="middle">from instruction to autonomous implementation</text>
   <ellipse cx="100" cy="170" rx="80" ry="60" fill="#FFB6C6" opacity="0.4"/>

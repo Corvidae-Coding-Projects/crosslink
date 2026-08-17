@@ -21,8 +21,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             repo,
         } => {
             reject_repo_on_write(repo.as_deref())?;
-            // Read body from stdin when no --content or --from-doc was given
-            // and stdin is piped (not a terminal).
+
             let effective_content = if content.is_some() || from_doc.is_some() {
                 content
             } else if !io::stdin().is_terminal() {
@@ -195,7 +194,6 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
     }
 }
 
-/// Reject `--repo` on write commands with a clear error message.
 fn reject_repo_on_write(repo: Option<&str>) -> Result<()> {
     if repo.is_some() {
         bail!(

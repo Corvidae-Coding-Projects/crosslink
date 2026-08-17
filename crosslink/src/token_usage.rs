@@ -1,16 +1,11 @@
-//! Token usage parsing and cost estimation.
-//!
-//! Provides utilities for:
-//! - Parsing token usage data from Claude API response metadata
-//! - Estimating costs based on model pricing
-//! - Extracting usage from kickoff report JSON
-
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Raw token usage data as reported by the Claude API.
+use crate::agents::{AgentProvider, RuntimeUsage};
+
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct RawTokenUsage {
     pub input_tokens: i64,
     pub output_tokens: i64,
@@ -20,24 +15,22 @@ pub struct RawTokenUsage {
     pub cache_creation_input_tokens: Option<i64>,
 }
 
-/// A parsed token usage record ready for database insertion.
 #[derive(Debug, Clone)]
 pub struct ParsedUsage {
     pub agent_id: String,
     pub session_id: Option<i64>,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub provider: AgentProvider,
+    pub cached_input_tokens: Option<i64>,
+    pub reasoning_output_tokens: Option<i64>,
     pub cache_read_tokens: Option<i64>,
     pub cache_creation_tokens: Option<i64>,
     pub model: String,
     pub cost_estimate: Option<f64>,
+    pub provider_metadata_json: Option<String>,
 }
 
-/// Model pricing per million tokens (input, output, cache read, cache creation).
-/// Based on publicly available Anthropic pricing as of 2025.
-///
-/// `Default` yields all-zero pricing; `Deserialize` tolerates missing cache
-/// fields (they default to `0.0`).
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ModelPricing {
     pub input: f64,
@@ -48,53 +41,40 @@ pub struct ModelPricing {
     pub cache_creation: f64,
 }
 
-/// Provider-agnostic pricing configuration.
-///
-/// Resolution for a given model name proceeds in this order:
-/// 1. exact match in `models`,
-/// 2. longest prefix match in `providers`,
-/// 3. the built-in Anthropic substring heuristics,
-/// 4. `default`,
-/// 5. `None`.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct PricingConfig {
-    /// Exact model-name to pricing overrides.
     #[serde(default)]
     pub models: HashMap<String, ModelPricing>,
-    /// Provider prefix (e.g. `"gpt-"`) to pricing.
+
     #[serde(default)]
     pub providers: HashMap<String, ModelPricing>,
-    /// Fallback pricing applied when nothing else matches.
+
     #[serde(default)]
     pub default: Option<ModelPricing>,
 }
 
-/// Load the `pricing` section of `hook-config.json` from the given crosslink
-/// directory. Returns a default (empty) config if the file is missing, invalid,
-/// or lacks a `pricing` key.
 #[must_use]
 pub fn load_pricing_config(crosslink_dir: &Path) -> PricingConfig {
     let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return PricingConfig::default(),
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return PricingConfig::default();
     };
     let value: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
         Err(_) => return PricingConfig::default(),
     };
-    match value.get("pricing") {
-        Some(pricing) => serde_json::from_value(pricing.clone()).unwrap_or_default(),
-        None => PricingConfig::default(),
-    }
+    value
+        .get("pricing")
+        .map_or_else(PricingConfig::default, |pricing| {
+            serde_json::from_value(pricing.clone()).unwrap_or_default()
+        })
 }
 
 fn get_pricing(model: &str, cfg: &PricingConfig) -> Option<ModelPricing> {
-    // 1) exact match in models
     if let Some(p) = cfg.models.get(model) {
         return Some(p.clone());
     }
-    // 2) longest prefix match in providers
+
     let mut best_prefix_len: usize = 0;
     let mut best: Option<ModelPricing> = None;
     for (prefix, pricing) in &cfg.providers {
@@ -106,8 +86,7 @@ fn get_pricing(model: &str, cfg: &PricingConfig) -> Option<ModelPricing> {
     if let Some(p) = best {
         return Some(p);
     }
-    // 3) existing Anthropic substring match (kept exactly as before)
-    // Normalize model name for matching
+
     let m = model.to_lowercase();
     if m.contains("opus") {
         Some(ModelPricing {
@@ -131,12 +110,10 @@ fn get_pricing(model: &str, cfg: &PricingConfig) -> Option<ModelPricing> {
             cache_creation: 1.0,
         })
     } else {
-        // 4) default, 5) None
         cfg.default.clone()
     }
 }
 
-/// Estimate cost in USD for a token usage record using the given pricing config.
 #[must_use]
 pub fn estimate_cost_cfg(
     model: &str,
@@ -147,7 +124,7 @@ pub fn estimate_cost_cfg(
     cfg: &PricingConfig,
 ) -> Option<f64> {
     let pricing = get_pricing(model, cfg)?;
-    #[allow(clippy::cast_precision_loss)] // token counts are well within f64 mantissa range
+    #[allow(clippy::cast_precision_loss)]
     let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input;
     #[allow(clippy::cast_precision_loss)]
     let output_cost = (output_tokens as f64 / 1_000_000.0) * pricing.output;
@@ -160,8 +137,8 @@ pub fn estimate_cost_cfg(
     Some(input_cost + output_cost + cache_read_cost + cache_creation_cost)
 }
 
-/// Estimate cost in USD for a token usage record using the default pricing config.
 #[must_use]
+#[allow(dead_code)]
 pub fn estimate_cost(
     model: &str,
     input_tokens: i64,
@@ -179,8 +156,8 @@ pub fn estimate_cost(
     )
 }
 
-/// Parse a raw Claude API usage block into a `ParsedUsage` using the given pricing config.
 #[must_use]
+#[allow(dead_code)]
 pub fn parse_api_usage_cfg(
     raw: &RawTokenUsage,
     agent_id: &str,
@@ -201,15 +178,53 @@ pub fn parse_api_usage_cfg(
         session_id,
         input_tokens: raw.input_tokens,
         output_tokens: raw.output_tokens,
+        provider: AgentProvider::Claude,
+        cached_input_tokens: None,
+        reasoning_output_tokens: None,
         cache_read_tokens: raw.cache_read_input_tokens,
         cache_creation_tokens: raw.cache_creation_input_tokens,
         model: model.to_string(),
         cost_estimate: cost,
+        provider_metadata_json: None,
     }
 }
 
-/// Parse a raw Claude API usage block into a `ParsedUsage` using the default pricing config.
 #[must_use]
+pub fn parse_runtime_usage(
+    raw: &RuntimeUsage,
+    provider: AgentProvider,
+    agent_id: &str,
+    session_id: Option<i64>,
+    model: &str,
+    cfg: &PricingConfig,
+    provider_metadata: Option<&serde_json::Value>,
+) -> ParsedUsage {
+    let cost = estimate_cost_cfg(
+        model,
+        raw.input_tokens,
+        raw.output_tokens,
+        raw.cached_input_tokens,
+        None,
+        cfg,
+    );
+    ParsedUsage {
+        agent_id: agent_id.to_string(),
+        session_id,
+        input_tokens: raw.input_tokens,
+        output_tokens: raw.output_tokens,
+        provider,
+        cached_input_tokens: raw.cached_input_tokens,
+        reasoning_output_tokens: raw.reasoning_output_tokens,
+        cache_read_tokens: raw.cached_input_tokens,
+        cache_creation_tokens: None,
+        model: model.to_string(),
+        cost_estimate: cost,
+        provider_metadata_json: provider_metadata.map(serde_json::Value::to_string),
+    }
+}
+
+#[must_use]
+#[allow(dead_code)]
 pub fn parse_api_usage(
     raw: &RawTokenUsage,
     agent_id: &str,
@@ -228,7 +243,7 @@ mod tests {
         let cost = estimate_cost("claude-sonnet-4-20250514", 1_000_000, 1_000_000, None, None);
         assert!(cost.is_some());
         let c = cost.unwrap();
-        // 3.0 + 15.0 = 18.0
+
         assert!((c - 18.0).abs() < 0.001);
     }
 
@@ -237,7 +252,7 @@ mod tests {
         let cost = estimate_cost("claude-opus-4-20250514", 1_000_000, 1_000_000, None, None);
         assert!(cost.is_some());
         let c = cost.unwrap();
-        // 15.0 + 75.0 = 90.0
+
         assert!((c - 90.0).abs() < 0.001);
     }
 
@@ -252,7 +267,7 @@ mod tests {
         );
         assert!(cost.is_some());
         let c = cost.unwrap();
-        // 0.80 + 4.0 = 4.80
+
         assert!((c - 4.80).abs() < 0.001);
     }
 
@@ -267,10 +282,7 @@ mod tests {
         );
         assert!(cost.is_some());
         let c = cost.unwrap();
-        // input: 0.5 * 3.0 = 1.5
-        // output: 0.2 * 15.0 = 3.0
-        // cache_read: 1.0 * 0.3 = 0.3
-        // cache_creation: 0.3 * 3.75 = 1.125
+
         let expected = 1.5 + 3.0 + 0.3 + 1.125;
         assert!((c - expected).abs() < 0.001);
     }
@@ -334,7 +346,7 @@ mod tests {
         );
         let cost = estimate_cost_cfg("gpt-4o", 1_000_000, 1_000_000, None, None, &cfg);
         assert!(cost.is_some());
-        // 5.0 + 15.0 = 20.0
+
         assert!((cost.unwrap() - 20.0).abs() < 0.001);
     }
 
@@ -351,7 +363,7 @@ mod tests {
         );
         let cost = estimate_cost_cfg("gpt-4o-mini", 1_000_000, 1_000_000, None, None, &cfg);
         assert!(cost.is_some());
-        // 2.5 + 10.0 = 12.5
+
         assert!((cost.unwrap() - 12.5).abs() < 0.001);
     }
 
@@ -374,32 +386,34 @@ mod tests {
                 ..Default::default()
             },
         );
-        // "gpt-4o-mini" matches both "gpt-" and "gpt-4o"; longest prefix wins.
+
         let cost = estimate_cost_cfg("gpt-4o-mini", 1_000_000, 1_000_000, None, None, &cfg);
         assert!(cost.is_some());
-        // 5.0 + 15.0 = 20.0 (from the longer "gpt-4o" prefix)
+
         assert!((cost.unwrap() - 20.0).abs() < 0.001);
     }
 
     #[test]
     fn test_pricing_config_default_fallback() {
-        let mut cfg = PricingConfig::default();
-        cfg.default = Some(ModelPricing {
-            input: 1.0,
-            output: 2.0,
+        let cfg = PricingConfig {
+            default: Some(ModelPricing {
+                input: 1.0,
+                output: 2.0,
+                ..Default::default()
+            }),
             ..Default::default()
-        });
-        // Unknown model with no provider match falls back to default.
+        };
+
         let cost = estimate_cost_cfg("some-unknown-model", 1_000_000, 1_000_000, None, None, &cfg);
         assert!(cost.is_some());
-        // 1.0 + 2.0 = 3.0
+
         assert!((cost.unwrap() - 3.0).abs() < 0.001);
     }
 
     #[test]
     fn test_pricing_config_none_when_no_match() {
         let cfg = PricingConfig::default();
-        // No models, no providers, no default -> None.
+
         let cost = estimate_cost_cfg("gpt-4o", 1_000_000, 1_000_000, None, None, &cfg);
         assert!(cost.is_none());
     }
@@ -407,8 +421,15 @@ mod tests {
     #[test]
     fn test_pricing_config_anthropic_heuristic_still_works() {
         let cfg = PricingConfig::default();
-        // With an empty config, Anthropic substring heuristics still apply.
-        let cost = estimate_cost_cfg("claude-sonnet-4-20250514", 1_000_000, 1_000_000, None, None, &cfg);
+
+        let cost = estimate_cost_cfg(
+            "claude-sonnet-4-20250514",
+            1_000_000,
+            1_000_000,
+            None,
+            None,
+            &cfg,
+        );
         assert!(cost.is_some());
         assert!((cost.unwrap() - 18.0).abs() < 0.001);
     }

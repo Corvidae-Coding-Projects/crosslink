@@ -1,21 +1,21 @@
-"""
-Forecast brand constants and SVG primitives for diagram generation.
 
-Palette from docs_src/_brand.yml. Typography follows Forecast house style:
-  - Helvetica for top-level headings (h1-equivalent)
-  - Times New Roman italic for sub-headings (h2-equivalent)
-  - Helvetica for body text
-  - IBM Plex Mono ONLY for code references and slash-commands
 
-Shape vocabulary: ellipses, rounded rectangles, circles, confetti dots.
-Confetti dots use multiplicative blend mode with 50% opacity.
-All arrows are solid (no dashed lines).
-"""
+
+
+
+
+
+
+
+
+
+
+
 
 import math
 import random
 
-# ── Palette (from _brand.yml) ────────────────────────────────────────────────
+
 
 P = {
     "red":    "#F95838",
@@ -31,11 +31,11 @@ P = {
     "muted":  "#666666",
 }
 
-# Confetti dot colors — all solid brand colors, no ghost/translucent dots
+
 CONFETTI_COLORS = [P["red"], P["green"], P["blue"], P["yellow"], P["pink"]]
 
 
-# ── SVG boilerplate ──────────────────────────────────────────────────────────
+
 
 def svg_header(width, height):
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -48,7 +48,6 @@ def svg_header(width, height):
       .mono {{ font-family: 'IBM Plex Mono', 'SF Mono', monospace; }}
     </style>
   </defs>
-  <!-- no background rect — page bg shows through -->
 """
 
 
@@ -56,7 +55,7 @@ def svg_footer():
     return "</svg>\n"
 
 
-# ── Shape primitives ─────────────────────────────────────────────────────────
+
 
 def ellipse(cx, cy, rx, ry, fill, opacity=1.0, rotate=0):
     op = f' opacity="{opacity}"' if opacity < 1.0 else ""
@@ -77,7 +76,7 @@ def rrect(x, y, w, h, fill, rx=None, opacity=1.0, rotate=0):
     return f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" fill="{fill}"{op}{tr}/>\n'
 
 
-# ── Text ──────────────────────────────────────────────────────────────────────
+
 
 def text(x, y, content, cls="body", size=14, fill=None, anchor="middle", weight="normal"):
     f = fill or P["text"]
@@ -86,7 +85,7 @@ def text(x, y, content, cls="body", size=14, fill=None, anchor="middle", weight=
             f'fill="{f}" text-anchor="{anchor}"{w}>{content}</text>\n')
 
 
-# ── Arrows ────────────────────────────────────────────────────────────────────
+
 
 def arrow_curved(x1, y1, x2, y2, color, stroke_width=2.5):
     dx, dy = x2 - x1, y2 - y1
@@ -117,12 +116,12 @@ def arrow_straight(x1, y1, x2, y2, color, stroke_width=2.5):
     return svg
 
 
-# ── Confetti dots (multiplicative blend, 50% opacity, bigger) ────────────────
 
-CONFETTI_RADIUS = 8  # uniform size — tune this one value
+
+CONFETTI_RADIUS = 8
 
 def confetti(rng, x, y, w, h, count, colors=None, r=None):
-    """Scattered confetti dots with multiply blend mode and 50% opacity."""
+
     if colors is None:
         colors = CONFETTI_COLORS
     dot_r = r if r is not None else CONFETTI_RADIUS
@@ -135,10 +134,10 @@ def confetti(rng, x, y, w, h, count, colors=None, r=None):
     return svg
 
 
-# ── Composite helpers ─────────────────────────────────────────────────────────
+
 
 def pill(x, y, w, h, color, label, rx=None, label_cls="mono"):
-    """A small colored pill with a label inside."""
+
     if rx is None:
         rx = h / 2
     svg = rrect(x, y, w, h, color, rx=rx, opacity=0.18)
@@ -147,10 +146,10 @@ def pill(x, y, w, h, color, label, rx=None, label_cls="mono"):
 
 
 def card(x, y, w, h, color, title, items):
-    """A white card with a colored header band and bullet items.
 
-    Items starting with a known command prefix are rendered in monospace.
-    """
+
+
+
     svg = rrect(x, y, w, h, P["white"], rx=18, opacity=0.95)
     svg += rrect(x, y, w, 36, color, rx=18, opacity=0.15)
     svg += rrect(x, y + 18, w, 18, color, rx=0, opacity=0.15)
@@ -158,7 +157,7 @@ def card(x, y, w, h, color, title, items):
     for j, item in enumerate(items):
         iy = y + 55 + j * 24
         svg += circle(x + 18, iy - 3, 4, color, opacity=0.5)
-        # Detect command-like items and render in monospace
+
         is_cmd = any(item.startswith(p) for p in [
             "kickoff ", "swarm ", "crosslink ", "/", "knowledge ",
         ])
@@ -168,17 +167,17 @@ def card(x, y, w, h, color, title, items):
 
 
 def container(x, y, w, h, color, title, rx=30):
-    """A bordered container with a subheading label."""
+
     svg = rrect(x, y, w, h, color, rx=rx, opacity=0.12)
     svg += rrect(x + 4, y + 4, w - 8, h - 8, P["white"], rx=rx - 2, opacity=0.85)
     svg += text(x + w / 2, y + 30, title, cls="subheading", size=18, fill=color)
     return svg
 
 
-# ── CLI helper ────────────────────────────────────────────────────────────────
+
 
 def write_svg(svg_content, args):
-    """Write SVG to file or stdout based on argparse args."""
+
     if args.output:
         with open(args.output, "w") as f:
             f.write(svg_content)

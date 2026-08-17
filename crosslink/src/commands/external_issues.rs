@@ -1,7 +1,3 @@
-//! External issue query commands.
-//!
-//! Handles `--repo` flag for `crosslink issue search/show/list`.
-
 use anyhow::Result;
 use std::path::Path;
 
@@ -11,7 +7,6 @@ use crate::external::{
 use crate::issue_file::IssueFile;
 use crate::utils::format_issue_id;
 
-/// Get an `ExternalIssueReader` for the given repo value.
 fn get_reader(
     crosslink_dir: &Path,
     repo_value: &str,
@@ -214,7 +209,6 @@ pub fn show(
         }
     }
 
-    // Always show comments (per design decision Q1)
     if !issue.comments.is_empty() {
         println!("\nComments:");
         for comment in &issue.comments {
@@ -251,10 +245,6 @@ pub fn show(
 
     Ok(())
 }
-
-// ───────────────────────────────────────────────────────────────────────────
-// JSON formatting
-// ───────────────────────────────────────────────────────────────────────────
 
 fn print_issues_json(issues: &[&IssueFile], source: &str) {
     let entries: Vec<serde_json::Value> = issues

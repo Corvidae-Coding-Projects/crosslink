@@ -1,9 +1,9 @@
 name: CI
 
-# Triggers: develop push validation + PRs to main/develop.
-# Feature branches use ci-feature.yml (fast path) instead.
-# Release and hotfix branches are validated via PR trigger (not push) to avoid
-# concurrency conflicts where push and PR runs cancel each other.
+
+
+
+
 on:
   push:
     branches: [develop]
@@ -21,9 +21,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ===========================================
-  # Linting - runs on Ubuntu for speed
-  # ===========================================
+
+
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -52,12 +52,15 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Verify generated Codex plugin assets
+        run: python3 scripts/sync-codex-plugin.py --check
+
       - name: Clippy (strict)
         run: cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used
 
-  # ===========================================
-  # Security Audit
-  # ===========================================
+
+
+
   security:
     needs: lint
     name: Security Audit
@@ -77,23 +80,23 @@ jobs:
       - name: Run security audit
         run: cargo audit
 
-  # ===========================================
-  # Tests - Cross Platform
-  # ===========================================
+
+
+
   test:
     needs: lint
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: crosslink
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     env:
-      # Proptests only run on Ubuntu here; the dedicated Property Tests job runs 1000 cases
+
       PROPTEST_CASES: 10
     steps:
       - uses: actions/checkout@v4
@@ -119,16 +122,39 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --bin crosslink --verbose
 
-      - name: Run unit tests (skip proptests, macOS/Windows)
-        if: matrix.os != 'ubuntu-latest'
-        run: cargo test --bin crosslink --verbose -- --skip proptest
+      - name: Run unit tests (skip proptests, macOS)
+        if: matrix.os == 'macos-latest'
+        run: cargo test --bin crosslink --verbose -- --skip proptest --skip prop_
+
+      - name: Run platform and provider unit tests (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $filters = @(
+            "agents::",
+            "commands::container::",
+            "commands::design_cmd::",
+            "commands::doctor::",
+            "commands::init::",
+            "commands::kickoff::",
+            "dashboard::pty::tests",
+            "git_compat::",
+            "orchestrator::decompose::"
+          )
+          foreach ($filter in $filters) {
+            cargo test --bin crosslink --verbose $filter -- --skip proptest --skip prop_
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Run integration tests
         run: cargo test --test cli_integration --verbose
 
-  # ===========================================
-  # Property-Based Tests (extended)
-  # ===========================================
+      - name: Run provider hook fixture tests
+        if: matrix.os != 'windows-latest'
+        run: cargo test --test provider_hooks --verbose
+
+
+
+
   proptest:
     needs: test
     name: Property Tests
@@ -159,9 +185,9 @@ jobs:
         env:
           PROPTEST_CASES: 1000
 
-  # ===========================================
-  # Fuzzing - smoke test (Linux only, nightly Rust)
-  # ===========================================
+
+
+
   fuzz:
     needs: test
     name: Fuzz Tests

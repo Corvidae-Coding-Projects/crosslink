@@ -1,9 +1,6 @@
-//! Crosslink issue tracker library
-//!
-//! This module exposes the core functionality for use in fuzzing and testing.
-
 pub mod agent_flags;
 pub mod agent_requests;
+pub mod agents;
 pub mod checkpoint;
 pub mod clock_skew;
 pub mod compaction;

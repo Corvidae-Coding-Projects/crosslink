@@ -85,7 +85,6 @@ fn test_list_pages_with_files() {
     manager.write_page("alpha", page_a).unwrap();
     manager.write_page("beta", page_b).unwrap();
 
-    // Write a non-md file that should be ignored
     std::fs::write(cache_dir.join("notes.txt"), "ignored").unwrap();
 
     let pages = manager.list_pages().unwrap();
@@ -98,8 +97,6 @@ fn test_list_pages_with_files() {
     assert_eq!(pages[1].frontmatter.tags, vec!["b", "c"]);
     assert_eq!(pages[1].frontmatter.contributors, vec!["bob"]);
 }
-
-// --- Frontmatter parsing tests ---
 
 #[test]
 fn test_parse_frontmatter_basic() {
@@ -322,7 +319,6 @@ fn test_unquote() {
     assert_eq!(unquote("  hello  "), "hello");
 }
 
-/// Helper: create a git repo with an initial commit.
 fn init_git_repo(path: &Path) {
     let p = path.to_string_lossy();
     Command::new("git").args(["init", &p]).output().unwrap();
@@ -340,8 +336,6 @@ fn init_git_repo(path: &Path) {
         .unwrap();
 }
 
-// resolve_main_repo_root tests are in utils::tests
-
 #[test]
 fn test_knowledge_manager_in_worktree_uses_main_cache() {
     let dir = tempdir().unwrap();
@@ -352,7 +346,6 @@ fn test_knowledge_manager_in_worktree_uses_main_cache() {
     let main_crosslink = main_root.join(".crosslink");
     std::fs::create_dir_all(&main_crosslink).unwrap();
 
-    // Create worktree
     Command::new("git")
         .args([
             "-C",
@@ -381,13 +374,11 @@ fn test_knowledge_manager_in_worktree_uses_main_cache() {
 
     let manager = KnowledgeManager::new(&wt_crosslink).unwrap();
 
-    // cache_dir should point to the main repo's knowledge cache, not the worktree's
     let expected_parent = main_crosslink.canonicalize().unwrap();
     let actual_parent = manager.cache_dir.parent().unwrap().canonicalize().unwrap();
     assert_eq!(actual_parent, expected_parent);
     assert_eq!(manager.cache_dir.file_name().unwrap(), KNOWLEDGE_CACHE_DIR);
 
-    // repo_root should be the main repo, not the worktree
     assert_eq!(
         manager.repo_root.canonicalize().unwrap(),
         main_root.canonicalize().unwrap()
@@ -405,9 +396,6 @@ fn test_write_page_without_init_fails() {
     assert!(result.is_err());
 }
 
-// --- Search tests ---
-
-/// Helper: create a `KnowledgeManager` with pre-populated pages.
 fn setup_search_manager(pages: &[(&str, &str)]) -> (tempfile::TempDir, KnowledgeManager) {
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
@@ -453,7 +441,7 @@ fn test_search_content_returns_context_lines() {
 
     let results = manager.search_content("match line", 1).unwrap();
     assert_eq!(results.len(), 1);
-    // Should have 3 lines: before, match, after
+
     assert!(results[0].context_lines.len() >= 3);
 }
 
@@ -479,7 +467,6 @@ fn test_search_content_empty_cache() {
 
 #[test]
 fn test_search_content_word_level_matching() {
-    // "modular architecture" should match a page containing both words non-adjacently
     let page = "---\ntitle: Modular Tabular Ingestion\ntags: []\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\n# Modular Tabular Ingestion — Architecture Overview\n\nThe system uses a modular design.\n";
     let (_dir, manager) = setup_search_manager(&[("modular-ingestion", page)]);
 
@@ -490,7 +477,6 @@ fn test_search_content_word_level_matching() {
 
 #[test]
 fn test_search_content_ranks_by_term_hits() {
-    // Page A matches both terms, Page B matches only one
     let page_a = "---\ntitle: Full Match\ntags: []\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nRust async patterns for concurrency.\n";
     let page_b = "---\ntitle: Partial Match\ntags: []\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nJava concurrency utilities.\n";
     let (_dir, manager) =
@@ -498,7 +484,7 @@ fn test_search_content_ranks_by_term_hits() {
 
     let results = manager.search_content("rust concurrency", 0).unwrap();
     assert_eq!(results.len(), 2);
-    // Page matching both terms should come first
+
     assert_eq!(results[0].slug, "full-match");
     assert_eq!(results[1].slug, "partial-match");
 }
@@ -536,14 +522,12 @@ fn test_search_sources_no_match() {
 
 #[test]
 fn test_group_matches_separate_groups() {
-    // With context=0, matches at 0 and 5 should be separate groups
     let groups = group_matches(&[0, 5], 0);
     assert_eq!(groups.len(), 2);
 }
 
 #[test]
 fn test_group_matches_overlapping_context() {
-    // With context=2, matches at 0 and 3 overlap (0+2+1 = 3 >= 3) so they merge
     let groups = group_matches(&[0, 3], 2);
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0], vec![0, 3]);
@@ -554,8 +538,6 @@ fn test_group_matches_empty() {
     let groups = group_matches(&[], 0);
     assert!(groups.is_empty());
 }
-
-// --- Slug validation / path traversal tests ---
 
 #[test]
 fn test_safe_page_path_rejects_traversal() {
@@ -660,11 +642,8 @@ fn test_page_exists_rejects_traversal() {
 
     let manager = KnowledgeManager::new(&crosslink_dir).unwrap();
 
-    // Should return false (not panic or escape) for traversal slugs
     assert!(!manager.page_exists("../etc/passwd"));
 }
-
-// --- Conflict detection and resolution tests ---
 
 #[test]
 fn test_has_conflict_markers_true() {
@@ -680,7 +659,6 @@ fn test_has_conflict_markers_false_no_markers() {
 
 #[test]
 fn test_has_conflict_markers_false_partial() {
-    // Only has opening marker, not a real conflict
     let content = "<<<<<<< HEAD\nsome text\n";
     assert!(!has_conflict_markers(content));
 }
@@ -708,7 +686,7 @@ after conflict
     assert!(resolved.contains("remote version line 1"));
     assert!(resolved.contains("remote version line 2"));
     assert!(resolved.contains("<!-- MERGE CONFLICT: Both versions kept. Cleanup recommended. -->"));
-    // Both versions should be separated by horizontal rules
+
     assert!(resolved.contains("---\n"));
 }
 
@@ -739,7 +717,7 @@ footer
     assert!(resolved.contains("second local"));
     assert!(resolved.contains("second remote"));
     assert!(resolved.contains("footer"));
-    // Should have two conflict comments
+
     assert_eq!(resolved.matches("<!-- MERGE CONFLICT:").count(), 2);
 }
 
@@ -771,10 +749,10 @@ Remote section content
     let resolved = resolve_accept_both(content);
 
     assert!(!has_conflict_markers(&resolved));
-    // Frontmatter should be intact
+
     assert!(resolved.contains("title: Test Page"));
     assert!(resolved.contains("tags: [rust]"));
-    // Both versions kept
+
     assert!(resolved.contains("Local section content"));
     assert!(resolved.contains("Remote section content"));
 }
@@ -803,12 +781,10 @@ fn test_resolve_conflicts_in_cache() {
 
     let manager = KnowledgeManager::new(&crosslink_dir).unwrap();
 
-    // Write a file with conflict markers
     let conflicted =
         "---\ntitle: Test\n---\n\n<<<<<<< HEAD\nlocal\n=======\nremote\n>>>>>>> branch\n";
     manager.write_page("conflicted", conflicted).unwrap();
 
-    // Write a clean file
     let clean = "---\ntitle: Clean\n---\n\nNo conflicts.\n";
     manager.write_page("clean", clean).unwrap();
 
@@ -817,18 +793,14 @@ fn test_resolve_conflicts_in_cache() {
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[0], "conflicted");
 
-    // Verify the file was actually resolved
     let content = manager.read_page("conflicted").unwrap();
     assert!(!has_conflict_markers(&content));
     assert!(content.contains("local"));
     assert!(content.contains("remote"));
 
-    // Verify clean file was not touched
     let clean_content = manager.read_page("clean").unwrap();
     assert_eq!(clean_content, clean);
 }
-
-// --- Additional coverage tests ---
 
 #[test]
 fn test_yaml_escape_plain() {
@@ -1266,8 +1238,6 @@ fn test_resolve_conflicts_in_cache_empty() {
     assert!(resolved.is_empty());
 }
 
-// --- Additional coverage tests ---
-
 #[test]
 fn test_parse_frontmatter_empty_string() {
     assert!(parse_frontmatter("").is_none());
@@ -1280,7 +1250,6 @@ fn test_parse_frontmatter_only_opening_delimiter() {
 
 #[test]
 fn test_parse_frontmatter_leading_whitespace() {
-    // Content with leading whitespace before the opening ---
     let content = "  ---\ntitle: Indented\ncreated: 2026-01-01\n---\n";
     let fm = parse_frontmatter(content).unwrap();
     assert_eq!(fm.title, "Indented");
@@ -1289,17 +1258,15 @@ fn test_parse_frontmatter_leading_whitespace() {
 
 #[test]
 fn test_parse_frontmatter_tags_non_array_value() {
-    // tags with a plain string value (not array, not empty) -> falls through to TopLevel
     let content = "---\ntitle: PlainTag\ntags: not-an-array\nsources: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n";
     let fm = parse_frontmatter(content).unwrap();
     assert_eq!(fm.title, "PlainTag");
-    // tags should remain empty because a non-array string is not parsed
+
     assert!(fm.tags.is_empty());
 }
 
 #[test]
 fn test_parse_frontmatter_contributors_non_array_value() {
-    // contributors with a plain string value -> falls through to TopLevel
     let content = "---\ntitle: PlainContrib\ncontributors: not-an-array\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n";
     let fm = parse_frontmatter(content).unwrap();
     assert_eq!(fm.title, "PlainContrib");
@@ -1599,30 +1566,24 @@ fn test_parse_frontmatter_sources_empty_bracket() {
 
 #[test]
 fn test_has_conflict_markers_all_on_same_line() {
-    // All three markers on the same line is NOT a real git conflict — git
-    // always places each marker on its own line. The previous implementation
-    // used naive `contains()` which would false-positive on this (#418).
     let content = "<<<<<<< =======  >>>>>>>\n";
     assert!(!has_conflict_markers(content));
 }
 
 #[test]
 fn test_has_conflict_markers_mid_line_not_detected() {
-    // Markers that appear mid-line (not at line start) should not trigger.
     let content = "This is a line with <<<<<<< in it\nand ======= here\nand >>>>>>> there\n";
     assert!(!has_conflict_markers(content));
 }
 
 #[test]
 fn test_has_conflict_markers_out_of_order() {
-    // Markers in wrong order (separator before opening) should not trigger.
     let content = "=======\n<<<<<<< HEAD\n>>>>>>> branch\n";
     assert!(!has_conflict_markers(content));
 }
 
 #[test]
 fn test_has_conflict_markers_valid_sequence() {
-    // Proper git conflict marker sequence should be detected.
     let content = "before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\nafter\n";
     assert!(has_conflict_markers(content));
 }
@@ -1647,7 +1608,6 @@ fn test_split_kv_or_bare_empty_value() {
 
 #[test]
 fn test_parse_inline_array_comma_in_quoted_value() {
-    // A comma inside double quotes should not split the value (#431).
     let result = parse_inline_array("[\"last, first\", \"plain\"]");
     assert_eq!(
         result,
@@ -1657,7 +1617,6 @@ fn test_parse_inline_array_comma_in_quoted_value() {
 
 #[test]
 fn test_serialize_parse_roundtrip_comma_in_tag() {
-    // Tags containing commas must survive a serialize→parse roundtrip (#431).
     let fm = PageFrontmatter {
         title: "Test".to_string(),
         tags: vec!["rust, systems".to_string(), "plain".to_string()],
@@ -1907,24 +1866,17 @@ second remote
     assert_eq!(resolved.matches("<!-- MERGE CONFLICT:").count(), 2);
 }
 
-// --- Mid-sequence conflict resolution failure tests (#420) ---
-
 #[test]
 fn test_resolve_accept_both_missing_separator() {
-    // Opening marker appears but the separator (=======) is never reached.
-    // The content after <<<<<<< should be preserved as orphaned "ours" content.
     let content = "before\n<<<<<<< HEAD\norphaned content\n>>>>>>> branch\n";
     let resolved = resolve_accept_both(content);
-    // The >>>>>>> without a preceding ======= leaves us in InOurs state.
-    // The >>>>>>> marker is treated as ours content since we haven't seen =======.
+
     assert!(resolved.contains("before"));
     assert!(resolved.contains("orphaned content"));
 }
 
 #[test]
 fn test_resolve_accept_both_nested_opening_markers() {
-    // Two opening markers in sequence without a separator between them.
-    // The second <<<<<<< should be treated as content within the ours section.
     let content = "\
 <<<<<<< HEAD
 ours line 1
@@ -1942,8 +1894,6 @@ theirs
 
 #[test]
 fn test_resolve_accept_both_separator_without_opening() {
-    // A separator line without a preceding opening marker should be
-    // passed through as normal content (it's in Outside state).
     let content = "normal\n=======\nmore normal\n";
     let resolved = resolve_accept_both(content);
     assert_eq!(resolved, content);
@@ -1951,7 +1901,6 @@ fn test_resolve_accept_both_separator_without_opening() {
 
 #[test]
 fn test_resolve_accept_both_interleaved_normal_and_conflict() {
-    // Verify that normal content between two conflict blocks is preserved.
     let content = "\
 <<<<<<< HEAD
 first ours
@@ -2037,8 +1986,6 @@ fn test_search_content_context_separates_distant_matches() {
     let results = manager.search_content("keyword", 0).unwrap();
     assert_eq!(results.len(), 2);
 }
-
-// --- Additional branch coverage tests ---
 
 #[test]
 fn test_parse_frontmatter_tags_inline_empty_bracket_stays_top_level() {
@@ -2408,15 +2355,6 @@ fn test_sync_unreachable_remote_returns_ok() {
     assert!(result.unwrap().resolved_conflicts.is_empty());
 }
 
-// Note: The remaining git-heavy integration tests (test_push_unreachable_remote_returns_ok,
-// test_sync_unknown_revision_returns_ok, test_git_in_repo_success, test_git_in_repo_failure,
-// test_git_in_cache_failure, test_sync_with_local_remote_pair_reset_path,
-// test_sync_with_unpushed_local_commits_rebase_path, test_push_success_with_local_remote,
-// test_push_rejected_rebase_succeeds, test_handle_rebase_conflict_merge_succeeds,
-// test_handle_rebase_conflict_with_md_conflicts, test_commit_propagates_error_when_git_fails,
-// test_init_cache_fetches_remote_branch_when_available, and the remaining tests)
-// are preserved below without modification.
-
 #[test]
 fn test_push_unreachable_remote_returns_ok() {
     let dir = tempdir().unwrap();
@@ -2656,7 +2594,6 @@ updated: 2026-01-01
     assert_eq!(fm.sources[0].url, "https://valid.com");
 }
 
-// Helper: create a bare git repo that can serve as a remote.
 fn init_bare_remote(path: &Path) {
     let p = path.to_string_lossy();
     Command::new("git")
@@ -2665,7 +2602,6 @@ fn init_bare_remote(path: &Path) {
         .unwrap();
 }
 
-// Helper: clone a bare repo locally, configure user info.
 fn clone_repo(remote: &Path, local: &Path) {
     let remote_s = remote.to_string_lossy();
     let local_s = local.to_string_lossy();
@@ -3308,7 +3244,6 @@ fn test_search_sources_pages_without_sources_skipped() {
     assert_eq!(results[0].slug, "with-source");
 }
 
-/// Helper: create a git repo with an orphan knowledge branch worktree.
 fn setup_knowledge_with_git_worktree() -> (tempfile::TempDir, KnowledgeManager) {
     let dir = tempdir().unwrap();
     let main_root = dir.path();
@@ -3512,8 +3447,6 @@ fn test_init_cache_from_existing_remote_knowledge_branch() {
     );
     assert!(mgr2.is_initialized());
 }
-
-// --- Edit helper tests ---
 
 #[test]
 fn test_extract_body_with_frontmatter() {

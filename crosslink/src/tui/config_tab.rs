@@ -16,27 +16,23 @@ use crate::events;
 use crate::identity::AgentConfig;
 use crate::sync::SyncManager;
 
-/// Which sub-view is active.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ConfigViewMode {
-    /// Main diagnostics overview with inline config editing.
     Main,
-    /// Full event log browser.
+
     EventLog,
-    /// Sub-list editor for array keys.
+
     EditArray,
-    /// Confirmation prompt before writing a config change.
+
     ConfirmWrite,
 }
 
-/// A summary of a single event for display.
 struct EventSummary {
     timestamp: String,
     agent_id: String,
     description: String,
 }
 
-/// Data payload from background sync thread.
 struct ConfigSyncResult {
     hub_initialized: bool,
     hub_v2: bool,
@@ -47,7 +43,6 @@ struct ConfigSyncResult {
     all_events: Vec<EventSummary>,
 }
 
-/// Per-key display entry driven by the registry.
 struct ConfigEntry {
     key: String,
     value: String,
@@ -60,7 +55,6 @@ struct ConfigEntry {
     description: String,
 }
 
-/// Pending config change waiting for scope confirmation.
 struct PendingChange {
     key: String,
     old_value: String,
@@ -68,56 +62,46 @@ struct PendingChange {
     scope: WriteScope,
 }
 
-/// The Config tab — configuration and diagnostics dashboard with inline editing.
 pub struct ConfigTab {
     crosslink_dir: PathBuf,
     db_path: PathBuf,
     view_mode: ConfigViewMode,
     main_scroll: usize,
 
-    // Agent identity
     agent_id: String,
     machine_id: String,
     ssh_fingerprint: String,
 
-    // Database
     schema_version: i32,
     issue_count: i64,
     milestone_count: i64,
 
-    // Sync state
     hub_initialized: bool,
     hub_v2: bool,
     lock_count: usize,
     stale_lock_count: usize,
     agent_count: usize,
 
-    // Configuration — registry-driven (REQ-1)
     config_entries: Vec<ConfigEntry>,
     config_cursor: usize,
 
-    // Shell alias status (REQ-11)
     alias_installed: bool,
     alias_file: String,
 
-    // Inline editing state
     pending_change: Option<PendingChange>,
 
-    // Array editing
     array_items: Vec<String>,
     array_cursor: usize,
     array_key: String,
 
-    // Events
     recent_events: Vec<EventSummary>,
     all_events: Vec<EventSummary>,
     event_scroll: usize,
 
     error_msg: Option<String>,
 
-    /// Whether a background sync load is in progress.
     loading_sync: bool,
-    /// Receiver for background sync results.
+
     sync_rx: Option<mpsc::Receiver<ConfigSyncResult>>,
 }
 
@@ -219,7 +203,6 @@ impl ConfigTab {
         self.config_entries.clear();
 
         let Ok(resolved) = config::read_config_layered(&self.crosslink_dir) else {
-            // Fallback: no config
             return;
         };
 
@@ -278,8 +261,6 @@ impl ConfigTab {
         self.start_background_sync();
     }
 
-    // ── Config editing helpers ──────────────────────────────────────
-
     fn current_config_entry(&self) -> Option<&ConfigEntry> {
         self.config_entries.get(self.config_cursor)
     }
@@ -319,7 +300,6 @@ impl ConfigTab {
             }
             self.array_key = entry.key.clone();
 
-            // Load current array items from merged config
             if let Ok(resolved) = config::read_config_layered(&self.crosslink_dir) {
                 if let Some(serde_json::Value::Array(arr)) = resolved.merged.get(&entry.key) {
                     self.array_items = arr
@@ -350,7 +330,6 @@ impl ConfigTab {
                 let scope = change.scope;
                 let key = change.key.clone();
 
-                // Read the appropriate config file
                 let mut cfg = match scope {
                     WriteScope::Team => {
                         let path = self.crosslink_dir.join("hook-config.json");
@@ -396,10 +375,7 @@ impl ConfigTab {
         }
     }
 
-    // ── Rendering ────────────────────────────────────────────────────
-
     fn render_main(&self, frame: &mut Frame, area: Rect) {
-        // Split: main content area + help/description pane at bottom
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(10), Constraint::Length(4)])
@@ -419,7 +395,6 @@ impl ConfigTab {
             kv_line("SSH Key", &self.ssh_fingerprint, Color::DarkGray),
         ];
 
-        // Shell alias status (REQ-11)
         let alias_str = if self.alias_installed {
             format!("installed ({})", self.alias_file)
         } else {
@@ -436,7 +411,6 @@ impl ConfigTab {
         ));
         lines.push(Line::from(""));
 
-        // ── Database ──
         lines.push(section_header("Database"));
         lines.push(kv_line(
             "Schema",
@@ -460,7 +434,6 @@ impl ConfigTab {
         ));
         lines.push(Line::from(""));
 
-        // ── Hub Sync ──
         lines.push(section_header("Hub Sync"));
         if self.loading_sync {
             lines.push(kv_line("Status", "loading...", Color::DarkGray));
@@ -494,11 +467,9 @@ impl ConfigTab {
         }
         lines.push(Line::from(""));
 
-        // ── Configuration (hot-swappable first, then setup-time) (REQ-9) ──
         lines.push(section_header("Configuration (hot-swappable)"));
         let mut entry_idx = 0;
 
-        // Hot-swappable keys first
         for ce in &self.config_entries {
             if !ce.hot_swappable {
                 continue;
@@ -511,7 +482,6 @@ impl ConfigTab {
         lines.push(Line::from(""));
         lines.push(section_header("Configuration (setup-time)"));
 
-        // Setup-time keys
         for ce in &self.config_entries {
             if ce.hot_swappable {
                 continue;
@@ -523,7 +493,6 @@ impl ConfigTab {
 
         lines.push(Line::from(""));
 
-        // ── Recent Events ──
         lines.push(section_header("Recent Events"));
         if self.recent_events.is_empty() {
             lines.push(Line::from(Span::styled(
@@ -571,7 +540,6 @@ impl ConfigTab {
 
         frame.render_widget(para, chunks[0]);
 
-        // Help pane — description of focused key (REQ-8)
         let help_lines = self.current_config_entry().map_or_else(
             || {
                 vec![Line::from(Span::styled(
@@ -655,7 +623,6 @@ impl ConfigTab {
             ),
         ];
 
-        // Show override info (REQ-7)
         if let Some(ref team_val) = ce.team_value {
             spans.push(Span::styled(
                 format!(" (overrides: {team_val})"),
@@ -850,8 +817,6 @@ impl ConfigTab {
         frame.render_widget(table, chunks[1]);
     }
 
-    // ── Key handling ─────────────────────────────────────────────────
-
     fn handle_main_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Down | KeyCode::Char('j') => {
@@ -859,17 +824,15 @@ impl ConfigTab {
                     && self.config_cursor < self.config_entries.len() - 1
                 {
                     self.config_cursor += 1;
-                    // Keep scroll synchronized: scroll down if cursor moves past visible area
-                    self.main_scroll = self.main_scroll.max(
-                        self.config_cursor.saturating_sub(8), // keep cursor ~8 lines from bottom
-                    );
+
+                    self.main_scroll = self.main_scroll.max(self.config_cursor.saturating_sub(8));
                 }
                 TabAction::Consumed
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.config_cursor > 0 {
                     self.config_cursor -= 1;
-                    // Keep scroll synchronized: scroll up if cursor moves above visible area
+
                     if self.config_cursor < self.main_scroll.saturating_add(2) {
                         self.main_scroll = self.config_cursor.saturating_sub(2);
                     }
@@ -899,18 +862,16 @@ impl ConfigTab {
                 TabAction::Consumed
             }
             KeyCode::Enter => {
-                // Edit focused key based on type (REQ-6)
                 if let Some(entry) = self.config_entries.get(self.config_cursor) {
                     match entry.config_type {
                         ConfigType::Bool | ConfigType::Enum(_) => self.cycle_enum_or_bool(),
                         ConfigType::StringArray => self.open_array_editor(),
-                        _ => {} // String/Integer/Map — use CLI
+                        _ => {}
                     }
                 }
                 TabAction::Consumed
             }
             KeyCode::Char('r') => {
-                // Reset current key to default (REQ-9)
                 self.reset_current_key();
                 TabAction::Consumed
             }
@@ -986,13 +947,12 @@ impl ConfigTab {
                 TabAction::Consumed
             }
             KeyCode::Char('d') => {
-                // Delete selected item
                 if !self.array_items.is_empty() {
                     self.array_items.remove(self.array_cursor);
                     if self.array_cursor >= self.array_items.len() && self.array_cursor > 0 {
                         self.array_cursor -= 1;
                     }
-                    // Write back
+
                     self.save_array_items();
                 }
                 TabAction::Consumed
@@ -1008,8 +968,6 @@ impl ConfigTab {
             .map(|s| serde_json::Value::String(s.clone()))
             .collect();
 
-        // Determine the correct scope: write to local config if the key is locally overridden,
-        // otherwise write to the team config.
         let source = self
             .config_entries
             .iter()
@@ -1098,8 +1056,6 @@ impl Tab for ConfigTab {
     }
 }
 
-// ── Background loader ────────────────────────────────────────────────
-
 fn load_config_sync_data(crosslink_dir: &Path) -> ConfigSyncResult {
     let mut result = ConfigSyncResult {
         hub_initialized: false,
@@ -1171,8 +1127,6 @@ fn load_config_sync_data(crosslink_dir: &Path) -> ConfigSyncResult {
     result
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
 fn section_header(title: &str) -> Line<'static> {
     Line::from(vec![Span::styled(
         format!(" {title}"),
@@ -1230,7 +1184,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
-        // Write a minimal hook-config.json so load_config can parse it
+
         std::fs::write(
             crosslink_dir.join("hook-config.json"),
             crate::commands::init::HOOK_CONFIG_JSON,
@@ -1258,16 +1212,16 @@ mod tests {
         assert_eq!(tab.issue_count, 1);
         assert_eq!(tab.milestone_count, 1);
         assert!(tab.schema_version > 0);
-        // Config entries should be populated from registry
+
         assert!(!tab.config_entries.is_empty());
     }
 
     #[test]
     fn test_config_entries_from_registry() {
         let (tab, _dir) = setup_tab();
-        // Should have entries for all registry keys
+
         assert!(tab.config_entries.len() >= 11);
-        // Check that provenance is set
+
         assert!(tab.config_entries.iter().any(|e| e.key == "tracking_mode"));
     }
 
@@ -1314,10 +1268,10 @@ mod tests {
     #[test]
     fn test_enter_cycles_enum() {
         let (mut tab, _dir) = setup_tab();
-        // First entry should be tracking_mode (hot-swappable, displayed first)
+
         tab.config_cursor = 0;
         tab.handle_key(make_key(KeyCode::Enter));
-        // Should enter ConfirmWrite mode
+
         assert_eq!(tab.view_mode, ConfigViewMode::ConfirmWrite);
         assert!(tab.pending_change.is_some());
     }
@@ -1328,13 +1282,13 @@ mod tests {
         tab.config_cursor = 0;
         tab.handle_key(make_key(KeyCode::Enter));
         assert_eq!(tab.view_mode, ConfigViewMode::ConfirmWrite);
-        // Toggle to local
+
         tab.handle_key(make_key(KeyCode::Char('l')));
         assert!(matches!(
             tab.pending_change.as_ref().unwrap().scope,
             WriteScope::Local
         ));
-        // Toggle back to team
+
         tab.handle_key(make_key(KeyCode::Char('t')));
         assert!(matches!(
             tab.pending_change.as_ref().unwrap().scope,

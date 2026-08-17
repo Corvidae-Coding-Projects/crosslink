@@ -2,25 +2,31 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.10.18">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Container-based agents – crosslink</title>
 <style>
-code{white-space: pre-wrap;}
+
+
+
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  margin: 0 0.8em 0.2em -1em;
   vertical-align: middle;
 }
-/* CSS for syntax highlighting */
+
 html { -webkit-text-size-adjust: 100%; }
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
@@ -69,19 +75,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <link href="../guides/swarm.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="../site_libs/quarto-html/popper.min.js"></script>
 <script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="../site_libs/quarto-html/anchor.min.js"></script>
 <link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b6055d15a8ac7c5273c7ac139124a145.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8c329acec0b3fa7cc1531090efe05bc7.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-168a0324ff7a238321a97431c880757d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-886401abd66b684bd75f2f6e9275b3c8.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-d985dedd3365ef0c64023782e809341a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-3b2aee0fb7072d67ea09050d35a50eb6.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-8cce2f57aedf5571b4e03663078cd69a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b413dd9c4f99a7352b6ea6c674fdaeb3.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-8cce2f57aedf5571b4e03663078cd69a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -127,7 +132,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   margin-right: 0px;
 }
 .navbar-title {
-  color: #F95838;
+  color:
   font-size: 19pt;
   font-family: 'Times New Roman';
   font-style: italic;
@@ -161,107 +166,115 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-getting-started" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">Getting Started</span>
     </a>
-    <ul class="dropdown-menu" aria-labelledby="nav-menu-getting-started">    
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-getting-started">
         <li>
     <a class="dropdown-item" href="../getting-started/quickstart.html">
  <span class="dropdown-text">Your first agent session</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../getting-started/installation.html">
  <span class="dropdown-text">Installation</span></a>
-  </li>  
+  </li>
     </ul>
   </li>
   <li class="nav-item dropdown ">
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-guides" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">Guides</span>
     </a>
-    <ul class="dropdown-menu" aria-labelledby="nav-menu-guides">    
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-guides">
         <li>
     <a class="dropdown-item" href="../guides/session-workflow.html">
  <span class="dropdown-text">Session workflow</span></a>
-  </li>  
+  </li>
+        <li>
+    <a class="dropdown-item" href="../guides/providers.html">
+ <span class="dropdown-text">Claude and Codex providers</span></a>
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/multi-agent.html">
  <span class="dropdown-text">Multi-agent coordination</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/design-workflow.html">
  <span class="dropdown-text">Design document workflow</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/kickoff.html">
  <span class="dropdown-text">Kickoff: Autonomous feature agents</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/swarm.html">
  <span class="dropdown-text">Swarm orchestration</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/container-agents.html">
  <span class="dropdown-text">Container-based agents</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/knowledge.html">
  <span class="dropdown-text">Knowledge management</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/tui.html">
  <span class="dropdown-text">Terminal dashboard</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/web-dashboard.html">
  <span class="dropdown-text">Web dashboard</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/hooks.html">
- <span class="dropdown-text">Behavioral hooks</span></a>
-  </li>  
+ <span class="dropdown-text">Repository hooks</span></a>
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/tracking-modes.html">
  <span class="dropdown-text">Tracking modes</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../guides/maintenance.html">
  <span class="dropdown-text">Maintenance operations</span></a>
-  </li>  
+  </li>
     </ul>
   </li>
   <li class="nav-item dropdown ">
     <a class="nav-link dropdown-toggle" href="#" id="nav-menu-reference" role="link" data-bs-toggle="dropdown" aria-expanded="false">
  <span class="menu-text">Reference</span>
     </a>
-    <ul class="dropdown-menu" aria-labelledby="nav-menu-reference">    
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-reference">
         <li>
     <a class="dropdown-item" href="../reference/commands.html">
  <span class="dropdown-text">CLI reference</span></a>
-  </li>  
+  </li>
         <li>
     <a class="dropdown-item" href="../reference/hook-config.html">
  <span class="dropdown-text">Hook configuration</span></a>
-  </li>  
+  </li>
+        <li>
+    <a class="dropdown-item" href="../reference/state-files.html">
+ <span class="dropdown-text">State and config files</span></a>
+  </li>
         <li>
     <a class="dropdown-item" href="../reference/rules.html">
- <span class="dropdown-text">Rules customization</span></a>
-  </li>  
+ <span class="dropdown-text">Zeroed rule files</span></a>
+  </li>
         <li>
     <a class="dropdown-item" href="../reference/kickoff-report.html">
  <span class="dropdown-text">Kickoff report schema</span></a>
-  </li>  
+  </li>
     </ul>
   </li>
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/forecast-bio/crosslink"> <i class="bi bi-github" role="img">
-</i> 
+    <a class="nav-link" href="https://github.com/Corvidae-Coding-Projects/crosslink"> <i class="bi bi-github" role="img">
+</i>
 <span class="menu-text"></span></a>
-  </li>  
+  </li>
 </ul>
-          </div> <!-- /navcollapse -->
+          </div>
             <div class="quarto-navbar-tools">
 </div>
-      </div> <!-- /container-fluid -->
+      </div>
     </nav>
   <nav class="quarto-secondary-nav">
     <div class="container-fluid d-flex">
@@ -269,94 +282,100 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
         <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../guides/session-workflow.html">Guides</a></li><li class="breadcrumb-item"><a href="../guides/container-agents.html">Container-based agents</a></li></ol></nav>
-        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         </a>
     </div>
   </nav>
 </header>
-<!-- content -->
+
 <div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
-<!-- sidebar -->
+
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
-    <div class="sidebar-menu-container"> 
+    <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container"> 
+      <div class="sidebar-item-container">
             <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
  <span class="menu-text">Guides</span></a>
           <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a> 
+          </a>
       </div>
-      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/session-workflow.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Session workflow</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
+  <a href="../guides/providers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Claude and Codex providers</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
   <a href="../guides/multi-agent.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Multi-agent coordination</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/design-workflow.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Design document workflow</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/kickoff.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Kickoff: Autonomous feature agents</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/swarm.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Swarm orchestration</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/container-agents.html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text">Container-based agents</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/knowledge.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Knowledge management</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/tui.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Terminal dashboard</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/web-dashboard.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Web dashboard</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/hooks.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">Behavioral hooks</span></a>
+ <span class="menu-text">Repository hooks</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/tracking-modes.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Tracking modes</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../guides/maintenance.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">Maintenance operations</span></a>
   </div>
@@ -367,26 +386,30 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     </div>
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
-<!-- margin-sidebar -->
+
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         <nav id="TOC" role="doc-toc" class="toc-active" data-toc-expanded="99">
     <h2 id="toc-title">On this page</h2>
-   
+
   <ul>
-  <li><a href="#why-containers" id="toc-why-containers" class="nav-link active" data-scroll-target="#why-containers">Why containers?</a></li>
+  <li><a href="#why-containers" id="toc-why-containers" class="nav-link active" data-scroll-target="#why-containers">Why containers?</a>
+  <ul>
+  <li><a href="#local-sandbox-alternative" id="toc-local-sandbox-alternative" class="nav-link" data-scroll-target="#local-sandbox-alternative">Local sandbox alternative</a></li>
+  </ul></li>
   <li><a href="#quick-start" id="toc-quick-start" class="nav-link" data-scroll-target="#quick-start">Quick start</a></li>
   <li><a href="#managing-container-lifecycle" id="toc-managing-container-lifecycle" class="nav-link" data-scroll-target="#managing-container-lifecycle">Managing container lifecycle</a>
   <ul>
-  <li><a href="#building-the-image" id="toc-building-the-image" class="nav-link" data-scroll-target="#building-the-image">Building the image</a></li>
+  <li><a href="#getting-the-image" id="toc-getting-the-image" class="nav-link" data-scroll-target="#getting-the-image">Getting the image</a></li>
+  <li><a href="#building-the-image-locally" id="toc-building-the-image-locally" class="nav-link" data-scroll-target="#building-the-image-locally">Building the image locally</a></li>
   <li><a href="#monitoring-containers" id="toc-monitoring-containers" class="nav-link" data-scroll-target="#monitoring-containers">Monitoring containers</a></li>
   <li><a href="#manual-control" id="toc-manual-control" class="nav-link" data-scroll-target="#manual-control">Manual control</a></li>
   </ul></li>
-  <li><a href="#hook-enforcement-inside-containers" id="toc-hook-enforcement-inside-containers" class="nav-link" data-scroll-target="#hook-enforcement-inside-containers">Hook enforcement inside containers</a></li>
+  <li><a href="#repository-hooks-inside-containers" id="toc-repository-hooks-inside-containers" class="nav-link" data-scroll-target="#repository-hooks-inside-containers">Repository hooks inside containers</a></li>
   <li><a href="#integration-with-kickoff" id="toc-integration-with-kickoff" class="nav-link" data-scroll-target="#integration-with-kickoff">Integration with kickoff</a></li>
   </ul>
 </nav>
     </div>
-<!-- main -->
+
 <main class="content" id="quarto-document-content">
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../guides/session-workflow.html">Guides</a></li><li class="breadcrumb-item"><a href="../guides/container-agents.html">Container-based agents</a></li></ol></nav>
@@ -398,11 +421,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <div class="quarto-title-meta">
 
-    
-  
-    
+
+
+
   </div>
-  
+
 
 
 </header>
@@ -421,11 +444,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <ul>
 <li><strong>Isolation</strong> – agents cannot access your host filesystem outside the worktree</li>
 <li><strong>Reproducibility</strong> – consistent environment regardless of host OS</li>
-<li><strong>Security</strong> – <code>--dangerously-skip-permissions</code> becomes safe inside a container because crosslink hooks still enforce policy (no push, no merge, gated commits)</li>
+<li><strong>Security</strong> – provider execution may use a broader sandbox only inside the configured external container boundary; Crosslink hooks still enforce repository policy</li>
 <li><strong>Cross-platform</strong> – works on Windows, Linux, and macOS anywhere Docker runs</li>
 </ul>
 <p>&nbsp;</p>
+<section id="local-sandbox-alternative" class="level3">
+<h3 class="anchored" data-anchor-id="local-sandbox-alternative">Local sandbox alternative</h3>
+<p>If you can’t run Docker or Podman but still want host isolation, set <code>sandbox.command</code> in <code>hook-config.json</code>. The configured command wraps the structured provider invocation at the shell boundary.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> config set sandbox.command <span class="st">"firejail --quiet --net=none"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>A container is still the stronger answer when one is available – this lever just makes the local path less raw when it’s the only option.</p>
+<p>&nbsp;</p>
 <hr>
+</section>
 </section>
 <section id="quick-start" class="level2">
 <h2 class="anchored" data-anchor-id="quick-start">Quick start</h2>
@@ -440,8 +470,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"add batch retry logic"</span> <span class="dt">\</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"add batch retry logic"</span> <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Creates branch, worktree, builds the image (if needed), starts a container, and launches the agent inside it.</p>
 </div>
 </div>
@@ -450,21 +480,35 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="managing-container-lifecycle" class="level2">
 <h2 class="anchored" data-anchor-id="managing-container-lifecycle">Managing container lifecycle</h2>
-<section id="building-the-image" class="level3">
-<h3 class="anchored" data-anchor-id="building-the-image">Building the image</h3>
+<section id="getting-the-image" class="level3">
+<h3 class="anchored" data-anchor-id="getting-the-image">Getting the image</h3>
+<p>The default image used by <code>--container docker|podman</code> is published to GitHub Container Registry as <a href="https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent"><code>ghcr.io/corvidae-coding-projects/crosslink-agent</code></a>, built for both <code>linux/amd64</code> and <code>linux/arm64</code>. Published tags:</p>
+<ul>
+<li><code>:latest</code> — the most recent tagged release</li>
+<li><code>:&lt;version&gt;</code> (e.g.&nbsp;<code>:0.5.2</code>) — pinned release</li>
+<li><code>:nightly</code> — floating tag tracking <code>develop</code></li>
+<li><code>:nightly-&lt;short-sha&gt;</code> — immutable nightly snapshots</li>
+</ul>
+<p>The first <code>--container docker</code> launch will pull the image automatically; subsequent launches reuse the local copy. Pin <code>--image ghcr.io/corvidae-coding-projects/crosslink-agent:&lt;version&gt;</code> for reproducible runs.</p>
+</section>
+<section id="building-the-image-locally" class="level3">
+<h3 class="anchored" data-anchor-id="building-the-image-locally">Building the image locally</h3>
 <div class="columns">
 <div class="column" style="width:35%;">
 <p><strong>You say / do:</strong></p>
 <blockquote class="blockquote">
-<p>“Set up the container image for this project.”</p>
+<p>“Build the agent image from source instead of pulling.”</p>
 </blockquote>
-<p>The image is built once and reused for all subsequent agent launches. It includes the full toolchain for your project.</p>
+<p>Useful when iterating on <code>crosslink/resources/container/Dockerfile</code> or running offline. Produces a single-arch image tagged <code>:local</code>.</p>
 </div><div class="column" style="width:5%;">
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container build</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>The default image includes: Rust toolchain (matches project’s <code>rust-version</code>), Python 3, Git, Claude Code CLI, and crosslink binary.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">just</span> build-image            <span class="co"># tags :local</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"..."</span> <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--container</span> docker <span class="dt">\</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--image</span> ghcr.io/corvidae-coding-projects/crosslink-agent:local</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The image includes both Claude Code and Codex CLIs, Crosslink, git, Python, <code>uv</code>, and non-root UID remapping. The entrypoint installs both repository integrations without changing <code>agent.provider</code> and runs the final process as the remapped non-root user.</p>
 </div>
 </div>
 </section>
@@ -481,41 +525,47 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>→</p>
 </div><div class="column" style="width:60%;">
 <p><strong>Agent executes:</strong></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container ps</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container logs my-feature <span class="at">-f</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container ps</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container logs my-feature <span class="at">-f</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Lists all running agent containers and streams live output from a specific agent.</p>
 </div>
 </div>
 </section>
 <section id="manual-control" class="level3">
 <h3 class="anchored" data-anchor-id="manual-control">Manual control</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Start a container manually for an existing worktree</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container start .worktrees/my-feature <span class="dt">\</span></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--issue</span> 42 <span class="dt">\</span></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--prompt</span> .worktrees/my-feature/KICKOFF.md</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Graceful stop</span></span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container stop my-feature</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Stop and remove</span></span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container kill my-feature</span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Remove a stopped container</span></span>
-<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container rm my-feature</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Start a container manually for an existing worktree</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container start .worktrees/my-feature <span class="dt">\</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--issue</span> 42 <span class="dt">\</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--prompt</span> .worktrees/my-feature/KICKOFF.md</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Graceful stop</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container stop my-feature</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Stop and remove</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container kill my-feature</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Remove a stopped container</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container rm my-feature</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
 </section>
-<section id="hook-enforcement-inside-containers" class="level2">
-<h2 class="anchored" data-anchor-id="hook-enforcement-inside-containers">Hook enforcement inside containers</h2>
-<p>The same crosslink hooks that enforce policy in local sessions also run inside containers – automatically, with zero additional configuration:</p>
+<section id="repository-hooks-inside-containers" class="level2">
+<h2 class="anchored" data-anchor-id="repository-hooks-inside-containers">Repository hooks inside containers</h2>
+<p>The same Crosslink repository hooks used in local sessions also run inside containers:</p>
 <ul>
 <li><strong>Git mutations blocked</strong> – <code>git push</code>, <code>git merge</code>, <code>git rebase</code> are blocked by hooks</li>
 <li><strong>Commits gated</strong> – <code>git commit</code> requires an active crosslink issue</li>
 <li><strong>Stub detection</strong> – post-edit hooks catch TODOs and incomplete code</li>
-<li><strong>Language rules</strong> – project-specific best practices are injected</li>
+<li><strong>Session state</strong> – active issue and heartbeat data remain available</li>
 </ul>
-<p>This means you can use <code>--dangerously-skip-permissions</code> for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.</p>
+<p>The rule hook remains installed in the container. Its bundled Markdown inputs are zero bytes, matching local execution.</p>
+<p>Container execution maps the selected provider to an externally isolated posture. Codex may use danger-full-access only inside that boundary; host Codex defaults to workspace-write.</p>
+<p>Authentication uses normal interactive account login in provider- and user-scoped persistent volumes. No API-key environment variables are accepted or forwarded:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth login <span class="at">--provider</span> codex</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth status <span class="at">--provider</span> codex</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth refresh <span class="at">--provider</span> claude</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> container auth logout <span class="at">--provider</span> codex</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>&nbsp;</p>
 <hr>
 </section>
@@ -529,38 +579,19 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Launches the agent inside the container</li>
 <li>The agent works autonomously: explore, implement, test, commit</li>
 </ol>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Local tmux (default)</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Docker container</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> docker</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Podman container</span></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> podman</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<!-- &nbsp;
-
----
-
-## Command reference
-
-| Command | Description |
-|---------|-------------|
-| `container build` | Build the agent container image |
-| `container start <worktree>` | Start a container for a worktree |
-| `container ps` | List running containers |
-| `container logs <name>` | Stream container logs |
-| `container stop <name>` | Gracefully stop a container |
-| `container kill <name>` | Stop and remove a container |
-| `container rm <name>` | Remove a stopped container |
-| `container shell <name>` | Open a shell in a container |
-| `container snapshot <name>` | Save container state as an image |
-
-See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination](multi-agent.qmd) for distributed locking. -->
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Local tmux (default)</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Docker container</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> docker</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Podman container</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="ex">crosslink</span> kickoff run <span class="st">"my feature"</span> <span class="at">--container</span> podman</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 
 
 </section>
 
-</main> <!-- /main -->
+</main>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";
@@ -572,18 +603,18 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
     anchorJS.add('.anchored');
     const isCodeAnnotation = (el) => {
       for (const clz of el.classList) {
-        if (clz.startsWith('code-annotation-')) {                     
+        if (clz.startsWith('code-annotation-')) {
           return true;
         }
       }
       return false;
     }
     const onCopySuccess = function(e) {
-      // button target
+
       const button = e.trigger;
-      // don't keep focus
+
       button.blur();
-      // flash "checked"
+
       button.classList.add('code-copy-button-checked');
       var currentTitle = button.getAttribute("title");
       button.setAttribute("title", "Copied!");
@@ -592,11 +623,11 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
         button.setAttribute("data-bs-toggle", "tooltip");
         button.setAttribute("data-bs-placement", "left");
         button.setAttribute("data-bs-title", "Copied!");
-        tooltip = new bootstrap.Tooltip(button, 
-          { trigger: "manual", 
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
             customClass: "code-copy-button-tooltip",
             offset: [0, -8]});
-        tooltip.show();    
+        tooltip.show();
       }
       setTimeout(function() {
         if (tooltip) {
@@ -608,7 +639,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
         button.setAttribute("title", currentTitle);
         button.classList.remove('code-copy-button-checked');
       }, 1000);
-      // clear code selection
+
       e.clearSelection();
     }
     const getTextToCopy = function(trigger) {
@@ -638,13 +669,13 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       var isInternal = (href) => {
           return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
       }
-      // Inspect non-navigation links and adorn them if external
+
      var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
       for (var i=0; i<links.length; i++) {
         const link = links[i];
         if (!isInternal(link.href)) {
-          // undo the damage that might have been done by quarto-nav.js in the case of
-          // links that we want to consider external
+
+
           if (link.dataset.originalHref !== undefined) {
             link.href = link.dataset.originalHref;
           }
@@ -673,13 +704,13 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       if (onUntriggerFn) {
         config.onUntrigger = onUntriggerFn;
       }
-      window.tippy(el, config); 
+      window.tippy(el, config);
     }
     const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
     for (var i=0; i<noterefs.length; i++) {
       const ref = noterefs[i];
       tippyHover(ref, function() {
-        // use id or data attribute instead here
+
         let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
         try { href = new URL(href).hash; } catch {}
         const id = href.replace(/^#\/?/, "");
@@ -693,7 +724,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
     }
     const xrefs = window.document.querySelectorAll('a.quarto-xref');
     const processXRef = (id, note) => {
-      // Strip column container classes
+
       const stripColumnClz = (el) => {
         el.classList.remove("page-full", "page-columns");
         if (el.children) {
@@ -704,7 +735,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       }
       stripColumnClz(note)
       if (id === null || id.startsWith('sec-')) {
-        // Special case sections, only their first couple elements
+
         const container = document.createElement("div");
         if (note.children && note.children.length > 2) {
           container.appendChild(note.children[0].cloneNode(true));
@@ -728,7 +759,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
           return note.innerHTML;
         }
       } else {
-        // Remove any anchor links if they are present
+
         const anchorLink = note.querySelector('a.anchorjs-link');
         if (anchorLink) {
           anchorLink.remove();
@@ -748,7 +779,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       tippyHover(xref, undefined, function(instance) {
         instance.disable();
         let url = xref.getAttribute('href');
-        let hash = undefined; 
+        let hash = undefined;
         if (url.startsWith('#')) {
           hash = url;
         } else {
@@ -766,7 +797,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
               instance.show();
             }
           } else {
-            // See if we can fetch this
+
             fetch(url.split('#')[0])
             .then(res => res.text())
             .then(html => {
@@ -776,15 +807,15 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
               if (note !== null) {
                 const html = processXRef(id, note);
                 instance.setContent(html);
-              } 
+              }
             }).finally(() => {
               instance.enable();
               instance.show();
             });
           }
         } else {
-          // See if we can fetch a full url (with no hash to target)
-          // This is a special case and we should probably do some content thinning / targeting
+
+
           fetch(url)
           .then(res => res.text())
           .then(html => {
@@ -792,15 +823,15 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
             const htmlDoc = parser.parseFromString(html, "text/html");
             const note = htmlDoc.querySelector('main.content');
             if (note !== null) {
-              // This should only happen for chapter cross references
-              // (since there is no id in the URL)
-              // remove the first header
+
+
+
               if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
                 note.children[0].remove();
               }
               const html = processXRef(null, note);
               instance.setContent(html);
-            } 
+            }
           }).finally(() => {
             instance.enable();
             instance.show();
@@ -829,7 +860,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
           let height = null;
           let parent = null;
           if (lineIds.length > 0) {
-              //compute the position of the single el (top and bottom and make a div)
+
               const el = window.document.getElementById(lineIds[0]);
               top = el.offsetTop;
               height = el.offsetHeight;
@@ -840,7 +871,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it 
+
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");
@@ -876,7 +907,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
           });
           selectedAnnoteEl = undefined;
         };
-          // Handle positioning of the toggle
+
       window.addEventListener(
         "resize",
         throttle(() => {
@@ -890,11 +921,11 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       let throttle = false;
       let timer;
         return (...args) => {
-          if(!throttle) { // first call gets through
+          if(!throttle) {
               fn.apply(this, args);
               throttle = true;
-          } else { // all the others get throttled
-              if(timer) clearTimeout(timer); // cancel #2
+          } else {
+              if(timer) clearTimeout(timer);
               timer = setTimeout(() => {
                 fn.apply(this, args);
                 timer = throttle = false;
@@ -902,7 +933,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
           }
         };
       }
-        // Attach click handler to the DT
+
         const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
         for (const annoteDlNode of annoteDls) {
           annoteDlNode.addEventListener('click', (event) => {
@@ -916,7 +947,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
               selectCodeLines(clickedEl);
               clickedEl.classList.add('code-annotation-active');
             } else {
-              // Unselect the line
+
               unselectCodeLines();
               clickedEl.classList.remove('code-annotation-active');
             }
@@ -965,7 +996,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   <div class="nav-page nav-page-previous">
       <a href="../guides/swarm.html" class="pagination-link" aria-label="Swarm orchestration">
         <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text">Swarm orchestration</span>
-      </a>          
+      </a>
   </div>
   <div class="nav-page nav-page-next">
       <a href="../guides/knowledge.html" class="pagination-link" aria-label="Knowledge management">
@@ -973,28 +1004,28 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       </a>
   </div>
 </nav>
-</div> <!-- /content -->
-<footer class="forecast-footer" id="forecast-footer">
-  <hr class="forecast-rule">
-  <div class="forecast-wordmark-row">
-    <a href="https://forecast.bio" class="forecast-wordmark-link">
-      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark">
+</div>
+<footer class="crosslink-footer" id="crosslink-footer">
+  <hr class="crosslink-rule">
+  <div class="crosslink-wordmark-row">
+    <a href="https://github.com/Corvidae-Coding-Projects/crosslink" class="crosslink-wordmark-link">
+      <img alt="Crosslink" class="crosslink-wordmark" id="crosslinkWordmark">
     </a>
-    <div class="forecast-confetti" id="forecastConfetti"></div>
+    <div class="crosslink-confetti" id="crosslinkConfetti"></div>
   </div>
-  <p class="forecast-copyright">© 2026 Forecast Bio, Inc. · Built with <a href="https://quarto.org">Quarto</a></p>
+  <p class="crosslink-copyright">© 2026 Crosslink contributors · Built with <a href="https://quarto.org">Quarto</a></p>
 </footer>
 
 <script>
 (function() {
-  // Move footer below Quarto's page navigation links
-  var footer = document.getElementById('forecast-footer');
+
+  var footer = document.getElementById('crosslink-footer');
   var pageNav = document.querySelector('nav.page-navigation');
   if (footer && pageNav && pageNav.parentNode) {
-    // Insert footer after the page navigation element
+
     pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
   } else {
-    // Fallback: append to content area
+
     var contentArea = document.querySelector('#quarto-content main.content');
     if (!contentArea) {
       contentArea = document.querySelector('#quarto-content > .page-columns');
@@ -1004,13 +1035,13 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
     }
   }
 
-  // Resolve wordmark path
-  var img = document.getElementById('forecastWordmark');
+
+  var img = document.getElementById('crosslinkWordmark');
   if (img) {
     var candidates = [
-      'assets/img/forecast-wordmark.svg',
-      '../assets/img/forecast-wordmark.svg',
-      '../../assets/img/forecast-wordmark.svg',
+      'assets/img/crosslink-wordmark.svg',
+      '../assets/img/crosslink-wordmark.svg',
+      '../../assets/img/crosslink-wordmark.svg',
     ];
     var tryIndex = 0;
     function tryNext() {
@@ -1022,15 +1053,15 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
     tryNext();
   }
 
-  // Confetti dots — cone shape emanating up-right from logo baseline.
-  // Color distribution matches forecast.bio home page:
-  //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
+
+
+
   var COLOR_TABLE = [
-    { color: '#ede2e4', weight: 10 }, // warm grey
-    { color: '#FFB6C6', weight: 5 },  // pink
-    { color: '#F95838', weight: 5 },  // red
-    { color: '#00A6DB', weight: 8 },  // blue
-    { color: '#FFCE02', weight: 7 },  // yellow
+    { color: '#ede2e4', weight: 10 },
+    { color: '#FFB6C6', weight: 5 },
+    { color: '#F95838', weight: 5 },
+    { color: '#00A6DB', weight: 8 },
+    { color: '#FFCE02', weight: 7 },
   ];
   var TOTAL_WEIGHT = 0;
   for (var ci = 0; ci < COLOR_TABLE.length; ci++) TOTAL_WEIGHT += COLOR_TABLE[ci].weight;
@@ -1047,15 +1078,15 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   var DOT_COUNT = 14;
   var DOT_SIZE = 11;
 
-  var holder = document.getElementById('forecastConfetti');
+  var holder = document.getElementById('crosslinkConfetti');
   if (!holder) return;
 
-  // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
+
   var FIELD_W = 180;
-  var ORIGIN_Y = 45;       // logo baseline within the confetti container
-  var SLOPE = -0.28;       // mean trend: rises 28px per 100px rightward
-  var CONE_HALF_ANGLE = 0.22; // cone half-width as fraction of x distance
-  var NOISE = 10;          // extra random noise on top of cone positioning
+  var ORIGIN_Y = 45;
+  var SLOPE = -0.28;
+  var CONE_HALF_ANGLE = 0.22;
+  var NOISE = 10;
 
   function sampleDot() {
     for (var attempts = 0; attempts < 50; attempts++) {
@@ -1063,7 +1094,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
       var meanY = ORIGIN_Y + SLOPE * x;
       var spread = Math.max(5, x * CONE_HALF_ANGLE);
       var y = meanY + (Math.random() - 0.5) * 2 * spread;
-      // Extra noise to fuzz the cone edges
+
       x += (Math.random() - 0.5) * NOISE;
       y += (Math.random() - 0.5) * NOISE;
       if (x >= 0) return { x: Math.floor(x), y: Math.floor(y) };
@@ -1074,7 +1105,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
   var dots = [];
   for (var i = 0; i < DOT_COUNT; i++) {
     var dot = document.createElement('div');
-    dot.className = 'forecast-dot';
+    dot.className = 'crosslink-dot';
     dot.style.width = DOT_SIZE + 'px';
     dot.style.height = DOT_SIZE + 'px';
     dot.style.backgroundColor = pickColor();
@@ -1087,7 +1118,7 @@ See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination
     dots.push(dot);
   }
 
-  // Sort left-to-right for sequential reveal (emanating from logo)
+
   dots.sort(function(a, b) {
     return parseFloat(a.style.left) - parseFloat(b.style.left);
   });

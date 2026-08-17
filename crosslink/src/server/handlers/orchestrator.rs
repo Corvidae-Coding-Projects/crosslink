@@ -1,14 +1,3 @@
-//! Handlers for the design document orchestration endpoints.
-//!
-//! Implements:
-//! - `POST /api/v1/orchestrator/decompose` — LLM-assisted doc → plan breakdown
-//! - `GET  /api/v1/orchestrator/plan`      — get the current plan (if any)
-//! - `GET  /api/v1/orchestrator/status`    — get execution status
-//! - `POST /api/v1/orchestrator/execute`   — start/resume execution
-//! - `POST /api/v1/orchestrator/pause`     — pause execution
-//! - `POST /api/v1/orchestrator/stages/:id/retry` — retry a failed stage
-//! - `POST /api/v1/orchestrator/stages/:id/skip`  — skip a stage
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -22,7 +11,6 @@ use crate::server::{
     types::{ApiError, DecomposeRequest, ExecutionStatus, OrchestratorPlan},
 };
 
-/// Convert a progress percentage (0.0..=100.0) to a `u32`, clamping negatives to 0.
 fn progress_to_u32(pct: f64) -> u32 {
     format!("{:.0}", pct.round().clamp(0.0, 100.0))
         .parse::<u32>()
@@ -39,18 +27,6 @@ fn conflict(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
     )
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/decompose
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/decompose` — decompose a design document.
-///
-/// Accepts a JSON body with `document` (markdown string) and optional `slug`.
-/// Calls the Claude CLI to produce a structured phase/stage/task breakdown,
-/// stores the resulting plan on disk, and returns it.
-///
-/// # Errors
-/// Returns an error if the document is empty or decomposition fails.
 pub async fn decompose_handler(
     State(state): State<AppState>,
     Json(body): Json<DecomposeRequest>,
@@ -63,27 +39,13 @@ pub async fn decompose_handler(
 
     let slug = body.slug.as_deref();
 
-    // Resolve the agent binary from hook-config.json's `agent.binary`
-    // (default "claude") so decomposition can target a non-claude agent.
-    let agent_binary = crate::utils::read_agent_binary(&state.crosslink_dir);
-
-    let plan = decompose::decompose_document(&state.crosslink_dir, &agent_binary, &body.document, slug)
+    let plan = decompose::decompose_document(&state.crosslink_dir, &body.document, slug)
         .await
         .map_err(|e| internal_error("decomposition failed", e))?;
 
     Ok(Json(plan))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/orchestrator/plan
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/orchestrator/plan` — get the current plan, if any.
-///
-/// Returns the plan JSON or `null` if no plan has been decomposed yet.
-///
-/// # Errors
-/// Returns an error if plan loading encounters a non-missing-file error.
 pub async fn get_plan(
     State(state): State<AppState>,
 ) -> Result<Json<Option<OrchestratorPlan>>, (StatusCode, Json<ApiError>)> {
@@ -92,17 +54,6 @@ pub async fn get_plan(
     ))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/orchestrator/status
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/orchestrator/status` — get execution status.
-///
-/// Returns progress percentage and execution state. If no execution exists,
-/// returns idle status with 0% progress.
-///
-/// # Errors
-/// Returns an error if the execution state cannot be loaded.
 pub async fn get_status(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -134,7 +85,6 @@ pub async fn get_status(
     }))
 }
 
-/// Simplified status response matching what the frontend expects.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExecutionStatusResponse {
     pub status: String,
@@ -143,19 +93,9 @@ pub struct ExecutionStatusResponse {
     pub detail: Option<ExecutionStatus>,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/execute
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/execute` — start or resume execution.
-///
-/// # Errors
-/// Returns an error if no plan exists, the execution state cannot be loaded, or
-/// starting/resuming fails.
 pub async fn execute(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
-    // If no execution exists, initialize from the current plan.
     if !OrchestratorExecutor::exists(&state.crosslink_dir) {
         let plan = OrchestratorExecutor::load_plan(&state.crosslink_dir)
             .map_err(|e| not_found(format!("No plan found: {e}")))?;
@@ -177,7 +117,6 @@ pub async fn execute(
         }));
     }
 
-    // Otherwise load and start/resume.
     let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
@@ -193,14 +132,6 @@ pub async fn execute(
     }))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/pause
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/pause` — pause execution.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or pausing fails.
 pub async fn pause(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -223,15 +154,6 @@ pub async fn pause(
     }))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/stages/:id/retry
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/stages/:id/retry` — retry a failed stage.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or the
-/// stage cannot be retried.
 pub async fn retry_stage(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -254,15 +176,6 @@ pub async fn retry_stage(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/stages/:id/skip
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/stages/:id/skip` — skip a stage.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or the
-/// stage cannot be skipped.
 pub async fn skip_stage(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -278,7 +191,6 @@ pub async fn skip_stage(
         .skip_stage(&stage_id)
         .map_err(|e| bad_request(format!("Cannot skip stage: {e}")))?;
 
-    // Broadcast the skip event over WebSocket.
     OrchestratorExecutor::broadcast_event(&state.ws_tx, event);
 
     Ok(Json(serde_json::json!({
@@ -288,14 +200,6 @@ pub async fn skip_stage(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/orchestrator/plans
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/orchestrator/plans` — list all stored plan IDs.
-///
-/// # Errors
-/// Returns an error if the plan directory cannot be read.
 pub async fn list_plans_handler(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ApiError>)> {
@@ -304,14 +208,6 @@ pub async fn list_plans_handler(
     Ok(Json(plans))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/orchestrator/plans/:id
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/orchestrator/plans/:id` — retrieve a specific stored plan.
-///
-/// # Errors
-/// Returns an error if the plan is not found or cannot be serialized.
 pub async fn get_plan_by_id(
     State(state): State<AppState>,
     Path(plan_id): Path<String>,
@@ -323,14 +219,6 @@ pub async fn get_plan_by_id(
     Ok(Json(json))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/resume
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/resume` — resume a paused execution.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or resuming fails.
 pub async fn resume_execution(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -353,21 +241,11 @@ pub async fn resume_execution(
     }))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/stages/:id/running
-// ---------------------------------------------------------------------------
-
-/// Request body for marking a stage as running.
 #[derive(Debug, serde::Deserialize)]
 pub struct MarkRunningRequest {
     pub agent_id: String,
 }
 
-/// `POST /api/v1/orchestrator/stages/:id/running` — record agent launch for a stage.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or the
-/// stage cannot be marked as running.
 pub async fn mark_stage_running_handler(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -392,15 +270,6 @@ pub async fn mark_stage_running_handler(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/stages/:id/done
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/stages/:id/done` — record stage completion.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or the
-/// stage cannot be marked as done.
 pub async fn mark_stage_done_handler(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -427,15 +296,6 @@ pub async fn mark_stage_done_handler(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/orchestrator/stages/:id/failed
-// ---------------------------------------------------------------------------
-
-/// `POST /api/v1/orchestrator/stages/:id/failed` — record stage failure.
-///
-/// # Errors
-/// Returns an error if no execution exists, the state cannot be loaded, or the
-/// stage cannot be marked as failed.
 pub async fn mark_stage_failed_handler(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -460,14 +320,6 @@ pub async fn mark_stage_failed_handler(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/orchestrator/agents/poll
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/orchestrator/agents/poll` — poll running agent status files.
-///
-/// # Errors
-/// Returns an error if no execution exists or the state cannot be loaded.
 pub async fn poll_agents(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
@@ -478,7 +330,6 @@ pub async fn poll_agents(
     let executor = OrchestratorExecutor::load(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
-    // Repo root is the parent of .crosslink
     let repo_root = state.crosslink_dir.parent().unwrap_or(&state.crosslink_dir);
     let statuses = executor.poll_agent_status(repo_root);
 
@@ -490,14 +341,6 @@ pub async fn poll_agents(
     })))
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/orchestrator/snapshot
-// ---------------------------------------------------------------------------
-
-/// `GET /api/v1/orchestrator/snapshot` — full execution state export with DAG details.
-///
-/// # Errors
-/// Returns an error if no execution exists or the state cannot be loaded.
 pub async fn get_snapshot(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
@@ -513,12 +356,10 @@ pub async fn get_snapshot(
     let plan_id = executor.plan_id();
     let exec_state = executor.state();
 
-    // Use DAG accessor methods for rich introspection
     let node_ids = dag.node_ids();
     let running = dag.running_nodes();
     let stage_count = dag.len();
 
-    // Build dependency graph using dependents/dependencies accessors
     let dep_graph: serde_json::Map<String, serde_json::Value> = node_ids
         .iter()
         .map(|id| {
@@ -533,7 +374,6 @@ pub async fn get_snapshot(
         })
         .collect();
 
-    // Counts by status
     let pending = dag.nodes_with_status(&crate::server::types::StageStatus::Pending);
     let done = dag.nodes_with_status(&crate::server::types::StageStatus::Done);
     let failed = dag.nodes_with_status(&crate::server::types::StageStatus::Failed);
@@ -592,7 +432,6 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    /// Build a minimal test plan with one phase and one stage (no dependencies).
     fn make_simple_plan() -> OrchestratorPlan {
         OrchestratorPlan {
             id: "test-plan-1".to_string(),
@@ -618,8 +457,6 @@ mod tests {
         }
     }
 
-    /// Write a plan to `crosslink_dir/orchestrator/plan.json` so that
-    /// `OrchestratorExecutor::load_plan` can find it.
     fn write_plan_file(crosslink_dir: &std::path::Path, plan: &OrchestratorPlan) {
         let orch_dir = crosslink_dir.join("orchestrator");
         std::fs::create_dir_all(&orch_dir).unwrap();
@@ -627,8 +464,6 @@ mod tests {
         std::fs::write(orch_dir.join("plan.json"), json).unwrap();
     }
 
-    /// Write an execution snapshot JSON directly to disk (bypasses `init` to avoid
-    /// database calls, letting us control the exact execution state).
     fn write_execution_snapshot(
         crosslink_dir: &std::path::Path,
         plan: &OrchestratorPlan,
@@ -637,7 +472,6 @@ mod tests {
         let orch_dir = crosslink_dir.join("orchestrator");
         std::fs::create_dir_all(&orch_dir).unwrap();
 
-        // Build a minimal DAG from the plan.
         let nodes: Vec<DagNode> = plan
             .phases
             .iter()
@@ -669,7 +503,6 @@ mod tests {
         std::fs::write(orch_dir.join("execution.json"), json).unwrap();
     }
 
-    /// Write an execution snapshot where a specific stage is in "Running" state.
     fn write_execution_with_running_stage(
         crosslink_dir: &std::path::Path,
         plan: &OrchestratorPlan,
@@ -717,7 +550,6 @@ mod tests {
         std::fs::write(orch_dir.join("execution.json"), json).unwrap();
     }
 
-    /// Write an execution snapshot where a specific stage is in "Failed" state.
     fn write_execution_with_failed_stage(
         crosslink_dir: &std::path::Path,
         plan: &OrchestratorPlan,
@@ -764,7 +596,6 @@ mod tests {
         std::fs::write(orch_dir.join("execution.json"), json).unwrap();
     }
 
-    /// Create an app where a plan file exists at `orchestrator/plan.json`.
     fn test_app_with_plan(plan: &OrchestratorPlan) -> (axum::Router, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
@@ -776,7 +607,6 @@ mod tests {
         (build_router(state, None), dir)
     }
 
-    /// Create an app where an execution file exists (Running state, all stages pending).
     fn test_app_with_running_execution(
         plan: &OrchestratorPlan,
     ) -> (axum::Router, tempfile::TempDir) {
@@ -791,7 +621,6 @@ mod tests {
         (build_router(state, None), dir)
     }
 
-    /// Create an app where an execution file exists (Paused state).
     fn test_app_with_paused_execution(
         plan: &OrchestratorPlan,
     ) -> (axum::Router, tempfile::TempDir) {
@@ -1098,7 +927,7 @@ mod tests {
         let body = body_json(resp).await;
         assert_eq!(body["status"], "idle");
         assert_eq!(body["progress_pct"], 0);
-        // idle status should not have a detail field
+
         assert!(body.get("detail").is_none());
     }
 
@@ -1117,13 +946,9 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // No plan has been created yet, so the response should be null
+
         assert!(body.is_null());
     }
-
-    // -----------------------------------------------------------------------
-    // Happy-path tests that require a plan or execution on disk
-    // -----------------------------------------------------------------------
 
     #[tokio::test]
     async fn test_get_plan_returns_plan_when_exists() {
@@ -1163,7 +988,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
         assert_eq!(body["status"], "running");
-        // detail should be present when execution exists
+
         assert!(body.get("detail").is_some());
         let detail = &body["detail"];
         assert_eq!(detail["plan_id"], "test-plan-1");
@@ -1270,14 +1095,13 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // Execution file exists, but state is "idle"
+
         assert_eq!(body["status"], "idle");
         assert!(body.get("detail").is_some());
     }
 
     #[tokio::test]
     async fn test_execute_with_plan_starts_execution() {
-        // Start execution when no execution file exists but plan file does.
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_plan(&plan);
         let resp = app
@@ -1298,7 +1122,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_when_already_running_returns_conflict() {
-        // Attempting to start when already running should return 409 Conflict.
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_running_execution(&plan);
         let resp = app
@@ -1311,13 +1134,12 @@ mod tests {
             )
             .await
             .unwrap();
-        // The executor's start() bails when state is Running → conflict
+
         assert_eq!(resp.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]
     async fn test_execute_resumes_paused_execution() {
-        // Calling execute on a paused execution should transition it to Running.
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_paused_execution(&plan);
         let resp = app
@@ -1356,7 +1178,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pause_when_not_running_returns_conflict() {
-        // Pausing a paused execution should fail.
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_paused_execution(&plan);
         let resp = app
@@ -1460,7 +1281,7 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         write_plan_file(&crosslink_dir, &plan);
-        // Stage must be Running before it can be marked Done
+
         write_execution_with_running_stage(&crosslink_dir, &plan, "stage-a", "agent-1");
         let state = AppState::new(db, crosslink_dir);
         let app = build_router(state, None);
@@ -1480,13 +1301,12 @@ mod tests {
         assert_eq!(body["ok"], true);
         assert_eq!(body["stage_id"], "stage-a");
         assert!(body["newly_ready"].as_array().unwrap().is_empty());
-        // Single stage, so marking it done completes execution
+
         assert_eq!(body["execution_complete"], true);
     }
 
     #[tokio::test]
     async fn test_mark_stage_done_wrong_state_returns_bad_request() {
-        // A stage that is still Pending cannot be marked Done
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_running_execution(&plan);
         let resp = app
@@ -1506,7 +1326,7 @@ mod tests {
     async fn test_mark_stage_failed_success() {
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_running_execution(&plan);
-        // mark_failed can be called on any status (it unconditionally sets Failed)
+
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1567,14 +1387,14 @@ mod tests {
         let body = body_json(resp).await;
         assert_eq!(body["ok"], true);
         assert_eq!(body["stage_id"], "stage-a");
-        // stage-a has no deps so it should be immediately ready
+
         assert_eq!(body["ready_to_launch"], true);
     }
 
     #[tokio::test]
     async fn test_retry_stage_when_not_failed_returns_bad_request() {
         let plan = make_simple_plan();
-        // Stage is Pending (not Failed) — retry should be rejected
+
         let (app, _dir) = test_app_with_running_execution(&plan);
         let resp = app
             .oneshot(
@@ -1660,7 +1480,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // No running stages → no agent statuses reported
+
         assert!(body["agents"].as_array().unwrap().is_empty());
     }
 
@@ -1689,7 +1509,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // Stage is running but no .kickoff-status file → nothing reported
+
         assert!(body["agents"].as_array().unwrap().is_empty());
     }
 
@@ -1719,14 +1539,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_plans_with_stored_plans() {
-        // Use the decompose module's store function to seed a plan.
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).expect("test db");
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Write two stored plans using the decompose module's storage format.
         let orch_dir = crosslink_dir.join("orchestrator");
         std::fs::create_dir_all(&orch_dir).unwrap();
         let stored = serde_json::json!({
@@ -1780,8 +1598,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
         let ids = body.as_array().unwrap();
-        // plan.json is also in the directory (the active plan file) but is not
-        // listed since list_plans returns ALL .json files. Let's check our plans:
+
         assert!(ids.iter().any(|v| v == "plan-alpha"));
         assert!(ids.iter().any(|v| v == "plan-beta"));
     }
@@ -1836,7 +1653,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_decompose_missing_field_returns_bad_request() {
-        // Sending a body without the required `document` field should fail.
         let (app, _dir) = test_app();
         let resp = app
             .oneshot(
@@ -1849,7 +1665,7 @@ mod tests {
             )
             .await
             .unwrap();
-        // Missing required field → deserialization fails → 422 Unprocessable Entity
+
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
@@ -1867,13 +1683,12 @@ mod tests {
             )
             .await
             .unwrap();
-        // axum returns 400 for completely invalid JSON bodies
+
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn test_error_helpers_produce_correct_status_codes() {
-        // Exercise the helper functions directly to verify status codes.
         let (code, Json(body)) = internal_error("ctx", "detail msg");
         assert_eq!(code, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body.error, "ctx");
@@ -1897,7 +1712,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_execution_status_response_no_detail_for_idle() {
-        // Verify the serde skip rule: `detail` omitted when None.
         let response = ExecutionStatusResponse {
             status: "idle".to_string(),
             progress_pct: 0,
@@ -1916,7 +1730,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_poll_agents_with_running_stage_and_status_file() {
-        // Create a worktree with a .kickoff-status file so poll_agents returns it.
         let plan = make_simple_plan();
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
@@ -1924,12 +1737,9 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         write_plan_file(&crosslink_dir, &plan);
-        // The agent_id used in worktrees must match the slug derivation:
-        // agent_tmux_session uses "parent--stage-a" → last part is "stage-a".
+
         write_execution_with_running_stage(&crosslink_dir, &plan, "stage-a", "parent--stage-a");
 
-        // Create the worktree directory with a .kickoff-status file.
-        // poll_agent_status extracts slug via rsplit("--"), so "parent--stage-a" → "stage-a"
         let wt_dir = dir.path().join(".worktrees").join("stage-a");
         std::fs::create_dir_all(&wt_dir).unwrap();
         std::fs::write(wt_dir.join(".kickoff-status"), "running\n").unwrap();
@@ -1949,7 +1759,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // The running stage should now appear in agents.
+
         let agents = body["agents"].as_array().unwrap();
         assert!(!agents.is_empty());
         assert_eq!(agents[0]["stage_id"], "stage-a");
@@ -1958,7 +1768,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_snapshot_running_with_details() {
-        // Verify that the snapshot response includes all expected fields.
         let plan = make_simple_plan();
         let (app, _dir) = test_app_with_running_execution(&plan);
         let resp = app
@@ -1973,7 +1782,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = body_json(resp).await;
-        // Check all the key snapshot fields.
+
         assert_eq!(body["plan_id"], "test-plan-1");
         assert_eq!(body["state"], "Running");
         assert_eq!(body["stage_count"], 1);
@@ -1982,7 +1791,7 @@ mod tests {
         assert_eq!(body["pending_count"], 1);
         assert_eq!(body["done_count"], 0);
         assert_eq!(body["failed_count"], 0);
-        // dependency_graph should contain the stage-a entry.
+
         assert!(body["dependency_graph"]["stage-a"].is_object());
     }
 }

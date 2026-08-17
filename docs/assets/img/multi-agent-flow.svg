@@ -8,7 +8,6 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-  <!-- no background rect — page bg shows through -->
   <text x="340.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Multi-agent coordination</text>
   <text x="340.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">distributed locking via crosslink/hub</text>
   <ellipse cx="130" cy="130" rx="75" ry="45" fill="#00A6DB" opacity="0.12"/>

@@ -7,7 +7,9 @@ title: "Kickoff: Autonomous feature agents"
 
 ## tl;dr
 
-The `/kickoff` flow launches an autonomous Claude agent in an isolated git worktree to implement a feature in the background. You describe what you want, and a fully instrumented agent handles the rest -- tracked through crosslink the entire way.
+The `/kickoff` flow launches the configured Claude Code or Codex provider in an
+isolated git worktree. You describe what you want, and a fully instrumented
+agent handles the rest—tracked through Crosslink the entire way.
 :::
 
 &nbsp;
@@ -152,7 +154,10 @@ This file is git-excluded so it doesn't end up in commits.
 
 ### 5. tmux session
 
-A detached tmux session is created and `claude` is launched inside it with the `KICKOFF.md` prompt and pre-approved tool permissions.
+A detached tmux session launches the selected provider. Claude receives its
+supported prompt/output flags. Codex runs `codex exec -` with the kickoff
+document on stdin, JSONL output, an explicit worktree root, `workspace-write`
+sandboxing, and explicit approval policy.
 
 ```
 Feature agent launched.
@@ -172,7 +177,7 @@ Feature agent launched.
 Once trust is approved, the background agent:
 
 1. Starts a crosslink session and marks the feature issue as its focus
-2. Reads `CLAUDE.md` and explores relevant code
+2. Reads `AGENTS.md`, `CLAUDE.md` when present, and provider-neutral Crosslink rules before exploring relevant code
 3. Documents its plan via `crosslink issue comment`
 4. Implements the feature (no stubs, full error handling)
 5. Records breadcrumbs with `crosslink session action` to survive context compression
@@ -216,9 +221,10 @@ Everything from `--verify ci`, plus an adversarial self-review:
 
 ### Safety constraints
 
-The background agent operates under the same crosslink hook enforcement as interactive sessions:
+The background agent uses the same Crosslink repository hooks as interactive sessions:
 
-- **Always blocked:** `git push`, `git merge`, `git rebase`, `git reset`, and other destructive git commands (except when CI verification is enabled, where push is allowed)
+- **Always blocked:** `git merge`, `git rebase`, `git cherry-pick`, `git reset`, force-push, and the other destructive git commands
+- **Push:** plain `git push` is permitted only for the CI-verification draft-PR steps the prompt specifies; force-push is always blocked
 - **Gated on active issue:** `git commit` requires an active crosslink work item
 - **Tool auto-approval:** Only pre-approved tools run without prompting; anything else pauses the agent
 - **Isolated worktree:** All changes are confined to `.worktrees/` -- your main checkout is untouched
@@ -228,12 +234,49 @@ The background agent operates under the same crosslink hook enforcement as inter
 
 ### Configuring agent permissions
 
-Agent permissions live in the **agent config file** -- `.claude/settings.json` in the worktree, written by `crosslink init` from crosslink's template. They are *not* configured through any `crosslink config` key. There are two levers, and they answer different questions:
+Execution policy is mapped by the provider adapter. Repository hooks live in
+`.claude/settings.json` and `.codex/hooks.json`; provider defaults live under
+`agent.providers` in `hook-config.json`. Compatibility flags such as
+`--skip-permissions` and `--permission-mode` are translated deliberately, and
+an unsupported mapping is an error.
 
-- **Persistent policy (`.claude/settings.json`)** -- the `allowedTools` array (and Claude Code's `permissions.allow` / `permissions.deny` blocks) decide which tools the agent may run without prompting on *every* run. Edit this file to teach a repo "agents may always run `npm test`" or "agents may never run `curl`". Crosslink's `init` merges its defaults with whatever the file already contains, so hand-edits are preserved across `init --force`.
-- **Per-invocation override (`--skip-permissions`)** -- the `crosslink kickoff run --skip-permissions` flag passes `--dangerously-skip-permissions` to the Claude CLI for that single launch, bypassing *all* prompts. It is a one-shot dial, not a setting. Reach for it when you have decided the surrounding environment (sandbox, container, isolated worktree, hook policy) makes the agent's blast radius acceptable. Do not reach for it as a substitute for configuring `allowedTools`.
+- **Persistent policy** -- Claude's allowed tools remain in `.claude/settings.json`; Codex sandbox and approval defaults live under `agent.providers.codex` and Codex's own configuration.
+- **Per-invocation aliases** -- `--skip-permissions` and `--permission-mode` map to provider-neutral approval and sandbox postures. Crosslink rejects combinations whose documented meaning cannot be preserved.
 
-If you find yourself passing `--skip-permissions` on every kickoff, that's a signal to add the relevant tool patterns to `allowedTools` in `.claude/settings.json` instead -- agents will then run unattended for the allowed surface without giving up the prompt for everything else. See [Claude Code's settings reference](https://docs.claude.com/en/docs/claude-code/settings) for the full schema of `allowedTools` and `permissions`.
+See [Claude and Codex providers](providers.qmd) for provider configuration,
+hook trust, policy mapping, and account login.
+
+&nbsp;
+
+### Dispatch dials: reasoning effort and spend ceiling
+
+Two optional per-launch dials sit alongside `--model` on `kickoff run` and `kickoff plan`:
+
+```bash
+crosslink kickoff run "add batch retry logic" --model standard --effort high
+```
+
+- **`--effort <low|medium|high|xhigh|max>`** -- how much reasoning the dispatched session spends per turn. Invalid levels are rejected before anything is created, so a typo fails the launch rather than silently dispatching an un-dialed agent.
+- **`--budget-usd <amount>`** -- a provider spend ceiling when supported. Claude receives the cap. Codex normal-account runs reject it because the CLI exposes no truthful per-run USD cap.
+
+Both are optional; omitting them launches exactly as before. Whatever you set is recorded in the worktree's `.kickoff-metadata.json` alongside the resolved model, so the run record answers what the dispatch was actually given:
+
+```json
+{
+  "started_at": "2026-08-02T05:44:02Z",
+  "timeout_secs": 3600,
+  "provider": "claude",
+  "model": "standard",
+  "effort": "high",
+  "budget_usd": "5"
+}
+```
+
+For swarm, the dials are configured once and apply to every agent the swarm launches:
+
+```bash
+crosslink swarm config --budget-window 5h --model standard --effort high
+```
 
 &nbsp;
 

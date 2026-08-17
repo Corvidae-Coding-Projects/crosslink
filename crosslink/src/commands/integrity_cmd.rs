@@ -18,10 +18,6 @@ use crate::IntegrityCommands;
 
 use crate::sync::HUB_CACHE_DIR;
 
-// ---------------------------------------------------------------------------
-// Result types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, PartialEq)]
 enum CheckStatus {
     Pass,
@@ -35,10 +31,6 @@ struct CheckResult {
     name: String,
     status: CheckStatus,
 }
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 pub fn run(action: Option<&IntegrityCommands>, crosslink_dir: &Path, db: &Database) -> Result<()> {
     match action {
@@ -96,18 +88,11 @@ fn run_all(crosslink_dir: &Path, db: &Database) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Individual checks
-// ---------------------------------------------------------------------------
-
 fn check_schema(db: &Database, _repair: bool) -> Result<CheckResult> {
     let version = db.get_schema_version()?;
     let status = if version == SCHEMA_VERSION {
         CheckStatus::Pass
     } else {
-        // Database::open() auto-migrates, so if we get here with a mismatch
-        // something is genuinely wrong. Report it but there's nothing to repair
-        // beyond reopening the DB (which already happened).
         CheckStatus::Fail(format!(
             "version {version} does not match expected {SCHEMA_VERSION}"
         ))
@@ -118,9 +103,6 @@ fn check_schema(db: &Database, _repair: bool) -> Result<CheckResult> {
     })
 }
 
-/// Reduce the v3 ref namespace into a checkpoint state when the hub uses the
-/// v3 layout. Returns `Ok(None)` on a v2 hub so callers keep the legacy
-/// worktree-file paths (GH#7).
 fn v3_reduced_state(crosslink_dir: &Path) -> Result<Option<CheckpointState>> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.hub_mode().is_v3() {
@@ -142,9 +124,6 @@ fn check_counters(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<C
         });
     }
 
-    // GH#7: a v3 hub never materializes meta/counters.json — reading it
-    // fabricates {1,1,1} and false-FAILs any hub with issues. On v3 the
-    // counters live in the reduced checkpoint state.
     if let Some(state) = v3_reduced_state(crosslink_dir)? {
         return check_counters_v3(&state, db, repair);
     }
@@ -201,10 +180,6 @@ fn check_counters(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<C
     })
 }
 
-/// V3 counters check: compare the reduced checkpoint's counters against
-/// `SQLite` maxima. There is no counters file to repair on v3 — the reducer
-/// derives the counters from the event log — so `--repair` surfaces the
-/// divergence honestly instead of faking a fix (GH#7).
 fn check_counters_v3(state: &CheckpointState, db: &Database, repair: bool) -> Result<CheckResult> {
     let expected_display = db.get_max_display_id()? + 1;
     let expected_comment = db.get_max_comment_id()? + 1;
@@ -262,22 +237,16 @@ fn check_hydration(
         });
     }
 
-    // GH#7: on a v3 hub the worktree has no issues/ files and no counters —
-    // the JSON view must come from the reduced checkpoint state or every
-    // hydrated row false-reports as sqlite-only.
     let v3_state = v3_reduced_state(crosslink_dir)?;
 
-    // ---- 1. Count check (cheap, surfaces JSON↔SQLite size differences) ----
     let count_details = if let Some(state) = v3_state.as_ref() {
         collect_count_mismatch_v3(state, db)?
     } else {
         collect_count_mismatch(&cache_dir, db)?
     };
 
-    // ---- 2. Content-level drift check (catches same-count divergence) ----
     let drift = super::integrity_drift::detect(&cache_dir, db, v3_state.as_ref())?;
 
-    // ---- 3. Decide the disposition ----
     if count_details.is_empty() && drift.is_empty() {
         return Ok(CheckResult {
             name: "hydration".to_string(),
@@ -285,8 +254,6 @@ fn check_hydration(
         });
     }
 
-    // Build a human-readable summary of every kind of divergence we
-    // found, for both Fail (no --repair) and Repaired result lines.
     let summary = combined_drift_summary(&count_details, &drift);
 
     if !repair {
@@ -296,12 +263,6 @@ fn check_hydration(
         });
     }
 
-    // ---- 4. Repair path ----
-    //
-    // Always snapshot first, regardless of which sub-path we end up
-    // running. The snapshot is the recovery handle if anything goes
-    // wrong, and the user-visible record of what state the repair was
-    // applied against (#602 fix #4).
     let snapshot_path = crate::db::snapshot::snapshot_to_integrity_dir(
         db,
         crosslink_dir,
@@ -312,10 +273,6 @@ fn check_hydration(
         |p| p.to_string_lossy().into_owned(),
     );
 
-    // If the drift contains rows that re-emit cannot represent in JSON
-    // (comments, time entries), refuse to destroy them without an
-    // explicit opt-in. The snapshot is already on disk for recovery
-    // (#602 fix #2).
     if drift.has_unrecoverable_loss() && !accept_data_loss {
         return Ok(CheckResult {
             name: "hydration".to_string(),
@@ -327,11 +284,6 @@ fn check_hydration(
         });
     }
 
-    // GH#7: on v3, the v2 re-emit would write worktree JSON nothing reads,
-    // and clear_shared_data + hydrate_to_sqlite against the empty issues/
-    // dir is wipe-then-restore-nothing. Repair instead re-hydrates from the
-    // reduced state, which clears inside its own transaction, preserves
-    // SQLite-only issues, and guards against an empty state.
     if let Some(state) = v3_state.as_ref() {
         let stats = hydrate_from_state(state, db)?;
         return Ok(CheckResult {
@@ -343,10 +295,6 @@ fn check_hydration(
         });
     }
 
-    // Try to re-emit SQLite-only state back to JSON when possible
-    // (#602 fix #3). Requires an initialized SharedWriter; if one isn't
-    // available (no agent.json / no hub branch), fall back to refusing
-    // without --accept-data-loss.
     let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?;
     let mut re_emit_summary: Option<String> = None;
     if !drift.is_empty() {
@@ -372,9 +320,6 @@ fn check_hydration(
         }
     }
 
-    // Now run the existing clear+rehydrate path. After re-emit the
-    // JSON event log is the union of both sides, so hydrate_to_sqlite
-    // restores everything that re-emit could express.
     db.clear_shared_data()?;
     let stats = hydrate_to_sqlite(&cache_dir, db)?;
 
@@ -393,9 +338,6 @@ fn check_hydration(
     })
 }
 
-/// Run the legacy count comparison: returns a list of "`JSON` has N,
-/// `SQLite` has M" detail strings for each category that mismatches.
-/// Empty `Vec` means counts agree (content drift may still exist).
 fn collect_count_mismatch(cache_dir: &Path, db: &Database) -> Result<Vec<String>> {
     let issues_dir = cache_dir.join("issues");
     let json_issues = read_all_issue_files(&issues_dir)?;
@@ -430,10 +372,6 @@ fn collect_count_mismatch(cache_dir: &Path, db: &Database) -> Result<Vec<String>
     Ok(details)
 }
 
-/// V3 analogue of [`collect_count_mismatch`]: compare the reduced checkpoint
-/// state's issue/milestone counts against `SQLite` (GH#7). Provisional
-/// milestones (no frozen display id) are excluded — `hydrate_from_state`
-/// skips them, so they can never appear in `SQLite`.
 fn collect_count_mismatch_v3(state: &CheckpointState, db: &Database) -> Result<Vec<String>> {
     let state_issue_count = state.issues.len() as i64;
     let db_issue_count = db.get_issue_count()?;
@@ -519,8 +457,6 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
         });
     };
 
-    // Stale-lock repair is event-based (#754): force-release via the v3 writer.
-    // A frozen v2 hub has no live lock activity to repair.
     let mut released = 0;
     if sync.hub_mode().is_v3() {
         if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
@@ -542,10 +478,6 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
         )),
     })
 }
-
-// ---------------------------------------------------------------------------
-// Output formatting
-// ---------------------------------------------------------------------------
 
 fn print_result(result: &CheckResult) {
     let (tag, detail) = match &result.status {
@@ -598,10 +530,6 @@ fn print_summary(results: &[CheckResult]) {
     println!("Integrity: {}", parts.join(", "));
 }
 
-// ---------------------------------------------------------------------------
-// Layout check: detect mixed V1/V2 issue files
-// ---------------------------------------------------------------------------
-
 fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
     let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     let issues_dir = cache_dir.join("issues");
@@ -613,7 +541,6 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         };
     }
 
-    // Scan for V1 flat files and V2 directories
     let mut v1_uuids: Vec<String> = Vec::new();
     let mut v2_uuids: Vec<String> = Vec::new();
     let mut both_uuids: Vec<String> = Vec::new();
@@ -636,7 +563,6 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         }
     }
 
-    // Find UUIDs that exist in both formats
     let v1_set: std::collections::HashSet<&str> = v1_uuids.iter().map(String::as_str).collect();
     let v2_set: std::collections::HashSet<&str> = v2_uuids.iter().map(String::as_str).collect();
     for uuid in &v1_set {
@@ -645,7 +571,6 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         }
     }
 
-    // Check version marker consistency
     let meta_dir = cache_dir.join("meta");
     let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
     let v1_only: Vec<&str> = v1_uuids
@@ -681,11 +606,9 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         };
     }
 
-    // Repair: migrate V1 → V2 and remove stale V1 duplicates
     let mut migrated = 0;
     let mut cleaned = 0;
 
-    // Remove V1 files that have V2 equivalents (stale duplicates)
     for uuid in &both_uuids {
         let v1_path = issues_dir.join(format!("{uuid}.json"));
         if v1_path.exists() {
@@ -694,7 +617,6 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         }
     }
 
-    // Migrate V1-only files to V2 format (when hub is V2)
     if version >= 2 {
         for uuid in &v1_only {
             let v1_path = issues_dir.join(format!("{uuid}.json"));
@@ -714,7 +636,6 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         }
     }
 
-    // Ensure version marker exists
     if !meta_dir.join("version.json").exists() {
         let _ = crate::issue_file::write_layout_version(
             &meta_dir,
@@ -736,16 +657,8 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Sign backfill: retroactively sign unsigned entries with a human key
-// ---------------------------------------------------------------------------
-
-/// Signing namespace for backfill attestation — distinct from the original
-/// `"crosslink-comment"` namespace so verification can distinguish
-/// human-attested entries from agent-signed ones.
 const BACKFILL_SIGNING_NAMESPACE: &str = "crosslink-backfill";
 
-/// Principal used for human backfill attestation in `allowed_signers`.
 const BACKFILL_PRINCIPAL: &str = "backfill@crosslink";
 
 fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path>) -> Result<()> {
@@ -754,7 +667,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         bail!("Hub cache not found. Run `crosslink sync` first.");
     }
 
-    // ── Resolve signing key ──────────────────────────────────────────
     let private_key = resolve_signing_key(key_override)?;
     let public_key = derive_public_key_path(&private_key)?;
     let fingerprint = signing::get_key_fingerprint(&public_key)?;
@@ -763,11 +675,9 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
     println!("Signing key: {fingerprint}");
     println!("Public key:  {}", public_key.display());
 
-    // ── Scan for unsigned entries ────────────────────────────────────
     let issues_dir = cache_dir.join("issues");
     let mut issues = read_all_issue_files(&issues_dir)?;
 
-    // V1 inline comments
     let mut v1_unsigned_count = 0usize;
     let mut v1_issue_count = 0usize;
     for issue in &issues {
@@ -782,7 +692,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         }
     }
 
-    // V2 standalone comment files
     let mut v2_unsigned: Vec<(PathBuf, crate::issue_file::CommentFile)> = Vec::new();
     for entry in std::fs::read_dir(&issues_dir)
         .into_iter()
@@ -827,7 +736,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         return Ok(());
     }
 
-    // ── Sign V1 inline comments ─────────────────────────────────────
     let mut signed_count = 0usize;
     let mut modified_issue_paths: Vec<PathBuf> = Vec::new();
 
@@ -855,7 +763,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
             modified = true;
         }
         if modified {
-            // Determine write path: V2 directory takes precedence
             let v2_path = issues_dir.join(issue.uuid.to_string()).join("issue.json");
             let v1_path = issues_dir.join(format!("{}.json", issue.uuid));
             let write_path = if v2_path.exists() { v2_path } else { v1_path };
@@ -864,12 +771,8 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         }
     }
 
-    // ── Sign V2 standalone comment files ─────────────────────────────
     let mut v2_signed_paths: Vec<PathBuf> = Vec::new();
     for (cf_path, mut cf) in v2_unsigned {
-        // V2 comment files don't store a numeric id; use the uuid as the
-        // comment_id field for canonical content (matches nothing in the
-        // original signing flow, but creates a verifiable attestation).
         let canonical = signing::canonicalize_for_signing(&[
             ("author", cf.author.as_str()),
             ("comment_id", &cf.uuid.to_string()),
@@ -884,7 +787,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         signed_count += 1;
     }
 
-    // ── Register human key in allowed_signers ────────────────────────
     let trust_dir = cache_dir.join("trust");
     let allowed_signers_path = trust_dir.join("allowed_signers");
     let mut signers = signing::AllowedSigners::load(&allowed_signers_path)?;
@@ -901,8 +803,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         println!("Registered {fingerprint} as {BACKFILL_PRINCIPAL} in allowed_signers.");
     }
 
-    // ── Commit and push to hub branch ────────────────────────────────
-    // Stage all modified files
     let mut rel_paths: Vec<String> = Vec::new();
     for path in modified_issue_paths.iter().chain(v2_signed_paths.iter()) {
         if let Ok(rel) = path.strip_prefix(&cache_dir) {
@@ -920,7 +820,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         return Ok(());
     }
 
-    // git add
     let mut add_args = vec!["add", "--"];
     let refs: Vec<&str> = rel_paths.iter().map(String::as_str).collect();
     add_args.extend_from_slice(&refs);
@@ -931,8 +830,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         .output()
         .context("Failed to git add in hub cache")?;
 
-    // git commit (without gpg signing — this is the hub branch, human
-    // attestation is in the entry signatures themselves)
     let commit_msg = format!(
         "integrity: backfill {signed_count} unsigned entry signature(s)\n\n\
          Attested by {fingerprint} ({BACKFILL_PRINCIPAL}).\n\
@@ -950,7 +847,6 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
         bail!("git commit failed: {stderr}");
     }
 
-    // Try to push
     let sync = SyncManager::new(crosslink_dir)?;
     let remote = sync.remote();
     let push_output = std::process::Command::new("git")
@@ -970,18 +866,16 @@ fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path
     Ok(())
 }
 
-/// Resolve the SSH private key to use for signing.
 fn resolve_signing_key(key_override: Option<&Path>) -> Result<PathBuf> {
     if let Some(key) = key_override {
         let path = PathBuf::from(key);
         if !path.exists() {
             bail!("Specified key not found: {}", path.display());
         }
-        // If they passed a .pub file, derive the private key
+
         return Ok(strip_pub_extension(&path));
     }
 
-    // Try git's configured signing key
     if let Some(path) = signing::find_git_signing_key() {
         return Ok(strip_pub_extension(&path));
     }
@@ -993,20 +887,18 @@ fn resolve_signing_key(key_override: Option<&Path>) -> Result<PathBuf> {
     );
 }
 
-/// If the path ends in `.pub`, strip it to get the private key path.
 fn strip_pub_extension(path: &Path) -> PathBuf {
     path.to_string_lossy()
         .strip_suffix(".pub")
         .map_or_else(|| path.to_path_buf(), PathBuf::from)
 }
 
-/// Derive the public key path from a private key path.
 fn derive_public_key_path(private_key: &Path) -> Result<PathBuf> {
     let pub_path = PathBuf::from(format!("{}.pub", private_key.display()));
     if pub_path.exists() {
         return Ok(pub_path);
     }
-    // Maybe the private key path itself is actually the public key
+
     if private_key.exists() {
         let content = std::fs::read_to_string(private_key)?;
         if content.trim().starts_with("ssh-") || content.trim().starts_with("ecdsa-") {
@@ -1019,10 +911,6 @@ fn derive_public_key_path(private_key: &Path) -> Result<PathBuf> {
         private_key.display()
     );
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -1058,7 +946,6 @@ mod tests {
         let (db, dir) = test_db();
         let crosslink_dir = dir.path();
 
-        // Create cache dir and counters file
         let meta_dir = crosslink_dir.join(HUB_CACHE_DIR).join("meta");
         std::fs::create_dir_all(&meta_dir).unwrap();
         let counters = Counters {
@@ -1077,28 +964,23 @@ mod tests {
         let (db, dir) = test_db();
         let crosslink_dir = dir.path();
 
-        // Create an issue so max_display_id = 1
         db.create_issue("Test issue", None, "medium").unwrap();
 
-        // Set counters too low
         let meta_dir = crosslink_dir.join(HUB_CACHE_DIR).join("meta");
         std::fs::create_dir_all(&meta_dir).unwrap();
         let counters = Counters {
-            next_display_id: 1, // should be 2
+            next_display_id: 1,
             next_comment_id: 1,
             next_milestone_id: 1,
         };
         write_counters(&meta_dir.join("counters.json"), &counters).unwrap();
 
-        // Check without repair — should fail
         let result = check_counters(crosslink_dir, &db, false).unwrap();
         assert!(matches!(result.status, CheckStatus::Fail(_)));
 
-        // Check with repair — should fix
         let result = check_counters(crosslink_dir, &db, true).unwrap();
         assert!(matches!(result.status, CheckStatus::Repaired(_)));
 
-        // Verify counter is now correct
         let fixed = read_counters(&meta_dir.join("counters.json")).unwrap();
         assert_eq!(fixed.next_display_id, 2);
     }
@@ -1136,7 +1018,7 @@ mod tests {
                 status: CheckStatus::Skipped("no sync".to_string()),
             },
         ];
-        // Just verify it doesn't panic
+
         print_summary(&results);
     }
 }

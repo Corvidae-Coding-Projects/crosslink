@@ -21,11 +21,11 @@ Every agent conversation follows this cycle. The hooks handle most of it automat
 :::
 
 
-<!-- ```
-session start → session work <id> → session action "..." → session end --notes "..."
-     ↑                                                              ↓
-     └──────────────── next session reads handoff notes ────────────┘
-``` -->
+
+
+
+
+
 
 
 ### Starting a session
@@ -168,7 +168,8 @@ Sessions idle for more than 4 hours are automatically ended on the next `session
 
 ### Context compression recovery
 
-When Claude Code's context window fills up, it compresses earlier messages. The `session-start.py` hook fires on resume and:
+When Claude Code or Codex compacts earlier context, `session-start.py` restores
+the active Crosslink session without creating a duplicate and:
 
 1. Detects the active session is still running (resume vs. fresh start)
 2. Adds an auto-comment on the active issue noting the compression event

@@ -1,15 +1,15 @@
-// xterm.js-backed terminal view for a PTY session.
-//
-// Mounts an xterm Terminal, wires it to the broker WebSocket at
-// `/ws/pty/<session_id>`, and ferries bytes both ways:
-//   - Server frames `{type:"stdout", data: <base64>}` → terminal.write
-//   - Server frames `{type:"exit", code}`             → render banner
-//   - User keystrokes                                  → `{type:"stdin", data}`
-//   - Browser resize                                   → `{type:"resize", rows, cols}`
-//
-// The replay buffer the server sends on connect lets a fresh tab
-// re-render the most recent ~64 KiB of output instead of starting
-// blank — useful when reconnecting to an in-flight session.
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "xterm";
@@ -75,7 +75,7 @@ export function PtyTerminal({
     termRef.current = term;
     fitRef.current = fit;
 
-    // Same-origin ws:// (or wss:// when served over TLS).
+
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${window.location.host}/ws/pty/${sessionId}`);
     ws.binaryType = "arraybuffer";
@@ -83,7 +83,7 @@ export function PtyTerminal({
 
     ws.onopen = () => {
       setStatus("open");
-      // Tell the server our actual terminal size.
+
       ws.send(
         JSON.stringify({
           type: "resize",
@@ -131,8 +131,8 @@ export function PtyTerminal({
     const onWindowResize = () => {
       try {
         fit.fit();
-      } catch {
-        // ignore — happens when container is hidden
+      } catch (error) {
+        void error;
       }
     };
     window.addEventListener("resize", onWindowResize);
@@ -143,8 +143,8 @@ export function PtyTerminal({
       onResizeTerm.dispose();
       try {
         ws.close();
-      } catch {
-        // ignore
+      } catch (error) {
+        void error;
       }
       term.dispose();
       termRef.current = null;

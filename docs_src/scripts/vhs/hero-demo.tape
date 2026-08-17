@@ -1,5 +1,5 @@
-# Homepage hero GIF — agent-first crosslink workflow overview
-# Output: docs_src/assets/img/hero-demo.gif
+
+
 
 Output ../assets/img/hero-demo.gif
 
@@ -15,19 +15,19 @@ Set TypingSpeed 40ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# You give a high-level instruction...
+
 Type "# You say: 'Fix the auth token refresh bug'"
 Enter
 Sleep 2s
 
-# The agent starts a session and picks up context
+
 Type "# Agent picks up where the last one left off"
 Enter
 Type "crosslink session start"
 Enter
 Sleep 2s
 
-# Agent rapidly creates and tracks the work
+
 Type `crosslink quick "Fix auth token refresh" -p high -l bug`
 Enter
 Sleep 1s
@@ -44,7 +44,7 @@ Type `crosslink issue comment 1 "Token refresh now retries with backoff on 401"`
 Enter
 Sleep 1s
 
-# Agent closes and hands off
+
 Type "crosslink close 1"
 Enter
 Sleep 1s

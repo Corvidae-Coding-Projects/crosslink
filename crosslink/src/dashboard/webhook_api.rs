@@ -1,20 +1,3 @@
-//! Webhook configuration REST surface (design doc §14 Phase 5 —
-//! webhook alerting).
-//!
-//! Exposes the dashboard's outbound-webhook URL list. The poll loop
-//! (see [`super::poll`]) reads this list on every tick; the operator
-//! edits it through the `/settings/webhooks` page.
-//!
-//! Endpoints (all under `/api/v1/dashboard`):
-//! - `GET /webhooks` — list configured URLs (returned plaintext — the
-//!   user typed them and may need to verify/edit).
-//! - `PUT /webhooks` — replace the full list. Validates each URL
-//!   before writing; on any failure, no change is persisted.
-//!
-//! We deliberately do not offer a partial update (POST one URL) — the
-//! list is short enough that round-tripping the whole thing per edit
-//! is simpler than tracking per-URL IDs.
-
 use axum::{
     extract::State,
     http::StatusCode,
@@ -85,8 +68,6 @@ async fn put_webhooks(
 ) -> Result<Json<WebhooksView>, WebhookApiError> {
     let db_path = require_db_path(&state)?;
 
-    // Validate up front so a single bad URL rejects the whole batch
-    // without a partial write.
     let mut cleaned = Vec::with_capacity(body.urls.len());
     for raw in body.urls {
         let trimmed = raw.trim().to_string();
@@ -253,7 +234,6 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        // Nothing persisted: the DB still holds an empty list.
         let db = DashboardDb::open(&db_path).unwrap();
         assert!(webhook::load_urls(&db).unwrap().is_empty());
     }

@@ -1,9 +1,9 @@
 #![no_main]
 
-//! Fuzz target for milestone operations.
-//!
-//! Tests create_milestone, close_milestone, delete_milestone,
-//! add/remove issues to milestones, and listing operations.
+
+
+
+
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
@@ -105,7 +105,7 @@ fuzz_target!(|input: MilestoneInput| {
         }
     }
 
-    // Final consistency checks
+
     let _ = db.list_milestones(None);
     let _ = db.list_issues(None, None, None);
 });

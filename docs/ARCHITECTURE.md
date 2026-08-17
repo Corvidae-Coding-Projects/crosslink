@@ -42,49 +42,61 @@
         │ deployed by `crosslink init`
         ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     CLAUDE INTEGRATION LAYER                        │
+│               PROVIDER-NEUTRAL AGENT INTEGRATION LAYER              │
 │                                                                     │
-│  ┌──────────── HOOKS (.claude/hooks/) ──────────────────────────┐  │
+│  ┌──── CANONICAL HOOKS (.crosslink/integrations/hooks/) ────────┐  │
 │  │                                                               │  │
-│  │  session-start.py    SessionStart   auto-end stale sessions  │  │
-│  │  prompt-guard.py     PromptSubmit   inject rules + adaptive  │  │
-│  │  work-check.py       PreToolUse     enforce issue tracking   │  │
-│  │  post-edit-check.py  PostToolUse    stub/drift detection     │  │
-│  │  pre-web-check.py    PreToolUse     web request safety       │  │
-│  │  crosslink_config.py (shared)       config loading + drift   │  │
+│  │  session-start.py    SessionStart   report live state        │  │
+│  │  prompt-guard.py     Prompt events  load rule-file surfaces  │  │
+│  │  work-check.py       PreToolUse     enforce tracking config  │  │
+│  │  post-edit-check.py  PostToolUse    edit diagnostics         │  │
+│  │  pre-web-check.py    PreToolUse     source boundary notice   │  │
+│  │  crosslink_config.py (shared)       configuration loading    │  │
 │  │                                                               │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
-│  ┌──────────── SKILLS (.claude/commands/) ───────────────────────┐  │
+│  ┌──── SKILLS (.agents/skills/) + PROVIDER PROJECTIONS ─────────┐  │
 │  │                                                               │  │
-│  │  /preflight   load rules + grounding before implementation   │  │
-│  │  /review      pre-commit quality gate (stubs, lint, tests)   │  │
-│  │  /audit       full context dump when stuck                   │  │
-│  │  /commit      commit + auto-document on crosslink issue      │  │
-│  │  /feature     create feature branch                          │  │
-│  │  /featree     feature branch in worktree                     │  │
-│  │  /kickoff     launch background agent (container or tmux)    │  │
-│  │  /check       monitor background agent status                │  │
-│  │  /workflow    manage crosslink configuration                 │  │
+│  │  Canonical skills are installed once under `.agents/skills`. │  │
+│  │  Claude: `.claude/settings.json` + `.claude/skills`           │  │
+│  │  Codex: `.codex/hooks.json` + `AGENTS.md` + local plugin      │  │
+│  │  Both provider configs call the same canonical hook scripts. │  │
 │  │                                                               │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
-│  ┌──────────── RULES (.crosslink/rules/) ────────────────────────┐  │
+│  ┌──── COMPATIBILITY PATHS (.crosslink/rules/) ─────────────────┐  │
 │  │                                                               │  │
-│  │  global.md          core rules (no stubs, security, etc.)    │  │
-│  │  project.md         project-specific customizations          │  │
-│  │  tracking-*.md      strict / normal / relaxed enforcement    │  │
-│  │  rust.md            ┐                                        │  │
-│  │  python.md          │                                        │  │
-│  │  javascript.md      ├── 20+ language-specific rule files     │  │
-│  │  typescript.md      │                                        │  │
-│  │  go.md, java.md ... ┘                                        │  │
-│  │  knowledge.md       knowledge contribution guidelines        │  │
-│  │  web.md             web/frontend rules                       │  │
+│  │  Rule filenames remain wired through prompt-guard.py.        │  │
+│  │  Every bundled Markdown input is currently zero bytes.       │  │
 │  │                                                               │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Agent Provider Boundary
+
+`src/agents/` is the protocol boundary for agent execution. Configuration selects
+`agent.provider` (`claude`, `codex`, or `custom`); `agent.binary` only overrides
+the executable path. Semantic model tiers are resolved through provider-specific
+maps before an adapter creates an `AgentInvocation` containing argv, environment,
+stdin, output protocol, sandbox, approval, authentication, and timeout policy.
+
+Claude and Codex adapters never construct a shell command. The invocation is only
+quoted at the tmux/container boundary. Codex structured runs use
+`codex exec - --json`; Claude structured runs use stream JSON. Both are normalized into the same
+runtime event model before status, dashboard, orchestrator, and usage consumers see
+them. Raw provider JSONL remains alongside normalized JSONL for diagnostics.
+
+`crosslink init` installs both provider integrations by default. The
+`--agent-integration claude|codex|both` selector changes installed projections,
+not the runtime provider. Canonical hooks, MCP servers, skills, schemas, and
+instructions live under `resources/agent/`; provider directories remain thin.
+
+Hook trust bypass is emitted only after Crosslink verifies the complete managed
+hook manifest and script digests. Project-local and plugin hook copies share an
+atomic event claim so one logical event is processed once. Codex hosted web search
+does not traverse local tool hooks, so external-content provenance is also carried
+by repository instructions and skills; fetched words are evidence, never commands.
 
 ## Data Flow
 
@@ -177,7 +189,7 @@ crosslink/knowledge      ← shared research (orphan branch)
 | `container.rs` | `container build/start/ps/logs/stop/rm/kill/shell/snapshot` | Docker agent execution |
 | `compact.rs` | `compact` | Manual event compaction |
 | `knowledge.rs` | `knowledge add/show/list/edit/remove/sync/search` | Shared research pages |
-| `context.rs` | `context measure/check` | Context injection measurement |
+| `context.rs` | `context measure/check` | Installed agent asset measurement |
 | `config.rs` | `config show/get/set/list/reset/diff` | Hook configuration |
 
 ### Data Management
@@ -195,7 +207,7 @@ crosslink/knowledge      ← shared research (orphan branch)
 ## Hook Execution Flow
 
 ```
-User types prompt
+Provider session starts
         │
         ▼
   ┌─────────────────┐
@@ -205,12 +217,8 @@ User types prompt
   └────────┬────────┘
            ▼
   ┌─────────────────┐
-  │  prompt-guard    │  (UserPromptSubmit — every prompt)
-  │                  │
-  │  1st prompt:     │──► full rules + tree + deps (15-30KB)
-  │  subsequent:     │──► adaptive drift check
-  │    drift < N:    │──► (silent)
-  │    drift >= N:   │──► condensed reminder (~500B)
+  │  prompt-guard    │  (prompt and subagent events)
+  │  wired rule set │──► bundled Markdown files are empty
   └────────┬────────┘
            ▼
      Agent works...
@@ -226,18 +234,17 @@ User types prompt
   │  always:  block  │──► git push/merge/reset/etc.
   │  gated:   check  │──► git commit needs active issue
   │                  │
-  │  crosslink cmd?  │──► reset drift counter
   └────────┬────────┘
            ▼
   ┌─────────────────┐
   │  pre-web-check   │  (PreToolUse — before WebFetch/WebSearch)
-  │  URL safety      │
+  │  source boundary │
   └────────┬────────┘
            ▼
   ┌─────────────────┐
   │  post-edit-check │  (PostToolUse — after Write/Edit)
   │  stub detection  │
-  │  drift warnings  │
+  │  test reminders  │
   └─────────────────┘
 ```
 
@@ -250,9 +257,9 @@ User types prompt
 | Dual storage | JSON on git (truth) + SQLite (cache) | Fast local reads, durable distributed state |
 | UUID-first IDs | Create with UUID, display_id assigned on push | Offline creation, eventual consistency |
 | SSH signing (not GPG) | Ed25519 keys, AllowedSigners format | Modern, fast, offline verification |
-| Hook-based enforcement | Python scripts on Claude tool calls | Non-intrusive, configurable strictness |
-| Adaptive context injection | Drift counter, threshold-based reminders | Saves ~33% context tokens over 50 prompts |
-| On-demand skills | /preflight, /review, /audit | Rules loaded only when needed, not every prompt |
+| Provider-neutral hooks | Shared Python scripts with Claude and Codex projections | One implementation for repository checks |
+| Zeroed rule inputs | Wired Markdown paths with zero-byte bundled files | Removes the shipped prose without removing the integration |
+| On-demand skills | Provider-specific skill projections | Workflows load only when selected |
 
 ## Web Dashboard
 

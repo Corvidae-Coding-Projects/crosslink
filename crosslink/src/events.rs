@@ -1,10 +1,3 @@
-//! Core event types, serialization, and log I/O for the event-sourced CRDT system.
-//!
-//! Events are append-only NDJSON records stored in per-agent log files at
-//! `agents/{agent_id}/events.log` on the coordination branch. Each event
-//! carries an `EventEnvelope` with ordering metadata and an optional SSH
-//! signature.
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,10 +7,6 @@ use uuid::Uuid;
 
 use crate::signing;
 
-/// Total ordering key for events: (timestamp, `agent_id`, `agent_seq`).
-///
-/// Events are sorted by this key during compaction to produce a deterministic
-/// materialized state regardless of which agent reads them.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OrderingKey {
     pub timestamp: DateTime<Utc>,
@@ -36,7 +25,6 @@ impl OrderingKey {
     }
 }
 
-/// Event envelope — every event carries this metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEnvelope {
     pub agent_id: String,
@@ -49,28 +37,9 @@ pub struct EventEnvelope {
     pub signature: Option<String>,
 }
 
-/// The event variants across T1 (identity-establishing / exclusive) and
-/// T2 (causal) tiers.
-///
-/// # Tiering
-///
-/// - **T1** events establish or claim identity and resolve first-claim-wins by
-///   [`OrderingKey`]: `IssueCreated`, `LockClaimed`, `LockReleased`,
-///   `MilestoneCreated`. `MilestoneCreated` is T1-like because it mints a
-///   milestone identity (uuid + claimed display id) the same way `IssueCreated`
-///   mints an issue identity; its display-id adoption uses the same
-///   first-claim-wins rule.
-/// - **T2** events are causal: they mutate or reference an already-established
-///   identity and are last-writer-wins (or set-union) by `OrderingKey`. This
-///   includes `IssueUpdated`, `StatusChanged`, dependency/relation/label/parent
-///   edits, `CommentAdded`, `TimeEntryAdded`, `ScheduleChanged`,
-///   `MilestoneClosed`, `MilestoneDeleted`, and `IssueDeleted` (a tombstone:
-///   causal w.r.t. the issue it removes, and — by design — deletion wins
-///   forever, so no later event can resurrect a deleted issue).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Event {
-    // T1: Exclusive
     IssueCreated {
         uuid: Uuid,
         title: String,
@@ -82,20 +51,13 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         parent_uuid: Option<Uuid>,
         created_by: String,
-        /// Display id claimed from `meta/counters.json` by the (future) emitter.
-        ///
-        /// During the v2/v3 transition, files receive display ids from the
-        /// shared counter. If the reducer allocated ids purely from event order
-        /// it could disagree with the file-written id and clobber the file at
-        /// materialization. Carrying the authoritative claim here lets the
-        /// reducer adopt it (first-claim-wins by `OrderingKey`). `None` for
-        /// pure-v3 emitters with no counter; the reducer then allocates.
+
         #[serde(default, skip_serializing_if = "Option::is_none")]
         display_id: Option<i64>,
-        /// When the issue becomes actionable (GH #361), set at creation.
+
         #[serde(default, skip_serializing_if = "Option::is_none")]
         scheduled_at: Option<DateTime<Utc>>,
-        /// Hard deadline (GH #361), set at creation.
+
         #[serde(default, skip_serializing_if = "Option::is_none")]
         due_at: Option<DateTime<Utc>>,
     },
@@ -108,7 +70,6 @@ pub enum Event {
         issue_display_id: i64,
     },
 
-    // T2: Causal
     IssueUpdated {
         uuid: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -159,14 +120,6 @@ pub enum Event {
         new_parent_uuid: Option<Uuid>,
     },
 
-    /// A comment was added to an issue (T2: causal).
-    ///
-    /// Mirrors the `CommentEntry` / `CommentFile` payload field-for-field so
-    /// materialization is lossless once the reducer becomes the sole writer
-    /// (#754 cutover). `comment_uuid` is the V2-layout comment identity used as
-    /// the idempotency key; `display_id` is the counter-claimed `i64` comment id
-    /// (the `id` field of `CommentEntry`), adopted first-claim-wins like issue
-    /// display ids. Replaying the same `CommentAdded` leaves exactly one comment.
     CommentAdded {
         issue_uuid: Uuid,
         comment_uuid: Uuid,
@@ -188,12 +141,6 @@ pub enum Event {
         signature: Option<String>,
     },
 
-    /// A time-tracking entry was added to an issue (T2: causal).
-    ///
-    /// Mirrors `TimeEntry` field-for-field. The file format `TimeEntry` has no
-    /// natural unique identity (only a counter-claimed `id`), so `entry_uuid` is
-    /// added to the EVENT (not the file) to key idempotent reduction; the file
-    /// schema is unchanged. `display_id` is the counter-claimed `id`.
     TimeEntryAdded {
         issue_uuid: Uuid,
         entry_uuid: Uuid,
@@ -206,21 +153,10 @@ pub enum Event {
         duration_seconds: Option<i64>,
     },
 
-    /// An issue was deleted (T2: causal tombstone).
-    ///
-    /// Deletion wins forever, by design: once an `IssueDeleted` is applied, the
-    /// uuid is tombstoned and ALL later events for it (including a later-ordered
-    /// `IssueCreated`) are ignored — no resurrection. See the reducer for the
-    /// tombstone-guard placement.
     IssueDeleted {
         uuid: Uuid,
     },
 
-    /// A milestone was created (T1-like: mints milestone identity).
-    ///
-    /// Mirrors the `MilestoneEntry` file payload (`uuid`, `name`, `description`,
-    /// `status`, `created_at`). `display_id` is the counter-claimed milestone id,
-    /// adopted first-claim-wins by `OrderingKey` exactly like issue display ids.
     MilestoneCreated {
         uuid: Uuid,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -231,27 +167,15 @@ pub enum Event {
         created_at: DateTime<Utc>,
     },
 
-    /// A milestone was closed (T2: causal).
     MilestoneClosed {
         uuid: Uuid,
         closed_at: DateTime<Utc>,
     },
 
-    /// A milestone was deleted (T2: causal).
-    ///
-    /// Removes the milestone from state and clears `milestone_uuid` on any issue
-    /// that referenced it (mirrors the dangling-reference cleanup expected of the
-    /// file path at the #754 cutover).
     MilestoneDeleted {
         uuid: Uuid,
     },
 
-    /// The scheduling fields of an issue changed (T2: causal, last-writer-wins).
-    ///
-    /// Carries the FULL post-change state of both fields: `None` means the field
-    /// was cleared, `Some(_)` means set to that value. The later `OrderingKey`
-    /// overwrites the earlier — there is no per-field merge, so a `ScheduleChanged`
-    /// always fully determines both `scheduled_at` and `due_at`.
     ScheduleChanged {
         issue_uuid: Uuid,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -261,33 +185,14 @@ pub enum Event {
     },
 }
 
-// ── Codec ────────────────────────────────────────────────────────────
-
-/// Trait for encoding/decoding event envelopes.
 pub trait EventCodec {
-    /// Encode a single event envelope to bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if serialization fails.
     fn encode(&self, event: &EventEnvelope) -> Result<Vec<u8>>;
 
-    /// Encode a batch of event envelopes to bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if serialization of any event fails.
     fn encode_batch(&self, events: &[EventEnvelope]) -> Result<Vec<u8>>;
 
-    /// Decode all event envelopes from bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if deserialization fails for a non-trailing line.
     fn decode_all(&self, bytes: &[u8]) -> Result<Vec<EventEnvelope>>;
 }
 
-/// NDJSON (newline-delimited JSON) codec for event envelopes.
 pub struct NdjsonCodec;
 
 impl EventCodec for NdjsonCodec {
@@ -317,8 +222,6 @@ impl EventCodec for NdjsonCodec {
             match serde_json::from_slice::<EventEnvelope>(line) {
                 Ok(envelope) => events.push(envelope),
                 Err(e) => {
-                    // Tolerate a corrupt trailing line (crash mid-write) but
-                    // treat corruption in the middle of the log as a hard error.
                     if i == total - 1 || (i == total - 2 && lines.last() == Some(&&b""[..])) {
                         tracing::warn!(
                             "truncating incomplete trailing event line ({} bytes): {}",
@@ -335,39 +238,28 @@ impl EventCodec for NdjsonCodec {
     }
 }
 
-// ── Log I/O ──────────────────────────────────────────────────────────
-
-/// Truncate any incomplete trailing line left by a crash.
-///
-/// Reads the tail of the file and, if it does not end with `\n`, truncates
-/// back to the last newline so the next append starts on a clean line.
-///
-/// Used by [`append_event`], a v2-era worktree-log helper now exercised only by
-/// tests and the v2-read fixtures the migration relies on (#754).
 #[cfg_attr(not(test), allow(dead_code))]
 fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
     let len = file.seek(SeekFrom::End(0))?;
     if len == 0 {
         return Ok(());
     }
-    // Read the last byte to check for newline terminator.
+
     file.seek(SeekFrom::End(-1))?;
     let mut last = [0u8; 1];
     file.read_exact(&mut last)?;
     if last[0] == b'\n' {
         return Ok(());
     }
-    // File does not end with newline — find the last newline and truncate.
-    // Read up to 64 KiB from the tail to find it.
+
     let tail_size = len.min(65536);
     file.seek(SeekFrom::End(-tail_size.cast_signed()))?;
     let mut buf = vec![0u8; tail_size as usize];
     file.read_exact(&mut buf)?;
-    let truncate_to = buf.iter().rposition(|&b| b == b'\n').map_or(
-        // No newline found at all — the entire file is one corrupt fragment.
-        0,
-        |pos| len - tail_size + pos as u64 + 1,
-    );
+    let truncate_to = buf
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |pos| len - tail_size + pos as u64 + 1);
     tracing::warn!(
         "truncating {} bytes of incomplete trailing data from event log",
         len - truncate_to
@@ -377,18 +269,6 @@ fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
     Ok(())
 }
 
-/// Append an event to an agent's log file (creates file if needed).
-///
-/// Repairs any incomplete trailing line left by a previous crash before
-/// appending, and fsyncs after writing to ensure durability.
-///
-/// This writes the v2 worktree `events.log`. The v2 write path is gone (#754);
-/// the function is retained for tests and the v2-read fixtures the migration
-/// relies on, so it is allowed to be unused outside test builds.
-///
-/// # Errors
-///
-/// Returns an error if the log file cannot be opened, repaired, or written to.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn append_event(log_path: &Path, envelope: &EventEnvelope) -> Result<()> {
     if let Some(parent) = log_path.parent() {
@@ -413,13 +293,6 @@ pub fn append_event(log_path: &Path, envelope: &EventEnvelope) -> Result<()> {
     Ok(())
 }
 
-/// Read all events from a log file.
-///
-/// Delegates to [`read_events_from_bytes`] after reading the file.
-///
-/// # Errors
-///
-/// Returns an error if the log file cannot be read or contains corrupt data.
 pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
     if !log_path.exists() {
         return Ok(Vec::new());
@@ -430,32 +303,11 @@ pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
         .with_context(|| format!("Failed to parse event log: {}", log_path.display()))
 }
 
-/// Read all events from raw bytes (NDJSON).
-///
-/// This is the byte-level parse core shared by both the file-based path
-/// ([`read_events`]) and the git-object-store path ([`ObjectStoreSource`]).
-/// Semantics are identical: line-by-line NDJSON, same blank/corrupt-trailing-
-/// line handling as the codec's `decode_all`.
-///
-/// # Errors
-///
-/// Returns an error if any non-trailing line is corrupt (same as `decode_all`).
 pub fn read_events_from_bytes(bytes: &[u8]) -> Result<Vec<EventEnvelope>> {
     let codec = NdjsonCodec;
     codec.decode_all(bytes)
 }
 
-/// Read only events with ordering key > watermark.
-///
-/// Currently deserializes all events and filters in-memory. For very large
-/// logs this could be optimized by seeking to an approximate offset based on
-/// the watermark timestamp, but the NDJSON format requires scanning for
-/// newline boundaries regardless. The current approach is correct and
-/// performant for typical log sizes (<100k events). (#333)
-///
-/// # Errors
-///
-/// Returns an error if reading or parsing the log file fails.
 pub fn read_events_after(log_path: &Path, watermark: &OrderingKey) -> Result<Vec<EventEnvelope>> {
     let all = read_events(log_path)?;
     Ok(all
@@ -464,12 +316,6 @@ pub fn read_events_after(log_path: &Path, watermark: &OrderingKey) -> Result<Vec
         .collect())
 }
 
-// ── Event Signing ────────────────────────────────────────────────────
-
-/// Canonicalize an event envelope for signing.
-///
-/// Uses the event's JSON representation (without signature fields) as the
-/// content to sign, ensuring deterministic canonical form.
 fn canonicalize_event(envelope: &EventEnvelope) -> Result<Vec<u8>> {
     let event_json = serde_json::to_string(&envelope.event)?;
     Ok(signing::canonicalize_for_signing(&[
@@ -480,11 +326,6 @@ fn canonicalize_event(envelope: &EventEnvelope) -> Result<Vec<u8>> {
     ]))
 }
 
-/// Sign an event envelope using the agent's SSH key.
-///
-/// # Errors
-///
-/// Returns an error if canonicalization or SSH signing fails.
 pub fn sign_event(
     envelope: &mut EventEnvelope,
     private_key_path: &Path,
@@ -497,11 +338,6 @@ pub fn sign_event(
     Ok(())
 }
 
-/// Verify an event's signature against the allowed signers store.
-///
-/// # Errors
-///
-/// Returns an error if canonicalization or signature verification fails.
 pub fn verify_event_signature(
     envelope: &EventEnvelope,
     allowed_signers_path: &Path,
@@ -761,7 +597,7 @@ mod tests {
         for event in variants {
             let json = serde_json::to_string(&event).unwrap();
             let parsed: Event = serde_json::from_str(&json).unwrap();
-            // Verify the tag roundtrips
+
             let json2 = serde_json::to_string(&parsed).unwrap();
             let reparsed: Event = serde_json::from_str(&json2).unwrap();
             assert_eq!(
@@ -773,8 +609,6 @@ mod tests {
 
     #[test]
     fn test_old_format_issue_created_parses() {
-        // An IssueCreated log line written before PR3.5 (no display_id,
-        // scheduled_at, due_at fields) must still parse via #[serde(default)].
         let json = r#"{"type":"IssueCreated","uuid":"00000000-0000-0000-0000-000000000001","title":"old","priority":"medium","created_by":"agent-1"}"#;
         let parsed: Event = serde_json::from_str(json).unwrap();
         if let Event::IssueCreated {
@@ -796,7 +630,6 @@ mod tests {
 
     #[test]
     fn test_old_format_issue_created_in_envelope_parses() {
-        // Full old-format envelope line must still decode.
         let json = r#"{"agent_id":"agent-1","agent_seq":1,"timestamp":"2025-01-01T00:00:00Z","event":{"type":"IssueCreated","uuid":"00000000-0000-0000-0000-000000000002","title":"legacy","priority":"high","labels":["bug"],"created_by":"agent-1"}}"#;
         let env: EventEnvelope = serde_json::from_str(json).unwrap();
         assert_eq!(env.agent_seq, 1);
@@ -853,7 +686,7 @@ mod tests {
         let codec = NdjsonCodec;
         let envelope = make_envelope("agent-1", 1);
         let mut bytes = codec.encode(&envelope).unwrap();
-        // Append a partial/corrupt trailing fragment (simulates crash mid-write)
+
         bytes.extend_from_slice(b"{\"agent_id\":\"agent-1\",\"age");
         let events = codec.decode_all(&bytes).unwrap();
         assert_eq!(events.len(), 1);
@@ -877,11 +710,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("events.log");
 
-        // Write a valid event
         let e1 = make_envelope("agent-1", 1);
         append_event(&log_path, &e1).unwrap();
 
-        // Simulate crash: append partial data without newline
         {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new()
@@ -891,7 +722,6 @@ mod tests {
             f.write_all(b"{\"agent_id\":\"partial").unwrap();
         }
 
-        // Next append should repair the file and succeed
         let e2 = make_envelope("agent-1", 2);
         append_event(&log_path, &e2).unwrap();
 
@@ -906,10 +736,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("events.log");
 
-        // Simulate crash on very first write: partial data, no newline
         std::fs::write(&log_path, b"{\"agent_id\":\"partial").unwrap();
 
-        // Next append should truncate the corrupt data and write cleanly
         let e1 = make_envelope("agent-1", 1);
         append_event(&log_path, &e1).unwrap();
 
@@ -1141,7 +969,6 @@ mod tests {
         assert_eq!(*bytes.last().unwrap(), b'\n');
     }
 
-    // Coverage for sign_event and verify_event_signature with actual SSH keys
     #[test]
     fn test_sign_and_verify_event_roundtrip() {
         use std::process::Command;
@@ -1154,7 +981,6 @@ mod tests {
         let keys_dir = dir.path().join("keys");
         std::fs::create_dir_all(&keys_dir).unwrap();
 
-        // Generate a test key pair
         let private_key_path = keys_dir.join("test_ed25519");
         let public_key_path = keys_dir.join("test_ed25519.pub");
         let output = Command::new("ssh-keygen")
@@ -1172,7 +998,6 @@ mod tests {
             .unwrap();
         assert!(output.status.success(), "ssh-keygen failed");
 
-        // Get fingerprint
         let fp_output = Command::new("ssh-keygen")
             .args(["-l", "-f", &public_key_path.to_string_lossy()])
             .output()
@@ -1180,21 +1005,18 @@ mod tests {
         let fp_str = String::from_utf8_lossy(&fp_output.stdout);
         let fingerprint = fp_str.split_whitespace().nth(1).unwrap().to_string();
 
-        // Sign the event
         let mut envelope = make_envelope("test-agent", 1);
         sign_event(&mut envelope, &private_key_path, &fingerprint).unwrap();
 
         assert_eq!(envelope.signed_by, Some(fingerprint.clone()));
         assert!(envelope.signature.is_some());
 
-        // Set up allowed_signers file
         let public_key = std::fs::read_to_string(&public_key_path).unwrap();
         let public_key = public_key.trim();
         let signers_path = dir.path().join("allowed_signers");
         let principal = "test-agent@crosslink".to_string();
         std::fs::write(&signers_path, format!("{principal} {public_key}\n")).unwrap();
 
-        // Verify the signature
         let verified = verify_event_signature(&envelope, &signers_path).unwrap();
         assert!(verified, "Valid event signature should verify successfully");
     }
@@ -1211,7 +1033,6 @@ mod tests {
         let keys_dir = dir.path().join("keys");
         std::fs::create_dir_all(&keys_dir).unwrap();
 
-        // Generate a key to have a valid allowed_signers entry
         let private_key_path = keys_dir.join("test_ed25519");
         let public_key_path = keys_dir.join("test_ed25519.pub");
         let output = Command::new("ssh-keygen")
@@ -1238,21 +1059,18 @@ mod tests {
         )
         .unwrap();
 
-        // Create an envelope with a tampered/garbage signature
         let mut envelope = make_envelope("test-agent", 1);
         envelope.signed_by = Some("SHA256:fake".to_string());
-        envelope.signature = Some("aW52YWxpZHNpZ25hdHVyZQ==".to_string()); // base64("invalidsignature")
+        envelope.signature = Some("aW52YWxpZHNpZ25hdHVyZQ==".to_string());
 
-        // Verification should return false (not an error) for invalid signatures
         let result = verify_event_signature(&envelope, &signers_path);
-        // Either Ok(false) or an Err — either way the signature is not valid
+
         match result {
-            Ok(false) | Err(_) => {} // expected — invalid sig or ssh-keygen error
+            Ok(false) | Err(_) => {}
             Ok(true) => panic!("Should not verify a garbage signature"),
         }
     }
 
-    // Coverage for EventCodec trait object usage (line 132)
     #[test]
     fn test_event_codec_trait_object() {
         let codec: &dyn EventCodec = &NdjsonCodec;
@@ -1263,14 +1081,13 @@ mod tests {
         assert_eq!(decoded[0].agent_seq, 42);
     }
 
-    // Coverage for the `continue` path in decode_all when line is empty (line 163)
     #[test]
     fn test_decode_all_skips_empty_lines_between_events() {
         let codec = NdjsonCodec;
         let e1 = make_envelope("agent-1", 1);
         let e2 = make_envelope("agent-1", 2);
         let mut bytes = codec.encode(&e1).unwrap();
-        // Insert an extra blank line between the two events
+
         bytes.extend_from_slice(b"\n");
         bytes.extend_from_slice(&codec.encode(&e2).unwrap());
         let events = codec.decode_all(&bytes).unwrap();

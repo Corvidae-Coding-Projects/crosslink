@@ -1,6 +1,6 @@
-// Smoke coverage for the ExportMenu component. The download helper
-// is mocked so we can assert the button wiring without touching the
-// browser's download machinery.
+
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";

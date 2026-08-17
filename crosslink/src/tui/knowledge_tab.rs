@@ -14,51 +14,48 @@ use std::sync::mpsc;
 use super::{Tab, TabAction, HIGHLIGHT_BG};
 use crate::knowledge::{self, KnowledgeManager, PageFrontmatter, PageInfo};
 
-/// Which sub-view is active within the Knowledge tab.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum KnowledgeViewMode {
-    /// Page list with table.
     List,
-    /// Full-page reader with rendered markdown.
+
     Reader,
 }
 
-/// The Knowledge tab — browse and read knowledge pages.
 pub struct KnowledgeTab {
     crosslink_dir: PathBuf,
     view_mode: KnowledgeViewMode,
-    /// All pages loaded from the knowledge manager.
+
     all_pages: Vec<PageInfo>,
-    /// Filtered pages currently displayed.
+
     filtered_pages: Vec<PageInfo>,
     selected: usize,
-    /// All unique tags gathered from pages, sorted. First entry is "all".
+
     available_tags: Vec<String>,
-    /// Current tag filter index into `available_tags`. 0 = "all".
+
     tag_filter_idx: usize,
-    /// Search query string (filters in list view).
+
     search_query: String,
-    /// Whether search input mode is active.
+
     searching: bool,
-    /// Full page content for the reader view (raw markdown string).
+
     reader_content: Option<String>,
-    /// Parsed frontmatter for the reader view header.
+
     reader_frontmatter: Option<PageFrontmatter>,
-    /// Slug of the page currently being read.
+
     reader_slug: Option<String>,
-    /// Scroll offset for the reader view.
+
     reader_scroll: u16,
-    /// Maximum scroll offset computed during render (content lines − viewport height).
+
     reader_max_scroll: Cell<u16>,
-    /// Status message.
+
     status_msg: String,
-    /// Error message if data load failed.
+
     error_msg: Option<String>,
-    /// `TableState` for list view scroll-to-follow.
+
     list_table_state: RefCell<TableState>,
-    /// Receiver for background sync results.
+
     sync_rx: Option<mpsc::Receiver<Option<String>>>,
-    /// Whether a background sync is in progress.
+
     syncing: bool,
 }
 
@@ -108,8 +105,6 @@ impl KnowledgeTab {
             return;
         }
 
-        // Load pages from cache immediately (non-blocking).
-        // Background sync (git fetch) runs separately to avoid blocking the main thread.
         match km.list_pages() {
             Ok(pages) => {
                 self.all_pages = pages;
@@ -122,11 +117,9 @@ impl KnowledgeTab {
             }
         }
 
-        // Start background sync (git fetch) without blocking the UI
         self.start_background_sync();
     }
 
-    /// Spawn a background thread to run knowledge sync (git fetch) without blocking the UI.
     fn start_background_sync(&mut self) {
         if self.syncing {
             return;
@@ -138,16 +131,13 @@ impl KnowledgeTab {
 
         std::thread::spawn(move || {
             let result = match KnowledgeManager::new(&crosslink_dir) {
-                Ok(km) => {
-                    // INTENTIONAL: sync is best-effort — TUI shows cached pages if offline
-                    match km.sync() {
-                        Ok(_) => None,
-                        Err(e) => Some(e.to_string()),
-                    }
-                }
+                Ok(km) => match km.sync() {
+                    Ok(_) => None,
+                    Err(e) => Some(e.to_string()),
+                },
                 Err(e) => Some(e.to_string()),
             };
-            // INTENTIONAL: send failure means the receiver was dropped — TUI is shutting down
+
             let _ = tx.send(result);
         });
     }
@@ -180,18 +170,16 @@ impl KnowledgeTab {
             Some(self.search_query.to_lowercase())
         };
 
-        // Build filtered pages list
         self.filtered_pages = self
             .all_pages
             .iter()
             .filter(|p| {
-                // Tag filter
                 if let Some(tag) = &active_tag {
                     if !p.frontmatter.tags.contains(tag) {
                         return false;
                     }
                 }
-                // Search filter
+
                 if let Some(ref q) = query {
                     if !p.slug.to_lowercase().contains(q)
                         && !p.frontmatter.title.to_lowercase().contains(q)
@@ -209,7 +197,6 @@ impl KnowledgeTab {
             .cloned()
             .collect();
 
-        // Clamp selection
         if self.filtered_pages.is_empty() {
             self.selected = 0;
         } else if self.selected >= self.filtered_pages.len() {
@@ -235,8 +222,6 @@ impl KnowledgeTab {
             }
         }
     }
-
-    // ── Key handlers ──────────────────────────────────────────────────
 
     fn handle_list_key(&mut self, key: KeyEvent) -> TabAction {
         if self.searching {
@@ -362,19 +347,16 @@ impl KnowledgeTab {
         TabAction::Consumed
     }
 
-    // ── Renderers ─────────────────────────────────────────────────────
-
     fn render_list(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2), // Header
-                Constraint::Min(0),    // Table
-                Constraint::Length(1), // Context keys
+                Constraint::Length(2),
+                Constraint::Min(0),
+                Constraint::Length(1),
             ])
             .split(area);
 
-        // Header
         let tag_label = self
             .available_tags
             .get(self.tag_filter_idx)
@@ -403,7 +385,6 @@ impl KnowledgeTab {
         ]);
         frame.render_widget(Paragraph::new(header), chunks[0]);
 
-        // Error or empty state
         if let Some(ref err) = self.error_msg {
             let msg = Paragraph::new(Line::from(vec![
                 Span::raw("  "),
@@ -422,7 +403,6 @@ impl KnowledgeTab {
             )));
             frame.render_widget(msg, chunks[1]);
         } else {
-            // Table
             let header_row = Row::new(vec!["Slug", "Title", "Tags", "Updated"]).style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -448,10 +428,10 @@ impl KnowledgeTab {
             let table = Table::new(
                 rows,
                 [
-                    Constraint::Min(16),    // Slug
-                    Constraint::Min(20),    // Title
-                    Constraint::Length(20), // Tags
-                    Constraint::Length(10), // Updated
+                    Constraint::Min(16),
+                    Constraint::Min(20),
+                    Constraint::Length(20),
+                    Constraint::Length(10),
                 ],
             )
             .header(header_row)
@@ -463,7 +443,6 @@ impl KnowledgeTab {
             frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
-        // Context keys
         let keys = if self.searching {
             Line::from(vec![
                 Span::styled("Esc", Style::default().fg(Color::Cyan)),
@@ -500,7 +479,6 @@ impl KnowledgeTab {
         let slug = self.reader_slug.as_deref().unwrap_or("unknown");
         let mut lines: Vec<Line> = Vec::new();
 
-        // Title header
         let title = self
             .reader_frontmatter
             .as_ref()
@@ -516,9 +494,7 @@ impl KnowledgeTab {
             " \u{2500}".to_string() + &"\u{2500}".repeat(area.width.saturating_sub(3) as usize),
         ));
 
-        // Metadata
         if let Some(ref fm) = self.reader_frontmatter {
-            // Tags line — each tag as a separate colored pill
             let mut tag_spans = vec![Span::styled(
                 " Tags: ",
                 Style::default().add_modifier(Modifier::BOLD),
@@ -543,7 +519,6 @@ impl KnowledgeTab {
             }
             lines.push(Line::from(tag_spans));
 
-            // Sources line — list each source with title and URL
             if fm.sources.is_empty() {
                 lines.push(Line::from(vec![
                     Span::styled(" Sources: ", Style::default().add_modifier(Modifier::BOLD)),
@@ -567,7 +542,6 @@ impl KnowledgeTab {
                 }
             }
 
-            // Contributors line
             let mut contrib_spans = vec![Span::styled(
                 " Contributors: ",
                 Style::default().add_modifier(Modifier::BOLD),
@@ -588,7 +562,6 @@ impl KnowledgeTab {
             }
             lines.push(Line::from(contrib_spans));
 
-            // Dates line
             lines.push(Line::from(vec![
                 Span::styled(" Created: ", Style::default().add_modifier(Modifier::BOLD)),
                 Span::styled(fm.created.clone(), Style::default().fg(Color::DarkGray)),
@@ -604,23 +577,19 @@ impl KnowledgeTab {
 
         lines.push(Line::from(""));
 
-        // Body (strip frontmatter, then render markdown)
         let body = strip_frontmatter(content);
         lines.extend(render_markdown_lines(body));
 
-        // Bottom separator
         lines.push(Line::from(""));
         lines.push(Line::from(
             " \u{2500}".to_string() + &"\u{2500}".repeat(area.width.saturating_sub(3) as usize),
         ));
 
-        // Layout: content + context keys
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(0), Constraint::Length(1)])
             .split(area);
 
-        // Clamp scroll so the user can't scroll past content.
         let content_height = lines.len() as u16;
         let viewport_height = chunks[0].height;
         let max_scroll = content_height.saturating_sub(viewport_height);
@@ -671,7 +640,6 @@ impl Tab for KnowledgeTab {
         }
     }
 
-    // Data is loaded eagerly in new() and refreshed on 'r' keypress.
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
 
@@ -680,7 +648,7 @@ impl Tab for KnowledgeTab {
         if let Some(sync_error) = result {
             self.syncing = false;
             self.sync_rx = None;
-            // If sync succeeded, reload pages from cache to pick up any new content
+
             if sync_error.is_none() {
                 let km = KnowledgeManager::new(&self.crosslink_dir).ok();
                 if let Some(km) = km {
@@ -700,9 +668,6 @@ impl Tab for KnowledgeTab {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-/// Strip YAML frontmatter (delimited by `---`) from markdown content.
 fn strip_frontmatter(content: &str) -> &str {
     let trimmed = content.trim_start();
     if !trimmed.starts_with("---") {
@@ -716,10 +681,6 @@ fn strip_frontmatter(content: &str) -> &str {
     })
 }
 
-/// Render markdown body text into styled Lines for the TUI.
-/// Handles headings, code blocks (with language labels), bullet and numbered
-/// lists, blockquotes, horizontal rules, and inline formatting (`code`,
-/// **bold**, *italic*).
 fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut in_code_block = false;
@@ -727,11 +688,9 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
     for raw_line in body.lines() {
         let trimmed = raw_line.trim_start();
 
-        // ── Code fences ──────────────────────────────────────────
         if trimmed.starts_with("```") {
             in_code_block = !in_code_block;
             if in_code_block {
-                // Opening fence — show language label if present
                 let lang = trimmed.strip_prefix("```").unwrap_or("").trim();
                 if lang.is_empty() {
                     lines.push(Line::from(Span::styled(
@@ -757,7 +716,6 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
                     ]));
                 }
             } else {
-                // Closing fence
                 lines.push(Line::from(Span::styled(
                     "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
                     Style::default().fg(Color::DarkGray),
@@ -774,7 +732,6 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
             continue;
         }
 
-        // ── Headings ─────────────────────────────────────────────
         if let Some(rest) = trimmed.strip_prefix("#### ") {
             lines.push(Line::from(vec![
                 Span::styled("  \u{25b8} ", Style::default().fg(Color::DarkGray)),
@@ -809,16 +766,12 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )));
-        }
-        // ── Horizontal rules ─────────────────────────────────────
-        else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+        } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
             lines.push(Line::from(Span::styled(
                 "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
                 Style::default().fg(Color::DarkGray),
             )));
-        }
-        // ── Blockquotes ──────────────────────────────────────────
-        else if let Some(rest) = trimmed.strip_prefix("> ") {
+        } else if let Some(rest) = trimmed.strip_prefix("> ") {
             lines.push(Line::from(vec![
                 Span::styled(
                     "  \u{2502} ",
@@ -833,9 +786,7 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
                         .add_modifier(Modifier::ITALIC),
                 ),
             ]));
-        }
-        // ── Bullet lists ─────────────────────────────────────────
-        else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+        } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
             let content = &trimmed[2..];
             let mut spans = vec![Span::styled(
                 "  \u{2022} ",
@@ -843,9 +794,7 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
             )];
             spans.extend(parse_inline_formatting(content));
             lines.push(Line::from(spans));
-        }
-        // ── Numbered lists ───────────────────────────────────────
-        else if is_numbered_list(trimmed) {
+        } else if is_numbered_list(trimmed) {
             let (num, content) = split_numbered_list(trimmed);
             let mut spans = vec![Span::styled(
                 format!("  {num} "),
@@ -853,13 +802,9 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
             )];
             spans.extend(parse_inline_formatting(content));
             lines.push(Line::from(spans));
-        }
-        // ── Empty lines ──────────────────────────────────────────
-        else if trimmed.is_empty() {
+        } else if trimmed.is_empty() {
             lines.push(Line::from(""));
-        }
-        // ── Plain text with inline formatting ────────────────────
-        else {
+        } else {
             let mut spans = vec![Span::raw("  ".to_string())];
             spans.extend(parse_inline_formatting(trimmed));
             lines.push(Line::from(spans));
@@ -868,23 +813,19 @@ fn render_markdown_lines(body: &str) -> Vec<Line<'static>> {
     lines
 }
 
-/// Parse inline formatting: `code`, **bold**, *italic*.
-/// Returns a Vec of styled Spans.
 fn parse_inline_formatting(text: &str) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut remaining = text;
 
     while !remaining.is_empty() {
-        // Find the next formatting marker
         let next_backtick = remaining.find('`');
         let next_double_star = remaining.find("**");
         let next_single_star = find_single_star(remaining);
 
-        // Find the earliest marker
         let earliest = [
             next_backtick.map(|i| (i, '`')),
-            next_double_star.map(|i| (i, 'B')), // B for bold
-            next_single_star.map(|i| (i, 'I')), // I for italic
+            next_double_star.map(|i| (i, 'B')),
+            next_single_star.map(|i| (i, 'I')),
         ]
         .into_iter()
         .flatten()
@@ -892,12 +833,10 @@ fn parse_inline_formatting(text: &str) -> Vec<Span<'static>> {
 
         match earliest {
             None => {
-                // No more markers — push the rest as plain text
                 spans.push(Span::raw(remaining.to_string()));
                 break;
             }
             Some((pos, marker)) => {
-                // Push text before the marker
                 if pos > 0 {
                     spans.push(Span::raw(remaining[..pos].to_string()));
                 }
@@ -913,7 +852,6 @@ fn parse_inline_formatting(text: &str) -> Vec<Span<'static>> {
                             ));
                             remaining = &after[end + 1..];
                         } else {
-                            // Unmatched backtick — treat as plain text
                             spans.push(Span::raw("`".to_string()));
                             remaining = after;
                         }
@@ -959,7 +897,6 @@ fn parse_inline_formatting(text: &str) -> Vec<Span<'static>> {
     spans
 }
 
-/// Find position of a single `*` that is NOT part of `**`.
 fn find_single_star(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     for i in 0..bytes.len() {
@@ -974,16 +911,14 @@ fn find_single_star(s: &str) -> Option<usize> {
     None
 }
 
-/// Check if a line looks like a numbered list item (e.g. "1. text").
 fn is_numbered_list(s: &str) -> bool {
     let mut chars = s.chars();
-    // Must start with digits
+
     let mut has_digit = false;
     for c in chars.by_ref() {
         if c.is_ascii_digit() {
             has_digit = true;
         } else if c == '.' && has_digit {
-            // Must be followed by a space
             return chars.next() == Some(' ');
         } else {
             return false;
@@ -992,14 +927,12 @@ fn is_numbered_list(s: &str) -> bool {
     false
 }
 
-/// Split a numbered list line into the number part and content.
 fn split_numbered_list(s: &str) -> (&str, &str) {
     s.find(". ").map_or(("", s), |dot_pos| {
         (&s[..=dot_pos], s[dot_pos + 2..].trim_start())
     })
 }
 
-/// Format a date string (YYYY-MM-DD) as a relative time (e.g. "3d ago").
 fn format_relative_date(date_str: &str) -> String {
     let today = chrono::Utc::now().date_naive();
     chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_or_else(
@@ -1049,7 +982,7 @@ mod tests {
     fn make_tab_empty() -> KnowledgeTab {
         let dir = tempfile::tempdir().unwrap();
         let mut tab = KnowledgeTab::new(dir.path());
-        // Clear error since tempdir isn't a real crosslink dir
+
         tab.error_msg = None;
         tab
     }
@@ -1114,7 +1047,6 @@ mod tests {
         tab.handle_list_key(make_key(KeyCode::Char('j')));
         assert_eq!(tab.selected, 2);
 
-        // Should not go past end
         tab.handle_list_key(make_key(KeyCode::Char('j')));
         assert_eq!(tab.selected, 2);
 
@@ -1131,7 +1063,7 @@ mod tests {
     #[test]
     fn test_enter_opens_reader_state() {
         let mut tab = make_tab_with_pages();
-        // Set reader content manually since we can't call KnowledgeManager
+
         tab.reader_content = Some("# Test\nSome content.".to_string());
         tab.reader_slug = Some("ratatui-basics".to_string());
         tab.view_mode = KnowledgeViewMode::Reader;
@@ -1156,14 +1088,14 @@ mod tests {
     #[test]
     fn test_tag_filter_cycle() {
         let mut tab = make_tab_with_pages();
-        // Tags: all, db, perf, rust, security, tui
+
         assert_eq!(tab.available_tags.len(), 6);
         assert_eq!(tab.tag_filter_idx, 0);
 
         tab.handle_list_key(make_key(KeyCode::Char('t')));
         assert_eq!(tab.tag_filter_idx, 1);
         assert_eq!(tab.available_tags[1], "db");
-        // Only sqlite-wal has "db" tag
+
         assert_eq!(tab.filtered_pages.len(), 1);
         assert_eq!(tab.filtered_pages[0].slug, "sqlite-wal");
     }
@@ -1176,24 +1108,21 @@ mod tests {
             tab.handle_list_key(make_key(KeyCode::Char('t')));
         }
         assert_eq!(tab.tag_filter_idx, 0);
-        assert_eq!(tab.filtered_pages.len(), 3); // All pages
+        assert_eq!(tab.filtered_pages.len(), 3);
     }
 
     #[test]
     fn test_search_mode_enter_cancel() {
         let mut tab = make_tab_with_pages();
 
-        // Enter search
         tab.handle_list_key(make_key(KeyCode::Char('/')));
         assert!(tab.searching);
 
-        // Type query
         tab.handle_list_key(make_key(KeyCode::Char('w')));
         tab.handle_list_key(make_key(KeyCode::Char('a')));
         tab.handle_list_key(make_key(KeyCode::Char('l')));
         assert_eq!(tab.search_query, "wal");
 
-        // Cancel clears
         tab.handle_list_key(make_key(KeyCode::Esc));
         assert!(!tab.searching);
         assert!(tab.search_query.is_empty());
@@ -1235,7 +1164,7 @@ mod tests {
     fn test_refresh_key() {
         let mut tab = make_tab_empty();
         let result = tab.handle_list_key(make_key(KeyCode::Char('r')));
-        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+
         assert!(matches!(result, TabAction::NotHandled));
     }
 
@@ -1251,7 +1180,7 @@ mod tests {
         let mut tab = make_tab_with_pages();
         tab.view_mode = KnowledgeViewMode::Reader;
         tab.reader_content = Some("content".to_string());
-        // Simulate a render having computed a max scroll value.
+
         tab.reader_max_scroll.set(100);
 
         tab.handle_reader_key(make_key(KeyCode::Char('j')));
@@ -1269,7 +1198,6 @@ mod tests {
         tab.handle_reader_key(make_key(KeyCode::PageUp));
         assert_eq!(tab.reader_scroll, 1);
 
-        // G jumps to max scroll, not u16::MAX
         tab.handle_reader_key(make_key(KeyCode::Char('G')));
         assert_eq!(tab.reader_scroll, 100);
 
@@ -1284,13 +1212,11 @@ mod tests {
         tab.reader_content = Some("short".to_string());
         tab.reader_max_scroll.set(5);
 
-        // Scrolling past max is clamped
         for _ in 0..20 {
             tab.handle_reader_key(make_key(KeyCode::Char('j')));
         }
         assert_eq!(tab.reader_scroll, 5);
 
-        // PageDown also clamped
         tab.reader_scroll = 0;
         tab.handle_reader_key(make_key(KeyCode::PageDown));
         assert_eq!(tab.reader_scroll, 5);
@@ -1380,7 +1306,7 @@ mod tests {
         let body = "- item 1\n* item 2\nplain";
         let lines = render_markdown_lines(body);
         assert_eq!(lines.len(), 3);
-        // Check bullet char is present
+
         let first_line_str: String = lines[0]
             .spans
             .iter()
@@ -1407,7 +1333,6 @@ mod tests {
         let two_weeks_str = two_weeks.format("%Y-%m-%d").to_string();
         assert_eq!(format_relative_date(&two_weeks_str), "2w ago");
 
-        // Invalid date returns as-is
         assert_eq!(format_relative_date("not-a-date"), "not-a-date");
     }
 
@@ -1415,7 +1340,7 @@ mod tests {
     fn test_collect_tags() {
         let mut tab = make_tab_with_pages();
         tab.collect_tags();
-        // Expected: all, db, perf, rust, security, tui
+
         assert_eq!(tab.available_tags[0], "all");
         assert!(tab.available_tags.contains(&"rust".to_string()));
         assert!(tab.available_tags.contains(&"db".to_string()));
@@ -1425,7 +1350,7 @@ mod tests {
     #[test]
     fn test_apply_filters_tag_and_search() {
         let mut tab = make_tab_with_pages();
-        // Filter to "rust" tag
+
         tab.tag_filter_idx = tab.available_tags.iter().position(|t| t == "rust").unwrap();
         tab.search_query = "ratatui".to_string();
         tab.apply_filters();

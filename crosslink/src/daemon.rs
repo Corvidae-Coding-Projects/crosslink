@@ -13,10 +13,6 @@ use crate::hydration::hydrate_to_sqlite;
 
 const FLUSH_INTERVAL_SECS: u64 = 30;
 
-/// Hydrate `SQLite` from the reduced v3 [`crate::checkpoint::CheckpointState`] for
-/// a daemon tick. Reduces the current v3 ref namespace and maps it into `SQLite`
-/// via `hydrate_from_state`, returning the same `HydrationStats` shape the v2
-/// `hydrate_to_sqlite` returns so the tick's reporting is uniform.
 fn hydrate_v3_tick(cache_dir: &Path, db: &Database) -> Result<crate::hydration::HydrationStats> {
     let source = crate::hub_source::RefHubSource::new(cache_dir)?;
     let outcome = crate::compaction::reduce(&source)?;
@@ -27,7 +23,6 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
     let pid_file = crosslink_dir.join("daemon.pid");
     let log_file = crosslink_dir.join("daemon.log");
 
-    // Check if daemon is already running
     if let Some(pid) = read_pid(&pid_file) {
         if is_process_running(pid) {
             println!("Daemon already running (PID {pid})");
@@ -41,10 +36,8 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
         })?;
     }
 
-    // Get the current executable path
     let exe = std::env::current_exe().context("Failed to get executable path")?;
 
-    // Spawn the daemon process
     let log_handle = fs::File::create(&log_file).context("Failed to create log file")?;
     let log_handle_err = log_handle
         .try_clone()
@@ -62,7 +55,6 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
 
     let pid = child.id();
 
-    // Write PID file
     fs::write(&pid_file, pid.to_string()).context("Failed to write PID file")?;
 
     println!("Daemon started (PID {pid})");
@@ -84,10 +76,8 @@ pub fn stop(crosslink_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // Kill the process
     kill_process(pid)?;
 
-    // Remove PID file
     fs::remove_file(&pid_file).ok();
 
     println!("Daemon stopped (PID {pid})");
@@ -109,7 +99,6 @@ pub fn status(crosslink_dir: &Path) {
 }
 
 pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
-    // Validate that this is a legitimate crosslink directory
     let db_path = crosslink_dir.join("issues.db");
     if !db_path.exists() {
         anyhow::bail!(
@@ -124,19 +113,15 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
     println!("Watching: {}", crosslink_dir.display());
     println!("Flush interval: {FLUSH_INTERVAL_SECS} seconds");
 
-    // Heartbeat counter: push every 5 cycles (5 * 30s = 2.5 min)
     let mut heartbeat_counter: u64 = 0;
     const HEARTBEAT_EVERY_N: u64 = 5;
 
-    // Error tracking for consecutive failures
     let mut consecutive_db_failures: u32 = 0;
     let mut consecutive_sync_failures: u32 = 0;
     const FAILURE_WARN_THRESHOLD: u32 = 5;
 
-    // Graceful shutdown: set should_exit on SIGTERM/SIGINT and stdin closure.
     let should_exit = Arc::new(AtomicBool::new(false));
 
-    // Register signal handlers for graceful shutdown
     #[cfg(unix)]
     {
         let flag = Arc::clone(&should_exit);
@@ -153,39 +138,30 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
         }
     }
 
-    // Zombie prevention: Monitor stdin for closure.
-    // When the parent process (VS Code) dies, stdin will be closed.
-    // This thread detects that and signals the main loop to exit.
     let should_exit_clone = Arc::clone(&should_exit);
 
     thread::spawn(move || {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 1];
-        // This will block until stdin is closed or data is received
-        // When the parent dies, read() returns 0 (EOF) or an error
+
         loop {
             match stdin.read(&mut buf) {
                 Ok(0) => {
-                    // EOF - parent closed stdin, time to exit
                     tracing::info!("Stdin closed, daemon shutting down (zombie prevention)");
                     should_exit_clone.store(true, Ordering::SeqCst);
                     break;
                 }
                 Err(_) => {
-                    // Error reading stdin - parent likely crashed
                     tracing::info!("Stdin error, daemon shutting down (zombie prevention)");
                     should_exit_clone.store(true, Ordering::SeqCst);
                     break;
                 }
-                Ok(_) => {
-                    // Data received (unexpected, but continue)
-                }
+                Ok(_) => {}
             }
         }
     });
 
     loop {
-        // Check if we should exit (stdin closed)
         if should_exit.load(Ordering::SeqCst) {
             println!("Daemon exiting due to parent termination");
             break;
@@ -193,13 +169,11 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
 
         thread::sleep(Duration::from_secs(FLUSH_INTERVAL_SECS));
 
-        // Check again after sleep
         if should_exit.load(Ordering::SeqCst) {
             println!("Daemon exiting due to parent termination");
             break;
         }
 
-        // Auto-flush: read current session and write to session.json
         let mut active_issue_id: Option<i64> = None;
         match Database::open(&db_path) {
             Ok(db) => {
@@ -244,77 +218,67 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
             }
         }
 
-        // Heartbeat + fetch/hydrate: every N cycles
         heartbeat_counter += 1;
         if heartbeat_counter.is_multiple_of(HEARTBEAT_EVERY_N) {
             match crate::identity::AgentConfig::load(crosslink_dir) {
-                Ok(Some(agent)) => {
-                    match crate::sync::SyncManager::new(crosslink_dir) {
-                        Ok(sync) => {
-                            consecutive_sync_failures = 0;
-                            if let Err(e) = sync.init_cache() {
-                                tracing::warn!("cache init failed, skipping heartbeat: {}", e);
-                                continue;
-                            }
+                Ok(Some(agent)) => match crate::sync::SyncManager::new(crosslink_dir) {
+                    Ok(sync) => {
+                        consecutive_sync_failures = 0;
+                        if let Err(e) = sync.init_cache() {
+                            tracing::warn!("cache init failed, skipping heartbeat: {}", e);
+                            continue;
+                        }
 
-                            // Push heartbeat
-                            match sync.push_heartbeat(&agent, active_issue_id) {
-                                Ok(()) => println!(
-                                    "Heartbeat pushed at {}",
-                                    chrono::Utc::now().format("%H:%M:%S")
-                                ),
-                                Err(e) => tracing::warn!("Heartbeat push failed: {}", e),
-                            }
+                        match sync.push_heartbeat(&agent, active_issue_id) {
+                            Ok(()) => println!(
+                                "Heartbeat pushed at {}",
+                                chrono::Utc::now().format("%H:%M:%S")
+                            ),
+                            Err(e) => tracing::warn!("Heartbeat push failed: {}", e),
+                        }
 
-                            // Fetch latest coordination branch and hydrate SQLite
-                            match sync.fetch() {
-                                Ok(()) => {
-                                    if let Ok(db) = Database::open(&db_path) {
-                                        // V3: hydrate from the reduced state (the
-                                        // v3 fetch already adopted refs +
-                                        // compacted); V2 reads JSON files.
-                                        let hydrate_result = if sync.hub_mode().is_v3() {
-                                            hydrate_v3_tick(sync.cache_path(), &db)
-                                        } else {
-                                            hydrate_to_sqlite(sync.cache_path(), &db)
-                                        };
-                                        match hydrate_result {
-                                            Ok(stats) => {
-                                                crate::hydration::record_hydrated_ref(
-                                                    crosslink_dir,
+                        match sync.fetch() {
+                            Ok(()) => {
+                                if let Ok(db) = Database::open(&db_path) {
+                                    let hydrate_result = if sync.hub_mode().is_v3() {
+                                        hydrate_v3_tick(sync.cache_path(), &db)
+                                    } else {
+                                        hydrate_to_sqlite(sync.cache_path(), &db)
+                                    };
+                                    match hydrate_result {
+                                        Ok(stats) => {
+                                            crate::hydration::record_hydrated_ref(crosslink_dir);
+                                            if stats.issues > 0 {
+                                                println!(
+                                                    "Hydrated {} issue(s) at {}",
+                                                    stats.issues,
+                                                    chrono::Utc::now().format("%H:%M:%S")
                                                 );
-                                                if stats.issues > 0 {
-                                                    println!(
-                                                        "Hydrated {} issue(s) at {}",
-                                                        stats.issues,
-                                                        chrono::Utc::now().format("%H:%M:%S")
-                                                    );
-                                                }
                                             }
-                                            Err(e) => tracing::warn!("Hydration failed: {}", e),
                                         }
+                                        Err(e) => tracing::warn!("Hydration failed: {}", e),
                                     }
                                 }
-                                Err(e) => tracing::warn!("Fetch failed: {}", e),
                             }
+                            Err(e) => tracing::warn!("Fetch failed: {}", e),
                         }
-                        Err(e) => {
-                            consecutive_sync_failures += 1;
+                    }
+                    Err(e) => {
+                        consecutive_sync_failures += 1;
+                        tracing::warn!(
+                            "Sync init failed: {} (failure #{})",
+                            e,
+                            consecutive_sync_failures
+                        );
+                        if consecutive_sync_failures == FAILURE_WARN_THRESHOLD {
                             tracing::warn!(
-                                "Sync init failed: {} (failure #{})",
-                                e,
-                                consecutive_sync_failures
-                            );
-                            if consecutive_sync_failures == FAILURE_WARN_THRESHOLD {
-                                tracing::warn!(
                                     "{} consecutive sync failures. Daemon may not be functioning correctly.",
                                     FAILURE_WARN_THRESHOLD
                                 );
-                            }
                         }
                     }
-                }
-                Ok(None) => {} // No agent configured, skip sync
+                },
+                Ok(None) => {}
                 Err(e) => tracing::warn!("Failed to load agent config: {}", e),
             }
         }
@@ -334,13 +298,12 @@ fn read_pid(pid_file: &Path) -> Option<u32> {
 fn is_process_running(pid: u32) -> bool {
     use std::process::Command;
     Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()
-        .map(|output| {
+        .is_ok_and(|output| {
             let stdout = String::from_utf8_lossy(&output.stdout);
             stdout.contains(&pid.to_string())
         })
-        .unwrap_or(false)
 }
 
 #[cfg(not(windows))]

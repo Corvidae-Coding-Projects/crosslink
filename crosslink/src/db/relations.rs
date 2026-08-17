@@ -7,20 +7,14 @@ use super::helpers::issue_from_row;
 use crate::models::Issue;
 
 impl Database {
-    /// Add a dependency between two issues (blocker blocks target).
-    ///
-    /// # Errors
-    /// Returns an error if an issue would block itself, a circular dependency
-    /// would be created, or the database operation fails.
     pub fn add_dependency(&self, target_id: i64, blocker_id: i64) -> Result<bool> {
         let target_id = self.resolve_id(target_id);
         let blocker_id = self.resolve_id(blocker_id);
-        // Prevent self-blocking
+
         if target_id == blocker_id {
             anyhow::bail!("An issue cannot block itself");
         }
 
-        // Check for circular dependencies before inserting
         if self.would_create_cycle(target_id, blocker_id)? {
             anyhow::bail!("Adding this dependency would create a circular dependency chain");
         }
@@ -32,20 +26,16 @@ impl Database {
         Ok(result > 0)
     }
 
-    /// Check if adding `blocker_id` -> `target_id` would create a cycle.
-    /// A cycle exists if `target_id` can already reach `blocker_id` through existing dependencies.
     fn would_create_cycle(&self, target_id: i64, blocker_id: i64) -> Result<bool> {
-        // If target_id can reach blocker_id, then adding blocker_id -> target_id creates a cycle
         let mut visited = std::collections::HashSet::new();
         let mut stack = vec![target_id];
 
         while let Some(current) = stack.pop() {
             if current == blocker_id {
-                return Ok(true); // Found a path from blocked_id to blocker_id
+                return Ok(true);
             }
 
             if visited.insert(current) {
-                // Get all issues that 'current' blocks (issues where current is the blocker)
                 let blocking = self.get_blocking(current)?;
                 for next in blocking {
                     if !visited.contains(&next) {
@@ -58,10 +48,6 @@ impl Database {
         Ok(false)
     }
 
-    /// Remove a dependency between two issues.
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails.
     pub fn remove_dependency(&self, target_id: i64, blocker_id: i64) -> Result<bool> {
         let resolved_target = self.resolve_id(target_id);
         let resolved_blocker = self.resolve_id(blocker_id);
@@ -72,13 +58,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Fetch blocker counts for all given issue IDs in a single query.
-    ///
-    /// Returns a map from `issue_id` to the number of blockers.
-    /// Issues with no blockers are included with count 0.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_blocker_counts_batch(
         &self,
         issue_ids: &[i64],
@@ -105,10 +84,6 @@ impl Database {
         Ok(result)
     }
 
-    /// Get the list of blocker issue IDs for the given issue.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_blockers(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
@@ -120,10 +95,6 @@ impl Database {
         Ok(blockers)
     }
 
-    /// Get the list of issue IDs that the given issue is blocking.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_blocking(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
@@ -135,10 +106,6 @@ impl Database {
         Ok(blocking)
     }
 
-    /// List all open issues that have at least one open blocker.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn list_blocked_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
             r"
@@ -158,10 +125,6 @@ impl Database {
         Ok(issues)
     }
 
-    /// List all open issues that have no open blockers.
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn list_ready_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
             r"
@@ -184,18 +147,13 @@ impl Database {
         Ok(issues)
     }
 
-    /// Add a bidirectional relation between two issues.
-    ///
-    /// # Errors
-    /// Returns an error if an issue is related to itself or the database
-    /// operation fails.
     pub fn add_relation(&self, issue_id_1: i64, issue_id_2: i64) -> Result<bool> {
         let issue_id_1 = self.resolve_id(issue_id_1);
         let issue_id_2 = self.resolve_id(issue_id_2);
         if issue_id_1 == issue_id_2 {
             anyhow::bail!("Cannot relate an issue to itself");
         }
-        // Store with smaller ID first for consistency
+
         let (a, b) = if issue_id_1 < issue_id_2 {
             (issue_id_1, issue_id_2)
         } else {
@@ -209,10 +167,6 @@ impl Database {
         Ok(result > 0)
     }
 
-    /// Remove a bidirectional relation between two issues.
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails.
     pub fn remove_relation(&self, issue_id_1: i64, issue_id_2: i64) -> Result<bool> {
         let issue_id_1 = self.resolve_id(issue_id_1);
         let issue_id_2 = self.resolve_id(issue_id_2);
@@ -228,10 +182,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Get all issues related to the given issue (both directions).
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_related_issues(&self, issue_id: i64) -> Result<Vec<Issue>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
@@ -254,10 +204,6 @@ impl Database {
         Ok(issues)
     }
 
-    /// Get related issue IDs (both directions of the relation).
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
     pub fn get_related_issue_ids(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(

@@ -34,11 +34,11 @@ fuzz_target!(|input: DependencyGraphInput| {
         Err(_) => return,
     };
 
-    // Track created issue IDs
+
     let mut issue_ids: Vec<i64> = Vec::new();
 
     for op in input.ops.iter().take(100) {
-        // Limit operations to prevent timeout
+
         match op {
             DependencyOp::CreateIssue { title } => {
                 if let Ok(id) = db.create_issue(title, None, "medium") {
@@ -52,7 +52,7 @@ fuzz_target!(|input: DependencyGraphInput| {
                 if issue_ids.len() >= 2 {
                     let blocked = issue_ids[*blocked_idx % issue_ids.len()];
                     let blocker = issue_ids[*blocker_idx % issue_ids.len()];
-                    // This should never panic, even with cycles or self-blocks
+
                     let _ = db.add_dependency(blocked, blocker);
                 }
             }
@@ -79,17 +79,17 @@ fuzz_target!(|input: DependencyGraphInput| {
                 }
             }
             DependencyOp::CheckReady => {
-                // Should never panic or hang
+
                 let _ = db.list_ready_issues();
             }
             DependencyOp::CheckBlocked => {
-                // Should never panic or hang
+
                 let _ = db.list_blocked_issues();
             }
         }
     }
 
-    // Final verification - these should never panic
+
     let _ = db.list_ready_issues();
     let _ = db.list_blocked_issues();
     let _ = db.list_issues(None, None, None);

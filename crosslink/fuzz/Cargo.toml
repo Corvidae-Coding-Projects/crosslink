@@ -18,7 +18,7 @@ serde_json = "1"
 [dependencies.crosslink]
 path = ".."
 
-# Prevent this from interfering with workspaces
+
 [workspace]
 members = ["."]
 

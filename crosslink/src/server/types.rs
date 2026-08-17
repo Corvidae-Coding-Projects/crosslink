@@ -1,43 +1,14 @@
-//! Serde-serializable request and response types for the crosslink REST and WebSocket API.
-//!
-//! These types define the full API contract between the `crosslink serve` backend
-//! and the web dashboard frontend. Every type here has a corresponding TypeScript
-//! equivalent in `dashboard/src/lib/types.ts`.
-//!
-//! # Design principles
-//!
-//! - Response types derive `Serialize` (server → client).
-//! - Request types derive `Deserialize` (client → server).
-//! - Types that flow in both directions derive both.
-//! - All timestamps are ISO 8601 strings (RFC 3339) to avoid JSON number precision issues.
-//! - Optional fields use `#[serde(skip_serializing_if = "Option::is_none")]`.
-//! - Enums are serialized as lowercase strings.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Re-exports — core domain types already have Serialize + Deserialize
-// ---------------------------------------------------------------------------
-
 pub use crate::models::{Comment, Issue, Milestone, Session};
 
-// ---------------------------------------------------------------------------
-// Health
-// ---------------------------------------------------------------------------
-
-/// Response for `GET /api/v1/health`.
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
 }
 
-// ---------------------------------------------------------------------------
-// Issues — request types
-// ---------------------------------------------------------------------------
-
-/// Valid priority values for issue creation/update.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiPriority {
@@ -57,7 +28,6 @@ impl std::fmt::Display for ApiPriority {
     }
 }
 
-/// Request body for `POST /api/v1/issues`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateIssueRequest {
     pub title: String,
@@ -69,7 +39,6 @@ pub struct CreateIssueRequest {
     pub parent_id: Option<i64>,
 }
 
-/// Request body for `PATCH /api/v1/issues/:id`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateIssueRequest {
     #[serde(default)]
@@ -80,7 +49,6 @@ pub struct UpdateIssueRequest {
     pub priority: Option<ApiPriority>,
 }
 
-/// Request body for `POST /api/v1/issues/:id/subissue`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateSubissueRequest {
     pub title: String,
@@ -90,13 +58,6 @@ pub struct CreateSubissueRequest {
     pub priority: ApiPriority,
 }
 
-// ---------------------------------------------------------------------------
-// Issues — response types
-// ---------------------------------------------------------------------------
-
-/// A fully hydrated issue with labels, comments, and dependency info.
-///
-/// Returned by `GET /api/v1/issues/:id`.
 #[derive(Debug, Clone, Serialize)]
 pub struct IssueDetail {
     #[serde(flatten)]
@@ -110,7 +71,6 @@ pub struct IssueDetail {
     pub milestone: Option<MilestoneSummary>,
 }
 
-/// Lightweight list item returned by `GET /api/v1/issues`.
 #[derive(Debug, Clone, Serialize)]
 pub struct IssueSummary {
     #[serde(flatten)]
@@ -119,14 +79,12 @@ pub struct IssueSummary {
     pub blocker_count: usize,
 }
 
-/// Paginated issue list response.
 #[derive(Debug, Clone, Serialize)]
 pub struct IssueListResponse {
     pub items: Vec<IssueSummary>,
     pub total: usize,
 }
 
-/// Query parameters for `GET /api/v1/issues`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct IssueListQuery {
     #[serde(default)]
@@ -141,11 +99,6 @@ pub struct IssueListQuery {
     pub parent_id: Option<i64>,
 }
 
-// ---------------------------------------------------------------------------
-// Comments — request types
-// ---------------------------------------------------------------------------
-
-/// Valid comment kind values.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CommentKind {
@@ -175,80 +128,52 @@ impl std::fmt::Display for CommentKind {
     }
 }
 
-/// Request body for `POST /api/v1/issues/:id/comments`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateCommentRequest {
     pub content: String,
     #[serde(default)]
     pub kind: CommentKind,
-    /// For `kind = "intervention"` comments.
+
     #[serde(default)]
     pub trigger_type: Option<String>,
     #[serde(default)]
     pub intervention_context: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Labels — request types
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/issues/:id/labels`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddLabelRequest {
     pub label: String,
 }
 
-// ---------------------------------------------------------------------------
-// Dependencies — request types
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/issues/:id/block`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddBlockerRequest {
-    /// ID of the issue that blocks `:id`.
     pub blocker_id: i64,
 }
 
-// ---------------------------------------------------------------------------
-// Sessions
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/sessions/start`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StartSessionRequest {
     #[serde(default)]
     pub agent_id: Option<String>,
 }
 
-/// Request body for `POST /api/v1/sessions/end`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct EndSessionRequest {
     #[serde(default)]
     pub notes: Option<String>,
 }
 
-/// Request body for `POST /api/v1/sessions/work/:id`.
-///
-/// The issue ID is taken from the URL path parameter.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkOnIssueRequest {
-    /// Optional: `agent_id` to scope the session lookup.
     #[serde(default)]
     pub agent_id: Option<String>,
 }
 
-/// Response for session endpoints.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionResponse {
     #[serde(flatten)]
     pub session: Session,
 }
 
-// ---------------------------------------------------------------------------
-// Milestones
-// ---------------------------------------------------------------------------
-
-/// Compact milestone info embedded in `IssueDetail`.
 #[derive(Debug, Clone, Serialize)]
 pub struct MilestoneSummary {
     pub id: i64,
@@ -256,7 +181,6 @@ pub struct MilestoneSummary {
     pub status: crate::models::IssueStatus,
 }
 
-/// Request body for `POST /api/v1/milestones`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateMilestoneRequest {
     pub name: String,
@@ -264,42 +188,33 @@ pub struct CreateMilestoneRequest {
     pub description: Option<String>,
 }
 
-/// Request body for `POST /api/v1/milestones/:id/assign`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssignMilestoneRequest {
     pub issue_id: i64,
 }
 
-/// Milestone with progress statistics.
 #[derive(Debug, Clone, Serialize)]
 pub struct MilestoneDetail {
     #[serde(flatten)]
     pub milestone: Milestone,
     pub issue_count: usize,
     pub completed_count: usize,
-    /// Percentage of issues closed (0–100).
+
     pub progress_percent: f64,
 }
 
-/// Paginated milestone list response.
 #[derive(Debug, Clone, Serialize)]
 pub struct MilestoneListResponse {
     pub items: Vec<MilestoneDetail>,
     pub total: usize,
 }
 
-/// Query parameters for `GET /api/v1/milestones`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MilestoneListQuery {
     #[serde(default)]
     pub status: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Knowledge pages
-// ---------------------------------------------------------------------------
-
-/// Source reference within a knowledge page.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeSource {
     pub url: String,
@@ -308,7 +223,6 @@ pub struct KnowledgeSource {
     pub accessed_at: Option<String>,
 }
 
-/// Full knowledge page with content.
 #[derive(Debug, Clone, Serialize)]
 pub struct KnowledgePage {
     pub slug: String,
@@ -321,7 +235,6 @@ pub struct KnowledgePage {
     pub content: String,
 }
 
-/// Lightweight knowledge page summary for list views.
 #[derive(Debug, Clone, Serialize)]
 pub struct KnowledgePageSummary {
     pub slug: String,
@@ -330,7 +243,6 @@ pub struct KnowledgePageSummary {
     pub updated: String,
 }
 
-/// Request body for `POST /api/v1/knowledge`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateKnowledgePageRequest {
     pub slug: String,
@@ -342,13 +254,11 @@ pub struct CreateKnowledgePageRequest {
     pub sources: Vec<KnowledgeSource>,
 }
 
-/// Query parameters for `GET /api/v1/knowledge/search`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct KnowledgeSearchQuery {
     pub q: String,
 }
 
-/// A single search match within a knowledge page.
 #[derive(Debug, Clone, Serialize)]
 pub struct KnowledgeSearchMatch {
     pub slug: String,
@@ -357,25 +267,18 @@ pub struct KnowledgeSearchMatch {
     pub context_lines: Vec<(usize, String)>,
 }
 
-// ---------------------------------------------------------------------------
-// Agents and monitoring
-// ---------------------------------------------------------------------------
-
-/// Agent status computed from heartbeat staleness.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
-    /// Heartbeat received within the active window (< 5 minutes).
     Active,
-    /// Heartbeat received 5–30 minutes ago.
+
     Idle,
-    /// Heartbeat received more than 30 minutes ago.
+
     Stale,
-    /// No heartbeat file found.
+
     Unknown,
 }
 
-/// Per-agent summary returned in the agent list.
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentSummary {
     pub agent_id: String,
@@ -386,48 +289,40 @@ pub struct AgentSummary {
     pub last_heartbeat: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_issue_id: Option<i64>,
-    /// Git branch the agent is working on.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
-    /// Path to the agent's git worktree.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
-    /// Issues currently locked by this agent.
+
     pub locks: Vec<i64>,
 }
 
-/// Detailed agent view with heartbeat history.
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentDetail {
     #[serde(flatten)]
     pub summary: AgentSummary,
-    /// Recent heartbeat timestamps (newest first, up to 24h).
+
     pub heartbeat_history: Vec<DateTime<Utc>>,
-    /// Content of the agent's `.kickoff-status` file, if present.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kickoff_status: Option<String>,
 }
 
-/// Lock entry as returned by the API, with derived age.
 #[derive(Debug, Clone, Serialize)]
 pub struct LockEntry {
-    /// Crosslink issue ID this lock is held on.
     pub issue_id: i64,
     pub agent_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     pub claimed_at: DateTime<Utc>,
     pub signed_by: String,
-    /// Seconds since the lock was claimed.
+
     pub age_seconds: i64,
     pub is_stale: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Sync
-// ---------------------------------------------------------------------------
-
-/// Response for `GET /api/v1/sync/status`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SyncStatusResponse {
     pub hub_initialized: bool,
@@ -439,18 +334,12 @@ pub struct SyncStatusResponse {
     pub stale_lock_count: usize,
 }
 
-/// Response for `POST /api/v1/sync/fetch` and `POST /api/v1/sync/push`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SyncActionResponse {
     pub success: bool,
     pub message: String,
 }
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-/// Full config as returned by `GET /api/v1/config`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigResponse {
     pub tracking_mode: String,
@@ -461,9 +350,6 @@ pub struct ConfigResponse {
     pub auto_steal_stale_locks: bool,
 }
 
-/// Partial config update for `PATCH /api/v1/config`.
-///
-/// All fields are optional — only provided fields are updated.
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateConfigRequest {
     #[serde(default)]
@@ -480,21 +366,22 @@ pub struct UpdateConfigRequest {
     pub auto_steal_stale_locks: Option<bool>,
 }
 
-// ---------------------------------------------------------------------------
-// Token usage
-// ---------------------------------------------------------------------------
-
 pub use crate::db::UsageSummaryRow;
 pub use crate::models::TokenUsage;
 
-/// Request body for `POST /api/v1/usage`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateTokenUsageRequest {
     pub agent_id: String,
+    #[serde(default = "default_provider")]
+    pub provider: String,
     #[serde(default)]
     pub session_id: Option<i64>,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    #[serde(default)]
+    pub cached_input_tokens: Option<i64>,
+    #[serde(default)]
+    pub reasoning_output_tokens: Option<i64>,
     #[serde(default)]
     pub cache_read_tokens: Option<i64>,
     #[serde(default)]
@@ -503,13 +390,18 @@ pub struct CreateTokenUsageRequest {
     pub model: String,
     #[serde(default)]
     pub cost_estimate: Option<f64>,
+    #[serde(default)]
+    pub provider_metadata: Option<serde_json::Value>,
+}
+
+fn default_provider() -> String {
+    "claude".to_string()
 }
 
 fn default_model() -> String {
     "unknown".to_string()
 }
 
-/// Query parameters for `GET /api/v1/usage`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TokenUsageListQuery {
     #[serde(default)]
@@ -518,17 +410,16 @@ pub struct TokenUsageListQuery {
     pub session_id: Option<i64>,
     #[serde(default)]
     pub model: Option<String>,
-    /// ISO 8601 timestamp — return records from this time onwards.
+
     #[serde(default)]
     pub from: Option<String>,
-    /// ISO 8601 timestamp — return records up to this time.
+
     #[serde(default)]
     pub to: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
 }
 
-/// Query parameters for `GET /api/v1/usage/summary`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TokenUsageSummaryQuery {
     #[serde(default)]
@@ -539,14 +430,12 @@ pub struct TokenUsageSummaryQuery {
     pub to: Option<String>,
 }
 
-/// Paginated token usage list response.
 #[derive(Debug, Clone, Serialize)]
 pub struct TokenUsageListResponse {
     pub items: Vec<TokenUsage>,
     pub total: usize,
 }
 
-/// Aggregated usage summary response.
 #[derive(Debug, Clone, Serialize)]
 pub struct TokenUsageSummaryResponse {
     pub items: Vec<UsageSummaryRow>,
@@ -555,23 +444,16 @@ pub struct TokenUsageSummaryResponse {
     pub total_cost: f64,
 }
 
-// ---------------------------------------------------------------------------
-// Orchestrator — re-exported from canonical definitions in orchestrator::models (#480)
-// ---------------------------------------------------------------------------
-
 pub use crate::orchestrator::models::OrchestratorPlan;
 
-/// Request body for `POST /api/v1/orchestrator/decompose`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DecomposeRequest {
-    /// Markdown content of the design document to decompose.
     pub document: String,
-    /// Optional slug to identify the document.
+
     #[serde(default)]
     pub slug: Option<String>,
 }
 
-/// Per-stage execution status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum StageStatus {
@@ -580,13 +462,10 @@ pub enum StageStatus {
     Done,
     Failed,
     Skipped,
-    /// Reserved for dashboard display. The orchestrator engine uses `Pending`
-    /// combined with DAG dependency checking instead of an explicit Blocked
-    /// state, but the frontend uses this variant for visualization (#488).
+
     Blocked,
 }
 
-/// Overall orchestration execution status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionState {
@@ -597,7 +476,6 @@ pub enum ExecutionState {
     Failed,
 }
 
-/// Real-time execution progress returned by `GET /api/v1/orchestrator/status`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecutionStatus {
     pub plan_id: String,
@@ -606,24 +484,12 @@ pub struct ExecutionStatus {
     pub progress_percent: f64,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
-    /// Map from `stage_id` → `StageStatus`.
+
     pub stage_statuses: std::collections::HashMap<String, StageStatus>,
-    /// Map from `stage_id` → `agent_id` for running stages.
+
     pub stage_agents: std::collections::HashMap<String, String>,
 }
 
-// ---------------------------------------------------------------------------
-// WebSocket messages
-// ---------------------------------------------------------------------------
-
-/// All messages sent over the `/ws` WebSocket connection use this envelope.
-///
-/// The `type` field determines which variant is present. Matching TypeScript
-/// discriminated union: `WsMessage` in `dashboard/src/lib/types.ts`.
-/// Discriminant for WebSocket event types.
-///
-/// Used as the `type` field in all `WsEvent` structs so the event type is
-/// derived from the enum variant rather than a hand-written string literal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WsEventType {
@@ -632,20 +498,14 @@ pub enum WsEventType {
     IssueUpdated,
     LockChanged,
     ExecutionProgress,
-    /// Dashboard aggregator: `project_state` row was upserted for a
-    /// tracked project. Frontend invalidates the relevant query cache
-    /// entry. GH #429.
+
     DashboardProjectUpdated,
-    /// Dashboard aggregator: alert set for a project changed (some
-    /// combination of opens + resolves happened in one poll tick).
-    /// Frontend invalidates the alerts query. GH #429.
+
     DashboardAlertsChanged,
 }
 
-/// Server → Client: a new agent heartbeat was received.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsHeartbeatEvent {
-    /// Always serializes as `"heartbeat"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
     pub agent_id: String,
@@ -654,31 +514,25 @@ pub struct WsHeartbeatEvent {
     pub active_issue_id: Option<i64>,
 }
 
-/// Server → Client: an agent's derived status changed.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsAgentStatusEvent {
-    /// Always serializes as `"agent_status"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
     pub agent_id: String,
     pub status: AgentStatus,
 }
 
-/// Server → Client: an issue was created, updated, or closed.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsIssueUpdatedEvent {
-    /// Always serializes as `"issue_updated"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
     pub issue_id: i64,
-    /// Which field changed, e.g. "status", "title", "labels".
+
     pub field: String,
 }
 
-/// Server → Client: a lock was claimed or released.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsLockChangedEvent {
-    /// Always serializes as `"lock_changed"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
     pub issue_id: i64,
@@ -693,10 +547,8 @@ pub enum LockAction {
     Released,
 }
 
-/// Server → Client: orchestration stage progress changed.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsExecutionProgressEvent {
-    /// Always serializes as `"execution_progress"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
     pub plan_id: String,
@@ -707,51 +559,34 @@ pub struct WsExecutionProgressEvent {
     pub agent_id: Option<String>,
 }
 
-/// Server → Client: dashboard aggregator wrote fresh `project_state`
-/// for a tracked repository. Frontend uses this to invalidate React
-/// Query caches so tiles refresh ahead of the 5s poll.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsDashboardProjectEvent {
-    /// Always serializes as `"dashboard_project_updated"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
-    /// `owner/repo` slug of the project whose state advanced.
+
     pub slug: String,
 }
 
-/// Server → Client: alert set for a project changed. Carries summary
-/// counts so the frontend can update badge counts without a second
-/// round-trip for the common case.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsDashboardAlertsEvent {
-    /// Always serializes as `"dashboard_alerts_changed"`.
     #[serde(rename = "type")]
     pub event_type: WsEventType,
-    /// `owner/repo` slug of the project whose alerts changed.
+
     pub slug: String,
-    /// Number of alerts newly opened during this poll tick.
+
     pub opened: u32,
-    /// Number of alerts resolved during this poll tick.
+
     pub resolved: u32,
 }
 
-/// Client → Server: subscribe to specific event channels.
-///
-/// Send this after connecting to filter which events are received.
-/// Omitting this message means the client receives all events.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsSubscribeMessage {
     #[serde(rename = "type")]
-    pub message_type: String, // always "subscribe"
-    /// Channels to subscribe to. Valid values: "agents", "issues", "locks", "execution".
+    pub message_type: String,
+
     pub channels: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Generic API wrapper
-// ---------------------------------------------------------------------------
-
-/// Standard API error response.
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiError {
     pub error: String,
@@ -759,7 +594,6 @@ pub struct ApiError {
     pub detail: Option<String>,
 }
 
-/// Standard success response for mutations that don't return data.
 #[derive(Debug, Clone, Serialize)]
 pub struct OkResponse {
     pub ok: bool,

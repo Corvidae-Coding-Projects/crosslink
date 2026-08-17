@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-/// Issue lifecycle status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IssueStatus {
@@ -48,7 +47,6 @@ impl IssueStatus {
     }
 }
 
-/// Issue priority level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
@@ -95,8 +93,6 @@ impl Priority {
         }
     }
 }
-
-// Enable comparison with string types for ergonomic use in display code.
 
 impl PartialEq<str> for IssueStatus {
     fn eq(&self, other: &str) -> bool {
@@ -170,8 +166,6 @@ impl PartialEq<Priority> for String {
     }
 }
 
-// rusqlite integration — store as text in SQLite, parse on read.
-
 impl ToSql for IssueStatus {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::from(self.as_str()))
@@ -213,12 +207,10 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
-    /// When the issue becomes actionable. `crosslink next` filters out
-    /// issues whose `scheduled_at` is still in the future. GH #361.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_at: Option<DateTime<Utc>>,
-    /// Hard deadline. `crosslink next` boosts overdue issues (+100) and
-    /// warns when `due_at` is within 1 day. GH #361.
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due_at: Option<DateTime<Utc>>,
 }
@@ -273,6 +265,11 @@ pub struct TokenUsage {
     pub timestamp: DateTime<Utc>,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_input_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_output_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,14 +277,14 @@ pub struct TokenUsage {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_estimate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata_json: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    // ==================== Issue Tests ====================
 
     #[test]
     fn test_issue_serialization_json() {
@@ -387,8 +384,6 @@ mod tests {
         );
     }
 
-    // ==================== Comment Tests ====================
-
     #[test]
     fn test_comment_serialization() {
         let comment = Comment {
@@ -431,7 +426,6 @@ mod tests {
 
     #[test]
     fn test_comment_default_kind_when_missing() {
-        // When `kind` is absent from JSON, the serde default should provide "note"
         let json = serde_json::json!({
             "id": 1,
             "issue_id": 2,
@@ -441,8 +435,6 @@ mod tests {
         let comment: Comment = serde_json::from_value(json).unwrap();
         assert_eq!(comment.kind, "note");
     }
-
-    // ==================== Session Tests ====================
 
     #[test]
     fn test_session_serialization() {
@@ -484,8 +476,6 @@ mod tests {
         assert_eq!(deserialized.handoff_notes, Some("Final notes".to_string()));
     }
 
-    // ==================== Milestone Tests ====================
-
     #[test]
     fn test_milestone_serialization() {
         let milestone = Milestone {
@@ -524,8 +514,6 @@ mod tests {
         assert_eq!(deserialized.closed_at, Some(now));
         assert_eq!(deserialized.status, IssueStatus::Closed);
     }
-
-    // ==================== Property-Based Tests ====================
 
     proptest! {
         #[test]

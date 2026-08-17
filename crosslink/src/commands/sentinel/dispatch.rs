@@ -5,42 +5,36 @@ use crate::commands::kickoff::VerifyLevel;
 use super::config::SentinelConfig;
 use super::sources::{Signal, SignalDecision, SourceKind};
 
-/// What the triage engine decides to do with a signal.
 #[derive(Debug, Clone)]
 pub enum Disposition {
-    /// Spawn a kickoff agent with this scope.
     Dispatch {
         description: String,
         scope: AgentScope,
         attempt: u32,
     },
-    /// Create a crosslink issue for human review.
+
     Triage {
         priority: String,
         labels: Vec<String>,
     },
-    /// Already handled or no matching rule — skip.
-    Skip { reason: String },
-    /// Eligible but cannot dispatch right now (e.g. at concurrent agent capacity).
-    /// Will be retried on the next cycle.
-    Defer { reason: String },
+
+    Skip {
+        reason: String,
+    },
+
+    Defer {
+        reason: String,
+    },
 }
 
-/// Constrains what a dispatched agent can do.
 #[derive(Debug, Clone)]
 pub struct AgentScope {
-    /// Path prefixes the agent is allowed to write to (e.g. `["tests/", "src/"]`).
-    /// Enforced via the kickoff prompt + allowed-tools whitelist.
     pub allowed_paths: Vec<String>,
     pub verify: VerifyLevel,
     pub timeout: Duration,
     pub model: String,
 }
 
-/// Run a signal through the triage engine to determine its disposition.
-///
-/// If `tuning` is provided, it may override the default model for signals
-/// where historical data shows poor Sonnet performance.
 pub fn triage(
     signal: &Signal,
     decision: &SignalDecision,
@@ -54,26 +48,20 @@ pub fn triage(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // An explicit model override (e.g. `--model`) takes precedence over both
-    // the self-tuning recommendation and the per-decision default. It is
-    // applied to `scope.model` before the New/Escalate branch and bypasses
-    // `tuning.model_for_label`.
-    let model_override = model_override.map(String::from);
-
     let (model, attempt) = match decision {
         SignalDecision::New => {
-            let model = if let Some(ov) = &model_override {
-                ov.clone()
-            } else {
-                // Check if self-tuning recommends a different model for this label
-                tuning
-                    .and_then(|t| t.model_for_label(label))
-                    .map_or_else(|| config.default_agent.model.clone(), String::from)
-            };
+            let model = model_override.map_or_else(
+                || {
+                    tuning
+                        .and_then(|t| t.model_for_label(label))
+                        .map_or_else(|| config.default_agent.model.clone(), String::from)
+                },
+                String::from,
+            );
             (model, 1u32)
         }
         SignalDecision::Escalate => (
-            model_override.unwrap_or_else(|| config.escalation.model.clone()),
+            model_override.map_or_else(|| config.escalation.model.clone(), String::from),
             2u32,
         ),
         SignalDecision::Skip(reason) => {
@@ -105,7 +93,7 @@ pub fn triage(
                     description,
                     scope: AgentScope {
                         allowed_paths: vec!["tests/".into()],
-                        // Replicate uses the config default verify level (typically Local)
+
                         verify: config.default_agent.verify_level(),
                         timeout: Duration::from_secs(timeout_secs),
                         model,
@@ -120,7 +108,6 @@ pub fn triage(
                     .and_then(serde_json::Value::as_i64)
                     .unwrap_or(0);
 
-                // Fix agents get more time: 60min base (vs 30min for replicate)
                 let fix_timeout_secs = (config.default_agent.timeout_minutes * 60) * 2;
                 let fix_timeout = if attempt > 1 {
                     fix_timeout_secs * u64::from(config.escalation.timeout_multiplier_pct) / 100
@@ -134,7 +121,7 @@ pub fn triage(
                     description,
                     scope: AgentScope {
                         allowed_paths: vec!["src/".into(), "tests/".into()],
-                        // Fix dispatches always use Ci to push branch + open draft PR
+
                         verify: VerifyLevel::Ci,
                         timeout: Duration::from_secs(fix_timeout),
                         model,
@@ -146,20 +133,14 @@ pub fn triage(
                 reason: format!("unrecognized agent-todo label: {other}"),
             },
         },
-        SourceKind::Internal => {
-            // Internal hygiene signals are triaged for human review, not auto-dispatched
-            Disposition::Triage {
-                priority: "low".into(),
-                labels: vec!["hygiene".into()],
-            }
-        }
-        SourceKind::CI => {
-            // CI failures are triaged for human review with high priority
-            Disposition::Triage {
-                priority: "high".into(),
-                labels: vec!["ci-failure".into()],
-            }
-        }
+        SourceKind::Internal => Disposition::Triage {
+            priority: "low".into(),
+            labels: vec!["hygiene".into()],
+        },
+        SourceKind::CI => Disposition::Triage {
+            priority: "high".into(),
+            labels: vec!["ci-failure".into()],
+        },
     }
 }
 

@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::db::Database;
 
-/// A detected pattern from dispatch history.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Pattern {
     pub kind: String,
@@ -12,7 +11,6 @@ pub struct Pattern {
     pub severity: String,
 }
 
-/// Analyze dispatch history for recurring patterns and hotspots.
 pub fn detect_patterns(db: &Database, json: bool) -> Result<()> {
     let mut patterns: Vec<Pattern> = Vec::new();
 
@@ -59,7 +57,6 @@ pub fn detect_patterns(db: &Database, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Signals that have failed 2+ times (both Sonnet and Opus exhausted multiple times).
 fn find_repeat_failures(db: &Database) -> Result<Vec<Pattern>> {
     let mut stmt = db.conn.prepare(
         "SELECT signal_ref, COUNT(*) as fail_count
@@ -92,7 +89,6 @@ fn find_repeat_failures(db: &Database) -> Result<Vec<Pattern>> {
     }])
 }
 
-/// Labels where the success rate is significantly below average.
 fn find_label_success_imbalance(db: &Database) -> Result<Vec<Pattern>> {
     let metrics = db.get_dispatch_metrics()?;
 
@@ -100,7 +96,7 @@ fn find_label_success_imbalance(db: &Database) -> Result<Vec<Pattern>> {
     for m in &metrics {
         let completed = m.total - m.pending;
         if completed < 3 {
-            continue; // not enough data
+            continue;
         }
         if m.success_rate < 30.0 {
             patterns.push(Pattern {
@@ -123,17 +119,16 @@ fn find_label_success_imbalance(db: &Database) -> Result<Vec<Pattern>> {
     Ok(patterns)
 }
 
-/// Signals that always escalate from Sonnet to Opus (Sonnet never succeeds).
 fn find_escalation_heavy_signals(db: &Database) -> Result<Vec<Pattern>> {
     let mut stmt = db.conn.prepare(
         "SELECT label,
-                SUM(CASE WHEN attempt_number = 1 AND outcome = 'failure' THEN 1 ELSE 0 END) as sonnet_fails,
-                SUM(CASE WHEN attempt_number = 2 THEN 1 ELSE 0 END) as opus_attempts,
+                SUM(CASE WHEN attempt_number = 1 AND outcome = 'failure' THEN 1 ELSE 0 END) as standard_fails,
+                SUM(CASE WHEN attempt_number = 2 THEN 1 ELSE 0 END) as advanced_attempts,
                 COUNT(*) as total
          FROM sentinel_dispatches
          WHERE disposition = 'dispatch'
          GROUP BY label
-         HAVING total >= 4 AND sonnet_fails > opus_attempts * 0.8",
+         HAVING total >= 4 AND standard_fails > advanced_attempts * 0.8",
     )?;
 
     let rows: Vec<(String, i64, i64, i64)> = stmt
@@ -144,14 +139,14 @@ fn find_escalation_heavy_signals(db: &Database) -> Result<Vec<Pattern>> {
         .collect();
 
     let mut patterns = Vec::new();
-    for (label, sonnet_fails, opus_attempts, _total) in &rows {
+    for (label, standard_fails, advanced_attempts, _total) in &rows {
         patterns.push(Pattern {
             kind: "escalation-heavy".to_string(),
             description: format!(
-                "'{label}': Sonnet failed {sonnet_fails}x, escalated to Opus {opus_attempts}x — consider defaulting to Opus"
+                "'{label}': the standard tier failed {standard_fails}x and the advanced tier ran {advanced_attempts}x; consider selecting the advanced tier by default"
             ),
             signal_refs: Vec::new(),
-            count: *sonnet_fails,
+            count: *standard_fails,
             severity: "medium".to_string(),
         });
     }

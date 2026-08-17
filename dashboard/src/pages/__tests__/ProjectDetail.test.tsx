@@ -1,16 +1,16 @@
-// Component-level coverage for the new write-surface controls on
-// ProjectDetail. Covers the full mutation paths exposed in P1.8–P1.11
-// (close/comment/label/block/relate, lock release/steal, milestone
-// create, agent request) plus the helper that merges heartbeats with
-// agent-request streams.
+
+
+
+
+
 
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// Mock the entire API client so component tests don't make real fetch
-// calls. Each mutation hook returns a stub `mutate` we can assert on.
+
+
 const stubMutation = () => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),

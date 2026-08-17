@@ -4,7 +4,6 @@ use rusqlite::params;
 
 use super::core::Database;
 
-/// Parameters for inserting a hydrated issue from JSON into `SQLite`.
 pub struct HydratedIssue<'a> {
     pub id: i64,
     pub uuid: &'a str,
@@ -17,13 +16,12 @@ pub struct HydratedIssue<'a> {
     pub created_at: &'a str,
     pub updated_at: &'a str,
     pub closed_at: Option<&'a str>,
-    /// RFC 3339 scheduled-at timestamp (GH #361).
+
     pub scheduled_at: Option<&'a str>,
-    /// RFC 3339 due-at timestamp (GH #361).
+
     pub due_at: Option<&'a str>,
 }
 
-/// Parameters for inserting a hydrated milestone from JSON into `SQLite`.
 pub struct HydratedMilestone<'a> {
     pub id: i64,
     pub uuid: &'a str,
@@ -35,14 +33,6 @@ pub struct HydratedMilestone<'a> {
 }
 
 impl Database {
-    // === Hydration helpers (for shared issue coordination) ===
-
-    /// Delete all shared data tables in preparation for re-hydration from JSON.
-    /// Sessions are NOT cleared -- they are machine-local state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database batch execution fails.
     pub fn clear_shared_data(&self) -> Result<()> {
         self.conn.execute_batch(
             "DELETE FROM milestone_issues;
@@ -57,13 +47,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a hydrated issue from a JSON `IssueFile`.
-    /// Uses the `display_id` as the `SQLite` `id` column.
-    /// For offline issues (`display_id=None`), uses negative temp IDs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_hydrated_issue(&self, h: &HydratedIssue<'_>) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO issues (id, uuid, title, description, status, priority, parent_id, created_by, created_at, updated_at, closed_at, scheduled_at, due_at)
@@ -73,11 +56,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a label for a hydrated issue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_hydrated_label(&self, issue_id: i64, label: &str) -> Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO labels (issue_id, label) VALUES (?1, ?2)",
@@ -86,11 +64,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a comment for a hydrated issue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     #[allow(clippy::too_many_arguments)]
     pub fn insert_hydrated_comment(
         &self,
@@ -113,11 +86,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a raw dependency row (used during hydration).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_dependency_raw(&self, blocker_id: i64, depends_on_id: i64) -> Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO dependencies (blocker_id, blocked_id) VALUES (?1, ?2)",
@@ -126,11 +94,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a raw relation row (used during hydration).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_relation_raw(&self, issue_id_1: i64, issue_id_2: i64) -> Result<()> {
         let (a, b) = if issue_id_1 <= issue_id_2 {
             (issue_id_1, issue_id_2)
@@ -145,11 +108,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a hydrated time entry.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_hydrated_time_entry(
         &self,
         id: i64,
@@ -166,11 +124,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a hydrated milestone.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_hydrated_milestone(&self, h: &HydratedMilestone<'_>) -> Result<()> {
         self.conn.execute(
             "INSERT INTO milestones (id, uuid, name, description, status, created_at, closed_at)
@@ -188,11 +141,6 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a milestone-issue association.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn insert_hydrated_milestone_issue(&self, milestone_id: i64, issue_id: i64) -> Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO milestone_issues (milestone_id, issue_id) VALUES (?1, ?2)",

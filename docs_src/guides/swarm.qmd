@@ -71,7 +71,7 @@ You set a budget and the swarm figures out how to distribute phases across your 
 
 ```bash
 crosslink swarm plan --budget-window 3h
-crosslink swarm config --budget-window 3h --model opus
+crosslink swarm config --budget-window 3h --model standard
 crosslink swarm estimate 1
 ```
 
@@ -322,26 +322,26 @@ crosslink swarm launch 2
 crosslink swarm resume
 ```
 
-<!-- &nbsp;
 
----
 
-## Command reference
 
-| Command | Description |
-|---------|-------------|
-| `swarm init --doc <PATH>` | Initialize a swarm plan from a design document |
-| `swarm status` | Show current swarm state and progress |
-| `swarm plan [--budget-window <DUR>]` | Plan multi-phase build across budget windows |
-| `swarm plan-show` | Display the current window plan |
-| `swarm launch <phase>` | Launch all agents for a phase |
-| `swarm launch <phase> --budget-aware` | Launch with budget check |
-| `swarm gate <phase>` | Run test suite as a phase gate |
-| `swarm checkpoint <phase>` | Record phase completion |
-| `swarm estimate <phase>` | Estimate wall-clock cost for a phase |
-| `swarm harvest` | Update cost history from completed agents |
-| `swarm resume` | Reconstruct state after interruption |
-| `swarm config --budget-window <DUR> --model <MODEL>` | Configure budget parameters | -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 &nbsp;
 

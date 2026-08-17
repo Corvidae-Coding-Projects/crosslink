@@ -1,16 +1,3 @@
-//! Sentinel source: periodic cpitd clone detection.
-//!
-//! On its configured interval (default weekly), runs the shared cpitd
-//! scan-and-file core (`crate::commands::cpitd::scan_and_file`), which shells
-//! to the `cpitd` binary and files crosslink issues for detected clones. Each
-//! NEWLY created clone issue is surfaced as a [`Signal`] so sentinel's normal
-//! dedup/dispatch/reporting pipeline applies.
-//!
-//! Graceful absence: when the `cpitd` binary is not on PATH, the source logs a
-//! single debug line and yields no signals (it never errors the sweep).
-//! Installation guidance lives in `crosslink init` (see
-//! `commands/init/python.rs`), not here.
-
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -20,20 +7,12 @@ use super::{Signal, SignalKind, Source, SourceKind};
 use crate::commands::cpitd::ScanOutcome;
 use crate::db::Database;
 
-/// Filename (under the crosslink dir) where the last-scan timestamp persists.
-/// Mirrors sentinel's existing in-dir state-file convention (e.g.
-/// `sentinel.pid`, `sentinel.log`).
 const LAST_SCAN_FILE: &str = "sentinel-cpitd-last-scan";
 
-/// Function that runs a clone scan and files issues, returning the outcome.
-/// Boxed so tests can inject a fake without touching the real binary.
 type ScanFn = Box<dyn FnMut(&Database, u32) -> Result<ScanOutcome> + Send>;
 
-/// Predicate reporting whether the `cpitd` binary is available on PATH.
-/// Boxed so tests can simulate presence/absence.
 type AvailableFn = Box<dyn Fn() -> bool + Send>;
 
-/// Periodic clone-detection source.
 pub struct CpitdSource {
     interval_hours: u64,
     min_tokens: u32,
@@ -44,7 +23,6 @@ pub struct CpitdSource {
 }
 
 impl CpitdSource {
-    /// Construct the source with the real cpitd binary check and scan core.
     pub fn new(crosslink_dir: &Path, interval_hours: u64, min_tokens: u32) -> Self {
         Self {
             interval_hours,
@@ -58,7 +36,6 @@ impl CpitdSource {
         }
     }
 
-    /// Read the persisted last-scan timestamp, if any.
     fn last_scan(&self) -> Option<DateTime<Utc>> {
         let content = std::fs::read_to_string(&self.state_file).ok()?;
         DateTime::parse_from_rfc3339(content.trim())
@@ -66,23 +43,18 @@ impl CpitdSource {
             .map(|dt| dt.with_timezone(&Utc))
     }
 
-    /// Persist `when` as the last-scan timestamp (best-effort).
     fn record_scan(&self, when: DateTime<Utc>) {
         if let Err(e) = std::fs::write(&self.state_file, when.to_rfc3339()) {
             tracing::warn!("failed to persist cpitd last-scan timestamp: {e}");
         }
     }
 
-    /// Whether the configured interval has elapsed since the last scan.
-    /// `now` is injected for deterministic testing.
     fn interval_elapsed(&self, now: DateTime<Utc>) -> bool {
-        // No prior scan => always due.
         self.last_scan().is_none_or(|last| {
             now.signed_duration_since(last).num_hours() >= self.interval_hours as i64
         })
     }
 
-    /// Map a scan outcome's newly-created clone issues into signals.
     fn outcome_to_signals(outcome: &ScanOutcome, now: DateTime<Utc>) -> Vec<Signal> {
         outcome
             .created
@@ -90,8 +62,7 @@ impl CpitdSource {
             .map(|(issue_id, file_a, file_b)| Signal {
                 source: SourceKind::Internal,
                 kind: SignalKind::CodeClone,
-                // Stable per-issue reference so seen_set dedup prevents
-                // re-signaling the same clone issue on later sweeps.
+
                 reference: format!("CPITD:CL#{issue_id}"),
                 title: format!("Code clone detected: {file_a} <-> {file_b}"),
                 body: format!(
@@ -110,9 +81,7 @@ impl CpitdSource {
             .collect()
     }
 
-    /// Core poll, parameterized on `now` for testability.
     fn poll_at(&mut self, now: DateTime<Utc>) -> Result<Vec<Signal>> {
-        // Graceful absence: one debug line, no signals, never an error.
         if !(self.available)() {
             tracing::debug!(
                 "cpitd binary not on PATH; skipping clone scan (install guidance: crosslink init)"
@@ -147,8 +116,6 @@ impl Source for CpitdSource {
 mod tests {
     use super::*;
 
-    /// Build a source with injectable availability + scan fn, pointed at a temp
-    /// state file. Uses an in-memory-ish temp dir so no real binary/db is hit.
     fn test_source(dir: &Path, interval_hours: u64, available: bool, scan: ScanFn) -> CpitdSource {
         CpitdSource {
             interval_hours,
@@ -183,7 +150,7 @@ mod tests {
 
         let signals = src.poll_at(Utc::now()).unwrap();
         assert!(signals.is_empty());
-        // Absent binary must short-circuit before invoking the scan fn.
+
         assert_eq!(scan_count.load(std::sync::atomic::Ordering::SeqCst), 0);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -192,7 +159,7 @@ mod tests {
     fn interval_not_elapsed_skips_scan() {
         let dir = tmpdir();
         let now = Utc::now();
-        // Last scan 1 hour ago, interval 168h => not elapsed.
+
         std::fs::write(
             dir.join(LAST_SCAN_FILE),
             (now - chrono::Duration::hours(1)).to_rfc3339(),
@@ -217,7 +184,7 @@ mod tests {
     fn interval_elapsed_invokes_scan_and_maps_signals() {
         let dir = tmpdir();
         let now = Utc::now();
-        // Last scan 200h ago, interval 168h => elapsed.
+
         std::fs::write(
             dir.join(LAST_SCAN_FILE),
             (now - chrono::Duration::hours(200)).to_rfc3339(),
@@ -236,13 +203,13 @@ mod tests {
         let mut src = test_source(&dir, 168, true, scan);
 
         let signals = src.poll_at(now).unwrap();
-        // Two newly-created clone issues => two signals; the updated one does not.
+
         assert_eq!(signals.len(), 2);
         assert_eq!(signals[0].kind, SignalKind::CodeClone);
         assert_eq!(signals[0].reference, "CPITD:CL#101");
         assert_eq!(signals[1].reference, "CPITD:CL#102");
         assert!(signals[0].title.contains("src/a.rs"));
-        // last-scan timestamp got persisted.
+
         assert!(dir.join(LAST_SCAN_FILE).exists());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -258,8 +225,6 @@ mod tests {
 
     #[test]
     fn outcome_to_signals_uses_stable_reference_for_dedup() {
-        // Same created issue id across two sweeps yields the same reference, so
-        // the engine's seen_set dedup will skip the second.
         let now = Utc::now();
         let outcome = ScanOutcome {
             created: vec![(777, "x.rs".to_string(), "y.rs".to_string())],

@@ -1,7 +1,7 @@
 meta:
-  name: Forecast
-  link: https://forecast.bio
-  github: https://github.com/forecast-bio
+  name: Crosslink
+  link: https://github.com/Corvidae-Coding-Projects/crosslink
+  github: https://github.com/Corvidae-Coding-Projects
 
 color:
   palette:
@@ -25,28 +25,28 @@ color:
 
 typography:
   fonts:
-  #   - family: Open Sans
-  #     source: google
+
+
     - family: IBM Plex Mono
       source: google
-  #   - family: Rubik
-  #     source: google
+
+
   base:
     family: Helvetica
-    # line-height: 1.6
+
   headings:
     family: Helvetica
     weight: normal
   link:
     color: blue
-  # TODO
+
   monospace:
     family: IBM Plex Mono
     size: 0.9em
 
 defaults:
   bootstrap:
-#     # bootstrap variable definitions
+
     link-decoration: none
     rules: |
       h2 {

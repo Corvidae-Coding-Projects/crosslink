@@ -1,7 +1,7 @@
-// Compact alert banner that lives at the top of every page. Shows an
-// aggregate count of currently-open alerts bucketed by severity, with
-// a click-through to the full /alerts page. Invisible when everything
-// is nominal.
+
+
+
+
 
 import { Link } from "react-router-dom";
 

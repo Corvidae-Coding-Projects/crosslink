@@ -1,31 +1,3 @@
-//! Alert derivation from a [`super::reader::HubSnapshot`].
-//!
-//! For each tracked project the poll loop reads a snapshot, derives the
-//! list of currently-true alerts from it, and reconciles that list
-//! against the `alerts` table (opening new ones, resolving ones that
-//! are no longer derived). See `DESIGN-CROSSLINK-DASHBOARD.md` §11.
-//!
-//! This module is pure: given a snapshot and some thresholds, it
-//! returns the set of alerts that should be open right now. DB sync
-//! lives in [`super::alerts_db`] (added in P1.6.B).
-//!
-//! Coverage:
-//!
-//! | Kind                  | Derived when                                | Severity |
-//! |-----------------------|---------------------------------------------|----------|
-//! | `stale_lock`          | Lock held longer than stale window          | warning  |
-//! | `silent_agent`        | Agent holding a lock + heartbeat silent     | critical |
-//! | `overdue_issue`       | Open issue with `due_at < now`              | warning  |
-//! | `orphan_subissue`     | Closed parent with open subissues           | info     |
-//! | `unreachable_project` | `project.status == "error"`                 | warning  |
-//! | `ci_failure`          | `meta/ci-status.json.state == "failing"`    | warning  |
-//! | `signature_invalid`   | Hub-tip commit signature verification failed| critical |
-//!
-//! Catalogue items that depend on telemetry crosslink doesn't yet
-//! collect (`hub_diverged`, `hub_parse_error`, `untrusted_signer`,
-//! `pending_request`, `compaction_lag`) remain deferred until the
-//! respective signals land in `HubSnapshot`.
-
 use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -33,8 +5,6 @@ use uuid::Uuid;
 use super::projects::Project;
 use super::reader::HubSnapshot;
 
-/// Severity bucket. Maps onto the `severity` text column on the
-/// `alerts` table (and the tile colour classes on the frontend).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Severity {
     Info,
@@ -53,12 +23,6 @@ impl Severity {
     }
 }
 
-/// A single alert the reader believes is currently true.
-///
-/// `subject_ref` identifies the entity the alert is *about* — e.g.
-/// `"lock:42"`, `"agent:jus4"`, `"issue:17"`. Together with `kind`
-/// it's the identity key the DB reconciler uses to decide whether a
-/// derived alert is "the same" as an already-open row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DerivedAlert {
     pub kind: &'static str,
@@ -67,14 +31,9 @@ pub struct DerivedAlert {
     pub detail: String,
 }
 
-/// Default thresholds, in minutes. `Project` / DB config could
-/// override these later (out of scope for MVP).
 pub const STALE_LOCK_MINUTES: i64 = 60;
 pub const SILENT_AGENT_MINUTES: i64 = 10;
 
-/// Walk the project row + snapshot and return every alert that should
-/// be open right now. The result is order-independent; the DB sync
-/// layer deduplicates by `(kind, subject_ref)`.
 #[must_use]
 pub fn derive_alerts(
     project: &Project,
@@ -83,9 +42,6 @@ pub fn derive_alerts(
 ) -> Vec<DerivedAlert> {
     let mut out = Vec::new();
 
-    // Unreachable project — the poll loop marks project.status = "error"
-    // when the latest fetch failed. No stale timestamp needed; the
-    // alert resolves the next time we successfully fetch.
     if project.status == "error" {
         out.push(DerivedAlert {
             kind: "unreachable_project",
@@ -95,11 +51,6 @@ pub fn derive_alerts(
         });
     }
 
-    // Stale locks + silent agents. A silent agent alert wins over a
-    // stale lock alert when both apply to the same lock (the agent
-    // holding it is unresponsive — critical — rather than the lock
-    // just having aged — warning). We still emit both if applicable;
-    // the frontend renders severity-sorted.
     let stale_window = chrono::Duration::minutes(STALE_LOCK_MINUTES);
     let silent_window = chrono::Duration::minutes(SILENT_AGENT_MINUTES);
 
@@ -126,8 +77,7 @@ pub fn derive_alerts(
                 ),
             });
         }
-        // Silent-agent-while-holding-lock is a critical alert
-        // because it usually means an agent process died mid-work.
+
         if silent_agents.contains(record.lock.agent_id.as_str()) {
             out.push(DerivedAlert {
                 kind: "silent_agent",
@@ -141,9 +91,6 @@ pub fn derive_alerts(
         }
     }
 
-    // Overdue issues — one alert per issue so the frontend can link
-    // directly. Info severity would be misleading here; overdue is a
-    // real deadline miss.
     for issue in &snapshot.issues {
         if !matches!(issue.status, crate::models::IssueStatus::Open) {
             continue;
@@ -168,9 +115,6 @@ pub fn derive_alerts(
         }
     }
 
-    // CI failure — surfaces whatever the project's pipeline wrote
-    // into `meta/ci-status.json` on the hub branch. Reader has
-    // already filtered stale entries (sha mismatch).
     if let Some(ci) = &snapshot.ci_status {
         if ci.state == "failing" {
             let detail = ci.url.as_deref().map_or_else(
@@ -186,11 +130,6 @@ pub fn derive_alerts(
         }
     }
 
-    // Signature invalid on the hub-tip commit. Critical because it
-    // means an unauthorized writer landed something on the shared
-    // branch — operators should investigate immediately. We don't
-    // alert on `Unsigned` (intentional unsigned setups exist) or
-    // `Unknown` (verification path unavailable).
     if matches!(
         snapshot.signature_state,
         super::reader::SignatureState::Invalid
@@ -206,8 +145,6 @@ pub fn derive_alerts(
         });
     }
 
-    // Orphan subissues — parent closed with open subissues. This is
-    // a low-severity housekeeping signal, not an emergency.
     let by_uuid: std::collections::HashMap<Uuid, &crate::issue_file::IssueFile> =
         snapshot.issues.iter().map(|i| (i.uuid, i)).collect();
     for issue in &snapshot.issues {
@@ -257,7 +194,7 @@ mod tests {
     fn base_project() -> Project {
         Project {
             id: 1,
-            slug: "forecast-bio/crosslink".into(),
+            slug: "Corvidae-Coding-Projects/crosslink".into(),
             clone_path: PathBuf::from("/tmp/x"),
             default_branch: "main".into(),
             hub_sha: None,

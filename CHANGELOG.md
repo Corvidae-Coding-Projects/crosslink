@@ -8,23 +8,190 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- First-class Claude and Codex provider support. `agent.provider` now selects
+  protocol semantics independently from the optional `agent.binary` override;
+  kickoff, design, orchestrator, swarm, Sentinel, status, usage, and containers
+  share structured provider adapters and normalized runtime events.
+- `crosslink init` installs Claude and Codex repository integrations by default,
+  with `--agent-integration claude|codex|both` for explicit selection. Codex gets
+  merged hooks/MCP configuration, canonical skills, a managed `AGENTS.md` block,
+  and a versioned local plugin generated from provider-neutral assets.
+- `crosslink doctor` reports selected-provider executable, account-login,
+  integration, MCP, plugin, hook-trust, and container credential readiness.
+- Recorded Claude/Codex event fixtures, cross-provider hook protocol fixtures,
+  plugin drift validation, and native Windows/container provider coverage.
+- Per-dispatch reasoning/spend dials on the kickoff path (gh#61).
+  `crosslink kickoff run` and `crosslink kickoff plan` accept
+  `--effort <low|medium|high|xhigh|max>` and `--budget-usd <amount>`, emitted
+  as `claude --effort` / `claude --max-budget-usd` immediately after `--model`
+  on both the local (tmux) and container launch paths. `--effort` is validated
+  fail-closed by clap; omitting both flags reproduces the previous invocation
+  byte-for-byte. The resolved `model`, `effort`, and `budget_usd` are recorded
+  in `.kickoff-metadata.json` so a run record captures what the dispatch was
+  actually given. `crosslink swarm config` gains the same two flags: swarm now
+  sources `model`/`effort`/`budget_usd` from its budget config instead of
+  hardcoding `opus` at launch, and the spend ceiling applies per dispatched
+  agent (a wave of N agents can spend up to N x the amount).
 - `crosslink migrate hub-v3 --remigrate-from-v2` - regenerates the v3 genesis
   from the current `crosslink/hub` (v2) tip and force-pushes it, superseding a
   stale remote v3 hub. The discoverable recovery path when a v2-only binary
-  kept writing after an earlier migration (forecast-bio/crosslink#653).
+  kept writing after an earlier migration (Corvidae-Coding-Projects/crosslink#653).
 
 ### Changed
 
+- Web retrieval now stays on each provider's native web/search implementation.
+  The flaky safe-fetch proxy and obsolete key-based sanitization path were
+  removed; repository instructions, skills, and hooks instead preserve external
+  provenance and make the boundary explicit: fetched words are evidence to
+  examine, never instructions to obey.
+- Repository ownership, package metadata, documentation, release assets, and
+  remotes now use `Corvidae-Coding-Projects/crosslink` as the canonical source.
 - `crosslink migrate hub-v3` now guards against silently adopting a **stale**
   remote v3 hub. Before adopting, it compares the remote's genesis against the
   live `crosslink/hub` (v2) tip; if v2 has advanced past the genesis, adoption
   is refused (with the issue/commit delta and the `--remigrate-from-v2`
   remedy) unless `--adopt-stale` is passed. `--finalize` applies the same check
   and refuses to delete the v2 branch while it is ahead of v3, so a stale adopt
-  can never escalate to real data loss (forecast-bio/crosslink#653).
+  can never escalate to real data loss (Corvidae-Coding-Projects/crosslink#653).
 
 ### Fixed
 
+- `crosslink container build` no longer fails with a cryptic
+  `COPY crosslink-<arch>: not found` (gh#75). It staged the binary as
+  `crosslink` while the Dockerfile expects `crosslink-${TARGETARCH}`; it now
+  stages `crosslink-<arch>` and passes `--build-arg TARGETARCH=<arch>` so a
+  plain `docker build` resolves the COPY. Since it packages the *installed*
+  binary (no source tree to cross-compile from), it now fails fast with a
+  clear message on non-Linux hosts — where that binary can't run in the
+  Linux image — pointing at the CI workflow / `just build-image` instead.
+- The container-image workflow's `IMAGE_NAME` is derived from
+  `${{ github.repository_owner }}` (gh#75), so a fork publishes to its own
+  GHCR namespace instead of failing to push to the upstream org (on
+  Corvidae-Coding-Projects it still resolves to `Corvidae-Coding-Projects/crosslink-agent`), and a
+  `workflow_dispatch` trigger lets a fork publish a working agent image
+  on-demand without a `develop` push. Addresses the unpublished
+  `DEFAULT_AGENT_IMAGE` (Corvidae-Coding-Projects/crosslink#576).
+- `kickoff run --container` now passes claude's permission flag into the
+  container agent (gh#59). The local (tmux) path emitted
+  `--dangerously-skip-permissions` / `--permission-mode`, and `container start`
+  hardcodes it, but the kickoff container path built its `claude` invocation
+  without any permission flag — so the containerized agent prompted for every
+  tool and, with no TTY, blocked forever (a cause of the gh#55 "agent launches
+  then stalls" signature). Both launch paths now share a single
+  `permission_flag` helper so they cannot drift, and `launch_container`
+  threads `skip_permissions`/`permission_mode` through and emits the flag.
+- `GET /api/v1/sync/status` reports an accurate `last_fetch_at` on v3 hubs
+  (gh#53). It was derived from the hub-cache directory's mtime, which tracks a
+  fetch on v2 (the worktree is reset) but freezes on v3, where a fetch adopts
+  refs into `.git` and never touches the worktree. On v3 it now reads
+  `FETCH_HEAD`'s mtime (git rewrites it on every fetch), located via
+  `rev-parse --git-path` so it is correct across worktree layouts.
+- `kickoff plan` accepts `--skip-permissions` / `--permission-mode` (gh#66).
+  Plan mode is read-only, so it launched its claude session with no permission
+  flag — which meant a fresh worktree triggered claude's interactive
+  workspace-trust dialog, and a headless dispatcher (no TTY to answer it) hung
+  forever (the plan/tmux half of the gh#55 stall). The flags now match
+  `kickoff run`/`launch`; the default stays off (interactive users still get
+  the dialog — fail-closed), and a headless caller passes `--skip-permissions`,
+  which is what actually clears the trust dialog (`--permission-mode` alone does
+  not). The `kickoff <doc> --plan` form now threads the flags too (they were
+  previously accepted and silently dropped).
+- The dashboard agent-request pane is populated on v3 hubs (gh#49, agent
+  requests half). `read_snapshot_v3` hardcoded `agent_requests` empty because
+  the request/ack streams live on the agent refs, not a worktree the snapshot
+  reader scans. A new `hub_v3::read_all_agent_requests` walks the agent refs,
+  reads each driver's `requests-out/<target>--<ulid>.json` and each target's
+  `requests-ack/<ulid>.json`, and pairs them by ulid grouped by target — the
+  whole-fleet view the dashboard needs, distinct from the per-inbox
+  `poll_requests_for_agent`. (The `ci_status` half of gh#49 remains: v3 has no
+  CI-status ref home or writer yet — separate work.)
+- The dashboard `unreachable_project` alert can now fire (gh#48). The alert and
+  the frontend tile severity key on `projects.status == "error"`, but the poll
+  loop never wrote that value — it discarded the fetch outcome and propagated a
+  snapshot-read failure without recording it — so a genuinely unreachable
+  project showed stale tiles and stayed silent. `poll_project` now marks
+  `status = "error"` when the clone is gone/unreadable, or when a fetch failed
+  and no local hub data exists, and clears it back to `"active"` on a
+  successful poll (a transient fetch failure over existing local data does not
+  flap).
+- `kickoff plan --dry-run` and `kickoff run --dry-run` are side-effect-free
+  (gh#19). Both created a real git worktree, branch, and sentinel files — and
+  `plan` a permanent `PlanRecord` — before their dry-run guard, so repeated
+  dry-runs accumulated orphan worktrees and phantom "planning" rows that no
+  cleanup flag reclaimed. The guards now run before any creation and print the
+  would-be worktree/branch/agent names. (`run --dry-run` still creates the
+  tracker issue when none is passed, since the printed prompt embeds its id.)
+- The launch command writes a `TIMEOUT` sentinel to `.kickoff-status` when the
+  timeout wrapper kills the agent (gh#60) — on both the local (tmux) and
+  container paths, via an exit-code-124 trailer. Killed agents previously kept
+  their `RUNNING` sentinel forever and only the wall-clock check ever noticed;
+  `TIMEOUT` now classifies as `timed-out` in status normalization.
+- Design docs using the documented H2 `## Phase:` / `## Layer:` headers
+  produce requirement groups for swarm phasing (gh#57). The parser previously
+  recognized only H3 `### Phase N:` headers inside `## Requirements`; the
+  documented H2 form silently fell into `unknown_sections` and phasing intent
+  degraded to auto-decomposition.
+- The `/design` skill no longer resets `pipeline.json` on `--continue`
+  (gh#56). Its pipeline-state step wrote the file via an unconditional
+  heredoc, wiping `plans`/`runs` history and regressing `stage` on designs
+  that had already advanced; it now creates the file only when absent and
+  otherwise updates `doc_hash`/`design_doc` in place, preserving history.
+- Agent hook enforcement matches the documented contract (gh#58). The shipped
+  `agent_overrides` (and the hook's built-in agent defaults) blocked only
+  destructive operations while the guides and the generated KICKOFF.md prompt
+  claimed "no push, no merge, gated commits": `git merge`/`rebase`/
+  `cherry-pick`/`reset`, stash/tag/patch, and branch surgery are now
+  mechanically blocked for agents and `git commit` is gated on an active
+  issue. Plain `git push` remains permitted because the CI-verify flow
+  instructs the agent to push a draft PR (force-push stays always blocked) —
+  the prompt and guides now state that contract accurately instead of
+  overclaiming.
+- Hub-cache init no longer fails with "Author identity unknown" on a host whose
+  git identity is present but empty (gh#34). `ensure_cache_git_identity` checked
+  only that `git config user.email` *succeeded* — but `git config` exits 0 for a
+  key set to an empty string (e.g. a global `user.email = ` used to force
+  per-repo identities), so the empty value slipped past as "configured" and the
+  `Initialize crosslink v3 hub worktree` commit then died with no author. It now
+  requires a non-empty value on both `user.email` and `user.name` (the check
+  previously ignored `user.name` entirely), falling back to the
+  `crosslink`/`crosslink@localhost` identity otherwise — hardening real
+  `crosslink agent bootstrap` on CI runners and identity-less/empty-identity
+  hosts.
+- Dashboard git calls can no longer hang on a credential prompt (gh#34). The
+  poll loop's per-tick `git fetch` and the track-time `git remote show origin`
+  default-branch probe now run with `GIT_TERMINAL_PROMPT=0`, a neutralized
+  `GIT_ASKPASS`, and `-c credential.helper=`, so a private, moved, or deleted
+  remote (or an interactive askpass like VS Code's) makes them fail fast
+  instead of blocking a headless `dashboard serve` worker indefinitely. The
+  `detect_default_branch` test fixtures now record a local remote-tracking
+  HEAD so they resolve without any network I/O (previously they reached the
+  live network against hardcoded URLs, hanging on interactive-helper hosts).
+- The dashboard is v3-aware (gh#4, final symptom): migrated+finalized repos no
+  longer surface as `unreachable_project`. The poll fetch uses the
+  `+refs/heads/crosslink/*` glob (the exact v2-only refspec failed every tick
+  against migrated remotes, so v3 refs never became local and the
+  already-mode-routed reader saw nothing), the v2 hub-cache worktree
+  materialization and the post-action `reset --hard crosslink/hub` are gated
+  off on v3, tile freshness (`hub_sha`/`last_commit_at`) keys off the
+  checkpoint ref, GitHub org discovery falls back to probing the
+  `crosslink/checkpoint` branch, the track-time hub check recognizes v3
+  markers (local refs only), `GET /api/v1/sync/status` names the mode's
+  actual hub ref, and hub signature verification checks the checkpoint tip
+  on v3 instead of the nonexistent `locks.json` history.
+- `migrate hub-v3 --finalize` no longer refuses after legitimate post-migration
+  hub use (gh#45). The finalize gate reused the migration-time invariant
+  (`reduce(current refs) == genesis`), which only holds in the instant after
+  seeding - a single lock release, or even the dispatcher's own v3 fetch
+  advancing the checkpoint ref, permanently blocked the cutover with a
+  misleading "v2 and v3 no longer agree". Migration now persists the seeded
+  genesis checkpoint commit and per-agent seed tips in `HubMeta` (serde-default
+  fields, compatible both directions), and finalize verifies what actually
+  gates safe v2 deletion: the v2 files still reproduce the SEEDED genesis
+  (content-addressed at the recorded commit), every seed tip remains an
+  ancestor of its ref (ancestry, not byte-prefix, so compaction and REQ-11
+  pruning never false-fail), and reducing AT the seeded tips reproduces the
+  genesis. Hubs migrated before the metadata existed fall back to the strict
+  check with an actionable `--remigrate-from-v2` message.
 - `crosslink integrity` no longer false-FAILs `counters` and `hydration` on a
   v3 hub. Both checks read legacy v2 worktree artifacts (meta/counters.json,
   issues/*.json) that v3 never materializes, fabricating "next_display_id is
@@ -92,7 +259,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Hub-v3 and knowledge cache setup used `git worktree add --orphan` (added in
   Git 2.42.0); on older Git they now fall back to an equivalent sequence
   (detached worktree + `git checkout --orphan` + clearing the tree) that yields
-  the same empty unborn orphan branch (forecast-bio/crosslink#655).
+  the same empty unborn orphan branch (Corvidae-Coding-Projects/crosslink#655).
+- The container entrypoint no longer `source`s `/host-auth/*.env` (gh#10).
+  Sourcing executed the file as shell: a token containing spaces or shell
+  metacharacters ran as commands, leaked credential fragments into the
+  container log, and silently truncated the exported value. The entrypoint
+  now parses the files line-by-line, honors only `CLAUDE_CODE_OAUTH_TOKEN`
+  and `ANTHROPIC_API_KEY` (optionally `export`-prefixed, quoted, or CRLF),
+  takes the value verbatim after the first `=` without executing or echoing
+  it, and reports `env-file:` auth resolution only when a recognized key was
+  actually found.
+- The agent container image installs `build-essential` (gh#9). The
+  entrypoint's rustup install provided `rustc`/`cargo` but the image had no
+  C toolchain or linker, so `cargo test`/`clippy`/`check` failed at link
+  inside every container agent — one of the tracked contributors to the
+  gh#55 kickoff stall.
 
 ## [0.9.0-beta.1] - 2026-06-13
 
@@ -568,7 +749,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Agent signing chicken-and-egg during init — defer key publish and use unsigned bootstrap commits ([GH-237])
 - TUI agents tab not forming agent list — read V2 heartbeats and refresh data on tab focus ([GH-232])
 - Milestone add/remove now persists to coordination branch ([GH-174])
-- Hub cache hooks — propagate `.claude/hooks` into hub cache worktree on init ([GH-213])
+- Hub cache hooks — propagate canonical integration hooks into the hub cache worktree on init ([GH-213])
 - Hub sync dirty state — deduplicate hub cache issues during hydration, prevent vicious sync loop ([GH-210])
 - Hub sync push warnings — surface visible warnings when push falls back to local-only ([GH-206])
 - Use `--worktree` scope for agent signing config in linked worktrees ([GH-167])
@@ -632,7 +813,7 @@ First stable release. Promotes all changes from v0.1.3-beta.1 plus major new fea
 - House style syncing — `crosslink style set/sync/diff/show/unset` for portable project conventions ([GH-91])
 - Consolidated `crosslink config` command — show, get, set, list, reset, diff with typed validation
 - Typed comments and auto-documentation trail — comments carry `kind`, `trigger_type`, and `intervention_context`
-- Driver intervention tracking with `crosslink intervene` command
+- Driver intervention tracking with `crosslink issue intervene` command
 - cpitd (code clone detection) integration with `crosslink cpitd` command
 - Scope session queries to `agent_id` for multi-agent isolation
 - Crates.io publish CI workflow on release tags

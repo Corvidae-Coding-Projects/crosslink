@@ -25,10 +25,10 @@ fuzz_target!(|input: CreateIssueInput| {
         Err(_) => return,
     };
 
-    // Fuzz issue creation - should never panic
+
     let _ = db.create_issue(&input.title, input.description.as_deref(), &input.priority);
 
-    // If creation succeeded, try other operations
+
     if let Ok(id) = db.create_issue(&input.title, input.description.as_deref(), &input.priority) {
         let _ = db.get_issue(id);
         let _ = db.close_issue(id);

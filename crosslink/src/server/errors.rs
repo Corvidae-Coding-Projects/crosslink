@@ -1,13 +1,7 @@
-//! Shared error-response helpers for axum handlers.
-//!
-//! Centralises the `internal_error`, `not_found`, and `bad_request` constructors
-//! that were previously copy-pasted across every handler module.
-
 use axum::{http::StatusCode, response::Json};
 
 use crate::server::types::ApiError;
 
-/// Build a 500 Internal Server Error response.
 pub fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -18,7 +12,6 @@ pub fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, 
     )
 }
 
-/// Build a 404 Not Found response.
 pub fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
     (
         StatusCode::NOT_FOUND,
@@ -29,7 +22,6 @@ pub fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
     )
 }
 
-/// Build a 400 Bad Request response.
 pub fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
     (
         StatusCode::BAD_REQUEST,

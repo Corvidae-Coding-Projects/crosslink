@@ -13,8 +13,7 @@ use crate::db::Database;
 use super::config::SentinelConfig;
 use super::engine;
 
-/// Start the sentinel daemon as a background process.
-pub fn start(crosslink_dir: &Path, interval: u64, model: Option<String>) -> Result<()> {
+pub fn start(crosslink_dir: &Path, interval: u64, model: Option<&str>) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
     let log_file = crosslink_dir.join("sentinel.log");
 
@@ -44,7 +43,7 @@ pub fn start(crosslink_dir: &Path, interval: u64, model: Option<String>) -> Resu
         .arg(crosslink_dir)
         .arg("--interval")
         .arg(interval.to_string());
-    if let Some(m) = &model {
+    if let Some(m) = model {
         cmd.arg("--model").arg(m);
     }
     let child = cmd
@@ -63,7 +62,6 @@ pub fn start(crosslink_dir: &Path, interval: u64, model: Option<String>) -> Resu
     Ok(())
 }
 
-/// Stop the sentinel daemon.
 pub fn stop(crosslink_dir: &Path) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
 
@@ -84,7 +82,6 @@ pub fn stop(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Show sentinel daemon status.
 pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
 
@@ -157,13 +154,6 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// Run the sentinel watch loop (called by the spawned daemon process).
-///
-/// Builds a tokio runtime and drives the async event loop. The loop multiplexes:
-/// - Polling timer ticks (every `interval_minutes`)
-/// - Webhook events from the optional GitHub webhook server
-/// - SIGTERM/SIGINT shutdown signals
-/// - Stdin closure (zombie prevention when parent dies)
 pub fn run_watch_loop(
     crosslink_dir: &Path,
     interval_minutes: u64,
@@ -196,7 +186,6 @@ pub fn run_watch_loop(
     ))
 }
 
-/// The actual async watch loop body.
 async fn async_watch_loop(
     crosslink_dir: PathBuf,
     interval_minutes: u64,
@@ -210,7 +199,6 @@ async fn async_watch_loop(
     println!("  Watching: {}", crosslink_dir.display());
     println!("  Interval: {interval_minutes} minutes");
 
-    // Optionally start the webhook server for real-time events
     let mut webhook_rx = if config.webhook.enabled {
         let webhook_config = super::webhook::WebhookConfig {
             port: config.webhook.port,
@@ -230,10 +218,8 @@ async fn async_watch_loop(
         None
     };
 
-    // Shutdown signaling: SIGTERM/SIGINT/stdin-closure all set this flag
     let should_exit = Arc::new(AtomicBool::new(false));
 
-    // Use tokio signal handlers (these compose with select!)
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<&str>(1);
     {
         let tx = shutdown_tx;
@@ -262,18 +248,6 @@ async fn async_watch_loop(
         });
     }
 
-    // Zombie prevention: spawn a blocking thread to detect stdin closure.
-    //
-    // Only active when stdin is a TTY. When `sentinel watch` spawns this
-    // daemon it passes `Stdio::null()` for the child's stdin — `/dev/null`
-    // returns `Ok(0)` on the first read, which would immediately set the
-    // shutdown flag and kill the daemon right after startup (GH#561). In
-    // that non-interactive case, SIGTERM from `sentinel stop` (or from the
-    // parent process exiting) is the correct shutdown channel; we don't
-    // need an additional stdin-EOF signal.
-    //
-    // The check remains useful when a human runs `sentinel run-daemon`
-    // directly in a terminal — ctrl+D then still cleanly shuts it down.
     if std::io::stdin().is_terminal() {
         let stdin_flag = Arc::clone(&should_exit);
         thread::spawn(move || {
@@ -297,7 +271,6 @@ async fn async_watch_loop(
         );
     }
 
-    // Run an initial cycle immediately so the first poll doesn't wait `interval_minutes`
     let mut next_poll_at = tokio::time::Instant::now();
 
     loop {
@@ -310,7 +283,7 @@ async fn async_watch_loop(
         tokio::pin!(sleep_until);
 
         tokio::select! {
-            // Polling timer fired
+
             () = &mut sleep_until => {
                 let cycle_dir = crosslink_dir.clone();
                 let cycle_config = config.clone();
@@ -331,7 +304,7 @@ async fn async_watch_loop(
                 next_poll_at = tokio::time::Instant::now() + interval * backoff_multiplier;
             }
 
-            // Webhook event received (only listen if webhook is enabled)
+
             maybe_event = recv_webhook(&mut webhook_rx) => {
                 if let Some(event) = maybe_event {
                     let cycle_dir = crosslink_dir.clone();
@@ -355,7 +328,7 @@ async fn async_watch_loop(
                 }
             }
 
-            // Shutdown signals (unified via channel from spawned signal task)
+
             signal_name = shutdown_rx.recv() => {
                 let name = signal_name.unwrap_or("unknown");
                 println!("Sentinel received {name}, exiting");
@@ -367,9 +340,6 @@ async fn async_watch_loop(
     Ok(())
 }
 
-/// Helper to await a webhook event from an Option<Receiver>.
-/// If the receiver is None, returns a future that never resolves so `select!`
-/// will fall through to other branches.
 async fn recv_webhook(
     rx: &mut Option<tokio::sync::mpsc::Receiver<super::webhook::WebhookEvent>>,
 ) -> Option<super::webhook::WebhookEvent> {
@@ -379,7 +349,6 @@ async fn recv_webhook(
     }
 }
 
-/// Execute a single polling cycle (sync, called via `spawn_blocking`).
 fn run_polling_cycle(
     crosslink_dir: &Path,
     config: &SentinelConfig,
@@ -395,10 +364,12 @@ fn run_polling_cycle(
         &db,
         writer.as_ref(),
         config,
-        false, // not dry run
-        None,  // no label filter
-        true,  // quiet in daemon mode (output goes to log)
-        model_override,
+        false,
+        None,
+        engine::CycleOptions {
+            quiet: true,
+            model_override,
+        },
     )?;
 
     if stats.signals_found > 0 || stats.collected > 0 {
@@ -416,7 +387,6 @@ fn run_polling_cycle(
     Ok(())
 }
 
-/// Execute a single webhook-driven cycle for one signal (sync, via `spawn_blocking`).
 fn run_webhook_cycle(
     crosslink_dir: &Path,
     config: &SentinelConfig,
@@ -436,8 +406,10 @@ fn run_webhook_cycle(
         config,
         &[signal],
         "webhook",
-        true, // quiet in daemon mode
-        model_override,
+        engine::CycleOptions {
+            quiet: true,
+            model_override,
+        },
     )?;
 
     println!(
@@ -451,8 +423,6 @@ fn run_webhook_cycle(
 
     Ok(())
 }
-
-// --- Process management helpers (mirrored from daemon.rs) ---
 
 fn read_pid(pid_file: &Path) -> Option<u32> {
     let mut file = fs::File::open(pid_file).ok()?;
@@ -472,13 +442,12 @@ fn is_process_running(pid: u32) -> bool {
 #[cfg(windows)]
 fn is_process_running(pid: u32) -> bool {
     Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()
-        .map(|output| {
+        .is_ok_and(|output| {
             let stdout = String::from_utf8_lossy(&output.stdout);
             stdout.contains(&pid.to_string())
         })
-        .unwrap_or(false)
 }
 
 #[cfg(not(windows))]

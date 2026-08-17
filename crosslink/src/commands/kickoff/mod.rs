@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff command: launch agents to implement features
 mod cleanup;
 mod graph;
 mod helpers;
@@ -14,26 +13,23 @@ mod wizard;
 #[cfg(test)]
 mod tests;
 
-// Re-export public types used by external callers (swarm, main, etc.)
 pub use types::{
     ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel,
-    DEFAULT_AGENT_IMAGE,
+    DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
 };
 
-// Re-export parse functions (used by dispatch and swarm)
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
 
-// Re-export public command functions (used from main.rs dispatch)
 pub use cleanup::cleanup;
 pub use graph::graph;
 pub use monitor::{list, logs, report, report_all, status, stop};
 pub use plan::{plan, show_plan};
 pub use run::run;
 
-// Re-export crate-internal items used by other modules within this crate
 pub(crate) use helpers::{
     command_available, detect_conventions, format_duration, slugify, tmux_session_name,
 };
+pub(crate) use launch::resolve_execution_policy;
 
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -64,6 +60,9 @@ pub fn dispatch(
             doc,
             skip_permissions,
             permission_mode,
+            effort,
+            budget_usd,
+            template,
         } => {
             let parsed_doc = if let Some(ref path) = doc {
                 let content = std::fs::read_to_string(path)
@@ -76,26 +75,36 @@ pub fn dispatch(
             } else {
                 None
             };
+            let parsed_container = parse_container_mode(&container)?;
+            let parsed_timeout = parse_duration(&timeout)?;
+            let agent = crate::agents::resolve_agent(crosslink_dir)?;
+            let policy = resolve_execution_policy(
+                &agent,
+                permission_mode.as_deref(),
+                skip_permissions,
+                effort.as_deref(),
+                budget_usd.as_deref(),
+                parsed_timeout,
+                (parsed_container != ContainerMode::None)
+                    .then_some(crate::agents::SandboxPosture::ExternalIsolation),
+            )?;
             let opts = KickoffOpts {
                 description: &description,
                 issue,
-                container: parse_container_mode(&container)?,
+                container: parsed_container,
                 verify: parse_verify_level(&verify)?,
                 model: &model,
                 image: &image,
-                timeout: parse_duration(&timeout)?,
+                timeout: parsed_timeout,
                 dry_run,
                 branch: branch.as_deref(),
                 quiet,
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
-                skip_permissions,
-                permission_mode: permission_mode.as_deref(),
-                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+                policy,
+                template: template.as_deref(),
             };
-            // The pipeline "running" row is now written from inside `run()`
-            // once the real worktree + agent identity exist (GH#614) — no more
-            // "pending" placeholder rows appended at dispatch time.
+
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
         }
@@ -111,6 +120,11 @@ pub fn dispatch(
             model,
             timeout,
             dry_run,
+            skip_permissions,
+            permission_mode,
+            effort,
+            budget_usd,
+            template,
         } => {
             let content = std::fs::read_to_string(&doc)
                 .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
@@ -118,15 +132,27 @@ pub fn dispatch(
             for warning in super::design_doc::validate_design_doc(&design_doc) {
                 tracing::warn!("{}", warning);
             }
+            let parsed_timeout = parse_duration(&timeout)?;
+            let agent = crate::agents::resolve_agent(crosslink_dir)?;
+            let policy = resolve_execution_policy(
+                &agent,
+                permission_mode.as_deref(),
+                skip_permissions,
+                effort.as_deref(),
+                budget_usd.as_deref(),
+                parsed_timeout,
+                Some(crate::agents::SandboxPosture::ReadOnly),
+            )?;
             let plan_opts = PlanOpts {
                 doc: &design_doc,
                 doc_path: Some(&doc),
                 model: &model,
-                timeout: parse_duration(&timeout)?,
+                timeout: parsed_timeout,
                 dry_run,
                 issue,
                 quiet,
-                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+                policy,
+                template: template.as_deref(),
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -193,10 +219,6 @@ pub fn dispatch(
     }
 }
 
-/// Dispatch the unified `crosslink kickoff [doc] [--plan|--run]` entry point.
-///
-/// If no flags are given and stdin is a TTY, launches the interactive wizard.
-/// With `--plan` or `--run`, goes directly to the appropriate function.
 #[allow(clippy::too_many_arguments)]
 fn dispatch_launch(
     crosslink_dir: &Path,
@@ -216,7 +238,6 @@ fn dispatch_launch(
     skip_permissions: bool,
     permission_mode: Option<&str>,
 ) -> Result<()> {
-    // Non-interactive: --plan or --run flag provided
     if do_plan {
         let doc_path = doc.ok_or_else(|| {
             anyhow::anyhow!(
@@ -229,15 +250,27 @@ fn dispatch_launch(
         for warning in super::design_doc::validate_design_doc(&design_doc) {
             eprintln!("Warning: {warning}");
         }
+        let parsed_timeout = parse_duration(timeout)?;
+        let agent = crate::agents::resolve_agent(crosslink_dir)?;
+        let policy = resolve_execution_policy(
+            &agent,
+            permission_mode,
+            skip_permissions,
+            None,
+            None,
+            parsed_timeout,
+            Some(crate::agents::SandboxPosture::ReadOnly),
+        )?;
         let plan_opts = PlanOpts {
             doc: &design_doc,
             doc_path: Some(&doc_path),
             model,
-            timeout: parse_duration(timeout)?,
+            timeout: parsed_timeout,
             dry_run,
             issue,
             quiet,
-            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+            policy,
+            template: None,
         };
         return plan(crosslink_dir, db, &plan_opts);
     }
@@ -265,32 +298,41 @@ fn dispatch_launch(
         };
         let parsed_doc = Some(parsed);
 
+        let parsed_container = parse_container_mode(container)?;
+        let parsed_timeout = parse_duration(timeout)?;
+        let agent = crate::agents::resolve_agent(crosslink_dir)?;
+        let policy = resolve_execution_policy(
+            &agent,
+            permission_mode,
+            skip_permissions,
+            None,
+            None,
+            parsed_timeout,
+            (parsed_container != ContainerMode::None)
+                .then_some(crate::agents::SandboxPosture::ExternalIsolation),
+        )?;
         let opts = KickoffOpts {
             description: &description,
             issue,
-            container: parse_container_mode(container)?,
+            container: parsed_container,
             verify: parse_verify_level(verify)?,
             model,
             image: types::DEFAULT_AGENT_IMAGE,
-            timeout: parse_duration(timeout)?,
+            timeout: parsed_timeout,
             dry_run,
             branch: None,
             quiet,
             design_doc: parsed_doc.as_ref(),
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
-            skip_permissions,
-            permission_mode,
-            agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+            policy,
+            template: None,
         };
-        // mark_running is now invoked from inside run() with the real identity.
+
         run(crosslink_dir, db, writer, &opts)?;
         return Ok(());
     }
 
-    // Interactive mode: launch the wizard
-    // If a doc path was provided, skip source selection (wizard pre-selects it)
     let choices = if let Some(ref doc_path) = doc {
-        // Skip to stage selection with this doc pre-selected
         wizard_with_preselected_doc(crosslink_dir, doc_path)?
     } else {
         wizard::launch_wizard(crosslink_dir)?
@@ -303,7 +345,6 @@ fn dispatch_launch(
         return Ok(());
     };
 
-    // Dispatch based on wizard choices
     match choices.stage {
         wizard::WizardStage::Plan => {
             let doc_path = match &choices.source {
@@ -316,15 +357,28 @@ fn dispatch_launch(
             let content = std::fs::read_to_string(&doc_path)
                 .with_context(|| format!("Failed to read design doc: {}", doc_path.display()))?;
             let design_doc = super::design_doc::parse_design_doc(&content);
+            let parsed_timeout = parse_duration(&config.timeout)?;
+            let agent = crate::agents::resolve_agent(crosslink_dir)?;
+            let policy = resolve_execution_policy(
+                &agent,
+                None,
+                false,
+                None,
+                None,
+                parsed_timeout,
+                Some(crate::agents::SandboxPosture::ReadOnly),
+            )?;
             let plan_opts = PlanOpts {
                 doc: &design_doc,
                 doc_path: Some(&doc_path),
                 model: &config.model,
-                timeout: parse_duration(&config.timeout)?,
+                timeout: parsed_timeout,
                 dry_run: false,
                 issue,
                 quiet,
-                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+
+                policy,
+                template: None,
             };
             plan(crosslink_dir, db, &plan_opts)
         }
@@ -349,22 +403,34 @@ fn dispatch_launch(
                 wizard::WizardSource::QuickDescription(desc) => (desc.clone(), None, None),
             };
 
+            let parsed_container = parse_container_mode(&config.container)?;
+            let parsed_timeout = parse_duration(&config.timeout)?;
+            let agent = crate::agents::resolve_agent(crosslink_dir)?;
+            let policy = resolve_execution_policy(
+                &agent,
+                None,
+                false,
+                None,
+                None,
+                parsed_timeout,
+                (parsed_container != ContainerMode::None)
+                    .then_some(crate::agents::SandboxPosture::ExternalIsolation),
+            )?;
             let opts = KickoffOpts {
                 description: &description,
                 issue: config.issue,
-                container: parse_container_mode(&config.container)?,
+                container: parsed_container,
                 verify: parse_verify_level(&config.verify)?,
                 model: &config.model,
                 image: types::DEFAULT_AGENT_IMAGE,
-                timeout: parse_duration(&config.timeout)?,
+                timeout: parsed_timeout,
                 dry_run: false,
                 branch: None,
                 quiet,
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc_path_str.as_deref(),
-                skip_permissions: false,
-                permission_mode: None,
-                agent_binary: crate::utils::read_agent_binary(crosslink_dir),
+                policy,
+                template: None,
             };
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
@@ -372,13 +438,10 @@ fn dispatch_launch(
     }
 }
 
-/// Launch wizard with a pre-selected design doc (skips source selection screen).
 fn wizard_with_preselected_doc(
     crosslink_dir: &Path,
     doc_path: &Path,
 ) -> Result<Option<wizard::WizardChoices>> {
-    // For now, launch the full wizard — the doc pre-selection is a UX optimization
-    // that we handle by verifying the doc exists upfront
     if !doc_path.exists() {
         bail!(
             "Design document not found: {}\nCreate one with: crosslink design \"feature description\"",
@@ -388,7 +451,6 @@ fn wizard_with_preselected_doc(
     wizard::launch_wizard(crosslink_dir)
 }
 
-/// Show pipeline status overview when `crosslink kickoff status` is called with no args.
 fn pipeline_status_overview(crosslink_dir: &Path, json: bool) -> Result<()> {
     let root = crosslink_dir
         .parent()
@@ -397,9 +459,6 @@ fn pipeline_status_overview(crosslink_dir: &Path, json: bool) -> Result<()> {
     let mut states = pipeline::scan_pipeline_states(root);
     let agents = monitor::discover_agents(crosslink_dir).unwrap_or_default();
 
-    // Reconcile stale "running" rows against the real world before display so
-    // the RUN column never reports a launch that finished or vanished (GH#614).
-    // An agent counts as live only while it still has a session/container.
     let live_ids: Vec<String> = agents
         .iter()
         .filter(|a| a.session.is_some() || a.docker.is_some())

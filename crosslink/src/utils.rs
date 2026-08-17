@@ -2,27 +2,6 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Resolve the agent binary from `hook-config.json`'s `agent.binary`
-/// (default "claude").
-pub fn read_agent_binary(crosslink_dir: &Path) -> String {
-    let config_path = crosslink_dir.join("hook-config.json");
-    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
-    parsed
-        .get("agent")
-        .and_then(|a| a.get("binary"))
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "claude".to_string())
-}
-
-/// Read the `agent.kickoff_template` setting from `hook-config.json`.
-///
-/// Returns the template file path when configured, or `None` when the key is
-/// absent, empty, or the file cannot be parsed. The path is resolved relative
-/// to the crosslink directory when it is not absolute.
 pub fn read_kickoff_template(crosslink_dir: &Path) -> Option<String> {
     let config_path = crosslink_dir.join("hook-config.json");
     let content = std::fs::read_to_string(&config_path).ok()?;
@@ -37,16 +16,22 @@ pub fn read_kickoff_template(crosslink_dir: &Path) -> Option<String> {
     } else {
         crosslink_dir.join(path)
     };
-    // Read and return the template content
+
     std::fs::read_to_string(&template_path)
         .ok()
         .filter(|s| !s.is_empty())
 }
 
-/// Read the `agent.no_template` setting from `hook-config.json`.
-///
-/// Returns `true` when `agent.no_template` is set to `true`, indicating the
-/// built-in kickoff prompt should be skipped entirely. Defaults to `false`.
+pub fn resolve_kickoff_template(
+    crosslink_dir: &Path,
+    override_path: Option<&Path>,
+) -> Option<String> {
+    if let Some(path) = override_path {
+        return std::fs::read_to_string(path).ok().filter(|s| !s.is_empty());
+    }
+    read_kickoff_template(crosslink_dir)
+}
+
 pub fn read_no_template(crosslink_dir: &Path) -> bool {
     let config_path = crosslink_dir.join("hook-config.json");
     let Ok(content) = std::fs::read_to_string(&config_path) else {
@@ -58,16 +43,10 @@ pub fn read_no_template(crosslink_dir: &Path) -> bool {
     parsed
         .get("agent")
         .and_then(|a| a.get("no_template"))
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
 
-/// Resolve the main repository root when running inside a git worktree.
-///
-/// Compares `git rev-parse --git-common-dir` with `--git-dir`. If they
-/// differ, we're in a worktree and the main repo root is the parent of
-/// `git-common-dir`. Returns `None` if not in a git repo or if git
-/// commands fail (e.g. in unit tests with plain temp directories).
 #[must_use]
 pub fn resolve_main_repo_root(repo_root: &Path) -> Option<PathBuf> {
     let repo_str = repo_root.to_string_lossy();
@@ -93,7 +72,6 @@ pub fn resolve_main_repo_root(repo_root: &Path) -> Option<PathBuf> {
         .trim()
         .to_string();
 
-    // Resolve to absolute paths for reliable comparison
     let common_path = if Path::new(&common_raw).is_absolute() {
         PathBuf::from(&common_raw)
     } else {
@@ -106,21 +84,16 @@ pub fn resolve_main_repo_root(repo_root: &Path) -> Option<PathBuf> {
         repo_root.join(&git_dir_raw)
     };
 
-    // Canonicalize to handle symlinks and ".." components
     let common_canonical = common_path.canonicalize().unwrap_or(common_path);
     let git_dir_canonical = git_dir_path.canonicalize().unwrap_or(git_dir_path);
 
     if common_canonical == git_dir_canonical {
-        // Not in a worktree — use the given repo root as-is.
         Some(repo_root.to_path_buf())
     } else {
-        // We're in a worktree — git-common-dir points to the main .git directory.
-        // Its parent is the main repo root.
         common_canonical.parent().map(std::path::Path::to_path_buf)
     }
 }
 
-/// Format a display ID for output. Negative IDs (offline) show as "L1", "L2", etc.
 #[must_use]
 pub fn format_issue_id(id: i64) -> String {
     if id < 0 {
@@ -130,8 +103,6 @@ pub fn format_issue_id(id: i64) -> String {
     }
 }
 
-/// Truncate a string to a maximum number of characters, adding "..." if truncated.
-/// Handles Unicode correctly by counting characters, not bytes.
 #[must_use]
 pub fn truncate(s: &str, max_chars: usize) -> String {
     let char_count = s.chars().count();
@@ -143,11 +114,6 @@ pub fn truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
-/// Check whether a name matches a Windows reserved device name.
-///
-/// Windows reserves names like CON, PRN, AUX, NUL, COM1-COM9, and LPT1-LPT9.
-/// Files with these names (with or without extensions) cause silent failures on
-/// Windows. We reject them on all platforms since data may be synced cross-platform.
 #[must_use]
 pub fn is_windows_reserved_name(name: &str) -> bool {
     let upper = name.to_uppercase();
@@ -179,24 +145,6 @@ pub fn is_windows_reserved_name(name: &str) -> bool {
     )
 }
 
-/// Atomically write content to a file using a unique temp file + fsync + rename.
-///
-/// Uses [`tempfile::Builder`] to create a uniquely-named temp file in the same
-/// directory as `path`, which prevents two concurrent writers from corrupting
-/// each other's temp file (the old fixed-name `.{basename}.tmp` approach). The
-/// file is fsynced before the rename so a crash between write and rename does
-/// not leave a half-populated target. On Unix, the parent directory is also
-/// fsynced after the rename so the directory entry itself is durable; that step
-/// is best-effort (WARN on failure) because some filesystems (e.g. BTRFS)
-/// reject directory fsync without degrading data safety.
-///
-/// Orphaned `.{basename}.XXXXXX.tmp` files can be left if the process crashes
-/// between temp-file creation and `persist`. Harmless: nothing commits
-/// working-tree files anymore (hub v3 writes via git plumbing only).
-///
-/// # Errors
-///
-/// Returns an error if creating the temp file, writing, fsyncing, or persisting fails.
 pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()> {
     use anyhow::Context;
     use std::io::Write;
@@ -218,17 +166,8 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
         .sync_all()
         .with_context(|| format!("Failed to fsync temp file for {}", path.display()))?;
 
-    tmp.persist(path).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to rename temp file to {}: {}",
-            path.display(),
-            e.error
-        )
-    })?;
+    persist_atomic_temp_file(tmp, path)?;
 
-    // Best-effort: fsync the parent directory so the rename itself is durable.
-    // Failure here is not fatal — the file-level fsync above already ensures
-    // the content is durable; directory-entry durability depends on the FS.
     #[cfg(unix)]
     {
         match std::fs::File::open(parent) {
@@ -254,25 +193,73 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
     Ok(())
 }
 
-/// Escape a string for safe interpolation into a shell command.
-/// Wraps in single quotes with embedded single quotes escaped as `'\''`.
+#[cfg(windows)]
+fn persist_atomic_temp_file(
+    mut tmp: tempfile::NamedTempFile,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static PERSIST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = PERSIST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    const MAX_ATTEMPTS: usize = 20;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match tmp.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(error)
+                if error.error.kind() == std::io::ErrorKind::PermissionDenied
+                    && attempt < MAX_ATTEMPTS =>
+            {
+                tmp = error.file;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "Failed to rename temp file to {}: {}",
+                    path.display(),
+                    error.error
+                ));
+            }
+        }
+    }
+
+    unreachable!("bounded persist loop always returns")
+}
+
+#[cfg(not(windows))]
+fn persist_atomic_temp_file(
+    tmp: tempfile::NamedTempFile,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
+    tmp.persist(path).map(|_| ()).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to rename temp file to {}: {}",
+            path.display(),
+            error.error
+        )
+    })
+}
+
 #[must_use]
 pub fn shell_escape_arg(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-// ── Compact identifiers (base62) ─────────────────────────────────────────
+#[must_use]
+pub fn shell_escape_path(path: &std::path::Path) -> String {
+    let rendered = path.to_string_lossy().replace('\\', "/");
+    shell_escape_arg(&rendered)
+}
 
 const BASE62_CHARS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-/// Generate a random 4-character base62 identifier.
-///
-/// 4 chars of base62 = 62^4 ≈ 14.8M possibilities — sufficient for both
-/// per-repo IDs and per-kickoff agent IDs.
 pub fn generate_compact_id() -> String {
     use std::time::SystemTime;
 
-    // Counter to avoid collisions within the same nanosecond
     static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
     let nanos = SystemTime::now()
@@ -288,7 +275,6 @@ pub fn generate_compact_id() -> String {
     base62_encode_4(mixed)
 }
 
-/// Encode a u64 value into a 4-character base62 string.
 #[must_use]
 pub fn base62_encode_4(mut value: u64) -> String {
     let mut result = String::with_capacity(4);
@@ -303,35 +289,25 @@ pub fn base62_encode_4(mut value: u64) -> String {
     result
 }
 
-/// Compose a structured name from repo ID, agent ID, and slug.
-///
-/// Format: `<repo>-<agent>-<slug>` (max 64 chars total).
-/// The slug is truncated at a word boundary if the full name would exceed 64 chars.
 #[must_use]
 pub fn compose_compact_name(repo_id: &str, agent_id: &str, slug: &str) -> String {
-    let prefix_len = repo_id.len() + 1 + agent_id.len() + 1; // "repo-agent-"
+    let prefix_len = repo_id.len() + 1 + agent_id.len() + 1;
     let max_slug = 64 - prefix_len;
     let truncated_slug = truncate_slug(slug, max_slug);
     format!("{repo_id}-{agent_id}-{truncated_slug}")
 }
 
-/// Truncate a slug to fit within `max_len`, cutting at a word boundary (hyphen).
 #[must_use]
 pub fn truncate_slug(slug: &str, max_len: usize) -> &str {
     if slug.len() <= max_len {
         return slug;
     }
-    // Cut at the last hyphen before max_len to avoid mid-word truncation
+
     slug[..max_len]
         .rfind('-')
         .map_or(&slug[..max_len], |pos| &slug[..pos])
 }
 
-/// Validate that a composed name fits within the 64-char `agent_id` limit.
-///
-/// # Errors
-///
-/// Returns an error if the name exceeds 64 characters or contains invalid characters.
 pub fn validate_compact_name(name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         name.len() <= 64,
@@ -347,16 +323,6 @@ pub fn validate_compact_name(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-// ── Scheduling date parsers (GH #361) ──────────────────────────────────
-//
-// Accept two input shapes:
-//   1. ISO 8601 date (`YYYY-MM-DD`) — the common case for task scheduling.
-//      For `--scheduled`, parsed to T00:00:00Z (start of day, UTC).
-//      For `--due`, parsed to T23:59:59Z (end of day, UTC).
-//   2. Full RFC 3339 datetime (e.g. `2026-03-20T14:00:00Z`) — passed through
-//      unchanged, bypassing the start/end-of-day convention. This is the
-//      escape hatch for callers who need a specific time.
-
 fn parse_bare_date(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
 }
@@ -371,22 +337,10 @@ const fn date_at_time(d: NaiveDate, t: NaiveTime) -> DateTime<Utc> {
     DateTime::<Utc>::from_naive_utc_and_offset(NaiveDateTime::new(d, t), Utc)
 }
 
-/// 23:59:59 is a static, known-valid time, but `NaiveTime::from_hms_opt`
-/// is fallible at the type level. Fall back to `NaiveTime::MIN` to
-/// satisfy `clippy::unwrap_used` without a panic path — the fallback is
-/// unreachable for these constant inputs, and the date-parser tests catch
-/// any regression immediately.
 fn end_of_day() -> NaiveTime {
     NaiveTime::from_hms_opt(23, 59, 59).unwrap_or(NaiveTime::MIN)
 }
 
-/// Clap `value_parser` for `--scheduled`: `YYYY-MM-DD` → T00:00:00Z (start
-/// of day), or full RFC 3339 passed through. GH #361 REQ-11.
-///
-/// # Errors
-///
-/// Returns an error string if the input is neither a valid ISO date nor a
-/// valid RFC 3339 datetime.
 pub fn parse_scheduled_date(s: &str) -> Result<DateTime<Utc>, String> {
     if let Some(d) = parse_bare_date(s) {
         return Ok(date_at_time(d, NaiveTime::MIN));
@@ -396,13 +350,6 @@ pub fn parse_scheduled_date(s: &str) -> Result<DateTime<Utc>, String> {
     })
 }
 
-/// Clap `value_parser` for `--due`: `YYYY-MM-DD` → T23:59:59Z (end of day),
-/// or full RFC 3339 passed through. GH #361 REQ-11.
-///
-/// # Errors
-///
-/// Returns an error string if the input is neither a valid ISO date nor a
-/// valid RFC 3339 datetime.
 pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
     if let Some(d) = parse_bare_date(s) {
         return Ok(date_at_time(d, end_of_day()));
@@ -600,12 +547,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("output.txt");
         atomic_write(&path, b"data").unwrap();
-        // The .output.txt.tmp file should not remain after a successful write
+
         let tmp_path = dir.path().join(".output.txt.tmp");
         assert!(!tmp_path.exists());
     }
-
-    // ── Compact identifier tests ─────────────────────────────────────────
 
     #[test]
     fn test_base62_encode_4_produces_4_chars() {
@@ -640,7 +585,7 @@ mod tests {
     fn test_generate_compact_id_unique() {
         let ids: Vec<String> = (0..100).map(|_| generate_compact_id()).collect();
         let unique: std::collections::HashSet<_> = ids.iter().collect();
-        // With 14.8M possibilities, 100 calls should be all unique
+
         assert_eq!(unique.len(), 100);
     }
 
@@ -691,25 +636,20 @@ mod tests {
         assert!(validate_compact_name("hello/world").is_err());
     }
 
-    // ── Scheduling date parser tests (GH #361) ─────────────────────────
-
     #[test]
     fn test_parse_scheduled_date_iso_maps_to_start_of_day() {
-        // REQ-11 / AC-1: YYYY-MM-DD for --scheduled is T00:00:00Z.
         let dt = parse_scheduled_date("2026-03-20").unwrap();
         assert_eq!(dt.to_rfc3339(), "2026-03-20T00:00:00+00:00");
     }
 
     #[test]
     fn test_parse_due_date_iso_maps_to_end_of_day() {
-        // REQ-11 / AC-1: YYYY-MM-DD for --due is T23:59:59Z.
         let dt = parse_due_date("2026-03-25").unwrap();
         assert_eq!(dt.to_rfc3339(), "2026-03-25T23:59:59+00:00");
     }
 
     #[test]
     fn test_parse_due_date_rfc3339_passthrough() {
-        // REQ-11 / AC-20: full RFC 3339 bypasses the end-of-day convention.
         let dt = parse_due_date("2026-03-20T14:00:00Z").unwrap();
         assert_eq!(dt.to_rfc3339(), "2026-03-20T14:00:00+00:00");
     }
@@ -744,13 +684,6 @@ mod tests {
         assert!(parse_due_date("2026-02-31").is_err());
     }
 
-    /// Two threads concurrently writing to the same target path must not
-    /// interleave bytes. After all iterations, the file must parse as the
-    /// complete JSON content of exactly one writer.
-    ///
-    /// This exercises the fix for the fixed-name temp file race where two
-    /// concurrent `atomic_write` calls would share the same `.{name}.tmp`
-    /// path and corrupt each other's content before the rename.
     #[test]
     fn test_atomic_write_concurrent_no_interleaving() {
         use std::sync::Arc;
@@ -758,8 +691,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let target = Arc::new(dir.path().join("shared.json"));
 
-        // Two JSON payloads that are distinguishable and large enough to
-        // expose byte-level interleaving if it occurs.
         let payload_a = serde_json::json!({"writer": "A", "data": "a".repeat(4096)})
             .to_string()
             .into_bytes();
@@ -788,7 +719,6 @@ mod tests {
             t_a.join().expect("thread A panicked");
             t_b.join().expect("thread B panicked");
 
-            // The file must be valid JSON whose content is wholly A or wholly B.
             let raw = std::fs::read(&*target).expect("target file missing");
             let v: serde_json::Value =
                 serde_json::from_slice(&raw).expect("file is not valid JSON (interleaved bytes)");

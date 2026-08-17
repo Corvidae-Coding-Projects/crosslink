@@ -5,15 +5,9 @@ use rusqlite::params;
 use super::core::Database;
 use super::helpers::parse_datetime;
 
-/// Row from `get_time_entries_for_issue`: (id, `started_at`, `ended_at`, `duration_seconds`).
 pub type TimeEntryRow = (i64, DateTime<Utc>, Option<DateTime<Utc>>, Option<i64>);
 
 impl Database {
-    /// Start a timer for the given issue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database insert fails.
     pub fn start_timer(&self, issue_id: i64) -> Result<i64> {
         let issue_id = self.resolve_id(issue_id);
         let now = Utc::now().to_rfc3339();
@@ -24,11 +18,6 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Stop the active timer for the given issue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database update fails.
     pub fn stop_timer(&self, issue_id: i64) -> Result<bool> {
         let issue_id = self.resolve_id(issue_id);
         let now_str = Utc::now().to_rfc3339();
@@ -40,11 +29,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// Get the currently active (unfinished) timer, if any.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn get_active_timer(&self) -> Result<Option<(i64, DateTime<Utc>)>> {
         let result: Result<(i64, String), _> = self
             .conn
@@ -61,11 +45,6 @@ impl Database {
         }
     }
 
-    /// Get the total tracked time for an issue in seconds.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn get_total_time(&self, issue_id: i64) -> Result<i64> {
         let total: i64 = self
             .conn
@@ -77,11 +56,6 @@ impl Database {
         Ok(total)
     }
 
-    /// Get time entries for an issue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
     pub fn get_time_entries_for_issue(&self, issue_id: i64) -> Result<Vec<TimeEntryRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, started_at, ended_at, duration_seconds FROM time_entries WHERE issue_id = ?1 ORDER BY id",

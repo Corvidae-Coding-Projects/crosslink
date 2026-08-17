@@ -1,15 +1,5 @@
-//! Config key registry — shared type definitions and presets.
-//!
-//! Extracted from `config.rs` to break the bidirectional coupling between
-//! `config.rs` and `init.rs` (#454). Both modules import from here.
-
-/// Embedded default hook-config.json (included at compile time from resources/).
 pub(crate) const HOOK_CONFIG_JSON: &str =
     include_str!("../../resources/crosslink/hook-config.json");
-
-// ---------------------------------------------------------------------------
-// Config key registry — single source of truth (REQ-1)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigType {
@@ -97,6 +87,20 @@ pub static REGISTRY: &[ConfigKey] = &[
         hot_swappable: true,
     },
     ConfigKey {
+        key: "agent.provider",
+        config_type: ConfigType::Enum(&["claude", "codex", "custom"]),
+        description: "Runtime agent protocol; installed integrations are configured separately",
+        group: ConfigGroup::Agents,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "agent.binary",
+        config_type: ConfigType::String,
+        description: "Optional executable-path override for the selected provider",
+        group: ConfigGroup::Agents,
+        hot_swappable: true,
+    },
+    ConfigKey {
         key: "kickoff.allowed_tools",
         config_type: ConfigType::StringArray,
         description: "Extra Bash tool patterns appended to the kickoff agent's --allowedTools list",
@@ -173,7 +177,6 @@ pub static REGISTRY: &[ConfigKey] = &[
         group: ConfigGroup::Infrastructure,
         hot_swappable: false,
     },
-    // --- Sentinel config keys ---
     ConfigKey {
         key: "sentinel.enabled",
         config_type: ConfigType::Bool,
@@ -254,7 +257,7 @@ pub static REGISTRY: &[ConfigKey] = &[
     ConfigKey {
         key: "sentinel.escalation.enabled",
         config_type: ConfigType::Bool,
-        description: "Enable automatic Sonnet->Opus escalation on failure",
+        description: "Enable automatic standard-to-advanced model escalation on failure",
         group: ConfigGroup::Sentinel,
         hot_swappable: true,
     },
@@ -310,6 +313,15 @@ pub fn find_registry_key(key: &str) -> Option<&'static ConfigKey> {
     None
 }
 
+pub fn value_at_path<'a>(
+    value: &'a serde_json::Value,
+    path: &str,
+) -> Option<&'a serde_json::Value> {
+    path.split('.')
+        .try_fold(value, |current, segment| current.get(segment))
+        .or_else(|| value.get(path))
+}
+
 pub const fn type_label(ct: ConfigType) -> &'static str {
     match ct {
         ConfigType::Bool => "bool",
@@ -320,10 +332,6 @@ pub const fn type_label(ct: ConfigType) -> &'static str {
         ConfigType::Map => "map",
     }
 }
-
-// ---------------------------------------------------------------------------
-// Preset definitions (REQ-4)
-// ---------------------------------------------------------------------------
 
 pub static PRESET_TEAM: &[(&str, &str)] = &[
     ("tracking_mode", "strict"),
@@ -341,30 +349,21 @@ pub static PRESET_SOLO: &[(&str, &str)] = &[
     ("signing_enforcement", "disabled"),
 ];
 
-// ---------------------------------------------------------------------------
-// Shared walkthrough TUI state machine (#453)
-// ---------------------------------------------------------------------------
-
 use std::collections::HashMap;
 
-/// Shared walkthrough state for the preset/group/confirm TUI flow.
-///
-/// Used by both `crosslink init` and `crosslink config` walkthrough screens.
-/// Init wraps this with additional alias-screen state.
 pub struct WalkthroughCore {
-    /// Current screen: 0 = preset, 1..=N = groups, last = confirm
     pub screen: usize,
-    /// For preset screen: 0=Team, 1=Solo, 2=Custom
+
     pub preset_selected: usize,
-    /// Per-group, per-key selected option index
+
     pub group_selections: Vec<Vec<usize>>,
-    /// Group names
+
     pub group_names: Vec<&'static str>,
-    /// Keys per group (indices into REGISTRY)
+
     pub group_keys: Vec<Vec<usize>>,
-    /// Within a group screen, which key is focused
+
     pub group_cursor: usize,
-    /// Number of extra screens between groups and confirm (e.g., alias screen)
+
     pub extra_screens: usize,
     pub finished: bool,
     pub cancelled: bool,
@@ -385,7 +384,7 @@ impl WalkthroughCore {
                 if entry.group != *group {
                     continue;
                 }
-                // Skip arrays, maps, integers — advanced settings
+
                 if matches!(
                     entry.config_type,
                     ConfigType::StringArray | ConfigType::Map | ConfigType::Integer
@@ -393,7 +392,7 @@ impl WalkthroughCore {
                     continue;
                 }
                 keys_in_group.push(idx);
-                let current_val = current_config.get(entry.key);
+                let current_val = value_at_path(current_config, entry.key);
                 let sel = match entry.config_type {
                     ConfigType::Bool => {
                         let val = current_val
@@ -419,7 +418,7 @@ impl WalkthroughCore {
 
         Self {
             screen: 0,
-            preset_selected: 2, // Custom by default
+            preset_selected: 2,
             group_selections,
             group_names,
             group_keys,
@@ -431,7 +430,6 @@ impl WalkthroughCore {
     }
 
     pub const fn total_screens(&self) -> usize {
-        // preset + groups + extra_screens + confirm
         1 + self.group_names.len() + self.extra_screens + 1
     }
 
@@ -443,8 +441,6 @@ impl WalkthroughCore {
         self.screen == self.total_screens() - 1
     }
 
-    /// Index of the first extra screen (e.g., alias screen in init).
-    /// Returns None if no extra screens or not on one.
     pub const fn extra_screen_idx(&self) -> Option<usize> {
         if self.extra_screens == 0 {
             return None;
@@ -510,15 +506,13 @@ impl WalkthroughCore {
         }
     }
 
-    /// Confirm the current screen. For preset, applies preset and skips to
-    /// the first extra screen (or confirm if no extras). For groups, advances.
     pub fn confirm(&mut self) {
         if self.is_confirm_screen() {
             self.finished = true;
         } else if self.is_preset_screen() {
             if self.preset_selected < 2 {
                 self.apply_preset_selections();
-                // Skip group screens, go to first extra or confirm
+
                 self.screen = 1 + self.group_names.len();
             } else {
                 self.screen = 1;
@@ -534,7 +528,6 @@ impl WalkthroughCore {
         if self.screen > 0 {
             let first_extra = 1 + self.group_names.len();
             if self.screen == first_extra && self.preset_selected < 2 {
-                // Came from preset directly, go back to preset
                 self.screen = 0;
             } else {
                 self.screen -= 1;
@@ -577,16 +570,7 @@ impl WalkthroughCore {
                             "true" => serde_json::Value::Bool(true),
                             _ => serde_json::Value::Bool(false),
                         },
-                        // `ConfigType::String` options are a render-only
-                        // placeholder (`"(text)"`) — the TUI has no
-                        // text-input affordance today, so the placeholder
-                        // is never an intentional value. Persisting it
-                        // corrupts every `String`-typed key on every new
-                        // repo (GH#739: `tracker_remote = "(text)"` made
-                        // push fail with `RemoteMisconfigured`; the
-                        // sentinel model keys silently broke too). Skip
-                        // — `apply_tui_choices` then preserves the
-                        // template default.
+
                         ConfigType::String => continue,
                         _ => serde_json::Value::String(val_str.to_string()),
                     };
@@ -602,25 +586,12 @@ impl WalkthroughCore {
 mod walkthrough_core_tests {
     use super::*;
 
-    /// Regression test for GH#739.
-    ///
-    /// `options_for_key` returns `vec!["(text)"]` for every
-    /// `ConfigType::String` key as a render-only UI placeholder.
-    /// Before the fix, `build_config` would dump that placeholder
-    /// into the persisted config; `apply_tui_choices` then overwrote
-    /// the template defaults, leaving every new repo with
-    /// `tracker_remote = "(text)"` and every push failing as
-    /// `RemoteMisconfigured`. The fix makes `build_config` skip
-    /// `ConfigType::String` entries entirely so the template
-    /// defaults survive. This test enforces that contract.
     #[test]
     fn build_config_never_emits_string_typed_keys_with_text_placeholder() {
         let empty = serde_json::json!({});
         let core = WalkthroughCore::new(&empty, 0);
         let built = core.build_config();
 
-        // Every String-typed key in the registry must be absent from
-        // the build output (so the embedded template's value survives).
         let string_keys: Vec<&str> = REGISTRY
             .iter()
             .filter(|e| matches!(e.config_type, ConfigType::String))
@@ -638,8 +609,6 @@ mod walkthrough_core_tests {
             );
         }
 
-        // Belt-and-braces: no value in the entire build output may
-        // be the literal "(text)" placeholder, regardless of type.
         for (k, v) in &built {
             assert_ne!(
                 v.as_str(),

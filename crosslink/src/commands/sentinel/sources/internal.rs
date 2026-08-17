@@ -3,7 +3,6 @@ use chrono::Utc;
 
 use super::{Signal, SignalKind, Source, SourceKind};
 
-/// Configuration for the internal hygiene source.
 pub struct InternalHygieneConfig {
     pub stale_threshold_days: i64,
 }
@@ -16,7 +15,6 @@ impl Default for InternalHygieneConfig {
     }
 }
 
-/// Checks crosslink issues for staleness, orphaned subissues, and missing labels.
 pub struct InternalHygieneSource {
     config: InternalHygieneConfig,
     db_path: std::path::PathBuf,
@@ -30,7 +28,6 @@ impl InternalHygieneSource {
         }
     }
 
-    /// Find open issues with no activity for more than `stale_threshold_days`.
     fn find_stale_issues(&self) -> Result<Vec<Signal>> {
         let db = crate::db::Database::open(&self.db_path)?;
         let threshold = Utc::now() - chrono::Duration::days(self.config.stale_threshold_days);
@@ -69,7 +66,6 @@ impl InternalHygieneSource {
         Ok(signals)
     }
 
-    /// Find subissues whose parent has been closed (orphaned).
     fn find_orphaned_subissues(&self) -> Result<Vec<Signal>> {
         let db = crate::db::Database::open(&self.db_path)?;
 
@@ -107,7 +103,6 @@ impl InternalHygieneSource {
         Ok(signals)
     }
 
-    /// Find open issues with no labels.
     fn find_unlabeled_issues(&self) -> Result<Vec<Signal>> {
         let db = crate::db::Database::open(&self.db_path)?;
 

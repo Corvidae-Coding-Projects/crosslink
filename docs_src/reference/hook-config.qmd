@@ -15,6 +15,13 @@ Hook behavior is controlled by `.crosslink/hook-config.json`. This file is creat
   "cpitd_auto_install": true,
   "comment_discipline": "encouraged",
   "kickoff_verification": "local",
+  "agent": {
+    "provider": "claude",
+    "providers": {
+      "claude": {"standard_model": "sonnet", "advanced_model": "opus"},
+      "codex": {"standard_model": null, "advanced_model": null, "sandbox": "workspace-write", "approval": "auto-review"}
+    }
+  },
   "signing_enforcement": "audit",
   "auto_steal_stale_locks": false,
   "reminder_drift_threshold": 3,
@@ -68,6 +75,28 @@ Controls how aggressively hooks enforce typed comments on issues. Values: `"requ
 
 Default verification level for kickoff agents. Values: `"local"`, `"ci"`, `"thorough"`. Default: `"local"`.
 
+### `agent.provider`
+
+Selected runtime protocol: `"claude"`, `"codex"`, or `"custom"`. Default:
+`"claude"` for backward compatibility. This is independent from
+`crosslink init --agent-integration`, which only chooses repository assets.
+Local override wins over shared config.
+
+### `agent.binary`
+
+Optional executable-path override for the selected provider. It never changes
+provider semantics. `custom` requires a non-empty value. Legacy configurations
+without `agent.provider` infer the provider from `claude`, `codex`, or another
+binary name.
+
+### `agent.providers`
+
+Per-provider default, standard, and advanced model mappings plus execution
+defaults. A null Codex model omits `--model` and uses the signed-in account's
+current default. Codex host sandbox defaults to `workspace-write` with automatic
+review so Git metadata writes can be approved without disabling the sandbox;
+container execution may use danger-full-access only inside external isolation.
+
 ### `signing_enforcement`
 
 Controls SSH signature verification strictness. Values: `"enforce"` (reject unsigned), `"audit"` (warn on unsigned), `"off"`. Default: `"audit"`.
@@ -78,7 +107,7 @@ When `true`, agents automatically steal locks from agents with stale heartbeats.
 
 ### `reminder_drift_threshold`
 
-Number of drift events before hooks escalate reminder frequency. Default: `3`.
+Number of prompt events between prompt-hook reminders. Default: `3`.
 
 ### `gated_git_commands`
 
@@ -114,15 +143,18 @@ Map of named aliases for external repositories, used by commands that accept `--
 
 ### `crosslink_binary`
 
-Explicit absolute path to the `crosslink` binary used by the Python hook scripts when shelling out. String. Default: unset (hooks fall back to `$PATH`, then common install locations like `~/.cargo/bin/crosslink`). Set this when `crosslink` lives somewhere unusual or when multiple installs need disambiguating -- e.g. `crosslink config set crosslink_binary /opt/forecast/bin/crosslink`.
+Explicit absolute path to the `crosslink` binary used by the Python hook scripts when shelling out. String. Default: unset (hooks fall back to `$PATH`, then common install locations like `~/.cargo/bin/crosslink`). Set this when `crosslink` lives somewhere unusual or when multiple installs need disambiguating -- e.g. `crosslink config set crosslink_binary /opt/crosslink/bin/crosslink`.
 
 ### `context_budget_chars`
 
-Estimated character budget the `prompt-guard.py` hook uses to warn before context exhaustion. Integer. Default: `1000000` (1M chars, roughly aligned with a 200k-token window). Set to `0` (or any non-positive value) to disable the guard entirely.
+Estimated character budget used by the prompt hook's context counter. Integer.
+The default is `1000000`; a non-positive value disables the budget check.
 
 ### `kickoff.allowed_tools`
 
-Extra `--allowedTools` patterns appended to the kickoff agent's CLI invocation. String array. Default: `[]`. Use when convention detection misses a tool the agent needs (e.g. manifests buried more than one directory deep, custom build wrappers, MCP server tool names). The list is *additive* to the auto-detected toolset -- it adds, it does not replace -- and entries should be in Claude Code's allowedTools pattern format:
+Extra tool patterns appended to the kickoff policy. String array. Default: `[]`.
+Claude maps these to `allowedTools`; other providers reject or map only options
+they can preserve.
 
 ```bash
 crosslink config set kickoff.allowed_tools '["Bash(cargo *)", "Bash(make deploy *)", "mcp__tidewave__execute_sql_query"]'
@@ -132,7 +164,9 @@ Auto-detection already handles `Bash(cargo *)`, `Bash(npm *)`, `Bash(uv *)`, `Ba
 
 ### `sandbox.command` {#sandbox-command}
 
-Optional sandbox-wrapper command applied to local kickoff launches. String. Default: unset (no sandboxing). When set, the kickoff agent's `claude` invocation is prefixed with this command; the value must be a binary on `$PATH` accepting the command to run as its trailing argument. See [Local sandbox alternative](../guides/container-agents.qmd#local-sandbox-alternative) in the container-agents guide for usage notes.
+Optional sandbox-wrapper command applied to local kickoff launches. String.
+The structured selected-provider invocation is wrapped only at the tmux shell
+boundary; the value must be a binary on `$PATH` accepting a trailing command.
 
 &nbsp;
 
@@ -240,13 +274,13 @@ The `sentinel` block configures the autonomous sentinel daemon, which polls conf
       }
     },
     "default_agent": {
-      "model": "claude-sonnet-4-6",
+      "model_tier": "standard",
       "timeout_minutes": 30,
       "verify": "local"
     },
     "escalation": {
       "enabled": true,
-      "model": "claude-opus-4-6",
+      "model_tier": "advanced",
       "cooldown_minutes": 30,
       "max_attempts": 2,
       "timeout_multiplier_pct": 150
@@ -275,9 +309,11 @@ Enable the GitHub-label polling source. Bool. Default: `true`. The label source 
 
 Labels that trigger sentinel dispatch when applied to a GitHub issue. String array. Default: `["agent-todo: replicate", "agent-todo: fix"]`. Add a label here, apply it on an issue, and sentinel will pick it up on the next poll cycle.
 
-### `sentinel.default_agent.model`
+### `sentinel.default_agent.model_tier`
 
-Model used for sentinel's first-attempt agent dispatch. String. Default: `"claude-sonnet-4-6"`. Sentinel uses Sonnet by default for cost; escalation (below) bumps to Opus on failure.
+Semantic model tier or explicit provider model used for sentinel's first attempt.
+Default: `"standard"`; it resolves through the selected provider.
+The legacy key `model` remains accepted as an alias.
 
 ### `sentinel.default_agent.timeout_minutes`
 
@@ -289,11 +325,12 @@ Verification level for sentinel agents. Values: `"local"`, `"ci"`, `"thorough"`.
 
 ### `sentinel.escalation.enabled`
 
-Enable automatic model escalation on first-attempt failure. Bool. Default: `true`. When `true`, sentinel retries failed dispatches with `sentinel.escalation.model` after the cooldown.
+Enable automatic model escalation on first-attempt failure. Bool. Default: `true`. When `true`, sentinel retries failed dispatches with `sentinel.escalation.model_tier` after the cooldown.
 
-### `sentinel.escalation.model`
+### `sentinel.escalation.model_tier`
 
-Model used for escalated retries. String. Default: `"claude-opus-4-6"`.
+Semantic tier or explicit model for escalated retries. Default: `"advanced"`.
+The legacy key `model` remains accepted as an alias.
 
 ### `sentinel.escalation.cooldown_minutes`
 

@@ -1,18 +1,3 @@
-//! HTTP API for the dashboard aggregator (GH #429 §7).
-//!
-//! Routes live under `/api/v1/dashboard/` so they don't collide with the
-//! existing single-project API (`/api/v1/issues`, `/api/v1/agents`, etc.)
-//! that `crosslink serve` / the deprecation path continues to expose.
-//!
-//! Each handler opens a fresh [`DashboardDb`] connection from the path
-//! recorded in [`crate::server::state::AppState::dashboard_db_path`].
-//! `SQLite` opens are cheap (~microseconds) so per-request opens are
-//! fine for the polling-panel use case. If that ever becomes a hot
-//! path we can pool connections; not worth the complexity now.
-//!
-//! This module exposes a pure-axum `Router` factory — the server's
-//! `build_router` nests it under `/api/v1/dashboard`.
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -28,19 +13,7 @@ use super::projects::Project;
 use super::reader;
 use crate::server::state::AppState;
 
-/// Build the `/api/v1/dashboard` router.
-///
-/// Note: the project-detail route uses `{*slug}` (wildcard capture)
-/// because crosslink slugs have the shape `owner/repo` and therefore
-/// contain a slash. A single-segment capture (`{slug}`) would fail to
-/// match. Clients can hit `/projects/forecast-bio/crosslink` directly;
-/// no URL-encoding required.
 pub fn build_router() -> Router<AppState> {
-    // Write endpoints split by slug *and* issue id. Axum picks the
-    // most-specific route that matches, so `/issues/{id}/close` wins
-    // over `/projects/{*slug}` as long as we nest the writes beneath
-    // a distinct prefix. Using `/w/` (for "write") keeps the path
-    // pattern unambiguous without making URLs ugly.
     Router::new()
         .route("/projects", get(list_projects))
         .route("/projects/{*slug}", get(get_project_detail))
@@ -81,9 +54,6 @@ pub fn build_router() -> Router<AppState> {
         )
 }
 
-/// Wire-format representation of a tracked project on the list endpoint.
-/// Extends [`Project`] with the current `project_state` counters so the
-/// frontend can render a tile without a second round-trip.
 #[derive(Debug, Serialize)]
 struct ProjectListItem {
     slug: String,
@@ -94,8 +64,7 @@ struct ProjectListItem {
     last_activity_at: Option<String>,
     added_at: String,
     counters: ProjectCountersView,
-    /// Whether the local workspace is initialised enough for dashboard
-    /// write actions to succeed. See [`super::projects::WriteCapability`].
+
     write_capability: &'static str,
 }
 
@@ -111,10 +80,6 @@ struct ProjectCountersView {
     updated_at: Option<String>,
 }
 
-/// Full detail payload for `/projects/{slug}`. Reads a live
-/// [`reader::HubSnapshot`] off the cached clone so the frontend
-/// gets the complete issue/agent/lock set — not just the aggregate
-/// counters.
 #[derive(Debug, Serialize)]
 struct ProjectDetail {
     slug: String,
@@ -125,29 +90,24 @@ struct ProjectDetail {
     last_activity_at: Option<String>,
     added_at: String,
     counters: ProjectCountersView,
-    /// Full issue list from the hub branch.
+
     issues: Vec<crate::issue_file::IssueFile>,
-    /// Per-agent heartbeats.
+
     agents: Vec<crate::locks::Heartbeat>,
-    /// Lock entries (`issue_id` keyed).
+
     locks: Vec<SerializableLock>,
-    /// Hub layout version (1 or 2).
+
     layout_version: u32,
-    /// Agent control requests grouped by target agent.
+
     agent_requests: Vec<SerializableAgentRequests>,
-    /// CI status for the hub-tip commit, when a pipeline reports it.
-    /// Shape: `{sha, state: "passing|failing|pending", url?}` from
-    /// `meta/ci-status.json` on the hub branch.
+
     ci_status: Option<reader::CiStatus>,
-    /// Coarse signature state of the hub-tip commit. One of `"valid"`,
-    /// `"unsigned"`, `"invalid"`, or `"unknown"`.
+
     signature_state: &'static str,
-    /// Whether the local workspace is initialised enough for dashboard
-    /// write actions to succeed. Same shape as on the list endpoint.
+
     write_capability: &'static str,
 }
 
-/// Flattened view of a target agent's request stream for JSON output.
 #[derive(Debug, Serialize)]
 struct SerializableAgentRequests {
     agent_id: String,
@@ -162,7 +122,7 @@ struct SerializableAgentRequest {
     requested_by: String,
     requested_at: String,
     reason: Option<String>,
-    /// `None` when pending; set once the target agent acknowledges.
+
     ack: Option<SerializableAgentRequestAck>,
 }
 
@@ -200,9 +160,6 @@ impl From<reader::AgentRequestsForAgent> for SerializableAgentRequests {
     }
 }
 
-/// Flat lock representation for JSON output. The reader's `LockRecord`
-/// holds a [`crate::locks::Lock`] inline; mirror its fields here so the
-/// wire shape is a single-level object.
 #[derive(Debug, Serialize)]
 struct SerializableLock {
     issue_id: i64,
@@ -224,8 +181,6 @@ impl From<reader::LockRecord> for SerializableLock {
     }
 }
 
-/// `GET /api/v1/dashboard/projects` — list tracked projects with
-/// materialised tile state.
 async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ProjectListItem>>, ApiError> {
@@ -295,8 +250,6 @@ fn load_project_list(db_path: &std::path::Path) -> Result<Vec<ProjectListItem>, 
     Ok(rows)
 }
 
-/// `GET /api/v1/dashboard/projects/{slug}` — full detail including a
-/// freshly-read hub snapshot (issues, agents, locks).
 async fn get_project_detail(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -316,8 +269,6 @@ async fn get_project_detail(
 fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectDetail, ApiError> {
     let db = DashboardDb::open(db_path).map_err(|e| ApiError::internal(format!("open db: {e}")))?;
 
-    // Fetch the row + state in one query. Returns None if the slug
-    // isn't tracked — which becomes a 404.
     let row: Option<(Project, ProjectCountersView)> = db
         .conn
         .query_row(
@@ -364,9 +315,6 @@ fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectD
         return Err(ApiError::not_found(format!("project '{slug}' not tracked")));
     };
 
-    // Read a fresh snapshot off the cache clone. If the clone is
-    // missing (e.g. disk was wiped since `track`), return an empty
-    // snapshot rather than erroring — the tile should still render.
     let snapshot = if project.clone_path.is_dir() {
         reader::read_snapshot(&project.clone_path).unwrap_or_else(|_| reader::HubSnapshot {
             hub_sha: None,
@@ -393,10 +341,6 @@ fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectD
         }
     };
 
-    // Sort issues deterministically: display_id ascending, then
-    // closed-after-open so the currently-actionable work floats up.
-    // Local-only issues (no display_id yet) land at the end in uuid
-    // order so they don't jump around between ticks.
     let mut issues = snapshot.issues;
     issues.sort_by(|a, b| {
         use std::cmp::Ordering;
@@ -443,9 +387,6 @@ fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectD
     })
 }
 
-/// Wire-format alert row returned by `GET /api/v1/dashboard/alerts`.
-/// Mirrors the `alerts` table plus the `slug` of the parent project
-/// so the frontend can link-off without a second fetch.
 #[derive(Debug, Serialize)]
 struct AlertItem {
     id: i64,
@@ -459,9 +400,6 @@ struct AlertItem {
     acknowledged_at: Option<String>,
 }
 
-/// `GET /api/v1/dashboard/alerts` — list currently-open alerts across
-/// all tracked projects, most recent first. No filtering for MVP;
-/// add `?severity=...` / `?project=...` query params in P3 polish.
 async fn list_alerts(State(state): State<AppState>) -> Result<Json<Vec<AlertItem>>, ApiError> {
     let db_path = state
         .dashboard_db_path
@@ -509,44 +447,35 @@ fn load_open_alerts(db_path: &std::path::Path) -> Result<Vec<AlertItem>, ApiErro
     Ok(rows)
 }
 
-/// Wire-format response for a completed write action.
 #[derive(Debug, Serialize)]
 struct ActionResponse {
     stdout: String,
     stderr: String,
 }
 
-/// Body for `POST /w/{owner}/{repo}/issues/{id}/comment`.
 #[derive(Debug, Deserialize)]
 struct CommentBody {
     content: String,
 }
 
-/// Body for `POST /w/{owner}/{repo}/init`.
 #[derive(Debug, Deserialize)]
 struct InitProjectBody {
-    /// Agent identifier for `crosslink agent init`. Alphanumeric +
-    /// hyphens + underscores.
     agent_id: String,
 }
 
-/// Body for `POST /api/v1/dashboard/clone`.
 #[derive(Debug, Deserialize)]
 struct CloneRepoBody {
-    /// Git URL. Accepts `https://...`, `git@host:owner/repo.git`, etc.
     url: String,
-    /// Override slug. Defaults to derived from `url`.
+
     #[serde(default)]
     slug: Option<String>,
-    /// Clone-root override. Defaults to `$HOME`, so repos land at
-    /// `~/<owner>/<repo>`.
+
     #[serde(default)]
     clone_root: Option<String>,
-    /// Run `crosslink init --defaults` + `crosslink agent init` after
-    /// cloning so dashboard writes work right away.
+
     #[serde(default)]
     init: bool,
-    /// Required when `init` is true.
+
     #[serde(default)]
     agent_id: Option<String>,
 }
@@ -558,16 +487,6 @@ struct CloneRepoOutcome {
     initialized: bool,
 }
 
-/// `POST /api/v1/dashboard/clone`
-///
-/// Clone an arbitrary git URL into `~/<owner>/<repo>` (or a
-/// caller-provided `clone_root`) and register it in the dashboard DB.
-/// Optionally runs `crosslink init` + `crosslink agent init` in the
-/// fresh clone so writes work immediately.
-///
-/// This is the standalone counterpart to the PAT-gated `track-all`
-/// flow — lets operators add a single repo by URL without configuring
-/// GitHub enumeration.
 async fn clone_repo(
     State(state): State<AppState>,
     Json(body): Json<CloneRepoBody>,
@@ -582,7 +501,6 @@ async fn clone_repo(
         return Err(ApiError::bad_request("url is required"));
     }
 
-    // Derive slug from the URL if the caller didn't provide one.
     let slug = match body
         .slug
         .as_deref()
@@ -597,16 +515,11 @@ async fn clone_repo(
         })?,
     };
 
-    // Default to `$HOME` so each repo lands at `~/<owner>/<repo>`
-    // — same as track-all and consistent with the discover walker
-    // which scans `$HOME` for crosslink-enabled repos.
     let clone_root = body
         .clone_root
         .clone()
         .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
 
-    // If init was requested, require agent_id up front so we bail
-    // before the network fetch.
     let init_agent_id = if body.init {
         let id = body
             .agent_id
@@ -619,11 +532,6 @@ async fn clone_repo(
         None
     };
 
-    // Derive a target path `<clone_root>/<repo>` from the slug — flat
-    // shape to match the user's existing manual clone layout
-    // (`~/crosslink`, `~/ferrotorch`, …) rather than nesting under
-    // `<owner>/`. Slug still carries the owner for dashboard
-    // identity; only the on-disk path drops it.
     let mut parts = slug.splitn(2, '/');
     let owner = parts.next().unwrap_or_default().to_string();
     let repo = parts.next().unwrap_or_default().to_string();
@@ -634,7 +542,6 @@ async fn clone_repo(
     }
     let target = std::path::PathBuf::from(&clone_root).join(&repo);
 
-    // Clone + register all on the blocking pool.
     let slug_for_task = slug.clone();
     let outcome =
         tokio::task::spawn_blocking(move || -> Result<CloneRepoOutcome, anyhow::Error> {
@@ -674,15 +581,6 @@ async fn clone_repo(
     Ok(Json(outcome))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/init`
-///
-/// Retrofit handler: runs `crosslink init --defaults` and
-/// `crosslink agent init <agent_id>` in the tracked workspace so a
-/// repo that was cloned without `--init` can be brought to
-/// `write_capability: "ready"` without dropping to a shell.
-///
-/// Idempotent-on-Ready: if the workspace is already fully initialised
-/// this is a no-op returning a success response.
 async fn init_project(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -696,7 +594,6 @@ async fn init_project(
     }
     let (_db_path, project) = resolve_project(&state, &owner, &repo).await?;
 
-    // Move into a blocking task — both shells do real FS work.
     let clone_path = project.clone_path.clone();
     let outcome =
         tokio::task::spawn_blocking(move || -> Result<(String, String), anyhow::Error> {
@@ -716,10 +613,6 @@ async fn init_project(
         })
         .await
         .map_err(|e| ApiError::internal(format!("init task panicked: {e}")))?
-        // `{:#}` includes the anyhow context chain (e.g. the underlying
-        // OS error like "No such file or directory" under the
-        // "spawn `crosslink init`" wrapper) instead of just the top
-        // line. Without this, users see the wrapper and can't diagnose.
         .map_err(|e| ApiError::internal(format!("{e:#}")))?;
 
     Ok(Json(ActionResponse {
@@ -728,12 +621,6 @@ async fn init_project(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/integrity/sign-backfill`
-///
-/// Runs `crosslink integrity sign-backfill --confirm` in the
-/// tracked workspace. Used from `signature_invalid` alerts to let
-/// the operator re-sign unsigned / invalidly-signed commits on the
-/// hub branch without dropping to a shell.
 async fn sign_backfill(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -754,8 +641,6 @@ async fn sign_backfill(
     }))
 }
 
-/// Shared setup: find the project by `{owner}/{repo}`, return a 404
-/// if it isn't tracked.
 async fn resolve_project(
     state: &AppState,
     owner: &str,
@@ -784,7 +669,6 @@ async fn resolve_project(
     Ok((db_path, project))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/close`
 async fn close_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -806,7 +690,6 @@ async fn close_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/reopen`
 async fn reopen_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -828,9 +711,6 @@ async fn reopen_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/comment`
-///
-/// Body: `{ "content": "..." }`.
 async fn comment_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -883,9 +763,6 @@ struct MilestoneIssueBody {
     issue_id: i64,
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/block`
-///
-/// Body: `{ "blocker_id": N }`. Marks issue `{id}` as blocked by issue `N`.
 async fn block_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -909,7 +786,6 @@ async fn block_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/unblock`
 async fn unblock_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -933,9 +809,6 @@ async fn unblock_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/relate`
-///
-/// Body: `{ "other_id": N }`. Symmetric link — order doesn't matter.
 async fn relate_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -959,9 +832,6 @@ async fn relate_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/label`
-///
-/// Body: `{ "label": "bug" }`. Adds a single label. Empty rejected 400.
 async fn label_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -987,7 +857,6 @@ async fn label_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/issues/{id}/unlabel`
 async fn unlabel_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1013,10 +882,6 @@ async fn unlabel_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/milestones`
-///
-/// Body: `{ "name": "...", "description": "..." }`. Name is required
-/// and must be non-empty; description is optional.
 async fn create_milestone(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -1048,9 +913,6 @@ async fn create_milestone(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/milestones/{id}/add`
-///
-/// Body: `{ "issue_id": N }`. Attaches issue `N` to milestone `{id}`.
 async fn milestone_add_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1074,7 +936,6 @@ async fn milestone_add_issue(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/milestones/{id}/remove`
 async fn milestone_remove_issue(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1106,7 +967,6 @@ struct ClaimLockBody {
 
 #[derive(Debug, Deserialize)]
 struct AgentRequestBody {
-    /// kill | pause | resume | reprioritise
     kind: String,
     #[serde(default)]
     subject_issue: Option<i64>,
@@ -1114,12 +974,6 @@ struct AgentRequestBody {
     reason: Option<String>,
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/agents/{agent_id}/request`
-///
-/// Body: `{ "kind": "kill|pause|resume|reprioritise",
-///          "subject_issue"?: N, "reason"?: "..." }`. Shells out to
-/// `crosslink agent request`, which writes a signed JSON under
-/// `agents/<agent_id>/requests/` on the hub branch. See design doc §9.
 async fn agent_request(
     State(state): State<AppState>,
     Path((owner, repo, agent_id)): Path<(String, String, String)>,
@@ -1128,8 +982,7 @@ async fn agent_request(
     if body.kind.trim().is_empty() {
         return Err(ApiError::bad_request("request kind cannot be empty"));
     }
-    // Validate kind before shelling out — gives a precise 400 instead of
-    // a generic CLI error on the other side.
+
     crate::agent_requests::RequestKind::parse(body.kind.trim())
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
 
@@ -1166,11 +1019,6 @@ async fn agent_request(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/locks/{id}/claim`
-///
-/// Body: optional `{ "branch": "..." }`. Claiming from the dashboard
-/// is uncommon (agents normally claim their own locks), but we expose
-/// it so operators can seed a lock during triage.
 async fn claim_lock(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1199,7 +1047,6 @@ async fn claim_lock(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/locks/{id}/release`
 async fn release_lock(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1221,10 +1068,6 @@ async fn release_lock(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/locks/{id}/steal`
-///
-/// Hijacks a stale lock held by another agent. The CLI itself enforces
-/// the staleness threshold, so we just pass through.
 async fn steal_lock(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1246,7 +1089,6 @@ async fn steal_lock(
     }))
 }
 
-/// `POST /api/v1/dashboard/w/{owner}/{repo}/milestones/{id}/close`
 async fn close_milestone(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
@@ -1268,9 +1110,6 @@ async fn close_milestone(
     }))
 }
 
-/// Minimal typed error with status-code mapping. Patterned after axum
-/// idioms — manual `IntoResponse` implementation maps to the right
-/// status without pulling in a full error-handling crate.
 #[derive(Debug)]
 struct ApiError {
     status: StatusCode,
@@ -1313,9 +1152,8 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt; // .oneshot(...)
+    use tower::ServiceExt;
 
-    /// Build a minimal `AppState` wired to a temp DB.
     fn test_state(dashboard_db: Option<std::path::PathBuf>) -> (AppState, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let main_db_path = dir.path().join("crosslink.db");
@@ -1415,7 +1253,7 @@ mod tests {
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["slug"], "owner/repo");
         assert_eq!(arr[0]["status"], "active");
-        // counters default to zeros when project_state hasn't been populated.
+
         assert_eq!(arr[0]["counters"]["open_issues"], 0);
     }
 
@@ -1504,7 +1342,7 @@ mod tests {
                 rusqlite::params![project_id],
             )
             .unwrap();
-        // A resolved alert should NOT show up.
+
         db.conn
             .execute(
                 "INSERT INTO alerts
@@ -1747,7 +1585,7 @@ mod tests {
 
         let clone = tmp.path().join("clone");
         std::fs::create_dir_all(clone.join("agents/jus4/requests")).unwrap();
-        // Write a pending request; no ack.
+
         let req = crate::agent_requests::AgentRequest {
             request_id: "01HXY000000000000000000001".into(),
             kind: crate::agent_requests::RequestKind::Pause,

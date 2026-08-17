@@ -1,26 +1,14 @@
-// ── Crate-level clippy configuration ────────────────────────────────────────
 #![warn(clippy::pedantic, clippy::nursery)]
-// Impractical to add `# Errors` doc sections to 300+ fallible functions retroactively.
 #![allow(clippy::missing_errors_doc)]
-// Panic doc sections are similarly impractical at scale.
 #![allow(clippy::missing_panics_doc)]
-// `Self` vs type name in return position is a style preference; current naming is clear.
 #![allow(clippy::use_self)]
-// Field/module name repetition (e.g. `IssueStatus` inside `issue` module) is intentional.
 #![allow(clippy::module_name_repetitions)]
-// Long functions are an architectural concern, not a lint fix.
 #![allow(clippy::too_many_lines)]
-// Similar variable names (e.g. `src`/`dst`, `old`/`new`) are often intentional.
 #![allow(clippy::similar_names)]
-// Items after statements is common in test code and builder patterns.
 #![allow(clippy::items_after_statements)]
-// Wildcard imports are idiomatic in test modules.
 #![allow(clippy::wildcard_imports)]
-// `must_use` on every pure function is too noisy for a CLI app.
 #![allow(clippy::must_use_candidate)]
-// Drop tightening suggestions often make code less readable.
 #![allow(clippy::significant_drop_tightening)]
-// Cast lints: numeric casts are context-dependent and reviewed at write time.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -28,22 +16,15 @@
     clippy::cast_possible_wrap,
     clippy::cast_lossless
 )]
-// pub(crate) inside private modules is harmless and matches intent.
 #![allow(clippy::redundant_pub_crate)]
-// Struct field naming is a style preference.
 #![allow(clippy::struct_field_names)]
-// Bool params: sometimes clearer than a dedicated enum for 2-3 bools.
 #![allow(clippy::struct_excessive_bools, clippy::fn_params_excessive_bools)]
-// Option<&T> vs &Option<T>: both are valid depending on context.
 #![allow(clippy::ref_option)]
-// Large stack arrays in test code: `vec![...]` literals expand to array literals
-// internally, and clippy can't trace the span back through macro expansion to
-// suggest a fix. Test code where stack frame size doesn't matter for production.
-// See https://github.com/rust-lang/rust-clippy/issues for the underlying span bug.
 #![allow(clippy::large_stack_arrays)]
 
 mod agent_flags;
 mod agent_requests;
+mod agents;
 mod checkpoint;
 mod clock_skew;
 mod commands;
@@ -72,6 +53,7 @@ mod server;
 mod shared_writer;
 mod signing;
 mod sync;
+mod token_usage;
 mod trust_model;
 mod tui;
 mod utils;
@@ -88,19 +70,15 @@ use db::Database;
 #[command(about = "A simple, lean issue tracker CLI")]
 #[command(version = option_env!("CROSSLINK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))]
 struct Cli {
-    /// Quiet mode: only output essential data (IDs, counts)
     #[arg(short, long, global = true)]
     quiet: bool,
 
-    /// Output as JSON (supported by list, show, search, session status)
     #[arg(long, global = true)]
     json: bool,
 
-    /// Log level for diagnostic output (error, warn, info, debug, trace)
     #[arg(long, global = true, default_value = "warn", env = "CROSSLINK_LOG")]
     log_level: String,
 
-    /// Log format (text, json)
     #[arg(
         long,
         global = true,
@@ -115,905 +93,730 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize crosslink in the current directory.
-    ///
-    /// On first run, launches an interactive walkthrough to choose a preset
-    /// (Team, Solo, or Custom) and configure behavioral hooks. Use --defaults
-    /// to skip the walkthrough and apply team-mode defaults non-interactively.
     Init {
-        /// Force update hooks even if already initialized
         #[arg(short, long, conflicts_with = "update")]
         force: bool,
-        /// Safe upgrade: update managed files using manifest-tracked three-way merge
+
         #[arg(long, conflicts_with_all = ["force", "reconfigure"])]
         update: bool,
-        /// Show what --update would change without writing anything
+
         #[arg(long, requires = "update")]
         dry_run: bool,
-        /// Skip conflict prompts — silently keep user-modified files (for CI)
+
         #[arg(long, requires = "update")]
         no_prompt: bool,
-        /// Override auto-detected Python prefix for hook commands (e.g. "uv run python3")
+
         #[arg(long)]
         python_prefix: Option<String>,
-        /// Skip automatic cpitd installation
+
         #[arg(long)]
         skip_cpitd: bool,
-        /// Skip driver SSH signing key setup
+
         #[arg(long)]
         skip_signing: bool,
-        /// Path to SSH key for commit signing (auto-detected if omitted)
+
         #[arg(long)]
         signing_key: Option<String>,
-        /// Re-run TUI walkthrough even if config exists
+
         #[arg(long, conflicts_with = "update")]
         reconfigure: bool,
-        /// Skip TUI and use opinionated team-mode defaults
+
         #[arg(long)]
         defaults: bool,
+
+        #[arg(long = "agent-integration", alias = "integration", default_value = "both", value_parser = ["claude", "codex", "both"])]
+        agent_integration: String,
     },
 
-    /// Issue lifecycle commands (create, show, list, close, ...)
+    Doctor,
+
     Issue {
         #[command(subcommand)]
         action: IssueCommands,
     },
 
-    /// Time tracking (start, stop, show)
     Timer {
         #[command(subcommand)]
         action: TimerCommands,
     },
 
-    /// Export issues to JSON or markdown
     Export {
-        /// Output file path (defaults to stdout)
         #[arg(short, long)]
         output: Option<String>,
-        /// Format (json, markdown)
+
         #[arg(short, long, default_value = "json")]
         format: String,
     },
 
-    /// Import issues from JSON file
     Import {
-        /// Input file path
         input: String,
     },
 
-    /// Archive management
     Archive {
         #[command(subcommand)]
         action: ArchiveCommands,
     },
 
-    /// Milestone management
     Milestone {
         #[command(subcommand)]
         action: MilestoneCommands,
     },
 
-    /// Session management
     Session {
         #[command(subcommand)]
         action: SessionCommands,
     },
 
-    /// Daemon management
     Daemon {
         #[command(subcommand)]
         action: DaemonCommands,
     },
 
-    /// Code clone detection via cpitd
     Cpitd {
         #[command(subcommand)]
         action: CpitdCommands,
     },
 
-    /// Agent identity management
     Agent {
         #[command(subcommand)]
         action: AgentCommands,
     },
 
-    /// Manage signing trust (approve/revoke agent keys)
     Trust {
         #[command(subcommand)]
         action: TrustCommands,
     },
 
-    /// View and manage issue locks
     Locks {
         #[command(subcommand)]
         action: LocksCommands,
     },
 
-    /// Push a heartbeat for the current agent (used by hooks)
     #[command(hide = true)]
     Heartbeat,
 
-    /// Sync locks and issue state from remote
     Sync,
 
-    /// Schema migration (to-shared, from-shared, rename-branch)
     Migrate {
         #[command(subcommand)]
         action: MigrateCommands,
     },
 
-    /// View and modify repo-level configuration.
-    ///
-    /// Without a subcommand, opens the interactive walkthrough to choose a
-    /// preset (Team, Solo, or Custom) and adjust settings. Use --preset to
-    /// apply a preset directly without the TUI.
     Config {
         #[command(subcommand)]
         command: Option<ConfigCommands>,
 
-        /// Apply a preset without the TUI: "team" (strict tracking, CI
-        /// verification, enforced signing) or "solo" (relaxed tracking,
-        /// local verification, signing disabled)
         #[arg(long)]
         preset: Option<String>,
     },
 
-    /// Measure and check context injection overhead
+    #[command(about = "Inspect prompt-context footprint and deployment health")]
     Context {
         #[command(subcommand)]
         command: ContextCommands,
     },
 
-    /// Manage crosslink workflow configuration
     Workflow {
         #[command(subcommand)]
         command: WorkflowCommands,
     },
 
-    /// Manage house style syncing
     Style {
         #[command(subcommand)]
         command: StyleCommands,
     },
 
-    /// Manage shared knowledge pages
     Knowledge {
         #[command(subcommand)]
         command: KnowledgeCommands,
     },
 
-    /// Data integrity checks and repair
     Integrity {
         #[command(subcommand)]
         action: Option<IntegrityCommands>,
     },
 
-    /// Run event compaction manually
     Compact {
-        /// Force compaction even if lease is held by another agent
         #[arg(long)]
         force: bool,
     },
 
-    /// Prune git history of hub and knowledge branches for storage efficiency
     Prune {
-        /// Show what would be pruned without modifying anything
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Skip confirmation and execute the prune
+
         #[arg(long)]
         force: bool,
-        /// Preserve the last N commits (default: 1, squash to current state)
+
         #[arg(long = "keep-commits", default_value = "1")]
         keep_commits: usize,
-        /// Only prune the hub branch
+
         #[arg(long = "hub-only")]
         hub_only: bool,
-        /// Only prune the knowledge branch
+
         #[arg(long = "knowledge-only")]
         knowledge_only: bool,
     },
 
-    /// Launch an agent to implement a feature (local process or container)
     Kickoff {
         #[command(subcommand)]
         action: Option<KickoffCommands>,
     },
-    /// Launch a foreground Claude session for design document authoring
+
     Design {
-        /// Feature description (e.g. "add batch retry logic")
         description: Option<String>,
-        /// Pull context from a crosslink issue
+
         #[arg(long)]
         issue: Option<i64>,
-        /// Pull context from a GitHub issue
+
         #[arg(long = "gh-issue")]
         gh_issue: Option<i64>,
-        /// Resume iteration on an existing draft (.design/<slug>.md)
+
         #[arg(long = "continue", value_name = "SLUG")]
         continue_slug: Option<String>,
     },
-    /// Multi-agent swarm coordination (plan, status, resume)
+
     Swarm {
         #[command(subcommand)]
         action: SwarmCommands,
     },
-    /// Autonomous maintenance sentinel (monitors sources, dispatches agents)
+
     Sentinel {
         #[command(subcommand)]
         action: SentinelCommands,
     },
-    /// Interactive terminal dashboard (read-only)
+
+    #[command(about = "Open the terminal workspace overview")]
     Tui,
-    /// Mission control: tmux dashboard showing all active agents
+
     #[command(alias = "mission-control")]
     Mc {
-        /// Panel layout: tiled, even-horizontal, even-vertical
         #[arg(long, default_value = "tiled")]
         layout: String,
     },
-    /// Multi-project SCADA-style control panel (GH #429).
-    ///
-    /// Group command: `crosslink dashboard serve` runs the local server,
-    /// `track`/`untrack`/`list` manage the tracked-project set. See
-    /// DESIGN-CROSSLINK-DASHBOARD.md for the architecture.
+
     Dashboard {
         #[command(subcommand)]
         action: DashboardCommands,
     },
-    /// Deprecated: alias for `crosslink dashboard`.
-    ///
-    /// Will be removed in a future release. See GH #429 and
-    /// DESIGN-CROSSLINK-DASHBOARD.md §17 for the deprecation timeline.
+
     #[command(hide = true)]
     Serve {
-        /// Port to listen on
         #[arg(long, default_value = "3100")]
         port: u16,
-        /// Directory to serve the React dashboard from (optional)
+
         #[arg(long)]
         dashboard_dir: Option<PathBuf>,
     },
-    /// Manage container-based agent execution
+
     Container {
         #[command(subcommand)]
         action: ContainerCommands,
     },
 
-    // === Hidden top-level shortcuts (delegate to `issue <verb>`) ===
-    /// Create a new issue (shortcut for `issue create`)
     #[command(hide = true)]
     Create {
-        /// Issue title
         title: String,
-        /// Issue description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Priority (low, medium, high, critical)
+
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        /// Template (bug, feature, refactor, research)
+
         #[arg(short, long)]
         template: Option<String>,
-        /// Add labels to the issue
+
         #[arg(short, long)]
         label: Vec<String>,
-        /// Set as current session work item
+
         #[arg(short, long)]
         work: bool,
-        /// Skip compaction after creation (batch mode -- display ID assigned later)
+
         #[arg(long)]
         defer_id: bool,
-        /// Bypass `template_required_fields` content validation (gh#658)
+
         #[arg(long)]
         force: bool,
-        /// Parent issue ID (creates a subissue)
+
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
-        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
         scheduled: Option<chrono::DateTime<chrono::Utc>>,
-        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_due_date)]
         due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
-    /// Quick-create an issue (shortcut for `issue quick`)
     #[command(hide = true)]
     Quick {
-        /// Issue title
         title: String,
-        /// Issue description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Priority (low, medium, high, critical)
+
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        /// Template (bug, feature, refactor, research)
+
         #[arg(short, long)]
         template: Option<String>,
-        /// Add labels to the issue
+
         #[arg(short, long)]
         label: Vec<String>,
-        /// Bypass `template_required_fields` content validation (gh#658)
+
         #[arg(long)]
         force: bool,
-        /// Parent issue ID (creates a subissue)
+
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
-        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
         scheduled: Option<chrono::DateTime<chrono::Utc>>,
-        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_due_date)]
         due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
-    /// List issues (shortcut for `issue list`)
     #[command(hide = true)]
     List {
-        /// Filter by status (open, closed, all)
         #[arg(short, long, default_value = "open")]
         status: String,
-        /// Filter by label
+
         #[arg(short, long)]
         label: Option<String>,
-        /// Filter by priority
+
         #[arg(short, long)]
         priority: Option<String>,
     },
 
-    /// Show issue details (shortcut for `issue show`)
     #[command(hide = true)]
     Show {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
 
-    /// Close an issue (shortcut for `issue close`)
     #[command(hide = true)]
     Close {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Skip changelog entry
+
         #[arg(long)]
         no_changelog: bool,
     },
 
-    // === Hidden aliases for common agent mistakes ===
-    /// Alias for `issue create`
     #[command(hide = true)]
     New {
-        /// Issue title
         title: String,
-        /// Issue description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Priority (low, medium, high, critical)
+
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        /// Template (bug, feature, refactor, research)
+
         #[arg(short, long)]
         template: Option<String>,
-        /// Add labels to the issue
+
         #[arg(short, long)]
         label: Vec<String>,
-        /// Set as current session work item
+
         #[arg(short, long)]
         work: bool,
-        /// Parent issue ID (creates a subissue)
+
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
     },
 
-    /// Alias for `issue list`
     #[command(hide = true)]
     Issues {
         #[command(subcommand)]
         action: Option<IssuesAliasCommands>,
     },
 
-    /// Alias for `issue create --parent`
     #[command(hide = true)]
     Subissue {
-        /// Parent issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         parent: i64,
-        /// Subissue title
+
         title: String,
-        /// Subissue description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Priority (low, medium, high, critical)
+
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        /// Template (bug, feature, refactor, research)
+
         #[arg(short, long)]
         template: Option<String>,
-        /// Add labels to the subissue
+
         #[arg(short, long)]
         label: Vec<String>,
-        /// Set as current session work item
+
         #[arg(short, long)]
         work: bool,
-        /// Bypass `template_required_fields` content validation (gh#658)
+
         #[arg(long)]
         force: bool,
     },
 
-    /// Alias for `timer start`
     #[command(hide = true, name = "start")]
     TimerStart {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
 
-    /// Alias for `timer stop`
     #[command(hide = true, name = "stop")]
     TimerStop,
 
-    // === Hidden migration aliases ===
-    /// Alias for `migrate to-shared`
     #[command(hide = true, name = "migrate-to-shared")]
     MigrateToShared,
 
-    /// Alias for `migrate from-shared`
     #[command(hide = true, name = "migrate-from-shared")]
     MigrateFromShared,
 
-    /// Alias for `migrate rename-branch`
     #[command(hide = true, name = "migrate-rename-branch")]
     MigrateRenameBranch,
 }
 
-/// Issue lifecycle subcommands
 #[derive(Subcommand)]
 enum IssueCommands {
-    /// Create a new issue
     Create {
-        /// Issue title
         title: String,
-        /// Issue description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Priority (low, medium, high, critical)
+
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        /// Template (bug, feature, refactor, research)
+
         #[arg(short, long)]
         template: Option<String>,
-        /// Add labels to the issue
+
         #[arg(short, long)]
         label: Vec<String>,
-        /// Set as current session work item
+
         #[arg(short, long)]
         work: bool,
-        /// Skip compaction after creation (batch mode -- display ID assigned later)
+
         #[arg(long)]
         defer_id: bool,
-        /// Bypass `template_required_fields` content validation (gh#658)
+
         #[arg(long)]
         force: bool,
-        /// Parent issue ID (creates a subissue)
+
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
-        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
         scheduled: Option<chrono::DateTime<chrono::Utc>>,
-        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_due_date)]
         due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
-    /// Quick-create an issue and start working on it (create + label + session work)
     Quick {
-        /// Issue title
         title: String,
-        /// Issue description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Priority (low, medium, high, critical)
+
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        /// Template (bug, feature, refactor, research)
+
         #[arg(short, long)]
         template: Option<String>,
-        /// Add labels to the issue
+
         #[arg(short, long)]
         label: Vec<String>,
-        /// Bypass `template_required_fields` content validation (gh#658)
+
         #[arg(long)]
         force: bool,
-        /// Parent issue ID (creates a subissue)
+
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
-        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
         scheduled: Option<chrono::DateTime<chrono::Utc>>,
-        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_due_date)]
         due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
-    /// List issues
     List {
-        /// Filter by status (open, closed, all)
         #[arg(short, long, default_value = "open")]
         status: String,
-        /// Filter by label
+
         #[arg(short, long)]
         label: Option<String>,
-        /// Filter by priority
+
         #[arg(short, long)]
         priority: Option<String>,
-        /// Query an external repository (URL, local path, or @alias)
+
         #[arg(long)]
         repo: Option<String>,
-        /// Force refresh of cached external data
+
         #[arg(long)]
         refresh: bool,
     },
 
-    /// Search issues by text
     Search {
-        /// Search query
         query: String,
-        /// Query an external repository (URL, local path, or @alias)
+
         #[arg(long)]
         repo: Option<String>,
-        /// Force refresh of cached external data
+
         #[arg(long)]
         refresh: bool,
     },
 
-    /// Show issue details
     Show {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Query an external repository (URL, local path, or @alias)
+
         #[arg(long)]
         repo: Option<String>,
-        /// Force refresh of cached external data
+
         #[arg(long)]
         refresh: bool,
     },
 
-    /// Update an issue
     Update {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// New title
+
         #[arg(short, long)]
         title: Option<String>,
-        /// New description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// New priority
+
         #[arg(short, long)]
         priority: Option<String>,
-        /// Set scheduled-at (YYYY-MM-DD -> start of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
         scheduled: Option<chrono::DateTime<chrono::Utc>>,
-        /// Clear scheduled-at (mutually exclusive with --scheduled)
+
         #[arg(long, conflicts_with = "scheduled")]
         no_scheduled: bool,
-        /// Set due-at (YYYY-MM-DD -> end of day, or RFC 3339)
+
         #[arg(long, value_parser = crate::utils::parse_due_date)]
         due: Option<chrono::DateTime<chrono::Utc>>,
-        /// Clear due-at (mutually exclusive with --due)
+
         #[arg(long, conflicts_with = "due")]
         no_due: bool,
     },
 
-    /// Close an issue
     Close {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Skip changelog entry
+
         #[arg(long)]
         no_changelog: bool,
     },
 
-    /// Close all issues matching filters
     CloseAll {
-        /// Filter by label
         #[arg(short, long)]
         label: Option<String>,
-        /// Filter by priority
+
         #[arg(short, long)]
         priority: Option<String>,
-        /// Skip changelog entries
+
         #[arg(long)]
         no_changelog: bool,
     },
 
-    /// Reopen a closed issue
     Reopen {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
 
-    /// Delete an issue
     Delete {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Skip confirmation
+
         #[arg(short, long)]
         force: bool,
     },
 
-    /// Add a comment to an issue
     Comment {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Comment text
+
         text: String,
-        /// Comment kind (note, plan, decision, observation, blocker, resolution, result, handoff, human)
+
         #[arg(long, default_value = "note")]
         kind: String,
     },
 
-    /// Log a driver intervention on an issue
     Intervene {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Description of the intervention
+
         description: String,
-        /// Trigger type (`tool_rejected`, `tool_blocked`, `redirect`, `context_provided`, `manual_action`, `question_answered`)
+
         #[arg(long)]
         trigger: String,
-        /// Context: what the agent was attempting when intervention occurred
+
         #[arg(long)]
         context: Option<String>,
     },
 
-    /// Add a label to an issue
     Label {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Label name
+
         label: String,
     },
 
-    /// Remove a label from an issue
     Unlabel {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Label name
+
         label: String,
     },
 
-    /// Mark an issue as blocked by another
     Block {
-        /// Issue ID that is blocked
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Issue ID that is blocking
+
         #[arg(value_parser = parse_issue_id_clap)]
         blocker: i64,
     },
 
-    /// Remove a blocking relationship
     Unblock {
-        /// Issue ID that was blocked
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Issue ID that was blocking
+
         #[arg(value_parser = parse_issue_id_clap)]
         blocker: i64,
     },
 
-    /// List blocked issues
     Blocked,
 
-    /// List issues ready to work on (no open blockers)
     Ready,
 
-    /// Link two related issues
     Relate {
-        /// First issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Second issue ID
+
         #[arg(value_parser = parse_issue_id_clap)]
         related: i64,
     },
 
-    /// Remove a relation between issues
     Unrelate {
-        /// First issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Second issue ID
+
         #[arg(value_parser = parse_issue_id_clap)]
         related: i64,
     },
 
-    /// List related issues
     Related {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
 
-    /// Suggest the next issue to work on
     Next,
 
-    /// Show issues as a tree hierarchy
     Tree {
-        /// Filter by status (open, closed, all)
         #[arg(short, long, default_value = "all")]
         status: String,
     },
 
-    /// Mark tests as run (resets test reminder)
     Tested,
 }
 
-/// Timer subcommands
 #[derive(Subcommand)]
 enum TimerCommands {
-    /// Start a timer for an issue
     Start {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
-    /// Stop the current timer
+
     Stop,
-    /// Show current timer status
+
     Show,
 }
 
-/// Migration subcommands
 #[derive(Subcommand)]
 enum MigrateCommands {
-    /// Migrate local `SQLite` issues to shared coordination branch
     ToShared,
-    /// Import shared issues from coordination branch into local `SQLite`
+
     FromShared,
-    /// Rename coordination branch from crosslink/locks to crosslink/hub
+
     RenameBranch,
-    /// Convert a v2 hub to the v3 per-agent-ref layout (one-shot, verified).
-    ///
-    /// Without `--finalize`: seeds per-agent refs + a genesis checkpoint from
-    /// the current hub state, runs the AC-6 full-state verification gate, and
-    /// pushes the v3 refs. The legacy crosslink/hub branch is left intact as a
-    /// read-only escape hatch.
-    ///
-    /// With `--finalize --yes-delete-v2`: re-verifies, then deletes the legacy
-    /// crosslink/hub branch locally and on the remote (the hard cutover).
-    ///
-    /// With `--remigrate-from-v2`: regenerates the v3 genesis from the CURRENT
-    /// crosslink/hub tip and force-pushes it, superseding a stale remote v3 hub
-    /// (the recovery path when a v2-only binary kept writing after an earlier
-    /// migration — forecast-bio/crosslink#653).
+
     HubV3 {
-        /// Delete the legacy crosslink/hub branch (destructive cutover).
         #[arg(long)]
         finalize: bool,
-        /// Required confirmation for `--finalize` (it deletes the v2 branch).
+
         #[arg(long)]
         yes_delete_v2: bool,
-        /// Adopt a remote v3 hub even when it is STALE relative to the live
-        /// crosslink/hub (v2) branch. Without this flag, adopting a v3 hub that
-        /// is behind the v2 branch is refused (it would hide newer issues).
+
         #[arg(long)]
         adopt_stale: bool,
-        /// Regenerate v3 from the CURRENT crosslink/hub (v2) tip and force-push
-        /// it, superseding any existing (stale) remote v3 hub.
+
         #[arg(long)]
         remigrate_from_v2: bool,
     },
-    /// Move the v3 hub refs to VISIBLE branches (#767), one-shot per machine.
-    ///
-    /// Renames every old hidden ref (`refs/crosslink/agents/*`,
-    /// `refs/crosslink/checkpoint`, `refs/crosslink/meta`) to the matching branch
-    /// under `refs/heads/crosslink/*` at the same SHA — local and on the remote —
-    /// then deletes the old refs and runs one compaction so the browsable state
-    /// tree materializes. Idempotent: a second run (or a hub already on visible
-    /// branches) is a clean no-op.
+
     HubBranches,
 }
 
-/// Subcommands for `crosslink dashboard` (GH #429).
 #[derive(Subcommand)]
 enum DashboardCommands {
-    /// Start the dashboard server (binds 127.0.0.1:3100 by default).
     Serve {
-        /// Port to listen on
         #[arg(long, default_value = "3100")]
         port: u16,
-        /// Override bundled dashboard assets with a local build output
-        /// (development only — bundled assets are preferred otherwise)
+
         #[arg(long)]
         dashboard_dir: Option<PathBuf>,
-        /// Force-rotate the persisted auth token at
-        /// `~/.crosslink/.dashboard-token`. Without this flag the
-        /// server reuses the existing token so open browser tabs keep
-        /// working across binary rebuilds.
+
         #[arg(long)]
         rotate_token: bool,
     },
-    /// Track a repository by pointing at your existing local working copy.
-    ///
-    /// The dashboard reads hub state and shells out to the real
-    /// `crosslink` CLI in this workspace for write operations — so no
-    /// extra setup is needed beyond a normal `git clone` +
-    /// `crosslink init` of the target project.
-    ///
-    /// Pass `--init --agent-id <ID>` to run `crosslink init` +
-    /// `crosslink agent init` in the workspace after tracking, so
-    /// dashboard write actions (close, release, etc.) work without
-    /// a manual bootstrap step.
+
     Track {
-        /// Path to a locally-cloned crosslink-managed repository.
         path: PathBuf,
-        /// Override the owner/repo slug (default: derived from origin URL).
+
         #[arg(long)]
         slug: Option<String>,
-        /// Run `crosslink init --defaults` + `crosslink agent init` in
-        /// the workspace after tracking. Requires `--agent-id`.
+
         #[arg(long)]
         init: bool,
-        /// Agent identifier for `crosslink agent init`. Required when
-        /// `--init` is passed.
+
         #[arg(long)]
         agent_id: Option<String>,
     },
-    /// Stop tracking a repository. The user's working copy is left
-    /// untouched — only the dashboard's DB row is removed.
+
     Untrack {
-        /// Repository slug to stop tracking
         slug: String,
     },
-    /// List tracked repositories.
+
     List,
-    /// Scan local filesystem for crosslink-enabled repos and
-    /// (optionally) track the hits. Looks for directories that are
-    /// both git repos and have a `.crosslink/` directory at the root.
-    ///
-    /// Roots are bounded by `--depth` and skip standard noise
-    /// directories (`node_modules`, `target`, hidden dirs, etc.) so
-    /// a full `$HOME` scan typically finishes in under a second.
+
     Discover {
-        /// Root directory to walk. Repeatable. Defaults to `$HOME`.
         #[arg(long)]
         root: Vec<PathBuf>,
-        /// Maximum directory depth below each root. Default 4.
+
         #[arg(long, default_value_t = crate::dashboard::discover::DEFAULT_DEPTH)]
         depth: usize,
-        /// Track every discovered repo that isn't already tracked.
-        /// Without this flag the command only reports.
+
         #[arg(long)]
         track: bool,
     },
 }
 
-/// Helper enum for `crosslink issues <subcommand>` alias
 #[derive(Subcommand)]
 enum IssuesAliasCommands {
-    /// Alias for `issue list`
     List {
-        /// Filter by status (open, closed, all)
         #[arg(short, long, default_value = "open")]
         status: String,
-        /// Filter by label
+
         #[arg(short, long)]
         label: Option<String>,
-        /// Filter by priority
+
         #[arg(short, long)]
         priority: Option<String>,
     },
@@ -1021,213 +824,209 @@ enum IssuesAliasCommands {
 
 #[derive(Subcommand)]
 enum ContainerCommands {
-    /// Build the crosslink agent container image locally.
-    ///
-    /// Produces `ghcr.io/dollspace-gay/crosslink-agent:<tag>` (default tag
-    /// `local`) so it composes with `crosslink kickoff run --container
-    /// docker|podman --image ghcr.io/dollspace-gay/crosslink-agent:<tag>`.
-    /// For routine use prefer `docker pull ghcr.io/dollspace-gay/crosslink-agent:latest`
-    /// or `:nightly` — this command exists for offline / Dockerfile-iteration work.
     Build {
-        /// Rebuild from scratch (no cache)
         #[arg(long)]
         force: bool,
-        /// Image tag suffix (default: `local`). Image is always namespaced
-        /// `ghcr.io/dollspace-gay/crosslink-agent:<tag>`.
+
         #[arg(long)]
         tag: Option<String>,
-        /// Path to a custom Dockerfile
+
         #[arg(long)]
         dockerfile: Option<String>,
     },
-    /// Start a task container for a worktree
+
     Start {
-        /// Path to the worktree directory
         worktree: String,
-        /// Container name (default: derived from worktree slug)
+
         #[arg(long)]
         name: Option<String>,
-        /// Path to the prompt file (default: KICKOFF.md in worktree)
+
         #[arg(long)]
         prompt: Option<String>,
-        /// Crosslink issue ID being worked on
+
         #[arg(long)]
         issue: Option<i64>,
-        /// Memory limit (default: auto-detect from host)
+
         #[arg(long)]
         memory: Option<String>,
     },
-    /// List running task containers
+
     Ps,
-    /// Stream logs from a container
+
     Logs {
-        /// Container name
         name: String,
-        /// Follow log output
+
         #[arg(short, long)]
         follow: bool,
-        /// Number of lines to show (default: 100)
+
         #[arg(long)]
         tail: Option<u32>,
     },
-    /// Stop a running container
+
     Stop {
-        /// Container name
         name: String,
     },
-    /// Remove a stopped container
+
     Rm {
-        /// Container name
         name: String,
     },
-    /// Stop and remove a container
+
     Kill {
-        /// Container name
         name: String,
     },
-    /// Open a shell inside a running container
+
     Shell {
-        /// Container name
         name: String,
     },
-    /// Snapshot a container as a cached image (preserves installed toolchains)
+
     Snapshot {
-        /// Container name
         name: String,
-        /// Image tag for the snapshot (default: cached)
+
         #[arg(long)]
         tag: Option<String>,
+    },
+
+    Auth {
+        #[command(subcommand)]
+        action: ContainerAuthCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContainerAuthCommands {
+    Login {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+    },
+
+    Status {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+    },
+
+    Refresh {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+    },
+
+    Logout {
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        provider: String,
+
+        #[arg(long)]
+        force: bool,
     },
 }
 
 #[derive(Subcommand, Clone, Copy)]
 enum ArchiveCommands {
-    /// Archive a closed issue
     Add {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
-    /// Unarchive an issue (restore to closed)
+
     Remove {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
-    /// List archived issues
+
     List,
-    /// Archive all issues closed more than N days ago
+
     Older {
-        /// Days threshold
         days: i64,
     },
 }
 
 #[derive(Subcommand)]
 enum MilestoneCommands {
-    /// Create a new milestone
     Create {
-        /// Milestone name
         name: String,
-        /// Description
+
         #[arg(short, long)]
         description: Option<String>,
     },
-    /// List milestones
+
     List {
-        /// Filter by status (open, closed, all)
         #[arg(short, long, default_value = "open")]
         status: String,
     },
-    /// Show milestone details
+
     Show {
-        /// Milestone ID
         id: i64,
     },
-    /// Add issues to a milestone
+
     Add {
-        /// Milestone ID
         id: i64,
-        /// Issue IDs to add
+
         issues: Vec<i64>,
     },
-    /// Remove an issue from a milestone
+
     Remove {
-        /// Milestone ID
         id: i64,
-        /// Issue ID to remove
+
         issue: i64,
     },
-    /// Close a milestone
+
     Close {
-        /// Milestone ID
         id: i64,
     },
-    /// Delete a milestone
+
     Delete {
-        /// Milestone ID
         id: i64,
     },
 }
 
 #[derive(Subcommand)]
 enum SessionCommands {
-    /// Start a new session
     Start,
-    /// End the current session
+
     End {
-        /// Handoff notes for the next session
         #[arg(short, long)]
         notes: Option<String>,
     },
-    /// Show current session status
+
     Status,
-    /// Set the issue being worked on
+
     Work {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
-    /// Show handoff notes from the previous session
+
     LastHandoff,
-    /// Record last action for context compression breadcrumbs
+
     Action {
-        /// Description of what you just did or are doing
         text: String,
     },
 }
 
 #[derive(Subcommand)]
 enum CpitdCommands {
-    /// Scan for code clones and create issues
     Scan {
-        /// Paths to scan (defaults to current directory)
         paths: Vec<String>,
-        /// Minimum token sequence length to report
+
         #[arg(long, default_value = "50")]
         min_tokens: u32,
-        /// Glob patterns to exclude (repeatable)
+
         #[arg(long)]
         ignore: Vec<String>,
-        /// Show what would be created without creating issues
+
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
-    /// Show open clone issues
+
     Status,
-    /// Close all open clone issues
+
     Clear,
 }
 
 #[derive(Subcommand)]
 enum DaemonCommands {
-    /// Start the background daemon
     Start,
-    /// Stop the background daemon
+
     Stop,
-    /// Check daemon status
+
     Status,
-    /// Internal: run the daemon loop (used by start)
+
     #[command(hide = true)]
     Run {
         #[arg(long)]
@@ -1237,99 +1036,76 @@ enum DaemonCommands {
 
 #[derive(Subcommand)]
 enum AgentCommands {
-    /// Initialize agent identity on this machine
     Init {
-        /// Agent ID (alphanumeric, hyphens, underscores)
         agent_id: String,
-        /// Agent description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Skip SSH key generation
+
         #[arg(long)]
         no_key: bool,
-        /// Overwrite existing agent configuration
+
         #[arg(long)]
         force: bool,
-        /// Role this identity plays — `driver` for the main human-
-        /// operated workspace (commits sign with the driver's
-        /// GitHub-registered key), `agent` for subagent worktrees
-        /// spawned by kickoff/swarm (commits sign with the agent's
-        /// own key for attribution). Default: `agent` — preserves
-        /// pre-#718 behaviour for kickoff/swarm flows; dashboard
-        /// retrofits pass `--role driver` explicitly.
+
         #[arg(long, value_parser = ["driver", "agent"])]
         role: Option<String>,
     },
-    /// Show current agent identity
+
     Status,
-    /// Send a prompt to a running tmux-based agent session
+
     Prompt {
-        /// Agent slug or tmux session name
         session: String,
-        /// Prompt text to send (supports multiline)
+
         message: String,
-        /// Don't press Enter after pasting (just type, don't submit)
+
         #[arg(long)]
         no_submit: bool,
     },
-    /// Bootstrap agent identity in a new or existing repo clone
+
     Bootstrap {
-        /// Git repository URL to clone
         #[arg(long)]
         repo: String,
-        /// Agent ID (alphanumeric, hyphens, underscores)
+
         #[arg(long)]
         identity: String,
-        /// Branch to checkout after cloning
+
         #[arg(long)]
         branch: Option<String>,
-        /// Agent description
+
         #[arg(short, long)]
         description: Option<String>,
-        /// Skip SSH key generation
+
         #[arg(long)]
         no_key: bool,
-        /// Target directory (default: current directory)
+
         #[arg(long, default_value = ".")]
         target: String,
     },
-    /// Send a control request to an agent via the hub branch
-    ///
-    /// Writes a signed JSON file under `agents/<target>/requests/` on
-    /// `crosslink/hub`. The target agent's poll loop picks it up and
-    /// acts (kill / pause / resume / reprioritise). See design doc §9.
+
     Request {
-        /// Target agent ID (the one that should act, not this driver)
         target: String,
-        /// What to do: kill | pause | resume | reprioritise
+
         kind: String,
-        /// Issue display-id to attach as request subject
+
         #[arg(long)]
         subject_issue: Option<i64>,
-        /// Human-readable reason recorded alongside the request
+
         #[arg(long)]
         reason: Option<String>,
     },
-    /// List agent control requests on the hub branch
+
     Requests {
-        /// Target agent to filter by (omit to list for all agents)
         #[arg(long)]
         target: Option<String>,
-        /// Only show pending (unacknowledged) requests
+
         #[arg(long)]
         pending: bool,
     },
-    /// Process pending control requests for this agent (applies
-    /// pause/kill/reprioritise flags locally, writes acks to the hub)
+
     PollRequests,
-    /// Show local agent control flag state (paused / kill / reprioritise)
-    ///
-    /// Designed for hooks: `--json` output is `{paused, kill, reprioritise}`
-    /// where each value is a boolean (or null for `reprioritise`'s hint
-    /// payload). Exit code is non-zero only when --strict is set and a
-    /// blocking flag is active.
+
     Flags {
-        /// Exit non-zero if `paused` or `kill` is set (use from `PreToolUse` hooks).
         #[arg(long)]
         strict: bool,
     },
@@ -1337,55 +1113,40 @@ enum AgentCommands {
 
 #[derive(Subcommand)]
 enum TrustCommands {
-    /// Approve an agent's signing key
-    Approve {
-        /// Agent ID to approve
-        agent_id: String,
-    },
-    /// Revoke an agent's signing key
-    Revoke {
-        /// Agent ID to revoke
-        agent_id: String,
-    },
-    /// List all trusted signers
+    Approve { agent_id: String },
+
+    Revoke { agent_id: String },
+
     List,
-    /// Show agent keys awaiting approval
+
     Pending,
-    /// Check trust status of a specific agent
-    Check {
-        /// Agent ID to check
-        agent_id: String,
-    },
+
+    Check { agent_id: String },
 }
 
 #[derive(Subcommand)]
 enum LocksCommands {
-    /// List all active locks
     List,
-    /// Check if a specific issue is locked
+
     Check {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
-    /// Claim a lock on an issue
+
     Claim {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Branch name for context
+
         #[arg(short, long)]
         branch: Option<String>,
     },
-    /// Release a lock on an issue
+
     Release {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
-    /// Steal a stale lock from another agent
+
     Steal {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
     },
@@ -1393,24 +1154,21 @@ enum LocksCommands {
 
 #[derive(Subcommand)]
 enum WorkflowCommands {
-    /// Compare deployed policy files against embedded defaults
     Diff {
-        /// Filter by section: tracking, rules, languages, hooks
         #[arg(short, long)]
         section: Option<String>,
-        /// CI mode: exit 1 if any files have drifted without '# crosslink:custom' marker
+
         #[arg(long)]
         check: bool,
     },
-    /// Show chronological comment trail for an issue
+
     Trail {
-        /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
-        /// Filter by comment kind(s), comma-separated (e.g. plan,decision)
+
         #[arg(long)]
         kind: Option<String>,
-        /// Output as JSON
+
         #[arg(long)]
         json: bool,
     },
@@ -1418,180 +1176,165 @@ enum WorkflowCommands {
 
 #[derive(Subcommand)]
 enum StyleCommands {
-    /// Set the house style source (a git repo URL + optional ref)
     Set {
-        /// Git repository URL for the house style
         url: String,
-        /// Branch or tag to track (default: main)
+
         #[arg(long, name = "ref")]
         ref_name: Option<String>,
     },
-    /// Sync: pull latest from the house style source
+
     Sync {
-        /// Show what would change without writing
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
-    /// Diff: show what's drifted from house style
+
     Diff,
-    /// Show current house style configuration
+
     Show,
-    /// Remove house style association
+
     Unset,
 }
 
 #[derive(Subcommand)]
 enum KnowledgeCommands {
-    /// Create a new knowledge page
     Add {
-        /// Page slug (filename without .md)
         slug: String,
-        /// Page title
+
         #[arg(short, long)]
         title: Option<String>,
-        /// Tags for the page (repeatable)
+
         #[arg(long)]
         tag: Vec<String>,
-        /// Source URL (repeatable)
+
         #[arg(long)]
         source: Vec<String>,
-        /// Page content (body text after frontmatter)
+
         #[arg(long)]
         content: Option<String>,
-        /// Import from a design document file
+
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
-        /// Attribute the page to this contributor instead of the local
-        /// agent identity (repeatable; GH#628)
+
         #[arg(long = "contributor", value_name = "AGENT_ID")]
         contributor: Vec<String>,
-        /// (Rejected — external sources are read-only)
+
         #[arg(long, hide = true)]
         repo: Option<String>,
     },
-    /// Display a knowledge page
+
     Show {
-        /// Page slug
         slug: String,
-        /// Query an external repository (URL, local path, or @alias)
+
         #[arg(long)]
         repo: Option<String>,
-        /// Force refresh of cached external data
+
         #[arg(long)]
         refresh: bool,
     },
-    /// List all knowledge pages
+
     List {
-        /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
-        /// Filter by contributor
+
         #[arg(long)]
         contributor: Option<String>,
-        /// Filter pages updated since date (YYYY-MM-DD)
+
         #[arg(long)]
         since: Option<String>,
-        /// Output as JSON
+
         #[arg(long)]
         json: bool,
-        /// Query an external repository (URL, local path, or @alias)
+
         #[arg(long)]
         repo: Option<String>,
-        /// Force refresh of cached external data
+
         #[arg(long)]
         refresh: bool,
     },
-    /// Update an existing knowledge page
+
     Edit {
-        /// Page slug
         slug: String,
-        /// Append content to the page (mutually exclusive with section flags)
+
         #[arg(long, group = "content_mode")]
         append: Option<String>,
-        /// Replace page content entirely
+
         #[arg(long)]
         content: Option<String>,
-        /// Replace the content of a specific markdown section (requires --content)
+
         #[arg(long, value_name = "HEADING", group = "content_mode")]
         replace_section: Option<String>,
-        /// Append to a specific markdown section (requires --content)
+
         #[arg(long, value_name = "HEADING", group = "content_mode")]
         append_to_section: Option<String>,
-        /// Add tags (repeatable)
+
         #[arg(long)]
         tag: Vec<String>,
-        /// Add source URL (repeatable)
+
         #[arg(long)]
         source: Vec<String>,
-        /// Replace content from a document file
+
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
-        /// Attribute this edit to this contributor instead of the local
-        /// agent identity (repeatable; GH#628)
+
         #[arg(long = "contributor", value_name = "AGENT_ID")]
         contributor: Vec<String>,
-        /// (Rejected — external sources are read-only)
+
         #[arg(long, hide = true)]
         repo: Option<String>,
     },
-    /// Remove a knowledge page
+
     Remove {
-        /// Page slug
         slug: String,
-        /// (Rejected — external sources are read-only)
+
         #[arg(long, hide = true)]
         repo: Option<String>,
     },
-    /// Manually sync from remote
+
     Sync {
-        /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,
     },
-    /// Bulk import markdown files as knowledge pages
+
     Import {
-        /// Directory containing .md files to import
         directory: PathBuf,
-        /// Extra tags to apply to all imports (repeatable)
+
         #[arg(long)]
         tag: Vec<String>,
-        /// Overwrite existing pages
+
         #[arg(long)]
         overwrite: bool,
-        /// Preview imports without writing
+
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Attribute imported pages to this contributor instead of the
-        /// local agent identity (repeatable; GH#628)
+
         #[arg(long = "contributor", value_name = "AGENT_ID")]
         contributor: Vec<String>,
-        /// (Rejected — external sources are read-only)
+
         #[arg(long, hide = true)]
         repo: Option<String>,
     },
-    /// Search knowledge page content
+
     Search {
-        /// Search query (case-insensitive substring match)
         query: Option<String>,
-        /// Number of context lines around each match
+
         #[arg(short = 'C', long, default_value = "1")]
         context: usize,
-        /// Search by source URL domain instead of content
+
         #[arg(long)]
         source: Option<String>,
-        /// Filter results by tag
+
         #[arg(long)]
         tag: Option<String>,
-        /// Filter results updated since date (YYYY-MM-DD)
+
         #[arg(long)]
         since: Option<String>,
-        /// Filter results by contributor
+
         #[arg(long)]
         contributor: Option<String>,
-        /// Query an external repository (URL, local path, or @alias)
+
         #[arg(long)]
         repo: Option<String>,
-        /// Force refresh of cached external data
+
         #[arg(long)]
         refresh: bool,
     },
@@ -1599,50 +1342,38 @@ enum KnowledgeCommands {
 
 #[derive(Subcommand)]
 enum IntegrityCommands {
-    /// Check counter consistency (`next_display_id`, `next_comment_id`)
     Counters {
-        /// Repair inconsistencies by recalculating from data
         #[arg(long)]
         repair: bool,
     },
-    /// Verify `SQLite` matches JSON issue files
+
     Hydration {
-        /// Re-hydrate `SQLite` from JSON. Tries to re-emit SQLite-only
-        /// state back to JSON first; falls back to refusing destructive
-        /// repair unless `--accept-data-loss` is also given.
         #[arg(long)]
         repair: bool,
-        /// Allow `--repair` to destroy `SQLite` rows that have no `JSON`
-        /// representation (comments, time entries). A snapshot of the
-        /// pre-repair database is always written under
-        /// `.crosslink/integrity/` regardless of this flag.
+
         #[arg(long)]
         accept_data_loss: bool,
     },
-    /// Check for stale or orphaned locks
+
     Locks {
-        /// Release stale locks
         #[arg(long)]
         repair: bool,
     },
-    /// Verify `SQLite` schema version
+
     Schema {
-        /// Re-run migrations to update schema
         #[arg(long)]
         repair: bool,
     },
-    /// Detect mixed V1/V2 hub layout files
+
     Layout {
-        /// Migrate V1 files to V2 and remove stale duplicates
         #[arg(long)]
         repair: bool,
     },
-    /// Retroactively sign unsigned hub entries with a human key (attestation)
+
     SignBackfill {
-        /// Actually apply signatures (dry-run without this flag)
         #[arg(long)]
         confirm: bool,
-        /// Path to SSH private key (defaults to git's configured signing key)
+
         #[arg(long)]
         key: Option<std::path::PathBuf>,
     },
@@ -1650,53 +1381,42 @@ enum IntegrityCommands {
 
 #[derive(Subcommand)]
 enum KickoffCommands {
-    /// Launch a new agent to implement a feature
     Run {
-        /// Human-readable feature description
         description: String,
-        /// Existing issue to work on (creates one if omitted)
+
         #[arg(long)]
         issue: Option<i64>,
-        /// Container runtime: none (local process), docker, podman
+
         #[arg(long, default_value = "none")]
         container: String,
-        /// Verification level: local, ci, thorough
+
         #[arg(long, default_value = "local")]
         verify: String,
-        /// LLM model to use
-        #[arg(long, default_value = "opus")]
+
+        #[arg(long, default_value = "standard")]
         model: String,
-        /// Container image (for --container docker/podman)
-        #[arg(long, default_value = "ghcr.io/dollspace-gay/crosslink-agent:latest")]
+
+        #[arg(
+            long,
+            default_value = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest"
+        )]
         image: String,
-        /// Max runtime before killing agent (e.g. "1h", "30m")
+
         #[arg(long, default_value = "1h")]
         timeout: String,
-        /// Print the agent prompt without launching
+
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Branch to use (auto-creates feature branch if omitted)
+
         #[arg(long)]
         branch: Option<String>,
-        /// Path to a design document (markdown) with structured requirements
+
         #[arg(long, value_name = "PATH")]
         doc: Option<PathBuf>,
-        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
-        ///
-        /// One-shot override that bypasses ALL Claude permission prompts for
-        /// this launch. Persistent policy lives in the worktree's
-        /// .claude/settings.json (allowedTools / permissions blocks); reach
-        /// for that instead of this flag for repeatable configuration.
+
         #[arg(long)]
         skip_permissions: bool,
-        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
-        ///
-        /// Finer-grained alternative to `--skip-permissions`. Claude
-        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
-        /// `default`, `dontAsk`, `plan`. `auto` is the common choice
-        /// for unattended runs on the host (`--container none`) — the
-        /// permission classifier stays active for anomalous calls.
-        /// Mutually exclusive with `--skip-permissions`.
+
         #[arg(
             long,
             value_parser = clap::builder::PossibleValuesParser::new([
@@ -1706,136 +1426,160 @@ enum KickoffCommands {
             conflicts_with = "skip_permissions"
         )]
         permission_mode: Option<String>,
+
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
+
+        #[arg(long, value_name = "PATH")]
+        template: Option<PathBuf>,
     },
-    /// Check status of a running kickoff agent (no args = pipeline overview)
+
     Status {
-        /// Agent ID or branch name (omit for pipeline overview)
         agent: Option<String>,
     },
-    /// Tail an agent's event log
+
     Logs {
-        /// Agent ID or branch name
         agent: String,
-        /// Number of recent events to show
+
         #[arg(short, long, default_value = "20")]
         lines: usize,
     },
-    /// Stop a running kickoff agent
+
     Stop {
-        /// Agent ID or branch name
         agent: String,
-        /// Force kill (SIGKILL instead of SIGTERM)
+
         #[arg(long)]
         force: bool,
     },
-    /// Analyze a design document against the codebase (read-only)
+
     Plan {
-        /// Path to design document
         doc: PathBuf,
-        /// Existing issue to associate with
+
         #[arg(long)]
         issue: Option<i64>,
-        /// LLM model to use
-        #[arg(long, default_value = "opus")]
+
+        #[arg(long, default_value = "standard")]
         model: String,
-        /// Max runtime (e.g. "30m", "1h")
+
         #[arg(long, default_value = "30m")]
         timeout: String,
-        /// Print the analysis prompt without launching
+
         #[arg(long = "dry-run")]
         dry_run: bool,
+
+        #[arg(long)]
+        skip_permissions: bool,
+
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
+
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
+
+        #[arg(long, value_name = "PATH")]
+        template: Option<PathBuf>,
     },
-    /// Display a gap report from a previous plan analysis
+
     ShowPlan {
-        /// Agent ID or branch slug
         agent: String,
     },
-    /// Display the spec validation report from a completed agent
+
     Report {
-        /// Agent ID or branch slug (required unless --all)
         agent: Option<String>,
-        /// Output as raw JSON
+
         #[arg(long)]
         json: bool,
-        /// Output as PR-ready markdown
+
         #[arg(long)]
         markdown: bool,
-        /// Show aggregated reports from all agent worktrees
+
         #[arg(long)]
         all: bool,
     },
-    /// List all kickoff agents across worktrees, tmux, and Docker
+
     List {
-        /// Filter by status: running, done, failed, all
         #[arg(long, default_value = "all")]
         status: String,
     },
-    /// Remove completed/stale agent worktrees, tmux sessions, and containers
+
     Cleanup {
-        /// Show what would be cleaned without doing anything
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Also clean up potentially stale agents (not just confirmed-done)
+
         #[arg(long)]
         force: bool,
-        /// Keep the N most recently completed agents
+
         #[arg(long, default_value = "0")]
         keep: usize,
-        /// Output as JSON
+
         #[arg(long)]
         json: bool,
     },
-    /// Show branch topology of kickoff feature branches
+
     Graph {
-        /// Include completed, stopped, and orphaned branches
         #[arg(long)]
         all: bool,
-        /// Reserved for future pager support (no-op in V1)
+
         #[arg(long)]
         no_pager: bool,
     },
-    /// Interactive pipeline wizard or direct launch from a design doc
+
     #[command(alias = "go")]
     Launch {
-        /// Path to design document (skips source selection in wizard)
         doc: Option<PathBuf>,
-        /// Run gap analysis (plan mode) — non-interactive
+
         #[arg(long)]
         plan: bool,
-        /// Run implementation — non-interactive
+
         #[arg(long)]
         run: bool,
-        /// Verification level: local, ci, thorough
+
         #[arg(long, default_value = "local")]
         verify: String,
-        /// LLM model to use
-        #[arg(long, default_value = "opus")]
+
+        #[arg(long, default_value = "standard")]
         model: String,
-        /// Max runtime (e.g. "1h", "30m")
+
         #[arg(long, default_value = "1h")]
         timeout: String,
-        /// Container runtime: none, docker, podman
+
         #[arg(long, default_value = "none")]
         container: String,
-        /// Existing issue to work on
+
         #[arg(long)]
         issue: Option<i64>,
-        /// Print the prompt without launching
+
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
-        ///
-        /// One-shot override that bypasses ALL Claude permission prompts.
-        /// Persistent policy lives in the worktree's .claude/settings.json
-        /// (allowedTools / permissions blocks).
+
         #[arg(long)]
         skip_permissions: bool,
-        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
-        ///
-        /// Finer-grained alternative to `--skip-permissions`. Claude
-        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
-        /// `default`, `dontAsk`, `plan`. Mutually exclusive with
-        /// `--skip-permissions`.
+
         #[arg(
             long,
             value_parser = clap::builder::PossibleValuesParser::new([
@@ -1850,241 +1594,228 @@ enum KickoffCommands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
-    /// Show all configuration with default annotations
     Show,
-    /// Get a specific config value
+
     Get {
-        /// Config key name
         key: String,
     },
-    /// Set a config value
+
     Set {
-        /// Config key name
         key: String,
-        /// Value to set (for arrays: comma-separated, or use --add/--remove)
+
         value: Option<String>,
-        /// Add a value to an array field
+
         #[arg(long)]
         add: Option<String>,
-        /// Remove a value from an array field
+
         #[arg(long)]
         remove: Option<String>,
-        /// Write to hook-config.local.json instead of hook-config.json
+
         #[arg(long)]
         local: bool,
     },
-    /// List all available config keys with descriptions
+
     List,
-    /// Reset config to defaults (all keys, or a single key)
+
     Reset {
-        /// Specific key to reset (omit for full reset)
         key: Option<String>,
     },
-    /// Show differences from default config
+
     Diff,
 }
 
 #[derive(Subcommand)]
 enum SwarmCommands {
-    /// Initialize a swarm plan from a design document
     Init {
-        /// Path to design document (markdown)
         #[arg(long, value_name = "PATH")]
         doc: PathBuf,
     },
-    /// Show current swarm status (agents, phases, progress, next steps)
+
     Status,
-    /// Reconstruct state and show next steps for resuming
+
     Resume,
-    /// Sync agent statuses from live worktree state into phase JSON
+
     SyncStatus,
-    /// Associate an external agent/branch with a swarm slot
+
     Adopt {
-        /// Agent slug or branch name of the external agent
         agent: String,
-        /// Swarm slot slug to assign the agent to
+
         #[arg(long, value_name = "SLUG")]
         slot: String,
     },
-    /// Archive the current swarm and clear the active slot
+
     Archive,
-    /// Reset the active swarm (archives by default)
+
     Reset {
-        /// Delete without archiving
         #[arg(long)]
         no_archive: bool,
     },
-    /// List active and archived swarms
+
     #[command(name = "list")]
     ListSwarms,
-    /// Launch all planned agents for a phase
+
     Launch {
-        /// Phase slug (e.g. "phase-1")
         phase: String,
-        /// Retry only previously failed agents
+
         #[arg(long)]
         retry_failed: bool,
-        /// Check budget before launching; block if insufficient
+
         #[arg(long)]
         budget_aware: bool,
     },
-    /// Run the project test suite as a phase gate
+
     Gate {
-        /// Phase slug (e.g. "phase-1")
         phase: String,
     },
-    /// Record a checkpoint after a phase completes
+
     Checkpoint {
-        /// Phase slug (e.g. "phase-1")
         phase: String,
-        /// Handoff notes for the next session
+
         #[arg(long)]
         notes: Option<String>,
-        /// Checkpoint even if gate hasn't passed
+
         #[arg(long)]
         force: bool,
     },
-    /// Set budget parameters (window duration, model)
+
     Config {
-        /// Budget time window (e.g. "5h", "3h30m")
         #[arg(long, value_name = "DURATION")]
         budget_window: String,
-        /// Model to estimate costs for
-        #[arg(long, default_value = "opus")]
+
+        #[arg(long, default_value = "standard")]
         model: String,
+
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            value_parser = clap::builder::PossibleValuesParser::new(
+                commands::kickoff::EFFORT_LEVELS,
+            )
+        )]
+        effort: Option<String>,
+
+        #[arg(long, value_name = "AMOUNT")]
+        budget_usd: Option<String>,
     },
-    /// Estimate wall-clock cost for a phase
+
     Estimate {
-        /// Phase slug (e.g. "phase-1")
         phase: String,
     },
-    /// Scan completed agents and update cost history
+
     Harvest,
-    /// Plan a multi-phase build across budget windows
+
     Plan {
-        /// Budget window duration (e.g. "5h"); uses saved config if omitted
         #[arg(long, value_name = "DURATION")]
         budget_window: Option<String>,
     },
-    /// Show the current window plan (alias for plan with saved config)
+
     PlanShow,
-    /// Launch parallel adversarial review agents across codebase partitions
+
     Review {
-        /// Number of review agents to launch
         #[arg(long, default_value = "4")]
         agents: usize,
-        /// Review mandate type
+
         #[arg(long, default_value = "adversarial")]
         mandate: String,
-        /// Output path for consolidated findings document
+
         #[arg(long, value_name = "PATH")]
         doc: Option<PathBuf>,
-        /// Also file issues for findings after review
+
         #[arg(long)]
         file_issues: bool,
-        /// Also launch fix agents after filing issues
+
         #[arg(long)]
         fix: bool,
     },
-    /// Launch parallel fix agents, one per issue
+
     Fix {
-        /// Comma-separated issue numbers (e.g., "326,327,328")
         #[arg(long, value_name = "IDS")]
         issues: Option<String>,
-        /// Label filter to select issues (e.g., "review-finding")
+
         #[arg(long, value_name = "LABEL")]
         from_label: Option<String>,
-        /// Maximum number of concurrent agents
+
         #[arg(long, default_value = "6")]
         max_agents: usize,
-        /// Check budget before launching
+
         #[arg(long)]
         budget_aware: bool,
     },
-    /// Merge changes from completed agent worktrees into a single branch
+
     Merge {
-        /// Target branch name for merged changes
         #[arg(long, default_value = "swarm-combined")]
         branch: String,
-        /// Base branch to create the target from (default: auto-detect develop or main)
+
         #[arg(long)]
         base: Option<String>,
-        /// Only analyze conflicts, don't apply changes
+
         #[arg(long)]
         dry_run: bool,
-        /// Agent slugs to merge (default: all completed agents from current swarm)
+
         #[arg(long, value_name = "SLUGS")]
         agents: Option<String>,
     },
-    /// Move an agent to a different phase
+
     #[command(name = "move")]
     MoveAgent {
-        /// Agent slug to move
         agent: String,
-        /// Target phase name
+
         #[arg(long, value_name = "PHASE")]
         to_phase: String,
     },
-    /// Merge two phases into one
+
     MergePhases {
-        /// First phase name
         phase_a: String,
-        /// Second phase name
+
         phase_b: String,
     },
-    /// Split a phase after a specific agent
+
     SplitPhase {
-        /// Phase name to split
         phase: String,
-        /// Split after this agent slug
+
         #[arg(long, value_name = "SLUG")]
         after: String,
     },
-    /// Remove an agent from the plan
+
     RemoveAgent {
-        /// Agent slug to remove
         agent: String,
     },
-    /// Reorder a phase to a new position
+
     Reorder {
-        /// Phase name to move
         phase: String,
-        /// New position (1-based)
+
         #[arg(long)]
         position: usize,
     },
-    /// Rename a phase
+
     RenamePhase {
-        /// Current phase name
         old: String,
-        /// New phase name
+
         new: String,
     },
-    /// Continue a paused pipeline (e.g., after human checkpoint)
+
     ReviewContinue,
-    /// Show pipeline status
+
     ReviewStatus,
-    /// Run the full review→fix pipeline (standalone pipeline driver with stage logging)
+
     Pipeline {
-        /// Number of agents
         #[arg(long, default_value = "4")]
         agents: usize,
-        /// Review mandate
+
         #[arg(long, default_value = "adversarial")]
         mandate: String,
-        /// Target branch for merging fixes
+
         #[arg(long, default_value = "main")]
         target_branch: String,
-        /// Automatically fix findings
+
         #[arg(long)]
         auto_fix: bool,
-        /// Automatically file issues for findings
+
         #[arg(long)]
         auto_file_issues: bool,
     },
-    /// Initialize trust model configuration (writes swarm.toml)
+
     TrustInit {
-        /// Trust model type: local-only, multi-tenant, public-api
         #[arg(long, default_value = "local-only")]
         model: String,
     },
@@ -2092,63 +1823,57 @@ enum SwarmCommands {
 
 #[derive(Subcommand)]
 pub enum SentinelCommands {
-    /// One-shot sentinel sweep
     Run {
-        /// Print what would be dispatched without acting
         #[arg(long)]
         dry_run: bool,
-        /// Only process signals matching this label
+
         #[arg(long)]
         label: Option<String>,
-        /// Override the model used for dispatched agents
+
         #[arg(long)]
         model: Option<String>,
     },
-    /// Start persistent sentinel daemon
+
     Watch {
-        /// Poll interval in minutes
         #[arg(long, default_value = "10")]
         interval: u64,
-        /// Override the model used for dispatched agents
+
         #[arg(long)]
         model: Option<String>,
     },
-    /// Show sentinel daemon status and in-flight agents
+
     Status,
-    /// Show past sentinel runs and outcomes
+
     History {
-        /// Maximum number of runs to show
         #[arg(long, default_value = "10")]
         limit: usize,
-        /// Show per-dispatch details for each run
+
         #[arg(long)]
         detail: bool,
-        /// Output as JSON
+
         #[arg(long)]
         json: bool,
     },
-    /// Stop the sentinel daemon
+
     Stop,
-    /// Show dispatch success rates per model and rule
+
     Metrics {
-        /// Output as JSON
         #[arg(long)]
         json: bool,
     },
-    /// Analyze dispatch history for recurring patterns and hotspots
+
     Patterns {
-        /// Output as JSON
         #[arg(long)]
         json: bool,
     },
-    /// Internal: run the sentinel watch loop (used by watch)
+
     #[command(hide = true)]
     RunDaemon {
         #[arg(long)]
         dir: std::path::PathBuf,
         #[arg(long, default_value = "10")]
         interval: u64,
-        /// Override the model used for dispatched agents
+
         #[arg(long)]
         model: Option<String>,
     },
@@ -2156,13 +1881,11 @@ pub enum SentinelCommands {
 
 #[derive(Subcommand, Clone, Copy)]
 enum ContextCommands {
-    /// Measure context injection sizes and estimate token overhead
     Measure {
-        /// Show additional details (hook config contents, etc.)
         #[arg(short, long)]
         verbose: bool,
     },
-    /// Verify all expected crosslink files are deployed and valid
+
     Check,
 }
 
@@ -2186,14 +1909,6 @@ fn find_crosslink_dir() -> Result<PathBuf> {
     find_crosslink_dir_from(&env::current_dir()?)
 }
 
-/// Whether a `.crosslink` candidate is an initialized crosslink project dir.
-///
-/// `crosslink init` always writes `hook-config.json`, and agent worktrees
-/// carry it (committed on their branch or written by the worktree init).
-/// Stray `.crosslink/` directories seeded by cwd drift (GH#625) lack it —
-/// they contain only hydration caches (`issues.db`, `.cache/`). Binding to
-/// a stray silently splits the database, so candidates without the marker
-/// are skipped with a warning instead of bound.
 fn is_initialized_crosslink_dir(candidate: &std::path::Path) -> bool {
     candidate.join("hook-config.json").is_file()
 }
@@ -2202,8 +1917,6 @@ fn find_crosslink_dir_from(start: &std::path::Path) -> Result<PathBuf> {
     let mut current = start.to_path_buf();
     let mut skipped_strays: Vec<PathBuf> = Vec::new();
 
-    // First, walk up from the start dir looking for an INITIALIZED
-    // .crosslink (works in main repo). Stray dirs are skipped, not bound.
     loop {
         let candidate = current.join(".crosslink");
         if candidate.is_dir() {
@@ -2227,7 +1940,6 @@ fn find_crosslink_dir_from(start: &std::path::Path) -> Result<PathBuf> {
         }
     }
 
-    // Not found — check if we're in a git worktree and look in the main repo root
     if let Some(main_root) = utils::resolve_main_repo_root(start) {
         let candidate = main_root.join(".crosslink");
         if candidate.is_dir() && is_initialized_crosslink_dir(&candidate) {
@@ -2265,9 +1977,6 @@ fn get_db() -> Result<Database> {
     let db_path = crosslink_dir.join("issues.db");
     let db = Database::open(&db_path).context("Failed to open database")?;
 
-    // Auto-hydrate if the hub branch has moved since last hydration (#500).
-    // This is a sub-millisecond check (git rev-parse HEAD in the cache
-    // worktree) that only triggers re-hydration when the ref actually changed.
     if let Err(e) = hydration::maybe_auto_hydrate(&crosslink_dir, &db) {
         tracing::debug!("auto-hydration skipped: {}", e);
     }
@@ -2275,8 +1984,6 @@ fn get_db() -> Result<Database> {
     Ok(db)
 }
 
-/// Try to create a `SharedWriter` for multi-agent mode.
-/// Returns None if agent.json is absent or sync cache isn't initialized.
 fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWriter> {
     match shared_writer::SharedWriter::new(crosslink_dir) {
         Ok(w) => w,
@@ -2287,17 +1994,10 @@ fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWr
     }
 }
 
-/// Clap value parser for issue IDs (supports `L1` offline notation).
 fn parse_issue_id_clap(s: &str) -> std::result::Result<i64, String> {
     parse_issue_id(s).map_err(|e| e.to_string())
 }
 
-/// Parse an issue ID string, supporting both regular IDs and offline local IDs.
-///
-/// - `"42"` → `42` (regular display ID)
-/// - `"L1"` or `"l1"` → `-1` (offline local ID, stored as negative in `SQLite`)
-///
-/// Used when offline issue creation is enabled (`display_id`: null in JSON).
 fn parse_issue_id(s: &str) -> Result<i64> {
     if let Some(n) = s.strip_prefix('L').or_else(|| s.strip_prefix('l')) {
         let num: i64 = n
@@ -2312,17 +2012,12 @@ fn parse_issue_id(s: &str) -> Result<i64> {
     }
 }
 
-/// Emit a hint to stderr (suppressed in quiet mode).
 fn hint(quiet: bool, msg: &str) {
     if !quiet {
         tracing::info!("hint: {}", msg);
     }
 }
 
-/// Fold a (set, clear-flag) pair from clap into a `FieldUpdate` for the
-/// shared-writer update path. Used by the `Update` dispatch to translate
-/// `--scheduled` / `--no-scheduled` (and `--due` / `--no-due`) into a
-/// single three-valued update (GH #361).
 const fn scheduled_update(
     set: Option<chrono::DateTime<chrono::Utc>>,
     clear: bool,
@@ -2337,7 +2032,6 @@ const fn scheduled_update(
     }
 }
 
-/// Dispatch an `IssueCommands` variant.
 fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> {
     match action {
         IssueCommands::Create {
@@ -2364,8 +2058,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 defer_id: parent.is_none() && defer_id,
                 force,
             };
-            // Subissues don't carry scheduling dates (GH #361 REQ-12); the
-            // command handler rejects the combination with a clear error.
+
             if let Some(parent_id) = parent {
                 if scheduled.is_some() || due.is_some() {
                     anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
@@ -2705,7 +2398,22 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
     }
 }
 
+const CLI_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 fn main() -> Result<()> {
+    let result = std::thread::Builder::new()
+        .name("crosslink-main".to_string())
+        .stack_size(CLI_STACK_SIZE)
+        .spawn(run_cli)
+        .context("failed to start Crosslink CLI thread")?
+        .join();
+    match result {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+fn run_cli() -> Result<()> {
     let cli = Cli::parse();
 
     let log_format = match &cli.command {
@@ -2733,6 +2441,7 @@ fn main() -> Result<()> {
             signing_key,
             reconfigure,
             defaults,
+            agent_integration,
         } => {
             let cwd = env::current_dir()?;
             let opts = commands::init::InitOpts {
@@ -2746,11 +2455,11 @@ fn main() -> Result<()> {
                 signing_key: signing_key.as_deref(),
                 reconfigure,
                 defaults,
+                integrations: agent_integration.parse()?,
             };
             commands::init::run(&cwd, &opts)
         }
 
-        // === Canonical grouped commands ===
         Commands::Issue { action } => dispatch_issue(action, cli.quiet, cli.json),
 
         Commands::Timer { action } => {
@@ -2798,7 +2507,6 @@ fn main() -> Result<()> {
             }
         },
 
-        // === Hidden top-level shortcuts ===
         Commands::Create {
             title,
             description,
@@ -2887,7 +2595,6 @@ fn main() -> Result<()> {
             cli.json,
         ),
 
-        // === Hidden aliases (emit hints) ===
         Commands::New {
             title,
             description,
@@ -3008,7 +2715,6 @@ fn main() -> Result<()> {
             commands::timer::stop(&db)
         }
 
-        // === Hidden migration aliases ===
         Commands::MigrateToShared => {
             hint(
                 cli.quiet,
@@ -3038,7 +2744,6 @@ fn main() -> Result<()> {
             commands::migrate::rename_branch(&crosslink_dir)
         }
 
-        // === Remaining top-level commands (unchanged) ===
         Commands::Export { output, format } => {
             let db = get_db()?;
             match format.as_str() {
@@ -3199,13 +2904,13 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
-            // Bare `crosslink kickoff` → launch the interactive wizard
+
             let action = action.unwrap_or_else(|| KickoffCommands::Launch {
                 doc: None,
                 plan: false,
                 run: false,
                 verify: "local".to_string(),
-                model: "opus".to_string(),
+                model: "standard".to_string(),
                 timeout: "1h".to_string(),
                 container: "none".to_string(),
                 issue: None,
@@ -3222,17 +2927,25 @@ fn main() -> Result<()> {
                 cli.json,
             )
         }
+        Commands::Doctor => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::doctor::run(&crosslink_dir, cli.json)
+        }
         Commands::Design {
             description,
             issue,
             gh_issue,
             continue_slug,
-        } => commands::design_cmd::run(
-            description.as_deref(),
-            issue,
-            gh_issue,
-            continue_slug.as_deref(),
-        ),
+        } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::design_cmd::run(
+                &crosslink_dir,
+                description.as_deref(),
+                issue,
+                gh_issue,
+                continue_slug.as_deref(),
+            )
+        }
         Commands::Swarm { action } => {
             let crosslink_dir = find_crosslink_dir()?;
             match action {
@@ -3290,7 +3003,15 @@ fn main() -> Result<()> {
                 SwarmCommands::Config {
                     budget_window,
                     model,
-                } => commands::swarm::config_budget(&crosslink_dir, &budget_window, &model),
+                    effort,
+                    budget_usd,
+                } => commands::swarm::config_budget(
+                    &crosslink_dir,
+                    &budget_window,
+                    &model,
+                    effort.as_deref(),
+                    budget_usd.as_deref(),
+                ),
                 SwarmCommands::Estimate { phase } => {
                     commands::swarm::estimate(&crosslink_dir, &phase)
                 }
@@ -3377,7 +3098,6 @@ fn main() -> Result<()> {
             }
         }
         Commands::Sentinel { action } => {
-            // RunDaemon is the internal loop entry point — dir is explicit, no auto-detection
             if let SentinelCommands::RunDaemon {
                 ref dir,
                 interval,
@@ -3390,9 +3110,9 @@ fn main() -> Result<()> {
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
             let sentinel_model = match &action {
-                SentinelCommands::Run { model, .. } => model.clone(),
-                SentinelCommands::Watch { model, .. } => model.clone(),
-                SentinelCommands::RunDaemon { model, .. } => model.clone(),
+                SentinelCommands::Run { model, .. }
+                | SentinelCommands::Watch { model, .. }
+                | SentinelCommands::RunDaemon { model, .. } => model.clone(),
                 _ => None,
             };
             commands::sentinel::dispatch_cmd(
@@ -3422,21 +3142,14 @@ fn main() -> Result<()> {
             } => {
                 let crosslink_dir = find_crosslink_dir()?;
                 let db = get_db()?;
-                // Bootstrap the per-user dashboard index at
-                // ~/.crosslink/dashboard.db. Schema is applied idempotently.
+
                 let dashboard_db_path = dashboard::db::DashboardDb::default_path()?;
                 dashboard::db::DashboardDb::open(&dashboard_db_path)?;
                 if rotate_token {
-                    // Discard the cached token so the next AppState::new
-                    // generates a fresh one.
                     let _ = crate::server::state::rotate_auth_token();
                     println!("auth token rotated at ~/.crosslink/.dashboard-token");
                 }
 
-                // Server owns the poll loop + shutdown coordination
-                // now (see `server::run_with_dashboard_db`) — that's
-                // where the broadcast sender that the poll loop
-                // publishes to lives alongside the WS fanout.
                 tokio::runtime::Runtime::new()?.block_on(server::run_with_dashboard_db(
                     port,
                     dashboard_dir,
@@ -3519,7 +3232,7 @@ fn main() -> Result<()> {
             eprintln!(
                 "warning: `crosslink serve` is deprecated. \
                  Use `crosslink dashboard` instead. \
-                 See https://github.com/forecast-bio/crosslink/issues/429. \
+                 See https://github.com/Corvidae-Coding-Projects/crosslink/issues/429. \
                  This alias will be removed in a future release."
             );
             let crosslink_dir = find_crosslink_dir()?;
@@ -3545,7 +3258,6 @@ mod find_crosslink_dir_tests {
     }
 
     fn mk_stray(dir: &std::path::Path) {
-        // GH#625 stray shape: hydration cache only, no hook-config.json.
         let cl = dir.join(".crosslink");
         std::fs::create_dir_all(cl.join(".cache")).unwrap();
         std::fs::write(cl.join("issues.db"), b"sqlite").unwrap();
@@ -3561,7 +3273,6 @@ mod find_crosslink_dir_tests {
 
     #[test]
     fn skips_stray_in_subdir_and_binds_root() {
-        // The GH#625 scenario: cwd drifted to web/, which holds a stray.
         let root = tempfile::tempdir().unwrap();
         mk_initialized(root.path());
         let web = root.path().join("web");
@@ -3597,8 +3308,6 @@ mod find_crosslink_dir_tests {
 
     #[test]
     fn nested_initialized_dir_still_wins_over_parent() {
-        // An intentionally initialized nested project (has hook-config.json)
-        // must keep binding locally -- the marker, not depth, decides.
         let root = tempfile::tempdir().unwrap();
         mk_initialized(root.path());
         let sub = root.path().join("subproject");

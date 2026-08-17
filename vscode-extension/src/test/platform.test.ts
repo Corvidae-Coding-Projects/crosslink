@@ -1,21 +1,22 @@
-/**
- * Unit tests for platform.ts — pure utility functions only.
- *
- * These tests do NOT require a live VS Code instance.
- * They use manual property stubs on Node's `os` and `fs` modules so they
- * run anywhere without a VS Code binary.
- */
+
+
+
+
+
+
+
 
 import * as assert from "assert";
+import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
-import * as path from "path";
+import { createRequire } from "module";
 
-// ---------------------------------------------------------------------------
-// Helpers for lightweight stubbing (no sinon dep needed)
-// ---------------------------------------------------------------------------
+const testRequire = createRequire(__filename);
 
-type Stub<T> = { restore: () => void } & { returns: (v: T) => void };
+
+
+
 
 function stubMethod<O extends object, K extends keyof O>(
   obj: O,
@@ -27,19 +28,17 @@ function stubMethod<O extends object, K extends keyof O>(
   return { restore: () => { obj[method] = original; } };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+
+
+
 
 suite("platform.ts — detectPlatform", () => {
-  // We need to re-require the module after patching os.platform/os.arch so
-  // the function picks up the stub. Node caches modules, so we delete the
-  // cache entry before each require.
+
+
+
   function freshDetectPlatform() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    delete require.cache[require.resolve("../platform")];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("../platform").detectPlatform;
+    delete testRequire.cache[testRequire.resolve("../platform")];
+    return testRequire("../platform").detectPlatform;
   }
 
   let platformStub: { restore: () => void };
@@ -98,10 +97,8 @@ suite("platform.ts — resolveBinaryPath with override", () => {
   let existsStub: { restore: () => void };
 
   function freshResolveBinaryPath() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    delete require.cache[require.resolve("../platform")];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("../platform").resolveBinaryPath;
+    delete testRequire.cache[testRequire.resolve("../platform")];
+    return testRequire("../platform").resolveBinaryPath;
   }
 
   teardown(() => {
@@ -124,11 +121,11 @@ suite("platform.ts — resolveBinaryPath with override", () => {
   });
 
   test("ignores empty-string override (uses bundled binary path logic)", () => {
-    // When override is empty, the function falls through to bundled binary.
-    // We stub existsSync to return false for the bundled path to confirm
-    // the expected error (bundled binary missing) rather than the override error.
+
+
+
     existsStub = stubMethod(fs, "existsSync", false);
-    // Need os stubs too so detectPlatform() inside resolveBinaryPath works
+
     const platformStub = stubMethod(os, "platform", "linux");
     const archStub = stubMethod(os, "arch", "x64");
     try {

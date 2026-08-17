@@ -10,7 +10,6 @@ use crate::knowledge::{
 use crate::utils::truncate;
 use std::fmt::Write as _;
 
-/// Get the current agent ID, falling back to "unknown".
 fn current_agent_id(crosslink_dir: &Path) -> String {
     crate::identity::AgentConfig::load(crosslink_dir)
         .ok()
@@ -18,18 +17,6 @@ fn current_agent_id(crosslink_dir: &Path) -> String {
         .map_or_else(|| "unknown".to_string(), |a| a.agent_id)
 }
 
-/// Validate and dedupe explicit `--contributor` overrides (GH#628).
-///
-/// The knowledge project is resolved by cwd, so a driver adding a page to
-/// another repo's knowledge would otherwise always be attributed to that
-/// repo's local `agent.json` identity. These overrides let the recorded
-/// contributor reflect the actual author. Validation is deliberately loose
-/// (contributors are free-form identities like `anon-ab6221f8`, not hub
-/// agent ids): non-empty, at most 64 chars, no whitespace or control chars.
-///
-/// # Errors
-///
-/// Returns an error naming the offending value when validation fails.
 fn validate_contributors(raw: &[String]) -> Result<Vec<String>> {
     let mut out: Vec<String> = Vec::with_capacity(raw.len());
     for c in raw {
@@ -50,8 +37,6 @@ fn validate_contributors(raw: &[String]) -> Result<Vec<String>> {
     Ok(out)
 }
 
-/// Resolve the contributors to record: explicit overrides when given,
-/// otherwise the local agent identity.
 fn resolve_contributors(crosslink_dir: &Path, overrides: &[String]) -> Result<Vec<String>> {
     let validated = validate_contributors(overrides)?;
     if validated.is_empty() {
@@ -61,7 +46,6 @@ fn resolve_contributors(crosslink_dir: &Path, overrides: &[String]) -> Result<Ve
     }
 }
 
-/// Ensure the knowledge cache is initialized, creating it if needed.
 fn ensure_initialized(km: &KnowledgeManager) -> Result<()> {
     if !km.is_initialized() {
         km.init_cache()?;
@@ -69,7 +53,6 @@ fn ensure_initialized(km: &KnowledgeManager) -> Result<()> {
     Ok(())
 }
 
-/// Print warnings for any conflicts that were resolved via "accept both".
 fn warn_resolved_conflicts(outcome: &SyncOutcome) {
     for slug in &outcome.resolved_conflicts {
         eprintln!(
@@ -99,7 +82,6 @@ pub fn add(
         bail!("Page '{slug}' already exists. Use 'crosslink knowledge edit' instead.");
     }
 
-    // Parse design doc if --from-doc provided
     let design_doc = if let Some(path) = from_doc {
         let doc_content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read design doc: {}", path.display()))?;
@@ -110,7 +92,6 @@ pub fn add(
 
     let now = Utc::now().format("%Y-%m-%d").to_string();
 
-    // Title: explicit --title > design doc title > slug
     let display_title = title.map_or_else(
         || {
             design_doc.as_ref().map_or_else(
@@ -138,7 +119,6 @@ pub fn add(
         })
         .collect();
 
-    // Build tag list, auto-adding "design-doc" when --from-doc is used
     let mut all_tags = tags.to_vec();
     if design_doc.is_some() && !all_tags.iter().any(|t| t == "design-doc") {
         all_tags.push("design-doc".to_string());
@@ -156,13 +136,11 @@ pub fn add(
     let mut page_content = serialize_frontmatter(&fm);
     page_content.push('\n');
     if let Some(body) = content {
-        // Explicit --content always wins
         page_content.push_str(body);
         if !body.ends_with('\n') {
             page_content.push('\n');
         }
     } else if let Some(ref doc) = design_doc {
-        // Render design doc as page body
         let section = crate::commands::design_doc::build_design_doc_section(doc);
         page_content.push_str(&section);
     } else {
@@ -262,7 +240,6 @@ pub fn list(
         return Ok(());
     }
 
-    // Header
     println!("{:<30} {:<30} {:<20} UPDATED", "SLUG", "TITLE", "TAGS");
     println!("{}", "-".repeat(90));
 
@@ -298,7 +275,6 @@ pub fn edit(
     sources: &[String],
     contributors: &[String],
 ) -> Result<()> {
-    // Validate: section-based flags require --content
     if (replace_section.is_some() || append_to_section.is_some()) && content.is_none() {
         bail!("--replace-section and --append-to-section require --content to be specified");
     }
@@ -325,24 +301,20 @@ pub fn edit(
         updated: now.clone(),
     });
 
-    // Update timestamp
     fm.updated.clone_from(&now);
 
-    // Add contributors (explicit overrides or the local agent) without duplicating
     for contributor in new_contributors {
         if !fm.contributors.iter().any(|c| c == &contributor) {
             fm.contributors.push(contributor);
         }
     }
 
-    // Add new tags without duplicating
     for tag in tags {
         if !fm.tags.iter().any(|t| t == tag) {
             fm.tags.push(tag.clone());
         }
     }
 
-    // Add new sources without duplicating
     for url in sources {
         if !fm.sources.iter().any(|s| s.url == *url) {
             fm.sources.push(Source {
@@ -353,7 +325,6 @@ pub fn edit(
         }
     }
 
-    // Determine the body
     let existing_body = extract_body(&existing);
 
     let new_body = if let Some(heading) = replace_section {
@@ -365,14 +336,12 @@ pub fn edit(
             content.ok_or_else(|| anyhow::anyhow!("--append-to-section requires --content"))?;
         append_to_section_content(existing_body, heading, new_content)?
     } else if let Some(full_content) = content {
-        // Replace content entirely
         let mut body = full_content.to_string();
         if !body.ends_with('\n') {
             body.push('\n');
         }
         body
     } else if let Some(append_text) = append {
-        // Append to existing content
         let mut body = existing_body.to_string();
         if !body.ends_with('\n') {
             body.push('\n');
@@ -410,7 +379,6 @@ pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
         bail!("Page '{slug}' not found");
     }
 
-    // Check for pages that reference this slug
     let pages = km.list_pages()?;
     let referencing: Vec<_> = pages
         .iter()
@@ -532,7 +500,6 @@ pub fn import(
     Ok(())
 }
 
-/// Recursively collect .md files from a directory, sorted by path.
 fn collect_md_files(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
     collect_md_files_recursive(dir, &mut files)?;
@@ -553,8 +520,6 @@ fn collect_md_files_recursive(dir: &Path, files: &mut Vec<std::path::PathBuf>) -
     Ok(())
 }
 
-/// Infer a slug from a relative path. Subdirectory components become prefixes.
-/// e.g. `api/design.md` -> `api-design`, `readme.md` -> `readme`
 fn infer_slug(rel_path: &Path) -> String {
     let stem = rel_path
         .file_stem()
@@ -574,8 +539,6 @@ fn infer_slug(rel_path: &Path) -> String {
     }
 }
 
-/// Infer tags from directory components of a path.
-/// e.g. `arch/api/design.md` -> `["arch", "api"]`
 fn infer_tags_from_path(rel_path: &Path) -> Vec<String> {
     let parent = rel_path.parent().unwrap_or_else(|| Path::new(""));
     parent
@@ -591,7 +554,6 @@ fn infer_tags_from_path(rel_path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Sanitize a string into a valid slug (lowercase, alphanumeric + hyphens).
 fn slug_sanitize(s: &str) -> String {
     s.to_lowercase()
         .chars()
@@ -607,7 +569,6 @@ fn slug_sanitize(s: &str) -> String {
         .to_string()
 }
 
-/// Import a single file as a knowledge page.
 fn import_single_file(
     km: &KnowledgeManager,
     file_path: &Path,
@@ -621,7 +582,6 @@ fn import_single_file(
         .with_context(|| format!("reading {}", file_path.display()))?;
 
     let page_content = if let Some(mut fm) = parse_frontmatter(&raw) {
-        // File has frontmatter — preserve it, merge tags
         for tag in path_tags.iter().chain(extra_tags.iter()) {
             if !fm.tags.iter().any(|t| t == tag) {
                 fm.tags.push(tag.clone());
@@ -638,7 +598,6 @@ fn import_single_file(
         content.push_str(body);
         content
     } else {
-        // No frontmatter — generate it
         let title = slug.replace('-', " ");
         let mut all_tags: Vec<String> = path_tags.to_vec();
         for tag in extra_tags {
@@ -667,7 +626,6 @@ fn import_single_file(
     Ok(())
 }
 
-/// Run knowledge search: content search, source search, or both.
 #[allow(clippy::too_many_arguments)]
 pub fn search(
     crosslink_dir: &Path,
@@ -727,7 +685,6 @@ pub fn search(
     Ok(())
 }
 
-/// Post-filter search matches by frontmatter metadata.
 fn filter_by_metadata(
     manager: &KnowledgeManager,
     matches: Vec<crate::knowledge::SearchMatch>,
@@ -885,7 +842,6 @@ fn print_list_json(pages: &[&crate::knowledge::PageInfo]) {
     println!("[{}]", entries.join(","));
 }
 
-/// Minimal JSON string escaping without pulling in serde.
 fn serde_json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -913,7 +869,6 @@ mod tests {
     use crate::knowledge::{PageFrontmatter, Source, KNOWLEDGE_CACHE_DIR};
     use tempfile::tempdir;
 
-    /// Create a `KnowledgeManager` with a pre-created cache directory (no git needed).
     fn setup_km() -> (KnowledgeManager, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
@@ -923,8 +878,6 @@ mod tests {
         let km = KnowledgeManager::new(&crosslink_dir).unwrap();
         (km, dir)
     }
-
-    // ==================== contributor override (GH#628) ====================
 
     #[test]
     fn test_validate_contributors_accepts_and_dedupes() {
@@ -951,11 +904,9 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // No agent.json in the fixture: local identity resolves to "unknown".
         let resolved = resolve_contributors(&crosslink_dir, &[]).unwrap();
         assert_eq!(resolved, vec!["unknown".to_string()]);
 
-        // Explicit overrides replace the local identity entirely.
         let resolved =
             resolve_contributors(&crosslink_dir, &["actual-author".to_string()]).unwrap();
         assert_eq!(resolved, vec!["actual-author".to_string()]);
@@ -988,8 +939,6 @@ mod tests {
         );
     }
 
-    // ==================== extract_body Tests ====================
-
     #[test]
     fn test_extract_body_with_frontmatter() {
         let content = "---\ntitle: Test\ntags: []\n---\n\n# Test\n\nBody text.\n";
@@ -1015,8 +964,6 @@ mod tests {
         assert!(!body.contains("title: Test"));
     }
 
-    // ==================== truncate Tests ====================
-
     #[test]
     fn test_truncate_short() {
         assert_eq!(truncate("hello", 10), "hello");
@@ -1027,8 +974,6 @@ mod tests {
         assert_eq!(truncate("hello world foo bar", 10), "hello w...");
     }
 
-    // ==================== add Tests ====================
-
     #[test]
     fn test_add_creates_file_with_correct_frontmatter() {
         let (km, dir) = setup_km();
@@ -1037,7 +982,6 @@ mod tests {
         let tags = vec!["rust".to_string(), "testing".to_string()];
         let sources = ["https://example.com".to_string()];
 
-        // Call add directly without git operations - write the page manually
         let now = Utc::now().format("%Y-%m-%d").to_string();
         let fm = PageFrontmatter {
             title: "Rust Testing Patterns".to_string(),
@@ -1060,7 +1004,6 @@ mod tests {
         km.write_page("rust-testing-patterns", &page_content)
             .unwrap();
 
-        // Verify
         let read_back = km.read_page("rust-testing-patterns").unwrap();
         let parsed = parse_frontmatter(&read_back).unwrap();
         assert_eq!(parsed.title, "Rust Testing Patterns");
@@ -1091,8 +1034,6 @@ mod tests {
         assert!(read_back.contains("Custom body content"));
     }
 
-    // ==================== show Tests ====================
-
     #[test]
     fn test_show_displays_content() {
         let (km, _dir) = setup_km();
@@ -1108,8 +1049,6 @@ mod tests {
         assert_eq!(fm.title, "Demo");
     }
 
-    // ==================== list Tests ====================
-
     #[test]
     fn test_list_filters_by_tag() {
         let (km, _dir) = setup_km();
@@ -1122,7 +1061,6 @@ mod tests {
 
         let pages = km.list_pages().unwrap();
 
-        // Filter for rust tag
         let rust_pages: Vec<_> = pages
             .iter()
             .filter(|p| p.frontmatter.tags.iter().any(|t| t == "rust"))
@@ -1130,7 +1068,6 @@ mod tests {
         assert_eq!(rust_pages.len(), 1);
         assert_eq!(rust_pages[0].slug, "alpha");
 
-        // Filter for python tag
         let python_pages: Vec<_> = pages
             .iter()
             .filter(|p| p.frontmatter.tags.iter().any(|t| t == "python"))
@@ -1159,8 +1096,6 @@ mod tests {
         assert_eq!(alice_pages[0].slug, "alpha");
     }
 
-    // ==================== edit Tests ====================
-
     #[test]
     fn test_edit_appends_content_and_updates_metadata() {
         let (km, _dir) = setup_km();
@@ -1168,7 +1103,6 @@ mod tests {
         let original = "---\ntitle: Test\ntags: [rust]\nsources: []\ncontributors: [alice]\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\n# Test\n\nOriginal content.\n";
         km.write_page("test-page", original).unwrap();
 
-        // Simulate edit: parse, modify, rewrite
         let existing = km.read_page("test-page").unwrap();
         let mut fm = parse_frontmatter(&existing).unwrap();
         let now = Utc::now().format("%Y-%m-%d").to_string();
@@ -1187,7 +1121,6 @@ mod tests {
         page_content.push_str(&body);
         km.write_page("test-page", &page_content).unwrap();
 
-        // Verify
         let updated = km.read_page("test-page").unwrap();
         assert!(updated.contains("Original content."));
         assert!(updated.contains("Appended Section"));
@@ -1208,7 +1141,6 @@ mod tests {
         let existing = km.read_page("test-page").unwrap();
         let mut fm = parse_frontmatter(&existing).unwrap();
 
-        // Add same source - should not duplicate
         let existing_url = "https://existing.com";
         if !fm.sources.iter().any(|s| s.url == existing_url) {
             fm.sources.push(Source {
@@ -1219,7 +1151,6 @@ mod tests {
         }
         assert_eq!(fm.sources.len(), 1);
 
-        // Add new source - should be added
         let new_url = "https://new.com";
         if !fm.sources.iter().any(|s| s.url == new_url) {
             fm.sources.push(Source {
@@ -1232,8 +1163,6 @@ mod tests {
         assert_eq!(fm.sources[0].url, "https://existing.com");
         assert_eq!(fm.sources[1].url, "https://new.com");
     }
-
-    // ==================== remove Tests ====================
 
     #[test]
     fn test_remove_deletes_page() {
@@ -1265,7 +1194,6 @@ mod tests {
         km.write_page("target-page", target).unwrap();
         km.write_page("referencing-page", referencing).unwrap();
 
-        // Check that the referencing page mentions the target slug
         let pages = km.list_pages().unwrap();
         let referencing_pages: Vec<_> = pages
             .iter()
@@ -1278,8 +1206,6 @@ mod tests {
         assert_eq!(referencing_pages.len(), 1);
         assert_eq!(referencing_pages[0].slug, "referencing-page");
     }
-
-    // ==================== page_exists / delete_page Tests ====================
 
     #[test]
     fn test_page_exists() {
@@ -1302,13 +1228,10 @@ mod tests {
         assert!(!km.page_exists("to-delete"));
     }
 
-    // ==================== from_doc Tests ====================
-
     #[test]
     fn test_add_from_doc_creates_page() {
         let (km, dir) = setup_km();
 
-        // Write a sample design doc
         let doc_path = dir.path().join("design.md");
         std::fs::write(
             &doc_path,
@@ -1320,7 +1243,6 @@ mod tests {
             &std::fs::read_to_string(&doc_path).unwrap(),
         );
 
-        // Simulate the add flow with from_doc
         let now = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let tags = vec!["design-doc".to_string()];
 
@@ -1347,7 +1269,6 @@ mod tests {
 
     #[test]
     fn test_add_from_doc_auto_tags() {
-        // Verify that design-doc tag is added
         let tags: Vec<String> = vec!["existing-tag".to_string()];
         let mut all_tags = tags;
         if !all_tags.iter().any(|t| t == "design-doc") {
@@ -1360,7 +1281,7 @@ mod tests {
     #[test]
     fn test_add_from_doc_derives_title() {
         let doc = crate::commands::design_doc::parse_design_doc("# Feature: My Great Feature\n");
-        // When no explicit title, use doc title
+
         let title: Option<&str> = None;
         let display_title = if let Some(t) = title {
             t.to_string()
@@ -1385,8 +1306,6 @@ mod tests {
         };
         assert_eq!(display_title, "Explicit Title");
     }
-
-    // ==================== Round 1: Structured Queries Tests ====================
 
     #[test]
     fn test_search_filter_by_tag() {
@@ -1461,8 +1380,6 @@ mod tests {
         assert_eq!(filtered[0].slug, "new");
     }
 
-    // ==================== Round 2: Import Helper Tests ====================
-
     #[test]
     fn test_infer_slug_simple() {
         assert_eq!(infer_slug(Path::new("readme.md")), "readme");
@@ -1498,7 +1415,6 @@ mod tests {
 
         import_single_file(
             &km,
-            // We need to write a temp file to import from
             &{
                 let p = dir.path().join("test.md");
                 std::fs::write(&p, raw).unwrap();
@@ -1553,8 +1469,6 @@ mod tests {
         assert!(content.contains("# Just a heading"));
     }
 
-    // ==================== Section Parsing Tests ====================
-
     #[test]
     fn test_parse_heading_valid() {
         assert_eq!(parse_heading("# Title"), Some((1, "Title")));
@@ -1576,8 +1490,8 @@ mod tests {
         let body = "# Title\n\nIntro text.\n\n## Architecture\n\nArch content.\n\n## Notes\n\nNote content.\n";
         let lines: Vec<&str> = body.lines().collect();
         let (start, end) = find_section_range(&lines, "## Architecture").unwrap();
-        assert_eq!(start, 4); // "## Architecture"
-        assert_eq!(end, 8); // "## Notes"
+        assert_eq!(start, 4);
+        assert_eq!(end, 8);
     }
 
     #[test]
@@ -1586,7 +1500,7 @@ mod tests {
         let lines: Vec<&str> = body.lines().collect();
         let (start, end) = find_section_range(&lines, "## Last Section").unwrap();
         assert_eq!(start, 4);
-        assert_eq!(end, lines.len()); // extends to EOF
+        assert_eq!(end, lines.len());
     }
 
     #[test]
@@ -1612,7 +1526,7 @@ mod tests {
         let lines: Vec<&str> = body.lines().collect();
         let (start, end) = find_section_range(&lines, "## Parent").unwrap();
         assert_eq!(start, 0);
-        // Should include ### Child but stop at ## Sibling
+
         assert_eq!(lines[end], "## Sibling");
     }
 
@@ -1654,7 +1568,7 @@ mod tests {
         assert!(result.contains("Appended note."));
         assert!(result.contains("## Other"));
         assert!(result.contains("Other text."));
-        // Appended content should come before ## Other
+
         let notes_pos = result.find("Appended note.").unwrap();
         let other_pos = result.find("## Other").unwrap();
         assert!(notes_pos < other_pos);
@@ -1681,7 +1595,7 @@ mod tests {
         let result = replace_section_content(body, "## A", "New A content.").unwrap();
         assert!(result.contains("## A"));
         assert!(result.contains("New A content."));
-        assert!(!result.contains("A1 content.")); // subsection replaced too
+        assert!(!result.contains("A1 content."));
         assert!(result.contains("## B"));
         assert!(result.contains("### B1"));
         assert!(result.contains("B1 content."));
@@ -1695,8 +1609,6 @@ mod tests {
         assert!(!result.contains("Arch content."));
     }
 
-    // ==================== Round 1: List JSON Test ====================
-
     #[test]
     fn test_list_json_output() {
         let (km, _dir) = setup_km();
@@ -1707,7 +1619,6 @@ mod tests {
         let pages = km.list_pages().unwrap();
         let refs: Vec<&crate::knowledge::PageInfo> = pages.iter().collect();
 
-        // Capture what print_list_json would output
         let entries: Vec<String> = refs
             .iter()
             .map(|p| {

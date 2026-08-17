@@ -1,4 +1,3 @@
-// E-ana tablet — kickoff plan: read-only gap analysis mode
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -8,9 +7,9 @@ use crate::identity::AgentConfig;
 
 use super::helpers::*;
 use super::launch::*;
+use super::prompt::{interpolate_template, TemplateContext};
 use super::types::*;
 
-/// Build the allowed tools string for plan mode (read-only analysis).
 pub(crate) fn build_allowed_tools_plan() -> String {
     let tools = vec![
         "Read",
@@ -33,7 +32,6 @@ pub(crate) fn build_allowed_tools_plan() -> String {
     tools.join(",")
 }
 
-/// Build the prompt for plan mode — read-only gap analysis.
 pub(crate) fn build_plan_prompt(
     doc: &super::super::design_doc::DesignDoc,
     issue_id: Option<i64>,
@@ -117,7 +115,6 @@ Write a JSON file `.kickoff-plan.json` with exactly this structure:
 "#,
     );
 
-    // Add plan copy instruction if we know the target path
     if let Some(target) = plan_copy_target {
         use std::fmt::Write as _;
         let _ = writeln!(
@@ -133,9 +130,7 @@ Write a JSON file `.kickoff-plan.json` with exactly this structure:
     prompt
 }
 
-/// Main entry point: `crosslink kickoff plan`.
 pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
-    // Plan mode always uses tmux — reject on Windows early.
     if cfg!(target_os = "windows") && !opts.dry_run {
         bail!(
             "Plan mode requires tmux, which is not available on Windows.\n\
@@ -143,7 +138,6 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         );
     }
 
-    // 1. Pre-flight: validate all required external commands
     let preflight = if opts.dry_run {
         None
     } else {
@@ -155,6 +149,15 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     };
 
     let root = repo_root()?;
+    let validation_agent = crate::agents::resolve_agent(crosslink_dir)?;
+    let validation_tools = build_allowed_tools_plan();
+    validate_agent_request(
+        &validation_agent,
+        &root,
+        opts.model,
+        &validation_tools,
+        &opts.policy,
+    )?;
     let title_slug = if opts.doc.title.is_empty() {
         "analysis".to_string()
     } else {
@@ -162,7 +165,6 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     };
     let slug = format!("plan-{}-{}", title_slug, rand_hex_suffix());
 
-    // 2. Create or find issue (optional for plan mode)
     let issue_id = if let Some(id) = opts.issue {
         if db.get_issue(id)?.is_none() {
             bail!("Issue {} not found", crate::utils::format_issue_id(id));
@@ -172,25 +174,65 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         None
     };
 
-    // 3. Create worktree
+    let plan_copy_target = opts.doc_path.map(super::pipeline::plan_path_for_doc);
+    let built = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
+    let prompt = match crate::utils::resolve_kickoff_template(crosslink_dir, opts.template) {
+        Some(template) => {
+            let ctx = TemplateContext {
+                built_prompt: &built,
+                issue_id: issue_id.unwrap_or(0),
+                branch: "",
+                description: "",
+                model: opts.model,
+                effort: opts.policy.effort.as_deref(),
+                doc_path: opts.doc_path.and_then(|p| p.to_str()),
+                allowed_tools: "",
+            };
+            interpolate_template(&template, &ctx)
+        }
+        None => built,
+    };
+
+    if opts.dry_run {
+        let parent_id =
+            AgentConfig::load(crosslink_dir)?.map_or_else(|| "driver".to_string(), |c| c.agent_id);
+        let agent_id = format!("{parent_id}--{slug}");
+        println!("{prompt}");
+        println!("---");
+        println!(
+            "Worktree: {}",
+            root.join(".worktrees").join(&slug).display()
+        );
+        println!("Branch:   feature/{slug}");
+        println!("Agent:    {agent_id}");
+        return Ok(());
+    }
+
     let (worktree_dir, branch_name) = create_worktree(&root, &slug, None)?;
 
-    // Write slug sentinel so other commands can identify this worktree
     std::fs::write(worktree_dir.join(".kickoff-slug"), &slug)
         .context("Failed to write .kickoff-slug sentinel")?;
 
-    // 4. Build prompt (with plan copy instruction if doc_path is known)
-    let plan_copy_target = opts.doc_path.map(super::pipeline::plan_path_for_doc);
-    let prompt = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
-
-    // 5. Write PLAN_KICKOFF.md
     std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
         .context("Failed to write PLAN_KICKOFF.md")?;
+    std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
+        .context("Failed to create provider runtime log directory")?;
+    let metadata = KickoffMetadata {
+        started_at: chrono::Utc::now().to_rfc3339(),
+        timeout_secs: opts.timeout.as_secs(),
+        provider: Some(validation_agent.provider.to_string()),
+        model: validation_agent.resolve_model(Some(opts.model)),
+        effort: opts.policy.effort.clone(),
+        budget_usd: opts.policy.monetary_budget_usd.clone(),
+    };
+    std::fs::write(
+        worktree_dir.join(".kickoff-metadata.json"),
+        serde_json::to_vec_pretty(&metadata)?,
+    )
+    .context("Failed to write plan provider metadata")?;
 
-    // 6. Exclude files from git
     exclude_kickoff_files(&worktree_dir)?;
 
-    // 6b. Update pipeline state to "planning"
     if let Some(doc_path) = opts.doc_path {
         let _ = super::pipeline::mark_planning(
             doc_path,
@@ -199,26 +241,10 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         );
     }
 
-    // Dry run: print and exit
-    if opts.dry_run {
-        let parent_id =
-            AgentConfig::load(crosslink_dir)?.map_or_else(|| "driver".to_string(), |c| c.agent_id);
-        let agent_id = format!("{parent_id}--{slug}");
-        println!("{prompt}");
-        println!("---");
-        println!("Worktree: {}", worktree_dir.display());
-        println!("Branch:   {branch_name}");
-        println!("Agent:    {agent_id}");
-        return Ok(());
-    }
+    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug, issue_id)?;
 
-    // 7. Init worktree agent
-    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
-
-    // preflight is guaranteed Some after the dry-run early return above
     let preflight = preflight.context("preflight check was skipped unexpectedly")?;
 
-    // 8. Launch with read-only tools
     let allowed_tools = build_allowed_tools_plan();
     let mut session_name = tmux_session_name(&slug);
     if tmux_session_exists(&session_name) {
@@ -226,24 +252,16 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         session_name = format!("{}-{}", &session_name[..session_name.len().min(44)], suffix);
     }
 
-    // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session (#555);
-    // see comment on `launch_local` for rationale.
-    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
-
-    // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
-    let cmd = build_agent_command(
-        &opts.agent_binary,
+    let cmd = build_resolved_agent_command(
+        &preflight.agent,
         preflight.timeout_cmd,
-        opts.timeout.as_secs(),
         opts.model,
         &allowed_tools,
         "PLAN_KICKOFF.md",
         preflight.sandbox_command.as_deref(),
         &worktree_dir,
-        false, // plan mode never skips permissions
-        claude_config_dir.as_deref(),
-        None, // plan mode never overrides permission_mode (#603)
-    );
+        &opts.policy,
+    )?;
 
     let output = Command::new("tmux")
         .args([
@@ -272,10 +290,8 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         bail!("Failed to send keys to tmux: {}", stderr.trim());
     }
 
-    // Persist the actual session name so kickoff list can find it
     let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
 
-    // Spawn watchdog sidecar to nudge idle agents
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {
         if let Err(e) = spawn_watchdog(&session_name, &worktree_dir, &watchdog_cfg) {
@@ -283,7 +299,6 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         }
     }
 
-    // 9. Report
     if opts.quiet {
         println!("{session_name}");
     } else {
@@ -305,7 +320,6 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     Ok(())
 }
 
-/// Display a gap report from a previous plan analysis.
 pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
     let root = crosslink_dir
         .parent()
@@ -328,7 +342,6 @@ pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
 
     let plan_file = worktree_dir.join(".kickoff-plan.json");
     if !plan_file.exists() {
-        // Check status
         let status_file = worktree_dir.join(".kickoff-status");
         let status = if status_file.exists() {
             std::fs::read_to_string(&status_file)
@@ -344,14 +357,12 @@ pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
     let content =
         std::fs::read_to_string(&plan_file).context("Failed to read .kickoff-plan.json")?;
 
-    // Pretty-print the JSON
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
         println!(
             "{}",
             serde_json::to_string_pretty(&parsed).unwrap_or(content)
         );
     } else {
-        // Not valid JSON — print raw
         print!("{content}");
     }
 

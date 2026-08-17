@@ -3,12 +3,12 @@ project:
   output-dir: ../docs
   resources:
     - "assets/img/banner.svg"
-    - "assets/img/forecast-wordmark.svg"
+    - "assets/img/crosslink-wordmark.svg"
 
 website:
   title: "crosslink"
   navbar:
-    # background: "#F9F4F5"
+
     left:
       - text: Getting Started
         menu:
@@ -17,6 +17,7 @@ website:
       - text: Guides
         menu:
           - guides/session-workflow.qmd
+          - guides/providers.qmd
           - guides/multi-agent.qmd
           - guides/design-workflow.qmd
           - guides/kickoff.qmd
@@ -37,7 +38,7 @@ website:
           - reference/kickoff-report.qmd
     right:
       - icon: github
-        href: https://github.com/forecast-bio/crosslink
+        href: https://github.com/Corvidae-Coding-Projects/crosslink
 
   sidebar:
     - title: "Getting Started"
@@ -52,6 +53,7 @@ website:
         - section: Guides
           contents:
             - guides/session-workflow.qmd
+            - guides/providers.qmd
             - guides/multi-agent.qmd
             - guides/design-workflow.qmd
             - guides/kickoff.qmd
@@ -78,7 +80,6 @@ format:
     theme:
       - pandoc
       - brand
-      - theme-light.scss
     css:
       - styles.css
       - assets/styles.css
@@ -107,7 +108,7 @@ format:
             margin-right: 0px;
           }
           .navbar-title {
-            color: #F95838;
+            color:
             font-size: 19pt;
             font-family: 'Times New Roman';
             font-style: italic;

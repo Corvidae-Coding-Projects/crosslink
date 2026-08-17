@@ -20,7 +20,7 @@ While agents handle implementation, the TUI lets you monitor what's happening ac
 crosslink tui
 ```
 
-<!-- ![](../assets/img/tui-demo.gif) -->
+
 
 The TUI syncs data on startup and refreshes periodically in the background — press `r` for a manual refresh.
 

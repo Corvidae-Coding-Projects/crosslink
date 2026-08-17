@@ -19,7 +19,6 @@ pub fn run(command: LocksCommands, crosslink_dir: &Path, db: &Database, json: bo
     }
 }
 
-/// `crosslink locks list` — show current lock state
 pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
@@ -68,7 +67,6 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
     Ok(())
 }
 
-/// `crosslink locks check <id>` — check if an issue is available
 pub fn check(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
@@ -87,7 +85,7 @@ pub fn check(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
             if let Some(branch) = &lock.branch {
                 println!("  Branch: {branch}");
             }
-            // Check if stale
+
             let stale = sync.find_stale_locks()?;
             if stale.iter().any(|(id, _)| *id == issue_id) {
                 println!("  Warning: this lock appears STALE (no recent heartbeat)");
@@ -103,7 +101,6 @@ pub fn check(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink locks claim <id>` — claim a lock on an issue
 pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
@@ -112,11 +109,8 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
     sync.fetch()?;
-    let _ = &agent; // identity validated above; the v3 writer carries its own.
+    let _ = &agent;
 
-    // Locks are pure events on the per-agent ref (#754, REQ-5). The SharedWriter
-    // event path handles v3; on a legacy v2 hub it refuses with the migrate
-    // prompt. The old `locks.json` write path is gone.
     let writer = SharedWriter::new(crosslink_dir)?
         .ok_or_else(|| anyhow::anyhow!("SharedWriter not available — is agent configured?"))?;
     use crate::shared_writer::LockClaimResult;
@@ -144,7 +138,6 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
     Ok(())
 }
 
-/// `crosslink locks release <id>` — release a lock on an issue
 pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
@@ -153,9 +146,8 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
     sync.fetch()?;
-    let _ = &agent; // identity validated above; the v3 writer carries its own.
+    let _ = &agent;
 
-    // Event-based release (v3). A legacy v2 hub refuses with the migrate prompt.
     let writer = SharedWriter::new(crosslink_dir)?
         .ok_or_else(|| anyhow::anyhow!("SharedWriter not available — is agent configured?"))?;
     if writer.release_lock_v2(issue_id)? {
@@ -166,7 +158,6 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink locks steal <id>` — steal a stale lock from another agent
 pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
@@ -176,7 +167,6 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     sync.init_cache()?;
     sync.fetch()?;
 
-    // Check if the lock is actually stale before allowing steal
     let locks = sync.read_locks_auto()?;
     if let Some(existing) = locks.get_lock(issue_id) {
         if existing.agent_id == agent.agent_id {
@@ -198,7 +188,6 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
             );
         }
 
-        // Event-based steal (v3); a legacy v2 hub refuses with the migrate prompt.
         let writer = SharedWriter::new(crosslink_dir)?
             .ok_or_else(|| anyhow::anyhow!("SharedWriter not available"))?;
         writer.steal_lock_v2(issue_id, &existing.agent_id, None)?;
@@ -208,7 +197,6 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
             existing.agent_id
         );
     } else {
-        // Not locked — just claim it (event-based; v2 refuses).
         let writer = SharedWriter::new(crosslink_dir)?
             .ok_or_else(|| anyhow::anyhow!("SharedWriter not available"))?;
         use crate::shared_writer::LockClaimResult;
@@ -227,17 +215,6 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink sync` — reconcile hub state, hydrate issues, and report locks.
-///
-/// Routes by hub mode (#754):
-///
-/// - v3: fetch adopts every agent ref + the checkpoint and refreshes the local
-///   checkpoint; hydrate `SQLite` from the reduced
-///   [`crate::checkpoint::CheckpointState`]; poll this agent's control requests;
-///   report locks.
-/// - v2 (frozen / pre-migration hub): a READ-ONLY mirror fetch + hydrate from the
-///   worktree JSON files for inspection, plus a single migrate hint. No writes,
-///   no signing-enforcement bail (the v2 branch is frozen).
 pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
@@ -247,8 +224,6 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         return sync_v2_readonly(crosslink_dir, db, &sync);
     }
 
-    // Ensure the agent's key is published to allowed_signers if it was deferred
-    // during agent init (the v3 meta ref carries the trust store).
     match sync.ensure_agent_key_published(crosslink_dir) {
         Ok(true) => println!("Published agent key to hub (deferred from agent init)."),
         Ok(false) => {}
@@ -258,8 +233,6 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         tracing::warn!("could not configure commit signing: {e} — commits will be unsigned");
     }
 
-    // Hydrate SQLite from the reduced checkpoint state (fetch already adopted
-    // refs + refreshed the checkpoint).
     let source = crate::hub_source::RefHubSource::new(sync.cache_path())?;
     let outcome = crate::compaction::reduce(&source)?;
     let stats = crate::hydration::hydrate_from_state(&outcome.state, db)?;
@@ -271,9 +244,6 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         );
     }
 
-    // Process pending agent control requests for this agent (every sync tick
-    // gets a poll pass so pause / resume / kill / reprioritise take effect in
-    // <= one sync interval).
     if let (Ok(Some(writer)), Ok(Some(cfg))) = (
         SharedWriter::new(crosslink_dir),
         crate::identity::AgentConfig::load(crosslink_dir),
@@ -297,8 +267,6 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// Read-only `crosslink sync` against a frozen v2 hub: hydrate from the worktree
-/// JSON files for inspection and print a single migrate hint. No writes.
 fn sync_v2_readonly(crosslink_dir: &Path, db: &Database, sync: &SyncManager) -> Result<()> {
     let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
     crate::hydration::record_hydrated_ref(crosslink_dir);
@@ -318,7 +286,6 @@ fn sync_v2_readonly(crosslink_dir: &Path, db: &Database, sync: &SyncManager) -> 
     Ok(())
 }
 
-/// Print the active and stale lock summary.
 fn report_locks(sync: &SyncManager) -> Result<()> {
     let locks_file = sync.read_locks_auto()?;
     println!("{} active lock(s).", locks_file.locks.len());

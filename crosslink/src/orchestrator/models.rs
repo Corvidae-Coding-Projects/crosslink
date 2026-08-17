@@ -1,70 +1,48 @@
-//! Domain types for the orchestrator module.
-//!
-//! Contains both the raw LLM response schema and the canonical orchestrator
-//! plan types (`OrchestratorPlan`, `OrchestratorPhase`, `OrchestratorStage`,
-//! `OrchestratorTask`). These plan types are re-exported from
-//! `crate::server::types` for backward compatibility with the REST API.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Directory within `.crosslink/` for orchestrator state and plan storage.
-///
-/// Used by both `decompose` (plan files) and `executor` (execution state).
-/// Consolidated here to avoid duplication (#491).
 pub const ORCHESTRATOR_DIR: &str = "orchestrator";
 
-// ---------------------------------------------------------------------------
-// LLM response schema
-// ---------------------------------------------------------------------------
-
-/// A task as returned by the LLM decomposition prompt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmTask {
     pub title: String,
     pub description: String,
-    /// Estimated complexity in agent-hours.
+
     #[serde(default)]
     pub complexity_hours: f64,
 }
 
-/// A stage as returned by the LLM decomposition prompt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmStage {
     pub title: String,
     pub description: String,
     #[serde(default)]
     pub tasks: Vec<LlmTask>,
-    /// Titles or IDs of stages this stage depends on.
+
     #[serde(default)]
     pub depends_on: Vec<String>,
-    /// Suggested number of parallel agents for this stage.
+
     #[serde(default = "default_agent_count")]
     pub agent_count: usize,
     #[serde(default)]
     pub complexity_hours: f64,
 }
 
-/// A phase as returned by the LLM decomposition prompt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmPhase {
     pub title: String,
     #[serde(default)]
     pub description: String,
     pub stages: Vec<LlmStage>,
-    /// Criteria for declaring this phase complete.
+
     #[serde(default)]
     pub gate_criteria: Vec<String>,
 }
 
-/// The top-level LLM response.
-///
-/// This is the JSON object we instruct the LLM to produce. All fields must
-/// tolerate defaults so we can recover from partial or unexpected output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmDecomposeResponse {
     pub phases: Vec<LlmPhase>,
-    /// Total estimated agent-hours across all phases.
+
     #[serde(default)]
     pub estimated_hours: f64,
 }
@@ -73,49 +51,38 @@ const fn default_agent_count() -> usize {
     1
 }
 
-// ---------------------------------------------------------------------------
-// Orchestrator plan types (canonical definitions — #480)
-// ---------------------------------------------------------------------------
-// These types were previously defined in `server::types` but belong in the
-// orchestrator domain module. They are re-exported from `server::types` for
-// backward compatibility with existing API handlers and dashboard code.
-
-/// An atomic work item within an orchestration stage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestratorTask {
     pub id: String,
     pub title: String,
     pub description: String,
-    /// Estimated complexity in agent-hours.
+
     pub complexity_hours: f64,
 }
 
-/// A work unit within a phase — may have parallel agents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestratorStage {
     pub id: String,
     pub title: String,
     pub description: String,
     pub tasks: Vec<OrchestratorTask>,
-    /// IDs of stages that must complete before this one starts.
+
     pub depends_on: Vec<String>,
-    /// Suggested number of parallel agents for this stage.
+
     pub agent_count: usize,
     pub complexity_hours: f64,
 }
 
-/// A major sequential milestone in the execution plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestratorPhase {
     pub id: String,
     pub title: String,
     pub description: String,
     pub stages: Vec<OrchestratorStage>,
-    /// Criteria for declaring this phase complete (e.g. test pass, merge gate).
+
     pub gate_criteria: Vec<String>,
 }
 
-/// The full LLM-decomposed execution plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestratorPlan {
     pub id: String,
@@ -126,21 +93,12 @@ pub struct OrchestratorPlan {
     pub estimated_hours: f64,
 }
 
-// ---------------------------------------------------------------------------
-// Plan storage
-// ---------------------------------------------------------------------------
-
-/// On-disk representation of a stored plan (`.crosslink/orchestrator/<id>.json`).
-///
-/// This wraps the API-facing `OrchestratorPlan` with metadata for filesystem
-/// storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredPlan {
-    /// The plan itself (same shape as the API response).
     pub plan: OrchestratorPlan,
-    /// The raw markdown document that was decomposed.
+
     pub source_document: String,
-    /// When the plan was stored.
+
     pub stored_at: DateTime<Utc>,
 }
 

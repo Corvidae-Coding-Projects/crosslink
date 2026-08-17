@@ -1,10 +1,8 @@
-// E-ana tablet — kickoff prompt: prompt building for kickoff agents
 use std::fmt::Write;
 
 use super::helpers::verify_level_name;
 use super::types::*;
 
-/// Build the test/lint instruction lines for the prompt.
 pub(crate) fn build_test_lint_instructions(
     conventions: &ProjectConventions,
     issue_id: i64,
@@ -34,7 +32,7 @@ pub(crate) fn build_test_lint_instructions(
 
     let _ = write!(
         section,
-        r#"12. **Document results**: `crosslink comment {issue_id} "Result: <summary>" --kind result`
+        r#"12. **Document results**: `crosslink issue comment {issue_id} "Result: <summary>" --kind result`
 13. Use `/commit` to commit the work when implementation is complete
 14. Review the diff and fix any issues found
 15. Use `/commit` again after any fixes
@@ -44,7 +42,6 @@ pub(crate) fn build_test_lint_instructions(
     section
 }
 
-/// Build the CI verification section of the prompt.
 pub(crate) const fn build_ci_verification_section() -> &'static str {
     r#"
 ### CI Verification
@@ -68,7 +65,6 @@ pub(crate) const fn build_ci_verification_section() -> &'static str {
 "#
 }
 
-/// Build the adversarial self-review section of the prompt.
 pub(crate) const fn build_adversarial_review_section() -> &'static str {
     r"
 ### Adversarial Self-Review
@@ -89,10 +85,6 @@ pub(crate) const fn build_adversarial_review_section() -> &'static str {
 "
 }
 
-/// Build the reporting and validation section of the prompt.
-///
-/// Instructs the agent to validate acceptance criteria, capture timing and
-/// metrics, and write a structured `.kickoff-report.json`.
 pub(crate) const fn build_reporting_section() -> &'static str {
     r#"
 ### Spec Validation & Reporting
@@ -161,7 +153,6 @@ Write this file as the second-to-last step, just before writing `DONE` to `.kick
 "#
 }
 
-/// Build the final steps section of the prompt.
 pub(crate) const fn build_final_steps_section() -> &'static str {
     r#"
 ### Final Steps
@@ -173,16 +164,41 @@ pub(crate) const fn build_final_steps_section() -> &'static str {
 - No debug/temporary code left behind
 - Commit messages are clean and descriptive
 - Changes match the original feature description
-- All driver interventions have been logged via `crosslink intervene`
+- All driver interventions have been logged via `crosslink issue intervene`
 
 Then:
 - **Final sync**: `crosslink sync` — push all comments and state to the coordination hub before ending
 - **End session**: `crosslink session end --notes "Completed: <summary of what was delivered, any caveats or follow-ups>"`
-- **Write status**: Write the word `DONE` to a file called `.kickoff-status` in the worktree root when completely finished
+- **Write status**: As the final tool action, write the word `DONE` to `.kickoff-status` in the worktree root. After it succeeds, make no further tool calls
 "#
 }
 
-/// Build the KICKOFF.md prompt for the agent.
+pub(crate) struct TemplateContext<'a> {
+    pub built_prompt: &'a str,
+    pub issue_id: i64,
+    pub branch: &'a str,
+    pub description: &'a str,
+    pub model: &'a str,
+
+    pub effort: Option<&'a str>,
+
+    pub doc_path: Option<&'a str>,
+
+    pub allowed_tools: &'a str,
+}
+
+pub(crate) fn interpolate_template(template: &str, ctx: &TemplateContext) -> String {
+    template
+        .replace("{{issue_id}}", &ctx.issue_id.to_string())
+        .replace("{{branch}}", ctx.branch)
+        .replace("{{description}}", ctx.description)
+        .replace("{{model}}", ctx.model)
+        .replace("{{effort}}", ctx.effort.unwrap_or(""))
+        .replace("{{doc_path}}", ctx.doc_path.unwrap_or(""))
+        .replace("{{allowed_tools}}", ctx.allowed_tools)
+        .replace("{{built_prompt}}", ctx.built_prompt)
+}
+
 pub(crate) fn build_prompt(
     opts: &KickoffOpts,
     issue_id: i64,
@@ -216,12 +232,15 @@ latest state from other agents, run `crosslink sync`.
 The following commands are blocked by project policy and will be rejected. If you need one of
 these, ask the user to run it manually:
 
-- `git push`, `git merge`, `git rebase`, `git cherry-pick` — remote/branch operations
+- `git merge`, `git rebase`, `git cherry-pick` — branch surgery
 - `git reset`, `git checkout .`, `git restore .`, `git clean` — destructive resets
 - `git stash`, `git tag`, `git am`, `git apply` — stash/tag/patch operations
 - `git branch -d`, `git branch -D`, `git branch -m` — branch deletion/renaming
+- `git push --force`, `git push -f` — always blocked
 
 **Gated** (require active crosslink issue): `git commit`
+**Push**: plain `git push` is reserved for the CI-verification steps above when
+they are present in this prompt; do not push otherwise.
 **Always allowed**: `git status`, `git diff`, `git log`, `git show`, `git branch` (listing)
 
 ## Instructions
@@ -230,26 +249,26 @@ these, ask the user to run it manually:
    database is connected. If it reports no agent, run `crosslink agent init` first. Then run `crosslink sync`
    to pull the latest coordination state from the hub.
 2. **Start your crosslink session**: Run `crosslink session start` then `crosslink session work {issue_id}`
-3. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
+3. **Read the project's AGENTS.md and CLAUDE.md** (when present) plus `.crosslink/rules/` for conventions before starting; provider-specific files apply only to their provider
 4. Explore relevant code before making changes
 5. **Check the knowledge repo** for relevant research before starting:
    `crosslink knowledge search '<relevant terms>'`
    Existing knowledge pages may save you from redundant research.
-6. **Document your plan**: `crosslink comment {issue_id} "Plan: <approach, key files, chosen strategy>" --kind plan`
+6. **Document your plan**: `crosslink issue comment {issue_id} "Plan: <approach, key files, chosen strategy>" --kind plan`
 7. Implement the feature fully (no stubs or placeholders)
    - Before each major step: `crosslink session action "Starting <description>..."`
    - **Save research**: If you perform web research, save results for future agents:
      `crosslink knowledge add <slug> --title '<topic>' --tag <category> --source '<url>' --content '<summary>'`
 8. **Document decisions**: When choosing between approaches:
-   `crosslink comment {issue_id} "Decision: <chose X over Y because Z>" --kind decision`
+   `crosslink issue comment {issue_id} "Decision: <chose X over Y because Z>" --kind decision`
 9. **Document discoveries**: When finding something unexpected:
-   `crosslink comment {issue_id} "Found: <observation>" --kind observation`
+   `crosslink issue comment {issue_id} "Found: <observation>" --kind observation`
 10. **Sync periodically**: After adding comments or completing major milestones, run `crosslink sync` to push
     your changes to the coordination hub. Other agents and the driver cannot see your comments until you sync.
 11. **Log interventions**: If a hook blocks you or a human redirects you, log it immediately:
-    `crosslink intervene {issue_id} "Description" --trigger <type> --context "what you were attempting"`
-    **Handle blockers visibly**: Document with `crosslink comment {issue_id} "Blocker: <desc>" --kind blocker`
-    and resolutions with `crosslink comment {issue_id} "Resolved: <how>" --kind resolution`
+    `crosslink issue intervene {issue_id} "Description" --trigger <type> --context "what you were attempting"`
+    **Handle blockers visibly**: Document with `crosslink issue comment {issue_id} "Blocker: <desc>" --kind blocker`
+    and resolutions with `crosslink issue comment {issue_id} "Resolved: <how>" --kind resolution`
 "#,
         description = opts.description,
         issue_id = issue_id,
@@ -257,22 +276,17 @@ these, ask the user to run it manually:
         verify_name = verify_name,
     );
 
-    // Inject design document sections if provided
     if let Some(doc) = opts.design_doc {
         prompt.push_str(&super::super::design_doc::build_design_doc_section(doc));
         if let Some(escalation) = super::super::design_doc::build_open_questions_escalation(doc) {
             prompt.push_str(&escalation);
         }
-        // When the doc came from an on-disk path (i.e. `--doc <path>` rather
-        // than an inline description), state plainly that the file is
-        // canonical input and must not be edited. Pairs with the chmod 0444
-        // + read-only bind mount applied by `kickoff run`. See GH#580.
+
         if let Some(path) = opts.doc_path {
             prompt.push_str(&build_canonical_doc_stanza(path));
         }
     }
 
-    // Inject plan context if a prior gap analysis exists for this design doc
     if let Some(doc_path) = opts.doc_path {
         let plan_path = super::pipeline::plan_path_for_doc(std::path::Path::new(doc_path));
         if let Some(section) = build_plan_context_section(&plan_path) {
@@ -290,7 +304,6 @@ these, ask the user to run it manually:
         prompt.push_str(build_adversarial_review_section());
     }
 
-    // Spec validation: only when design doc has acceptance criteria
     if let Some(doc) = opts.design_doc {
         if !doc.acceptance_criteria.is_empty() {
             prompt.push_str(build_reporting_section());
@@ -302,12 +315,6 @@ these, ask the user to run it manually:
     prompt
 }
 
-/// Build the "## Design Document — Canonical Input" stanza.
-///
-/// Surfaced in KICKOFF.md whenever `--doc <path>` is provided so the agent is
-/// told, in-prompt, that the design file is read-only input. The file system
-/// also gets chmod 0444 and (in container mode) a read-only bind mount —
-/// this stanza is the prompt-level leg of that defense. See GH#580.
 fn build_canonical_doc_stanza(doc_path: &str) -> String {
     format!(
         r"
@@ -325,16 +332,12 @@ read-only input** to this kickoff run.
   launch-time snapshot; mismatches will be flagged in `crosslink kickoff
   report` / `status`.
 - If you believe the design needs to change, surface the proposed delta in
-  your final report or in a crosslink comment on the issue. Do not rewrite
+  your final report or in a Crosslink issue comment. Do not rewrite
   the source.
 "
     )
 }
 
-/// Build a "## Plan Context" section from a prior gap analysis JSON file.
-///
-/// Reads `.design/<slug>.plan.json` and renders estimated subtasks, assumptions,
-/// and advisory notes into the KICKOFF.md prompt.
 fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(plan_path).ok()?;
     let plan: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -346,7 +349,6 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
          Use these findings to guide your implementation:\n\n",
     );
 
-    // Estimated subtasks
     if let Some(subtasks) = plan.get("estimated_subtasks").and_then(|v| v.as_array()) {
         if !subtasks.is_empty() {
             section.push_str("### Estimated Subtasks\n");
@@ -369,7 +371,6 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
         }
     }
 
-    // Assumptions
     if let Some(assumptions) = plan.get("assumptions").and_then(|v| v.as_array()) {
         if !assumptions.is_empty() {
             section.push_str("### Assumptions\n");
@@ -388,7 +389,6 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
         }
     }
 
-    // Advisory gaps (non-blocking notes)
     if let Some(gaps) = plan.get("gaps").and_then(|v| v.as_array()) {
         let advisory: Vec<_> = gaps
             .iter()
@@ -408,14 +408,12 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
     }
 
     if section.len() <= "## Plan Context\n\n".len() + 100 {
-        // Nearly empty — no useful content
         return None;
     }
 
     Some(section)
 }
 
-/// Build the --allowedTools string for the claude CLI.
 pub(crate) fn build_allowed_tools(
     conventions: &ProjectConventions,
     verify: &VerifyLevel,
@@ -445,13 +443,11 @@ pub(crate) fn build_allowed_tools(
         "Bash(crosslink *)",
     ];
 
-    // CI tools
     if *verify == VerifyLevel::Ci || *verify == VerifyLevel::Thorough {
         tools.push("Bash(gh *)");
         tools.push("Bash(sleep *)");
     }
 
-    // Project-specific
     let project_tools: Vec<&str> = conventions
         .allowed_tools
         .iter()

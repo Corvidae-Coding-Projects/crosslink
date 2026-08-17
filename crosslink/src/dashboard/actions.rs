@@ -1,20 +1,3 @@
-//! Shell-out primitive for write operations.
-//!
-//! Every dashboard write — close issue, add comment, claim lock,
-//! whatever — lands here. We invoke the real `crosslink` CLI with
-//! `Command::new("crosslink").current_dir(<project workspace>)` so
-//! writes flow through exactly the same code path as a user typing
-//! the command directly. Zero drift, zero duplicated logic.
-//!
-//! Each invocation gets a row in the `actions` audit table capturing
-//! the actor (driver fingerprint), verb, subject, args, outcome, and
-//! timing. The actor comes from the `user.signingkey` git config on
-//! the project's workspace — we don't take a per-user config; we
-//! assume the user already configured crosslink.
-//!
-//! Returned text is whatever the CLI wrote to stdout. Handlers can
-//! pass it straight to the frontend for user-visible confirmation.
-
 use anyhow::Result;
 use chrono::Utc;
 use rusqlite::params;
@@ -24,17 +7,12 @@ use tokio::process::Command;
 use super::db::DashboardDb;
 use super::projects::Project;
 
-/// Resolved outcome of an action invocation.
 #[derive(Debug, Clone)]
 pub struct ActionResult {
     pub stdout: String,
     pub stderr: String,
 }
 
-/// Look up a project by slug. Returns `None` if the slug isn't tracked.
-///
-/// # Errors
-/// Propagates `SQLite` errors from the lookup.
 pub fn find_project_by_slug(db: &DashboardDb, slug: &str) -> Result<Option<Project>> {
     let mut stmt = db.conn.prepare(
         "SELECT id, slug, clone_path, default_branch, hub_sha, hub_fetched_at,
@@ -60,18 +38,6 @@ pub fn find_project_by_slug(db: &DashboardDb, slug: &str) -> Result<Option<Proje
     Ok(row)
 }
 
-/// Run the `crosslink` CLI in a project's workspace and record an
-/// audit row regardless of outcome.
-///
-/// `verb` and `subject` are the audit-log key; `args` is the actual
-/// argv passed to `crosslink`. The workspace's git config / agent
-/// identity are what sign any commits the CLI produces — the
-/// dashboard doesn't invent a new identity.
-///
-/// # Errors
-/// Returns an error if the subprocess fails to spawn, exits non-zero,
-/// or the audit INSERT fails. The audit row is written in both
-/// success and failure paths.
 pub async fn run_cli(
     db_path: &Path,
     project: &Project,
@@ -88,10 +54,6 @@ pub async fn run_cli(
 
     let actor = resolve_actor(&project.clone_path).unwrap_or_else(|| "unknown".to_string());
 
-    // Resolve the `crosslink` binary via PATH first (canonical for
-    // installed setups — reinstalling the CLI updates the dashboard
-    // automatically), then CROSSLINK_BIN override, then self-exe as
-    // a dev fallback. See `projects::resolve_crosslink_bin`.
     let cmd_name = super::projects::resolve_crosslink_bin();
     let output = Command::new(&cmd_name)
         .current_dir(&project.clone_path)
@@ -127,7 +89,6 @@ pub async fn run_cli(
         ),
     };
 
-    // Best-effort audit write — don't let DB errors mask the subprocess result.
     let project_id = project.id;
     let verb_owned = verb.to_string();
     let subject_owned = subject.map(str::to_string);
@@ -165,19 +126,6 @@ pub async fn run_cli(
         anyhow::bail!("{e}");
     }
 
-    // After a successful write, run `crosslink sync` in the same
-    // workspace to promote any still-uncommitted hub-branch state
-    // into actual commits + push to origin. Without this the CLI's
-    // "close issue" writes the new issue file to the hub-cache
-    // working tree but only commits it on the next explicit sync —
-    // meaning the dashboard's reader (and any other client polling
-    // origin) never sees the close until someone runs `crosslink
-    // sync` manually (#701).
-    //
-    // Best-effort: sync failures are logged but don't poison the
-    // primary action's success. The user already got their close;
-    // worst case the next 5-s poll tick tries again via a different
-    // path.
     let sync_out = Command::new(&cmd_name)
         .current_dir(&project.clone_path)
         .args(["sync", "-q"])
@@ -196,18 +144,8 @@ pub async fn run_cli(
         }
     }
 
-    // Fast-forward the hub-cache worktree so the frontend's
-    // mutation-triggered refetch (which fires within milliseconds)
-    // reads the fresh hub tip, not the pre-mutation one. Without
-    // this, close/release/steal etc. all have a ≤5s latency until
-    // the poll loop's own `ensure_hub_cache_worktree` runs — and
-    // the user sees "nothing happened" in the meantime (#716).
-    //
-    // Skip the reset if the worktree has uncommitted state —
-    // something else (concurrent CLI call) is mid-write; don't
-    // wipe their progress. Same safety as poll::ensure_hub_cache_worktree.
     let hub_cache = project.clone_path.join(".crosslink").join(".hub-cache");
-    if hub_cache.is_dir() {
+    if hub_cache.is_dir() && !crate::hub_v3::HubMode::resolve(&project.clone_path).is_v3() {
         let porcelain = Command::new("git")
             .arg("-C")
             .arg(&hub_cache)
@@ -231,10 +169,6 @@ pub async fn run_cli(
     Ok(ActionResult { stdout, stderr })
 }
 
-/// Read `user.signingkey` from the workspace's git config so audit
-/// rows can record who initiated each action. Falls back to `None`
-/// if the config isn't set — the audit row still lands with
-/// `actor = "unknown"`.
 fn resolve_actor(clone_path: &Path) -> Option<String> {
     let out = std::process::Command::new("git")
         .arg("-C")
@@ -292,9 +226,7 @@ mod tests {
     #[tokio::test]
     async fn test_run_cli_records_action_even_on_failure() {
         let (_dir, db_path, project) = temp_env();
-        // Deliberately pass a subcommand that will fail (no .crosslink/
-        // in the fake repo, so any real crosslink subcommand will
-        // error out). We care about: does the audit row land?
+
         let result = run_cli(
             &db_path,
             &project,

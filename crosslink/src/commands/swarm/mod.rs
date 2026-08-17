@@ -1,8 +1,3 @@
-// Swarm coordination: multi-agent phase planning, status, and resume.
-//
-// Persists swarm state to the hub branch under `swarm/` so it survives
-// session boundaries and is visible to all agents.
-
 mod budget;
 mod edit;
 mod init;
@@ -13,7 +8,6 @@ mod review;
 mod status;
 mod types;
 
-// Re-export all public items so `commands::swarm::foo` continues to work.
 pub use budget::{config_budget, estimate, harvest_costs, launch_budget_aware, plan, plan_show};
 pub use edit::{merge_phases, move_agent, remove_agent, rename_phase, reorder_phase, split_phase};
 pub use init::init;
@@ -24,10 +18,6 @@ pub use lifecycle::{
 pub use merge::merge;
 pub use review::{fix, review, review_continue, review_status, run_pipeline_cmd, trust_init};
 pub use status::status;
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -42,7 +32,6 @@ mod tests {
     use crate::findings::{Finding, FindingSeverity, ReviewReport};
     use std::path::PathBuf;
 
-    /// Helper to build `seam::Partition` from a label and file list (for tests).
     fn make_partition(label: &str, files: Vec<&str>) -> crate::seam::Partition {
         crate::seam::Partition {
             label: label.to_string(),
@@ -283,7 +272,7 @@ mod tests {
 
         assert_eq!(phases[1].name, "Phase 2: Backends");
         assert_eq!(phases[1].agents.len(), 1);
-        // Parallel phase still depends on previous
+
         assert_eq!(phases[1].depends_on, vec!["Phase 1: Foundation"]);
 
         assert_eq!(phases[2].name, "Phase 3: Delivery");
@@ -294,7 +283,7 @@ mod tests {
     #[test]
     fn test_probe_agent_status_nonexistent_worktree() {
         let dir = tempfile::tempdir().unwrap();
-        // No git repo, no worktree, no branch -> planned
+
         assert_eq!(probe_agent_status(dir.path(), "nonexistent"), "planned");
     }
 
@@ -303,7 +292,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
 
-        // Set up a git repo with a branch that's been merged
         std::process::Command::new("git")
             .current_dir(repo)
             .args(["init", "-q", "-b", "main"])
@@ -331,7 +319,6 @@ mod tests {
             .output()
             .unwrap();
 
-        // Create and merge a branch
         std::process::Command::new("git")
             .current_dir(repo)
             .args(["checkout", "-b", "test-agent"])
@@ -359,7 +346,6 @@ mod tests {
             .output()
             .unwrap();
 
-        // No worktree exists, but branch is merged -> should be "completed (merged)"
         assert_eq!(probe_agent_status(repo, "test-agent"), "completed (merged)");
     }
 
@@ -395,7 +381,6 @@ mod tests {
             .output()
             .unwrap();
 
-        // Create a branch with a commit that isn't merged
         std::process::Command::new("git")
             .current_dir(repo)
             .args(["checkout", "-b", "unmerged-agent"])
@@ -418,7 +403,6 @@ mod tests {
             .output()
             .unwrap();
 
-        // No worktree, branch exists but not merged -> "completed (worktree removed)"
         assert_eq!(
             probe_agent_status(repo, "unmerged-agent"),
             "completed (worktree removed)"
@@ -445,12 +429,10 @@ mod tests {
 
     #[test]
     fn test_probe_agent_status_worktree_no_status_no_tmux() {
-        // Worktree exists but no .kickoff-status and no tmux session
-        // -> should report "failed (session died)" not "unknown"
         let dir = tempfile::tempdir().unwrap();
         let wt = dir.path().join(".worktrees").join("dead-agent");
         std::fs::create_dir_all(&wt).unwrap();
-        // No .kickoff-status file, no tmux -> session died
+
         assert_eq!(
             probe_agent_status(dir.path(), "dead-agent"),
             "failed (session died)"
@@ -459,7 +441,6 @@ mod tests {
 
     #[test]
     fn test_probe_agent_status_launching() {
-        // Agent wrote LAUNCHING status but tmux session has since exited
         let dir = tempfile::tempdir().unwrap();
         let wt = dir.path().join(".worktrees").join("launch-agent");
         std::fs::create_dir_all(&wt).unwrap();
@@ -471,7 +452,7 @@ mod tests {
     fn test_load_phase_not_found() {
         let dir = tempfile::tempdir().unwrap();
         let cache = dir.path();
-        // Create a minimal plan with no phase files
+
         std::fs::create_dir_all(cache.join("swarm")).unwrap();
         let plan = SwarmPlan {
             schema_version: 1,
@@ -486,8 +467,6 @@ mod tests {
         )
         .unwrap();
 
-        // We can't easily test load_phase without a SyncManager,
-        // but we can test the slug-matching logic indirectly via slugify_phase
         assert_eq!(slugify_phase("Phase 1"), "phase-1");
         assert_eq!(slugify_phase("Phase 2"), "phase-2");
     }
@@ -531,7 +510,6 @@ mod tests {
 
     #[test]
     fn test_phase_status_transitions() {
-        // Verify the expected phase lifecycle: Pending -> InProgress -> Completed
         let mut phase = PhaseDefinition {
             name: "Phase 1".to_string(),
             status: PhaseStatus::Pending,
@@ -553,13 +531,11 @@ mod tests {
         assert_eq!(phase.status, PhaseStatus::Pending);
         assert_eq!(phase.agents[0].status, AgentStatus::Planned);
 
-        // Simulate launch
         phase.status = PhaseStatus::InProgress;
         phase.agents[0].status = AgentStatus::Running;
         phase.agents[0].started_at = Some("2026-03-06T12:00:00Z".to_string());
         assert_eq!(phase.status, PhaseStatus::InProgress);
 
-        // Simulate completion + gate
         phase.agents[0].status = AgentStatus::Completed;
         phase.gate = Some(GateResult {
             status: "passed".to_string(),
@@ -568,7 +544,6 @@ mod tests {
             ran_at: Some("2026-03-06T13:00:00Z".to_string()),
         });
 
-        // Simulate checkpoint
         phase.status = PhaseStatus::Completed;
         phase.agents[0].status = AgentStatus::Merged;
         phase.checkpoint = Some("phase-1".to_string());
@@ -577,7 +552,6 @@ mod tests {
         assert_eq!(phase.agents[0].status, AgentStatus::Merged);
         assert!(phase.checkpoint.is_some());
 
-        // Roundtrip the final state
         let json = serde_json::to_string(&phase).unwrap();
         let parsed: PhaseDefinition = serde_json::from_str(&json).unwrap();
         assert_eq!(phase, parsed);
@@ -613,7 +587,9 @@ mod tests {
     fn test_budget_config_serde_roundtrip() {
         let config = BudgetConfig {
             budget_window_s: 18000,
-            model: "opus".to_string(),
+            model: "standard".to_string(),
+            effort: Some("high".to_string()),
+            budget_usd: Some("5.00".to_string()),
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: BudgetConfig = serde_json::from_str(&json).unwrap();
@@ -621,10 +597,71 @@ mod tests {
     }
 
     #[test]
+    fn test_budget_config_deserializes_legacy_file() {
+        let legacy = r#"{"budget_window_s":18000,"model":"sonnet"}"#;
+        let parsed: BudgetConfig = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.model, "sonnet");
+        assert_eq!(parsed.effort, None);
+        assert_eq!(parsed.budget_usd, None);
+    }
+
+    #[test]
+    fn test_resolve_dispatch_dials_uses_swarm_config() {
+        let config = BudgetConfig {
+            budget_window_s: 18000,
+            model: "sonnet".to_string(),
+            effort: Some("high".to_string()),
+            budget_usd: Some("5.00".to_string()),
+        };
+        let dials = resolve_dispatch_dials(Some(&config));
+        assert_eq!(dials.model, "sonnet");
+        assert_eq!(dials.effort.as_deref(), Some("high"));
+        assert_eq!(dials.budget_usd.as_deref(), Some("5.00"));
+    }
+
+    #[test]
+    fn test_resolve_dispatch_dials_defaults_without_config() {
+        let dials = resolve_dispatch_dials(None);
+        assert_eq!(dials.model, BudgetConfig::default().model);
+        assert_eq!(dials.effort, None);
+        assert_eq!(dials.budget_usd, None);
+    }
+
+    #[test]
+    fn test_resolve_dispatch_dials_treats_empty_as_unset() {
+        let config = BudgetConfig {
+            budget_window_s: 18000,
+            model: String::new(),
+            effort: Some(String::new()),
+            budget_usd: Some(String::new()),
+        };
+        let dials = resolve_dispatch_dials(Some(&config));
+        assert_eq!(dials.model, BudgetConfig::default().model);
+        assert_eq!(dials.effort, None);
+        assert_eq!(dials.budget_usd, None);
+    }
+
+    #[test]
+    fn test_resolve_phase_template_keyed_by_phase_slug() {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path();
+        let templates = crosslink_dir.join("swarm-templates");
+        std::fs::create_dir_all(&templates).unwrap();
+        std::fs::write(templates.join("build-api.md"), "{{built_prompt}}").unwrap();
+
+        assert_eq!(
+            resolve_phase_template(crosslink_dir, "build-api").as_deref(),
+            Some(templates.join("build-api.md").as_path())
+        );
+
+        assert_eq!(resolve_phase_template(crosslink_dir, "ship-ui"), None);
+    }
+
+    #[test]
     fn test_cost_log_serde_roundtrip() {
         let mut estimates = std::collections::HashMap::new();
         estimates.insert(
-            "opus".to_string(),
+            "standard".to_string(),
             ModelEstimate {
                 median_duration_s: 3600,
                 p90_duration_s: 5400,
@@ -633,7 +670,7 @@ mod tests {
         let log = CostLog {
             observations: vec![CostObservation {
                 agent_id: "driver--agent-1".to_string(),
-                model: "opus".to_string(),
+                model: "standard".to_string(),
                 duration_s: 4500,
                 files_changed: Some(12),
                 lines_added: Some(450),
@@ -647,6 +684,8 @@ mod tests {
 
     #[test]
     fn test_default_agent_duration() {
+        assert_eq!(default_agent_duration("advanced"), 5400);
+        assert_eq!(default_agent_duration("standard"), 2700);
         assert_eq!(default_agent_duration("opus"), 5400);
         assert_eq!(default_agent_duration("sonnet"), 2700);
         assert_eq!(default_agent_duration("haiku"), 3600);
@@ -685,7 +724,7 @@ mod tests {
         };
         let cost_log = CostLog::default();
         let (total, agents) = estimate_phase_cost(&phase, &cost_log, "opus");
-        // 2 agents x 5400s + 2x300 overhead + 600 gate = 12000
+
         assert_eq!(agents.len(), 2);
         assert_eq!(total, 5400 * 2 + 300 * 2 + 600);
     }
@@ -722,7 +761,7 @@ mod tests {
             model_estimates: estimates,
         };
         let (total, agents) = estimate_phase_cost(&phase, &cost_log, "opus");
-        // 1 agent x 4000 (p90) + 300 overhead + 600 gate = 4900
+
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].1, 4000);
         assert_eq!(total, 4000 + 300 + 600);
@@ -773,14 +812,12 @@ mod tests {
 
     #[test]
     fn test_budget_recommendation_caution() {
-        // Cost is > 80% of budget but still fits
         let rec = budget_recommendation(15000, 18000, 2);
         assert_eq!(rec, BudgetRecommendation::ProceedWithCaution);
     }
 
     #[test]
     fn test_budget_recommendation_split() {
-        // Cost exceeds budget
         let rec = budget_recommendation(20000, 10000, 4);
         match rec {
             BudgetRecommendation::Split {
@@ -795,7 +832,6 @@ mod tests {
 
     #[test]
     fn test_budget_recommendation_block() {
-        // Budget less than coordinator overhead
         let rec = budget_recommendation(20000, 500, 4);
         match rec {
             BudgetRecommendation::Block { .. } => {}
@@ -809,21 +845,21 @@ mod tests {
             observations: vec![
                 CostObservation {
                     agent_id: "a1".to_string(),
-                    model: "opus".to_string(),
+                    model: "standard".to_string(),
                     duration_s: 3000,
                     files_changed: None,
                     lines_added: None,
                 },
                 CostObservation {
                     agent_id: "a2".to_string(),
-                    model: "opus".to_string(),
+                    model: "standard".to_string(),
                     duration_s: 4000,
                     files_changed: None,
                     lines_added: None,
                 },
                 CostObservation {
                     agent_id: "a3".to_string(),
-                    model: "opus".to_string(),
+                    model: "standard".to_string(),
                     duration_s: 5000,
                     files_changed: None,
                     lines_added: None,
@@ -832,9 +868,9 @@ mod tests {
             model_estimates: std::collections::HashMap::new(),
         };
         recompute_model_estimates(&mut log);
-        let est = log.model_estimates.get("opus").unwrap();
-        assert_eq!(est.median_duration_s, 4000); // middle of [3000, 4000, 5000]
-        assert_eq!(est.p90_duration_s, 5000); // ceil(3*0.9) = 3 -> index 2
+        let est = log.model_estimates.get("standard").unwrap();
+        assert_eq!(est.median_duration_s, 4000);
+        assert_eq!(est.p90_duration_s, 5000);
     }
 
     #[test]
@@ -843,7 +879,7 @@ mod tests {
             ("Phase 1".to_string(), 3600, 4),
             ("Phase 2".to_string(), 3600, 4),
         ];
-        let windows = pack_windows(&phases, 18000); // 5h window
+        let windows = pack_windows(&phases, 18000);
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].phases.len(), 2);
         assert_eq!(windows[0].phases[0].fit, WindowFit::Fits);
@@ -859,7 +895,7 @@ mod tests {
             ("Phase 3".to_string(), 7200, 8),
             ("Phase 4".to_string(), 7200, 8),
         ];
-        let windows = pack_windows(&phases, 18000); // 5h window
+        let windows = pack_windows(&phases, 18000);
         assert_eq!(windows.len(), 2);
         assert_eq!(windows[0].phases.len(), 2);
         assert_eq!(windows[1].phases.len(), 2);
@@ -869,7 +905,6 @@ mod tests {
 
     #[test]
     fn test_pack_windows_tight_fit() {
-        // Phase fills > 80% of window but still fits
         let phases = vec![("Phase 1".to_string(), 16000, 6)];
         let windows = pack_windows(&phases, 18000);
         assert_eq!(windows.len(), 1);
@@ -878,7 +913,6 @@ mod tests {
 
     #[test]
     fn test_pack_windows_overflow_splits() {
-        // Single phase overflows window
         let phases = vec![
             ("Phase 1".to_string(), 10000, 5),
             ("Phase 2".to_string(), 10000, 5),
@@ -924,10 +958,6 @@ mod tests {
         let json_overflow = serde_json::to_string(&WindowFit::Overflow).unwrap();
         assert_eq!(json_overflow, "\"overflow\"");
     }
-
-    // -----------------------------------------------------------------------
-    // swarm review tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_mandate_prompt_adversarial() {
@@ -1031,13 +1061,11 @@ mod tests {
 
     #[test]
     fn test_finding_severity_ordering() {
-        // Derived PartialOrd/Ord uses variant declaration order
         assert!(FindingSeverity::Critical < FindingSeverity::High);
         assert!(FindingSeverity::High < FindingSeverity::Medium);
         assert!(FindingSeverity::Medium < FindingSeverity::Low);
         assert!(FindingSeverity::Low < FindingSeverity::Info);
 
-        // Sort a mixed list and verify order
         let mut severities = vec![
             FindingSeverity::Low,
             FindingSeverity::Critical,
@@ -1078,15 +1106,15 @@ mod tests {
         let assignments = assign_partitions(partitions, 3);
 
         assert_eq!(assignments.len(), 3);
-        // Agent 0 gets partitions 0, 3 (alpha, delta)
+
         assert!(assignments[0].partition_label.contains("alpha"));
         assert!(assignments[0].partition_label.contains("delta"));
         assert_eq!(assignments[0].files.len(), 2);
-        // Agent 1 gets partition 1, 4 (beta, epsilon)
+
         assert!(assignments[1].partition_label.contains("beta"));
         assert!(assignments[1].partition_label.contains("epsilon"));
         assert_eq!(assignments[1].files.len(), 2);
-        // Agent 2 gets partition 2 (gamma)
+
         assert!(assignments[2].partition_label.contains("gamma"));
         assert_eq!(assignments[2].files.len(), 1);
     }
@@ -1099,7 +1127,6 @@ mod tests {
         ];
         let assignments = assign_partitions(partitions, 5);
 
-        // Only 2 agents should have files; the rest are filtered out
         assert_eq!(assignments.len(), 2);
         assert_eq!(assignments[0].agent_slug, "reviewer-1");
         assert_eq!(assignments[1].agent_slug, "reviewer-2");
@@ -1169,7 +1196,6 @@ mod tests {
 
     #[test]
     fn test_finding_severity_serde_values() {
-        // Verify the rename_all = "snake_case" produces expected strings
         assert_eq!(
             serde_json::to_string(&FindingSeverity::Critical).unwrap(),
             "\"critical\""
@@ -1244,10 +1270,6 @@ mod tests {
         assert_eq!(plan, parsed);
     }
 
-    // -----------------------------------------------------------------------
-    // Merge orchestration tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_merge_plan_serde_roundtrip() {
         let plan = MergePlan {
@@ -1295,10 +1317,6 @@ mod tests {
         let result = parse_issue_numbers("");
         assert!(result.is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // swarm merge tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_conflict_type_serde_roundtrip() {
@@ -1359,8 +1377,6 @@ mod tests {
         ];
         let conflicts = detect_file_conflicts(&sources);
 
-        // src/main.rs: agent-a + agent-b
-        // src/lib.rs: agent-a + agent-c
         assert_eq!(conflicts.len(), 2);
 
         let main_conflict = conflicts.iter().find(|c| c.file == "src/main.rs").unwrap();
@@ -1401,9 +1417,8 @@ mod tests {
 
         let order = compute_merge_order(&sources, &conflicts);
 
-        // agent-c has no conflicts, should be first
         assert_eq!(order[0], "agent-c");
-        // agent-a and agent-b both have overlapping conflicts, sorted alphabetically
+
         assert_eq!(order[1], "agent-a");
         assert_eq!(order[2], "agent-b");
     }
@@ -1433,11 +1448,10 @@ mod tests {
 
         let conflicts = vec![];
 
-        // Run multiple times to verify determinism
         let order1 = compute_merge_order(&sources, &conflicts);
         let order2 = compute_merge_order(&sources, &conflicts);
         assert_eq!(order1, order2);
-        // All at same conflict level -> alphabetical
+
         assert_eq!(order1, vec!["alpha", "middle", "zebra"]);
     }
 
@@ -1478,11 +1492,7 @@ mod tests {
         ];
 
         let order = compute_merge_order(&sources, &conflicts);
-        // agent-clean is involved in NonOverlapping only -> level 1
-        // agent-nonoverlap has Overlapping -> level 3
-        // agent-overlap has Overlapping -> level 3
-        // Wait: agent-clean is in shared2.rs NonOverlapping conflict
-        // So: agent-clean -> level 1, agent-nonoverlap -> level 3, agent-overlap -> level 3
+
         assert_eq!(order[0], "agent-clean");
         assert_eq!(order[1], "agent-nonoverlap");
         assert_eq!(order[2], "agent-overlap");
@@ -1490,16 +1500,13 @@ mod tests {
 
     #[test]
     fn test_ranges_overlap() {
-        // Overlapping ranges
         assert!(ranges_overlap(&[(1, 10)], &[(5, 15)]));
         assert!(ranges_overlap(&[(5, 15)], &[(1, 10)]));
         assert!(ranges_overlap(&[(1, 10)], &[(10, 20)]));
 
-        // Non-overlapping ranges
         assert!(!ranges_overlap(&[(1, 5)], &[(6, 10)]));
         assert!(!ranges_overlap(&[(10, 20)], &[(1, 5)]));
 
-        // Multiple ranges, some overlap
         assert!(ranges_overlap(&[(1, 5), (20, 30)], &[(4, 6)]));
         assert!(!ranges_overlap(&[(1, 5), (20, 30)], &[(6, 19)]));
     }

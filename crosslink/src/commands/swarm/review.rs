@@ -1,6 +1,3 @@
-// Swarm review: parallel adversarial review, pipeline orchestration,
-// fix planning, and shared helpers.
-
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -13,7 +10,6 @@ use crate::seam;
 use crate::sync::SyncManager;
 use crate::trust_model;
 
-// Mandate prompt templates
 const MANDATE_ADVERSARIAL: &str = "You are the ha-satan, the loyal accuser. \
     Find real problems that would cause failures in production. \
     Ignore style nits, focus on correctness, safety, and robustness.";
@@ -27,18 +23,16 @@ const MANDATE_ROBUSTNESS: &str = "Find crash paths, resource leaks, error handli
 const MANDATE_CORRECTNESS: &str = "Find logic errors, race conditions, invariant violations, \
     and incorrect algorithm implementations.";
 
-/// Map a mandate name to its prompt text.
 pub fn mandate_prompt(mandate: &str) -> &str {
     match mandate {
         "adversarial" => MANDATE_ADVERSARIAL,
         "security" => MANDATE_SECURITY,
         "robustness" => MANDATE_ROBUSTNESS,
         "correctness" => MANDATE_CORRECTNESS,
-        _ => mandate, // Custom mandate text passed through as-is
+        _ => mandate,
     }
 }
 
-/// Assign partitions to agents using round-robin distribution.
 pub(super) fn assign_partitions(
     partitions: Vec<seam::Partition>,
     agent_count: usize,
@@ -68,12 +62,10 @@ pub(super) fn assign_partitions(
         );
     }
 
-    // Filter out agents with no files assigned
     assignments.retain(|a| !a.files.is_empty());
     assignments
 }
 
-/// Launch a parallel adversarial review across codebase partitions.
 pub fn review(
     crosslink_dir: &Path,
     agent_count: usize,
@@ -90,7 +82,6 @@ pub fn review(
     sync.init_cache()?;
     sync.fetch()?;
 
-    // Discover source partitions via seam detection
     let partitions = seam::detect_seams(repo_root, agent_count)?;
     if partitions.is_empty() {
         bail!("No source files found in repo root. Nothing to review.");
@@ -111,7 +102,6 @@ pub fn review(
     }
     println!();
 
-    // Assign partitions to agents
     let assignments = assign_partitions(partitions, agent_count);
     let prompt_text = mandate_prompt(mandate);
     let now = chrono::Utc::now().to_rfc3339();
@@ -125,7 +115,6 @@ pub fn review(
         doc_output: doc.map(std::path::Path::to_path_buf),
     };
 
-    // Persist plan to hub branch
     write_hub_json(&sync, "swarm/review-plan.json", &plan)?;
     commit_hub_files(
         &sync,
@@ -133,7 +122,6 @@ pub fn review(
         "swarm: store review plan",
     )?;
 
-    // Print summary
     println!("Review plan ({mandate} mandate):");
     println!("  Prompt: {prompt_text}");
     println!();
@@ -155,7 +143,6 @@ pub fn review(
     println!("Plan saved to hub branch at swarm/review-plan.json");
 
     if file_issues || fix {
-        // Run the pipeline for post-review stages
         let config = PipelineConfig {
             agent_count: assignments.len(),
             mandate: mandate.to_string(),
@@ -169,11 +156,6 @@ pub fn review(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Review pipeline orchestration
-// ---------------------------------------------------------------------------
-
-/// Convert consolidated finding groups into the format expected by `issue_filing`.
 fn findings_to_filing(groups: &[findings::FindingGroup]) -> Vec<issue_filing::FindingForFiling> {
     groups
         .iter()
@@ -189,7 +171,6 @@ fn findings_to_filing(groups: &[findings::FindingGroup]) -> Vec<issue_filing::Fi
         .collect()
 }
 
-/// Consolidate review findings from agent reports on the hub branch.
 fn consolidate_review_findings(crosslink_dir: &Path) -> Result<findings::ConsolidatedReport> {
     let sync = SyncManager::new(crosslink_dir)?;
     let findings_dir = sync.cache_path().join("swarm");
@@ -199,7 +180,6 @@ fn consolidate_review_findings(crosslink_dir: &Path) -> Result<findings::Consoli
     }
     let consolidated = findings::consolidate(reports);
 
-    // Persist consolidated report
     write_hub_json(&sync, "swarm/consolidated-report.json", &consolidated)?;
     let markdown = findings::generate_markdown_report(&consolidated);
     let md_path = sync
@@ -227,7 +207,6 @@ fn consolidate_review_findings(crosslink_dir: &Path) -> Result<findings::Consoli
     Ok(consolidated)
 }
 
-/// Apply trust model filtering to consolidated findings.
 fn apply_trust_filtering(
     crosslink_dir: &Path,
     report: &findings::ConsolidatedReport,
@@ -236,7 +215,6 @@ fn apply_trust_filtering(
         return report.groups.clone();
     };
 
-    // Convert finding groups to tuples for the trust model batch API
     let finding_tuples: Vec<(String, String, String)> = report
         .groups
         .iter()
@@ -273,7 +251,6 @@ fn apply_trust_filtering(
     kept
 }
 
-/// Drive the review pipeline through its stages.
 fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> {
     let mut pipe = match pipeline::load_pipeline(crosslink_dir)? {
         Some(p) => {
@@ -284,7 +261,6 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
     };
 
     loop {
-        // Check for human checkpoints using the pipeline API
         if Pipeline::is_checkpoint(pipe.current_stage) {
             println!("\nPipeline paused for human review.");
             println!("Review findings in .crosslink/ or on the hub branch.");
@@ -295,7 +271,6 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
 
         let stage_result: Result<()> = match pipe.current_stage {
             pipeline::PipelineStage::Partition | pipeline::PipelineStage::Review => {
-                // Partitioning and agent launch already handled by review()
                 pipe.advance()?;
                 Ok(())
             }
@@ -313,7 +288,6 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
                 Ok(())
             }
             pipeline::PipelineStage::HumanCheckpoint => {
-                // Handled by is_checkpoint check above
                 unreachable!()
             }
             pipeline::PipelineStage::FileIssues => {
@@ -323,7 +297,6 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
                         read_hub_json(&sync, "swarm/consolidated-report.json")?;
                     let filtered = apply_trust_filtering(crosslink_dir, &report);
 
-                    // Deduplicate against existing GitHub issues with the review label
                     let existing_titles = fetch_existing_review_titles();
                     let deduped = findings::cross_reference_issues(&filtered, &existing_titles);
                     if deduped.len() < filtered.len() {
@@ -371,7 +344,6 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
             }
         };
 
-        // On stage failure, mark the pipeline as failed and persist
         if let Err(e) = stage_result {
             pipe.fail(&e.to_string());
             pipeline::save_pipeline(crosslink_dir, &pipe)?;
@@ -384,7 +356,6 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
     Ok(())
 }
 
-/// Fetch titles of existing GitHub issues labeled "review-finding" for deduplication.
 fn fetch_existing_review_titles() -> Vec<String> {
     fetch_issues_by_label("review-finding").map_or_else(
         |_| Vec::new(),
@@ -392,11 +363,6 @@ fn fetch_existing_review_titles() -> Vec<String> {
     )
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-/// Fetch details for a single GitHub issue via `gh issue view`.
 fn fetch_issue_details(number: u64) -> Result<(String, String, Vec<String>)> {
     let output = std::process::Command::new("gh")
         .args([
@@ -434,7 +400,6 @@ fn fetch_issue_details(number: u64) -> Result<(String, String, Vec<String>)> {
     Ok((title, body, labels))
 }
 
-/// Fetch issues matching a label via `gh issue list`.
 pub(super) fn fetch_issues_by_label(label: &str) -> Result<Vec<LabeledIssue>> {
     let output = std::process::Command::new("gh")
         .args([
@@ -483,9 +448,6 @@ pub(super) fn fetch_issues_by_label(label: &str) -> Result<Vec<LabeledIssue>> {
     Ok(results)
 }
 
-/// Create a slug for a fix agent from the issue number and title.
-///
-/// Example: `slugify_fix_target(326, "Buffer overflow in parser")` -> `"fix-326-buffer-overflow-in-parser"`
 pub(super) fn slugify_fix_target(issue_number: u64, title: &str) -> String {
     let slug_part: String = title
         .to_lowercase()
@@ -497,12 +459,10 @@ pub(super) fn slugify_fix_target(issue_number: u64, title: &str) -> String {
         .collect::<Vec<_>>()
         .join("-");
 
-    // Truncate slug_part to keep the total slug reasonable
     let max_slug_len: usize = 50;
     let prefix = format!("fix-{issue_number}-");
     let remaining = max_slug_len.saturating_sub(prefix.len());
     let truncated = if slug_part.len() > remaining {
-        // Cut at a word boundary if possible
         match slug_part[..remaining].rfind('-') {
             Some(pos) if pos > 0 => &slug_part[..pos],
             _ => &slug_part[..remaining],
@@ -514,7 +474,6 @@ pub(super) fn slugify_fix_target(issue_number: u64, title: &str) -> String {
     format!("{prefix}{truncated}")
 }
 
-/// Parse comma-separated issue numbers from a string.
 pub(super) fn parse_issue_numbers(input: &str) -> Result<Vec<u64>> {
     input
         .split(',')
@@ -527,7 +486,6 @@ pub(super) fn parse_issue_numbers(input: &str) -> Result<Vec<u64>> {
         .collect()
 }
 
-/// Build and persist a fix plan for parallel issue resolution.
 pub fn fix(
     crosslink_dir: &Path,
     issues: Option<&str>,
@@ -535,7 +493,6 @@ pub fn fix(
     max_agents: usize,
     budget_aware: bool,
 ) -> Result<()> {
-    // Resolve issues from the provided source
     let issue_data: Vec<(u64, String, String, Vec<String>)> = match (issues, from_label) {
         (Some(ids), _) => {
             let numbers = parse_issue_numbers(ids)?;
@@ -561,7 +518,6 @@ pub fn fix(
         bail!("No issues found matching the given criteria.");
     }
 
-    // Build fix targets
     let targets: Vec<FixTarget> = issue_data
         .into_iter()
         .map(|(number, title, body, labels)| {
@@ -584,7 +540,6 @@ pub fn fix(
         issues: targets,
     };
 
-    // Persist to hub branch
     let sync = SyncManager::new(crosslink_dir)?;
     sync.init_cache()?;
     sync.fetch()?;
@@ -592,7 +547,6 @@ pub fn fix(
     write_hub_json(&sync, "swarm/fix-plan.json", &plan)?;
     commit_hub_files(&sync, &["swarm/fix-plan.json"], "swarm: persist fix plan")?;
 
-    // Print summary
     println!("Fix plan created with {} issue(s):\n", plan.issues.len());
     println!("  {:<8} {:<40} Labels", "Issue", "Agent Slug");
     println!("  {:<8} {:<40} ------", "-----", "----------");
@@ -625,11 +579,6 @@ pub fn fix(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline wrappers
-// ---------------------------------------------------------------------------
-
-/// Continue a paused pipeline past a human checkpoint.
 pub fn review_continue(crosslink_dir: &Path) -> Result<()> {
     let mut pipeline = crate::pipeline::load_pipeline(crosslink_dir)?
         .context("No active pipeline found. Start one with `crosslink swarm review`")?;
@@ -642,7 +591,6 @@ pub fn review_continue(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Show the current pipeline status.
 pub fn review_status(crosslink_dir: &Path) -> Result<()> {
     match crate::pipeline::load_pipeline(crosslink_dir)? {
         Some(pipeline) => println!("{}", pipeline.summary()),
@@ -651,10 +599,6 @@ pub fn review_status(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Run the standalone pipeline driver (crosslink swarm pipeline).
-///
-/// This uses [`pipeline::run_pipeline`] which logs each stage transition
-/// and pauses at human checkpoints.
 pub fn run_pipeline_cmd(
     crosslink_dir: &Path,
     agents: usize,
@@ -673,7 +617,6 @@ pub fn run_pipeline_cmd(
     pipeline::run_pipeline(crosslink_dir, config)
 }
 
-/// Initialize trust model configuration (crosslink swarm trust-init).
 pub fn trust_init(crosslink_dir: &Path, model: &str) -> Result<()> {
     trust_model::write_default_config(crosslink_dir, model)?;
     let config = trust_model::generate_default_config(model);

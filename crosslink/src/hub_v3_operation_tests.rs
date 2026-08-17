@@ -1,10 +1,3 @@
-//! Unit tests for `hydrate_from_state` (754a PASS 2 — hub-version-routed
-//! operation). These live in the lib test tree because they only need the
-//! library surface (`Database`, `CheckpointState`, `hydration`). The full
-//! end-to-end V3 lifecycle / two-writer / lock / fetch / heartbeat / request
-//! tests live in the bin test tree (`commands::hub_v3_operation_tests`) because
-//! they drive the `migrate hub-v3` command, which is bin-only.
-
 #![cfg(test)]
 
 use std::path::Path;
@@ -13,7 +6,6 @@ use crate::db::Database;
 
 #[test]
 fn hydrate_from_state_empty_is_data_loss_guard() {
-    // An empty state must NOT clear a populated SQLite (data-loss guard).
     let db = Database::open(Path::new(":memory:")).unwrap();
     let id = db.create_issue("keep me", None, "medium").unwrap();
     let empty = crate::checkpoint::CheckpointState::default();
@@ -27,8 +19,6 @@ fn hydrate_from_state_empty_is_data_loss_guard() {
 
 #[test]
 fn hydrate_from_state_preserves_sqlite_only_issue() {
-    // #443 analogue: a direct-SQLite issue (created_by NULL) absent from the
-    // reduced state survives hydration.
     let db = Database::open(Path::new(":memory:")).unwrap();
     let kept = db.create_issue("sqlite only", None, "low").unwrap();
 
@@ -52,13 +42,10 @@ fn hydrate_from_state_preserves_sqlite_only_issue() {
 
 #[test]
 fn hydrate_from_state_maps_issue_children() {
-    // A state issue with a label, comment, blocker, and milestone link
-    // hydrates each child table row.
     let db = Database::open(Path::new(":memory:")).unwrap();
 
     let mut state = crate::checkpoint::CheckpointState::default();
 
-    // Milestone (id 7) referenced by the issue.
     let ms_uuid = uuid::Uuid::new_v4();
     state.milestones.insert(
         ms_uuid,
@@ -73,7 +60,6 @@ fn hydrate_from_state_maps_issue_children() {
         },
     );
 
-    // Blocker issue (id 2).
     let blocker_uuid = uuid::Uuid::new_v4();
     state.display_id_map.insert(blocker_uuid, 2);
     state.issues.insert(
@@ -81,7 +67,6 @@ fn hydrate_from_state_maps_issue_children() {
         sample_compact_issue(blocker_uuid, 2, "blocker"),
     );
 
-    // Main issue (id 1) with a label, comment, blocker, and milestone link.
     let uuid = uuid::Uuid::new_v4();
     state.display_id_map.insert(uuid, 1);
     let mut issue = sample_compact_issue(uuid, 1, "main");
@@ -118,10 +103,6 @@ fn hydrate_from_state_maps_issue_children() {
 
 #[test]
 fn hydrate_from_state_remaps_local_only_issue_colliding_with_hub_display_id() {
-    // GH#5: a local-only issue (e.g. from a legacy `import`) occupying id 1
-    // must not silently REPLACE the hub issue the reduction assigned display
-    // id 1 — the hub issue keeps the id, the local-only issue is remapped to
-    // a negative local id, and both survive with their children.
     let db = Database::open(Path::new(":memory:")).unwrap();
     let local = db.create_issue("local only", None, "low").unwrap();
     assert_eq!(
@@ -168,8 +149,6 @@ fn hydrate_from_state_remaps_local_only_issue_colliding_with_hub_display_id() {
 
 #[test]
 fn hydrate_from_state_remap_is_stable_across_repeated_hydrations() {
-    // After the first pass remaps a colliding local-only issue to a negative
-    // id, subsequent hydrations must keep both issues without error.
     let db = Database::open(Path::new(":memory:")).unwrap();
     db.create_issue("local only", None, "low").unwrap();
 
@@ -221,12 +200,6 @@ fn sample_compact_issue(
 
 #[test]
 fn hydrate_from_state_rekeys_preserved_comment_colliding_with_frozen_comment_id() {
-    // GH#11: a preserved sqlite-only issue carries a comment at a positive
-    // v2-era id; the state hydrates a hub comment at the SAME frozen display
-    // id. insert_hydrated_comment is a plain INSERT, so before the re-keying
-    // this aborted all of hydrate_from_state with
-    // SQLITE_CONSTRAINT_PRIMARYKEY (error 1555) - the post-migrate sync
-    // failure. Both comments must survive.
     let db = Database::open(Path::new(":memory:")).unwrap();
     let local = db.create_issue("local with comment", None, "low").unwrap();
     let local_comment = db.add_comment(local, "local words", "note").unwrap();
@@ -234,7 +207,7 @@ fn hydrate_from_state_rekeys_preserved_comment_colliding_with_frozen_comment_id(
 
     let mut state = crate::checkpoint::CheckpointState::default();
     let uuid = uuid::Uuid::new_v4();
-    let hub_id = local + 1; // no issue-id collision: isolate the comment one
+    let hub_id = local + 1;
     state.display_id_map.insert(uuid, hub_id);
     let mut issue = sample_compact_issue(uuid, hub_id, "hub issue");
     issue.comments.insert(

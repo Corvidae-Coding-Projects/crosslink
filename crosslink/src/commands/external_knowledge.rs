@@ -1,7 +1,3 @@
-//! External knowledge query commands.
-//!
-//! Handles `--repo` flag for `crosslink knowledge search/show/list`.
-
 use anyhow::{bail, Result};
 use std::path::Path;
 
@@ -10,7 +6,6 @@ use crate::external::{
 };
 use crate::knowledge::parse_frontmatter;
 
-/// Get an `ExternalKnowledgeReader` for the given repo value.
 fn get_reader(
     crosslink_dir: &Path,
     repo_value: &str,
@@ -53,11 +48,9 @@ pub fn search(
 
     let (reader, label) = get_reader(crosslink_dir, repo_value, refresh)?;
 
-    // Source-domain search
     if let Some(domain) = source_domain {
         let mut matches = reader.search_sources(domain)?;
 
-        // If --repo + --source + query, also filter by content
         if let Some(q) = query {
             let q_lower = q.to_lowercase();
             matches.retain(|page| {
@@ -93,7 +86,6 @@ pub fn search(
             }
             println!("\n--- End external results ---");
         } else {
-            // Quiet: just data
             for page in &matches {
                 println!("{}", page.slug);
             }
@@ -101,13 +93,11 @@ pub fn search(
         return Ok(());
     }
 
-    // Content search — query guaranteed Some by the guard at top of function
     let Some(query) = query else {
         bail!("Provide a search query or --source domain");
     };
     let mut matches = reader.search_content(query, context)?;
 
-    // Apply metadata filters
     if tag.is_some() || since.is_some() || contributor.is_some() {
         matches.retain(|m| {
             let Ok(content) = reader.read_page(&m.slug) else {
@@ -301,10 +291,6 @@ pub fn list(
 
     Ok(())
 }
-
-// ───────────────────────────────────────────────────────────────────────────
-// JSON formatting helpers
-// ───────────────────────────────────────────────────────────────────────────
 
 fn print_content_json(matches: &[crate::knowledge::SearchMatch], source: &str) {
     let entries: Vec<serde_json::Value> = matches
