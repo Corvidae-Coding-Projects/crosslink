@@ -1,6 +1,6 @@
 {
   "next_display_id": 788,
-  "next_comment_id": 1135,
+  "next_comment_id": 1136,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23086,7 +23086,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T06:40:39.700831442Z",
-      "updated_at": "2026-08-19T06:56:57.200449775Z",
+      "updated_at": "2026-08-19T06:57:28.954418660Z",
       "labels": [
         "architecture"
       ],
@@ -23106,6 +23106,13 @@
           "content": "[action] Review origin/develop architecture: boundaries, persistence, agent providers, failure modes, alternatives, and migration path",
           "created_at": "2026-08-19T06:41:14.906902684Z",
           "kind": "note"
+        },
+        "80a19efe-f6b3-4c5c-9971-1ee611b75841": {
+          "display_id": 1135,
+          "author": "anon-ab6221f8",
+          "content": "Recommended audit sequence: first establish non-negotiable invariants and a system-level authority/data-flow map; then audit vertically by subsystem rather than alphabetically file-by-file, recording every finding in a living Markdown ledger with severity, evidence, violated invariant, callers, migration risk, recommended disposition, and verification. Do not begin with broad cruft deletion because compatibility, migration, generated-provider, and live enforcement paths are interleaved. Prioritize storage/reducer/sync, all mutation consumers, hooks/providers, workflows, dashboard/server, config/assets, then legacy/build/tests. Convert coherent finding clusters into separately deliverable refactor designs.",
+          "created_at": "2026-08-19T06:57:28.954406979Z",
+          "kind": "decision"
         },
         "e14c0492-71a5-449c-95dd-723f0b999cf2": {
           "display_id": 1134,
@@ -24738,11 +24745,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 27,
       "timestamp": "2026-08-19T06:56:57.200449775Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 28,
+      "timestamp": "2026-08-19T06:57:28.954418660Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:56:57.200449775Z",
+    "timestamp": "2026-08-19T06:57:28.954418660Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 27
+    "agent_seq": 28
   }
 }
