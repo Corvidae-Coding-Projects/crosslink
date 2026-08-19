@@ -60,6 +60,7 @@ mod utils;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use crosslink::reconcile;
 use std::env;
 use std::path::PathBuf;
 
@@ -200,6 +201,11 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         action: MigrateCommands,
+    },
+
+    Reconcile {
+        #[arg(long, required = true)]
+        check: bool,
     },
 
     Config {
@@ -2506,6 +2512,18 @@ fn run_cli() -> Result<()> {
                 commands::migrate_hub_v3::hub_branches(&crosslink_dir)
             }
         },
+
+        Commands::Reconcile { check } => {
+            anyhow::ensure!(check, "only read-only reconciliation checks are available");
+            let crosslink_dir = find_crosslink_dir()?;
+            let report = reconcile::check_repository(&crosslink_dir);
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", report.text());
+            }
+            Ok(())
+        }
 
         Commands::Create {
             title,

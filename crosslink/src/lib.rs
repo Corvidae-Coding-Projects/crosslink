@@ -24,6 +24,7 @@ pub mod locks;
 pub mod models;
 pub mod orchestrator;
 pub mod pipeline;
+pub mod reconcile;
 pub mod seam;
 pub mod server;
 pub mod shared_writer;

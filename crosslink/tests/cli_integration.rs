@@ -67,6 +67,20 @@ fn init_crosslink(dir: &std::path::Path) {
     assert!(success, "Failed to init: {stderr}");
 }
 
+fn add_current_reconcile_refs(dir: &std::path::Path) {
+    for ref_name in [
+        "refs/heads/crosslink/meta",
+        "refs/heads/crosslink/checkpoint",
+    ] {
+        let output = Command::new("git")
+            .current_dir(dir)
+            .args(["update-ref", ref_name, "HEAD"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+}
+
 #[test]
 fn test_init_creates_crosslink_directory() {
     let dir = test_dir();
@@ -3742,4 +3756,82 @@ fn test_design_detects_both_agent_environments() {
         assert_eq!(output.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
     }
+}
+
+#[test]
+fn test_reconcile_check_json_reports_current_without_writes() {
+    let dir = test_dir();
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(crosslink_dir.join("hook-config.json"), "{}\n").unwrap();
+    let database_path = crosslink_dir.join("issues.db");
+    let database = crosslink::db::Database::open(&database_path).unwrap();
+    drop(database);
+    add_current_reconcile_refs(dir.path());
+
+    let database_before = std::fs::read(&database_path).unwrap();
+    let refs_before = Command::new("git")
+        .current_dir(dir.path())
+        .args([
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/crosslink/",
+            "refs/heads/crosslink/",
+        ])
+        .output()
+        .unwrap()
+        .stdout;
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["reconcile", "--check", "--json"]);
+    assert!(success, "{stderr}");
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["plan"]["state"], "ready_current");
+    assert_eq!(report["format"]["local_database"]["kind"], "sqlite");
+    assert_eq!(report["format"]["shared_store"]["kind"], "visible_v3");
+    assert_eq!(database_before, std::fs::read(&database_path).unwrap());
+    let refs_after = Command::new("git")
+        .current_dir(dir.path())
+        .args([
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/crosslink/",
+            "refs/heads/crosslink/",
+        ])
+        .output()
+        .unwrap()
+        .stdout;
+    assert_eq!(refs_before, refs_after);
+}
+
+#[test]
+fn test_reconcile_check_json_plans_historical_sqlite_and_v2_without_writes() {
+    let dir = test_dir();
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(crosslink_dir.join("hook-config.json"), "{}\n").unwrap();
+    let database_path = crosslink_dir.join("issues.db");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    connection
+        .execute_batch(include_str!("fixtures/reconcile/sqlite/v17.sql"))
+        .unwrap();
+    drop(connection);
+    let ref_output = Command::new("git")
+        .current_dir(dir.path())
+        .args(["update-ref", "refs/heads/crosslink/hub", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(ref_output.status.success());
+
+    let database_before = std::fs::read(&database_path).unwrap();
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["reconcile", "--check", "--json"]);
+    assert!(success, "{stderr}");
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["plan"]["state"], "migration_required");
+    assert_eq!(report["format"]["local_database"]["version"], 17);
+    assert_eq!(report["format"]["shared_store"]["kind"], "v2");
+    let actions = report["plan"]["actions"].as_array().unwrap();
+    assert!(actions
+        .iter()
+        .any(|action| action["action"] == "migrate_local_database"));
+    assert!(actions.iter().any(|action| action["action"] == "import_v2"));
+    assert_eq!(database_before, std::fs::read(&database_path).unwrap());
 }
