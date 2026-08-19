@@ -1,5 +1,10 @@
 {
   "hub_version": 3,
   "migrated_from_commit": "e7d746925caf54c978f018a2fa58c40e85189f7f",
-  "migrated_at": "2026-06-12T05:38:09.881224479Z"
+  "migrated_at": "2026-06-12T05:38:09.881224479Z",
+  "finalized_at": "2026-08-19T06:24:47.917610810Z",
+  "genesis_checkpoint_commit": "906f474e62c09ecf7d829e2839779f1706eaf73a",
+  "seed_agent_tips": {
+    "dashboard-bootstrap": "99d5d97eac86441e73dec6cfc0e961364bf29e71"
+  }
 }
