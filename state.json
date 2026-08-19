@@ -1,6 +1,6 @@
 {
   "next_display_id": 791,
-  "next_comment_id": 1155,
+  "next_comment_id": 1156,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -14246,11 +14246,20 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:39:29.125014368Z",
-      "updated_at": "2026-08-19T08:07:08.773620269Z",
+      "updated_at": "2026-08-19T08:12:29.648379872Z",
       "labels": [
         "refactor"
       ],
       "comments": {
+        "2b02e253-b777-40d4-b248-596107102a59": {
+          "display_id": 1155,
+          "author": "anon-ab6221f8",
+          "content": "Attempted: read-only architecture excerpt and branch ancestry audit",
+          "created_at": "2026-08-19T08:12:29.648374942Z",
+          "kind": "intervention",
+          "trigger_type": "tool_blocked",
+          "intervention_context": "The hook misclassified git merge-base as blocked git merge; no mutation was attempted or performed"
+        },
         "2b190936-cfcc-4505-8d57-87f7f1a2561e": {
           "display_id": 1151,
           "author": "anon-ab6221f8",
@@ -25084,11 +25093,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 56,
       "timestamp": "2026-08-19T08:07:08.773620269Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 57,
+      "timestamp": "2026-08-19T08:12:29.648379872Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T08:07:08.773620269Z",
+    "timestamp": "2026-08-19T08:12:29.648379872Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 56
+    "agent_seq": 57
   }
 }
