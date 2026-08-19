@@ -1,6 +1,6 @@
 {
   "next_display_id": 789,
-  "next_comment_id": 1140,
+  "next_comment_id": 1141,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -19064,10 +19064,21 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:26:30.625204752Z",
-      "updated_at": "2026-08-19T07:26:35.455921575Z",
+      "updated_at": "2026-08-19T07:26:47.082594814Z",
       "labels": [
         "architecture"
-      ]
+      ],
+      "comments": {
+        "59c37fd6-ddff-4811-835b-434b215eed5d": {
+          "display_id": 1140,
+          "author": "anon-ab6221f8",
+          "content": "Blocked: no active issue",
+          "created_at": "2026-08-19T07:26:47.082591112Z",
+          "kind": "intervention",
+          "trigger_type": "tool_blocked",
+          "intervention_context": "Reading the architecture skill before assessing automatic daemon startup migration across all Crosslink storage versions"
+        }
+      }
     },
     "c3485c86-0acd-4e68-9ddd-27bcda252dd2": {
       "uuid": "c3485c86-0acd-4e68-9ddd-27bcda252dd2",
@@ -24828,11 +24839,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 35,
       "timestamp": "2026-08-19T07:26:35.455921575Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 36,
+      "timestamp": "2026-08-19T07:26:47.082594814Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:26:35.455921575Z",
+    "timestamp": "2026-08-19T07:26:47.082594814Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 35
+    "agent_seq": 36
   }
 }
