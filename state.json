@@ -1,5 +1,5 @@
 {
-  "next_display_id": 789,
+  "next_display_id": 790,
   "next_comment_id": 1144,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -733,6 +733,7 @@
     "ee139df1-7ec0-4c2a-886e-7b8e38b5ad52": 611,
     "ee9fcc7e-6633-42ea-93b0-2ca100ef6c50": 479,
     "eed88100-2770-413e-b37d-a0ac2017a22f": 694,
+    "efbe42f4-eb44-48bd-8a34-1a0400d39275": 789,
     "efbf2d1a-d0ad-44f6-b4a1-83fcebdaa4f9": 295,
     "efe60ff3-4c35-4153-a464-42adcb19b6f8": 385,
     "efeb3e77-a90d-497d-8ed6-9fd6dbecc54a": 527,
@@ -22773,6 +22774,16 @@
         }
       }
     },
+    "efbe42f4-eb44-48bd-8a34-1a0400d39275": {
+      "uuid": "efbe42f4-eb44-48bd-8a34-1a0400d39275",
+      "display_id": 789,
+      "title": "Update architecture map with automatic startup migration",
+      "status": "open",
+      "priority": "high",
+      "created_by": "anon-ab6221f8",
+      "created_at": "2026-08-19T07:31:58.098489075Z",
+      "updated_at": "2026-08-19T07:31:58.098489075Z"
+    },
     "efbf2d1a-d0ad-44f6-b4a1-83fcebdaa4f9": {
       "uuid": "efbf2d1a-d0ad-44f6-b4a1-83fcebdaa4f9",
       "display_id": 295,
@@ -24886,11 +24897,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 40,
       "timestamp": "2026-08-19T07:29:25.128786252Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 41,
+      "timestamp": "2026-08-19T07:31:58.098489075Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:29:25.128786252Z",
+    "timestamp": "2026-08-19T07:31:58.098489075Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 40
+    "agent_seq": 41
   }
 }
