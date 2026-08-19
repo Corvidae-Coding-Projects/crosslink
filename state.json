@@ -22778,11 +22778,12 @@
       "uuid": "efbe42f4-eb44-48bd-8a34-1a0400d39275",
       "display_id": 789,
       "title": "Update architecture map with automatic startup migration",
-      "status": "open",
+      "status": "closed",
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:31:58.098489075Z",
-      "updated_at": "2026-08-19T07:37:28.699010714Z",
+      "updated_at": "2026-08-19T07:37:39.356557161Z",
+      "closed_at": "2026-08-19T07:37:39.356555794Z",
       "labels": [
         "architecture"
       ],
@@ -24948,11 +24949,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 45,
       "timestamp": "2026-08-19T07:37:28.699010714Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 46,
+      "timestamp": "2026-08-19T07:37:39.356557161Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:37:28.699010714Z",
+    "timestamp": "2026-08-19T07:37:39.356557161Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 45
+    "agent_seq": 46
   }
 }
