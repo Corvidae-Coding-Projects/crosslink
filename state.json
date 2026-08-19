@@ -921,10 +921,6 @@
       "agent_id": "dashboard-bootstrap",
       "claimed_at": "2026-06-13T03:03:50.825680130Z"
     },
-    "780": {
-      "agent_id": "xXMe",
-      "claimed_at": "2026-08-19T06:10:31.481410310Z"
-    },
     "784": {
       "agent_id": "dashboard-bootstrap",
       "claimed_at": "2026-06-23T17:14:30.358699580Z"
@@ -24601,11 +24597,16 @@
       "agent_id": "xXMe",
       "agent_seq": 6,
       "timestamp": "2026-08-19T06:27:34.269770979Z"
+    },
+    {
+      "agent_id": "xXMe",
+      "agent_seq": 7,
+      "timestamp": "2026-08-19T06:27:40.170545629Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:27:34.269770979Z",
+    "timestamp": "2026-08-19T06:27:40.170545629Z",
     "agent_id": "xXMe",
-    "agent_seq": 6
+    "agent_seq": 7
   }
 }
