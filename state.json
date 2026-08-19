@@ -1,6 +1,6 @@
 {
   "next_display_id": 787,
-  "next_comment_id": 1125,
+  "next_comment_id": 1126,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23007,7 +23007,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-06-22T17:52:01.465961502Z",
-      "updated_at": "2026-08-19T06:26:42.772105118Z",
+      "updated_at": "2026-08-19T06:27:07.495427790Z",
       "labels": [
         "bug"
       ],
@@ -23020,6 +23020,15 @@
           "kind": "result",
           "signed_by": "SHA256:HNbQlqZ6IPDUuTsFl22uE9RqmLRXunUvI1wJyLF3NMM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgpJZTJxfBySkFtEXDhbSL4gVGRZ/MQ3Ctk6CEZFrebPUAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABANL2KLl6pjOWyMLMOnh+XvOd+0vFPUa9YhtQT/tiX7ZnkyffljX9goosZu/b59k+Z4iSgJPYkimqsN1/bx+KqAw=="
+        },
+        "ec7a0e6f-7b9d-4d69-a4e1-8e50fa11ff16": {
+          "display_id": 1125,
+          "author": "xXMe",
+          "content": "Commit 5005155 — fix: preserve v3 activity during legacy finalize. Verified fmt, strict clippy, 22 migration tests, 2897 binary tests, 201 CLI integration tests, release build, isolated live-shape finalize, live v2 deletion, and post-cutover hydration PASS with 785 issues/1403 comments.",
+          "created_at": "2026-08-19T06:27:07.491549430Z",
+          "kind": "result",
+          "signed_by": "SHA256:HNbQlqZ6IPDUuTsFl22uE9RqmLRXunUvI1wJyLF3NMM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgpJZTJxfBySkFtEXDhbSL4gVGRZ/MQ3Ctk6CEZFrebPUAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmYcZYrdccKYUh+5tTHJO2znRJrkGQz6gn1gAhl/pMOHISgQqBWAwVNiELr9hRQIljrs/cqghTUZn/CoTD+isDw=="
         }
       }
     },
@@ -24570,11 +24579,16 @@
       "agent_id": "xXMe",
       "agent_seq": 4,
       "timestamp": "2026-08-19T06:26:42.772105118Z"
+    },
+    {
+      "agent_id": "xXMe",
+      "agent_seq": 5,
+      "timestamp": "2026-08-19T06:27:07.495427790Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:26:42.772105118Z",
+    "timestamp": "2026-08-19T06:27:07.495427790Z",
     "agent_id": "xXMe",
-    "agent_seq": 4
+    "agent_seq": 5
   }
 }
