@@ -1,0 +1,33 @@
+{
+  "sqlite": [
+    { "file": "sqlite/v00-empty.sql", "version": 0, "source": "empty-uninitialized" },
+    { "file": "sqlite/v00-unversioned.sql", "version": 0, "source": "unversioned-v1-layout" },
+    { "file": "sqlite/v01.sql", "version": 1, "source": "6501eaa8" },
+    { "file": "sqlite/v02.sql", "version": 2, "source": "d8ae309f" },
+    { "file": "sqlite/v03.sql", "version": 3, "source": "7e86833d" },
+    { "file": "sqlite/v04.sql", "version": 4, "source": "compatibility-marker-gap" },
+    { "file": "sqlite/v05.sql", "version": 5, "source": "compatibility-marker-gap" },
+    { "file": "sqlite/v06.sql", "version": 6, "source": "0baf48e0" },
+    { "file": "sqlite/v07.sql", "version": 7, "source": "ece89e24" },
+    { "file": "sqlite/v08.sql", "version": 8, "source": "c3ece87c" },
+    { "file": "sqlite/v09.sql", "version": 9, "source": "a18ddcf5" },
+    { "file": "sqlite/v10.sql", "version": 10, "source": "3af7b58d" },
+    { "file": "sqlite/v11.sql", "version": 11, "source": "2b2c94d2" },
+    { "file": "sqlite/v12.sql", "version": 12, "source": "779e9737" },
+    { "file": "sqlite/v13.sql", "version": 13, "source": "2b708687" },
+    { "file": "sqlite/v14.sql", "version": 14, "source": "c8166c77" },
+    { "file": "sqlite/v15.sql", "version": 15, "source": "82a5b4b5" },
+    { "file": "sqlite/v16.sql", "version": 16, "source": "7cd4522e" },
+    { "file": "sqlite/v17.sql", "version": 17, "source": "728ad5ff" },
+    { "file": "sqlite/v18.sql", "version": 18, "source": "dd0b7173" }
+  ],
+  "git": [
+    { "file": "git/absent.refs", "expected_kind": "absent" },
+    { "file": "git/legacy-locks.refs", "expected_kind": "legacy_locks" },
+    { "file": "git/v2.refs", "expected_kind": "v2" },
+    { "file": "git/hidden-v3.refs", "expected_kind": "hidden_v3" },
+    { "file": "git/visible-v3.refs", "expected_kind": "visible_v3" },
+    { "file": "git/mixed-v2-visible-v3.refs", "expected_kind": "mixed" },
+    { "file": "git/partial-visible-v3.refs", "expected_kind": "mixed" }
+  ]
+}
