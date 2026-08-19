@@ -1,6 +1,6 @@
 {
   "next_display_id": 791,
-  "next_comment_id": 1147,
+  "next_comment_id": 1148,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -14246,10 +14246,21 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:39:29.125014368Z",
-      "updated_at": "2026-08-19T07:39:34.076258362Z",
+      "updated_at": "2026-08-19T07:39:44.755766186Z",
       "labels": [
         "refactor"
-      ]
+      ],
+      "comments": {
+        "e16a3eac-6171-4abd-9be3-99446caa13a0": {
+          "display_id": 1147,
+          "author": "anon-ab6221f8",
+          "content": "Blocked: no active issue",
+          "created_at": "2026-08-19T07:39:44.755762099Z",
+          "kind": "intervention",
+          "trigger_type": "tool_blocked",
+          "intervention_context": "Reading required preflight, feature, Rust quality, and workflow skill instructions before creating the reconciliation branch and implementation."
+        }
+      }
     },
     "8c67755b-ca49-4a64-ac2e-d3a7cb22ca95": {
       "uuid": "8c67755b-ca49-4a64-ac2e-d3a7cb22ca95",
@@ -24978,11 +24989,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 48,
       "timestamp": "2026-08-19T07:39:34.076258362Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 49,
+      "timestamp": "2026-08-19T07:39:44.755766186Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:39:34.076258362Z",
+    "timestamp": "2026-08-19T07:39:44.755766186Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 48
+    "agent_seq": 49
   }
 }
