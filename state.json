@@ -1,6 +1,6 @@
 {
   "next_display_id": 789,
-  "next_comment_id": 1141,
+  "next_comment_id": 1142,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -19064,7 +19064,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:26:30.625204752Z",
-      "updated_at": "2026-08-19T07:26:47.082594814Z",
+      "updated_at": "2026-08-19T07:29:05.259458605Z",
       "labels": [
         "architecture"
       ],
@@ -19077,6 +19077,13 @@
           "kind": "intervention",
           "trigger_type": "tool_blocked",
           "intervention_context": "Reading the architecture skill before assessing automatic daemon startup migration across all Crosslink storage versions"
+        },
+        "f488ad9e-c0a1-4205-bf59-43d08eb2b079": {
+          "display_id": 1141,
+          "author": "anon-ab6221f8",
+          "content": "Preferred design: make RepoReconciler a mandatory daemon readiness barrier. Detect every historical SQLite/hub/ref format, decode each directly into the current canonical model, prepare and semantically verify target refs, archive the old authoritative tip, and atomically publish the new generation with lease guards. Then rebuild issues.db as a disposable current projection while restoring explicitly local operational tables. Multiple daemons race safely: one wins the remote generation CAS, others adopt and verify. Normal migration is one startup operation with automatic resume; only corrupt or unverifiable source data blocks readiness.",
+          "created_at": "2026-08-19T07:29:05.259452616Z",
+          "kind": "decision"
         }
       }
     },
@@ -24844,11 +24851,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 36,
       "timestamp": "2026-08-19T07:26:47.082594814Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 37,
+      "timestamp": "2026-08-19T07:29:05.259458605Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:26:47.082594814Z",
+    "timestamp": "2026-08-19T07:29:05.259458605Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 36
+    "agent_seq": 37
   }
 }
