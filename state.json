@@ -1,6 +1,6 @@
 {
   "next_display_id": 789,
-  "next_comment_id": 1142,
+  "next_comment_id": 1143,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -19064,7 +19064,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:26:30.625204752Z",
-      "updated_at": "2026-08-19T07:29:05.259458605Z",
+      "updated_at": "2026-08-19T07:29:09.881909168Z",
       "labels": [
         "architecture"
       ],
@@ -19077,6 +19077,13 @@
           "kind": "intervention",
           "trigger_type": "tool_blocked",
           "intervention_context": "Reading the architecture skill before assessing automatic daemon startup migration across all Crosslink storage versions"
+        },
+        "9eb26bcf-e911-4751-bc87-b2d795afebc4": {
+          "display_id": 1142,
+          "author": "anon-ab6221f8",
+          "content": "Current code is not ready for automatic startup migration: SQLite migration helpers swallow SQL failures and can still advance user_version; daemon startup has no reconciliation/readiness barrier; hub-v3 requires separate migrate/finalize/remigrate paths; the hub write lock is local-only; locks-to-hub and hidden-to-visible ref migrations use best-effort multi-push sequences; the session hook runs sync best-effort; and VS Code treats a process surviving 500ms as ready. These must be replaced or wrapped before enabling automatic destructive cutover.",
+          "created_at": "2026-08-19T07:29:09.881903718Z",
+          "kind": "result"
         },
         "f488ad9e-c0a1-4205-bf59-43d08eb2b079": {
           "display_id": 1141,
@@ -24856,11 +24863,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 37,
       "timestamp": "2026-08-19T07:29:05.259458605Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 38,
+      "timestamp": "2026-08-19T07:29:09.881909168Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:29:05.259458605Z",
+    "timestamp": "2026-08-19T07:29:09.881909168Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 37
+    "agent_seq": 38
   }
 }
