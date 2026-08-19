@@ -369,7 +369,7 @@ fn schema_fingerprint(connection: &Connection) -> Result<String> {
             hash.update(field.as_bytes());
             hash.update([0]);
         }
-        hash.update([b'\n']);
+        hash.update(b"\n");
     }
     Ok(hex::encode(hash.finalize()))
 }
