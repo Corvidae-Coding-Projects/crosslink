@@ -1,6 +1,6 @@
 {
   "next_display_id": 787,
-  "next_comment_id": 1130,
+  "next_comment_id": 1131,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23010,11 +23010,18 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-06-22T17:52:01.465961502Z",
-      "updated_at": "2026-08-19T06:35:40.620751742Z",
+      "updated_at": "2026-08-19T06:38:42.745667143Z",
       "labels": [
         "bug"
       ],
       "comments": {
+        "14b6e669-b54c-4ac9-912a-71cb92e3c82b": {
+          "display_id": 1130,
+          "author": "anon-ab6221f8",
+          "content": "PR #89 is merged into develop at 35255a17. Rebuilt and installed crosslink 0.9.0-beta.1+35255a17; all 22 hub-v3 migration tests passed. Finalize is now an idempotent no-op against finalized v3 metadata, hydration passes, and crosslink/hub is absent locally and remotely.",
+          "created_at": "2026-08-19T06:38:42.745661512Z",
+          "kind": "note"
+        },
         "89de2d42-8663-4da0-8ae9-8784fb057f87": {
           "display_id": 1129,
           "author": "anon-ab6221f8",
@@ -24640,11 +24647,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 18,
       "timestamp": "2026-08-19T06:35:40.620751742Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 19,
+      "timestamp": "2026-08-19T06:38:42.745667143Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:35:40.620751742Z",
+    "timestamp": "2026-08-19T06:38:42.745667143Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 18
+    "agent_seq": 19
   }
 }
