@@ -19060,11 +19060,12 @@
       "uuid": "c31c44c6-ec90-4426-a51a-8a72c6b84f9a",
       "display_id": 788,
       "title": "Design automatic daemon startup migration across all Crosslink storage versions",
-      "status": "open",
+      "status": "closed",
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T07:26:30.625204752Z",
-      "updated_at": "2026-08-19T07:29:09.881909168Z",
+      "updated_at": "2026-08-19T07:29:14.523861878Z",
+      "closed_at": "2026-08-19T07:29:14.523857196Z",
       "labels": [
         "architecture"
       ],
@@ -24868,11 +24869,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 38,
       "timestamp": "2026-08-19T07:29:09.881909168Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 39,
+      "timestamp": "2026-08-19T07:29:14.523861878Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:29:09.881909168Z",
+    "timestamp": "2026-08-19T07:29:14.523861878Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 38
+    "agent_seq": 39
   }
 }
