@@ -24535,11 +24535,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 16,
       "timestamp": "2026-08-19T06:09:07.086364095Z"
+    },
+    {
+      "agent_id": "xXMe",
+      "agent_seq": 1,
+      "timestamp": "2026-08-19T06:10:12.056128217Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:09:07.086364095Z",
-    "agent_id": "anon-ab6221f8",
-    "agent_seq": 16
+    "timestamp": "2026-08-19T06:10:12.056128217Z",
+    "agent_id": "xXMe",
+    "agent_seq": 1
   }
 }
