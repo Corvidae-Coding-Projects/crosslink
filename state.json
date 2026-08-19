@@ -1,6 +1,6 @@
 {
   "next_display_id": 788,
-  "next_comment_id": 1138,
+  "next_comment_id": 1139,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23086,7 +23086,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T06:40:39.700831442Z",
-      "updated_at": "2026-08-19T07:00:43.780901657Z",
+      "updated_at": "2026-08-19T07:15:35.884813080Z",
       "labels": [
         "architecture"
       ],
@@ -23097,6 +23097,13 @@
           "content": "[action] Started repository-grounded architecture overhead map; preserving current worktree and mapping current origin/develop in an isolated docs branch.",
           "created_at": "2026-08-19T07:00:43.780896111Z",
           "kind": "note"
+        },
+        "4e0f66a9-b48b-476c-b172-2589d059adf7": {
+          "display_id": 1138,
+          "author": "anon-ab6221f8",
+          "content": "Completed the repository-grounded overhead map at .design/crosslink-architecture-overhead-map.md on docs/crosslink-architecture-overhead-map, audited against origin/develop 35255a17. It maps runtime surfaces, all primary durable state families, write/sync/reduce/hydrate flows, mutation bypasses, hooks/providers, kickoff/swarm/orchestrator/pipeline duplication, dashboards, external trust boundaries, compatibility, failure recovery, 17 prioritized pressure points, and a 9-phase refactor sequence. Core direction preserves Git-native shared authority, local-only SQLite projection, and mandatory provider hooks.",
+          "created_at": "2026-08-19T07:15:35.884809117Z",
+          "kind": "result"
         },
         "555ddd47-94df-4acb-bb74-ba6e97976aac": {
           "display_id": 1132,
@@ -24774,11 +24781,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 30,
       "timestamp": "2026-08-19T07:00:43.780901657Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 31,
+      "timestamp": "2026-08-19T07:15:35.884813080Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T07:00:43.780901657Z",
+    "timestamp": "2026-08-19T07:15:35.884813080Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 30
+    "agent_seq": 31
   }
 }
