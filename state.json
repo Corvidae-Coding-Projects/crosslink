@@ -1,6 +1,6 @@
 {
   "next_display_id": 792,
-  "next_comment_id": 1159,
+  "next_comment_id": 1160,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -6985,11 +6985,18 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T08:32:07.830314726Z",
-      "updated_at": "2026-08-19T08:32:28.257678550Z",
+      "updated_at": "2026-08-19T08:33:13.003376572Z",
       "labels": [
         "refactor"
       ],
       "comments": {
+        "5bcf4565-75c2-400a-b1b2-9b2a323fb4b4": {
+          "display_id": 1159,
+          "author": "anon-ab6221f8",
+          "content": "Recommended next slice for draft PR #90: verified remote publication. Extract the v2/hidden-v3/visible-v3 readers and builders from commands/migrate_hub_v3.rs into reusable direct-import plus semantic-verification interfaces, retain the legacy CLI as an adapter, then implement a durable idempotent journal, pinned source tips, recovery archive refs, lease-guarded atomic generation publication, losing-racer adoption, and crash recovery. Prove it with two-clone bare-remote race tests and failure injection at every transition. Explicitly exclude daemon readiness, VS Code waiting, and provider-hook activation until this substrate is proven. Continue using the existing feature branch and draft PR #90 targeting develop; run local verification per slice but defer GitHub runner monitoring until the full refactor is ready.",
+          "created_at": "2026-08-19T08:33:13.003371780Z",
+          "kind": "result"
+        },
         "89888838-1012-4ea4-9f23-36803e1791fe": {
           "display_id": 1158,
           "author": "anon-ab6221f8",
@@ -25168,11 +25175,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 63,
       "timestamp": "2026-08-19T08:32:28.257678550Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 64,
+      "timestamp": "2026-08-19T08:33:13.003376572Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T08:32:28.257678550Z",
+    "timestamp": "2026-08-19T08:33:13.003376572Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 63
+    "agent_seq": 64
   }
 }
