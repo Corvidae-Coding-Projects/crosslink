@@ -118,6 +118,9 @@ jobs:
       - name: Build
         run: cargo build --locked --verbose
 
+      - name: Run reconciliation fixture tests
+        run: cargo test --lib --verbose reconcile::tests
+
       - name: Run unit tests (with proptests, Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --bin crosslink --verbose
