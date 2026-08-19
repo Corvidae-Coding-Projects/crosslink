@@ -1,6 +1,6 @@
 {
   "next_display_id": 787,
-  "next_comment_id": 1128,
+  "next_comment_id": 1129,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -14544,7 +14544,7 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-11T18:48:42.330843364Z",
-      "updated_at": "2026-08-19T06:09:07.086364095Z",
+      "updated_at": "2026-08-19T06:27:57.253577630Z",
       "closed_at": "2026-06-12T18:04:08.408541800Z",
       "labels": [
         "architecture",
@@ -14666,6 +14666,13 @@
           "kind": "plan",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtvKP8L4W+JShoMcWKb2n9uGnmiEu7UI3TXjV+AkGOoe7GD7O3wstcZwAN1YaJzVg8mDhZdKaQluedO4/j7rBDQ=="
+        },
+        "f5837355-7023-4658-b49d-ac6d3c72056e": {
+          "display_id": 1128,
+          "author": "anon-ab6221f8",
+          "content": "Hub v3 hard cutover complete. crosslink/hub deleted locally and remotely; finalized metadata includes recovered genesis checkpoint 906f474e and dashboard seed 99d5d97e. Installed fixed binary; hydration PASS with 785 issues and 1403 comments. Fix commit 5005155a is local on feature/fix-hub-v3-pre-metadata-finalize; repository hook blocked push/PR.",
+          "created_at": "2026-08-19T06:27:57.253565434Z",
+          "kind": "handoff"
         },
         "fce52293-d131-425d-ba42-1e84d32a230a": {
           "display_id": 1121,
@@ -24616,11 +24623,16 @@
       "agent_id": "xXMe",
       "agent_seq": 8,
       "timestamp": "2026-08-19T06:27:45.257356485Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 17,
+      "timestamp": "2026-08-19T06:27:57.253577630Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:27:45.257356485Z",
-    "agent_id": "xXMe",
-    "agent_seq": 8
+    "timestamp": "2026-08-19T06:27:57.253577630Z",
+    "agent_id": "anon-ab6221f8",
+    "agent_seq": 17
   }
 }
