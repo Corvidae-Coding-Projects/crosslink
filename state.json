@@ -1,6 +1,6 @@
 {
   "next_display_id": 787,
-  "next_comment_id": 1131,
+  "next_comment_id": 1132,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23010,7 +23010,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-06-22T17:52:01.465961502Z",
-      "updated_at": "2026-08-19T06:38:42.745667143Z",
+      "updated_at": "2026-08-19T06:38:51.578982414Z",
       "labels": [
         "bug"
       ],
@@ -23021,6 +23021,13 @@
           "content": "PR #89 is merged into develop at 35255a17. Rebuilt and installed crosslink 0.9.0-beta.1+35255a17; all 22 hub-v3 migration tests passed. Finalize is now an idempotent no-op against finalized v3 metadata, hydration passes, and crosslink/hub is absent locally and remotely.",
           "created_at": "2026-08-19T06:38:42.745661512Z",
           "kind": "note"
+        },
+        "69b6e786-f5e4-499e-a64a-5a9777c72510": {
+          "display_id": 1131,
+          "author": "anon-ab6221f8",
+          "content": "Fetched origin/develop and verified merged PR #89 at 35255a17 containing fix 5005155a. Built clean release, passed fmt and all 22 migration tests, installed /home/doll/.local/bin/crosslink (0.9.0-beta.1+35255a17). Finalize confirmed v3 already complete; hydration PASS; removed stale local remote-tracking v2 ref after verifying remote v2 is absent.",
+          "created_at": "2026-08-19T06:38:51.578975735Z",
+          "kind": "handoff"
         },
         "89de2d42-8663-4da0-8ae9-8784fb057f87": {
           "display_id": 1129,
@@ -24652,11 +24659,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 19,
       "timestamp": "2026-08-19T06:38:42.745667143Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 20,
+      "timestamp": "2026-08-19T06:38:51.578982414Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:38:42.745667143Z",
+    "timestamp": "2026-08-19T06:38:51.578982414Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 19
+    "agent_seq": 20
   }
 }
