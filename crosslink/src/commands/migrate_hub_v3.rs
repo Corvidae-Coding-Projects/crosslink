@@ -1153,23 +1153,127 @@ fn git_is_ancestor(repo_dir: &Path, ancestor_sha: &str, descendant_rev: &str) ->
     }
 }
 
-fn verify_finalize(cache_dir: &Path) -> Result<()> {
+struct FinalizeSeedMetadata {
+    genesis_checkpoint_commit: String,
+    seed_agent_tips: BTreeMap<String, String>,
+}
+
+fn git_rev_list_oldest_first(repo_dir: &Path, rev: &str) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["rev-list", "--reverse", rev])
+        .output()
+        .with_context(|| format!("failed to run git rev-list for '{rev}'"))?;
+    if !output.status.success() {
+        bail!(
+            "git rev-list failed for '{rev}': {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn recover_pre_metadata_seed(
+    cache_dir: &Path,
+    genesis: &CheckpointState,
+) -> Result<FinalizeSeedMetadata> {
+    let genesis_value = serde_json::to_value(genesis).context("serialize rebuilt genesis")?;
+    let mut genesis_checkpoint_commit = None;
+    for sha in git_rev_list_oldest_first(cache_dir, CHECKPOINT_REF)? {
+        let spec = format!("{sha}:state.json");
+        let Some(bytes) = git_cat_file_blob_optional(cache_dir, &spec)? else {
+            continue;
+        };
+        let Ok(candidate) = CheckpointState::from_slice(&bytes) else {
+            continue;
+        };
+        if serde_json::to_value(candidate).context("serialize checkpoint candidate")?
+            == genesis_value
+        {
+            genesis_checkpoint_commit = Some(sha);
+            break;
+        }
+    }
+    let genesis_checkpoint_commit = genesis_checkpoint_commit.ok_or_else(|| {
+        anyhow::anyhow!(
+            "refusing to finalize: no checkpoint ancestor reproduces the frozen v2 state; \
+             the pre-metadata seed boundary cannot be recovered safely"
+        )
+    })?;
+
+    let mut seed_agent_tips = BTreeMap::new();
+    let agents_dir = cache_dir.join("agents");
+    if agents_dir.exists() {
+        for entry in std::fs::read_dir(&agents_dir)
+            .with_context(|| format!("failed to read agents dir {}", agents_dir.display()))?
+        {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let Some(agent_id) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let log_path = entry.path().join("events.log");
+            if !log_path.exists() {
+                continue;
+            }
+            let expected = std::fs::read(&log_path)
+                .with_context(|| format!("failed to read {}", log_path.display()))?;
+            if expected.is_empty() {
+                continue;
+            }
+            let ref_name = agent_ref_name(&agent_id)?;
+            let mut seed_tip = None;
+            for sha in git_rev_list_oldest_first(cache_dir, &ref_name)? {
+                let spec = format!("{sha}:events.log");
+                if git_cat_file_blob_optional(cache_dir, &spec)?.as_deref()
+                    == Some(expected.as_slice())
+                {
+                    seed_tip = Some(sha);
+                    break;
+                }
+            }
+            let seed_tip = seed_tip.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "refusing to finalize: agent '{agent_id}' has no reachable historical \
+                     events.log matching the frozen v2 seed"
+                )
+            })?;
+            seed_agent_tips.insert(agent_id, seed_tip);
+        }
+    }
+
+    Ok(FinalizeSeedMetadata {
+        genesis_checkpoint_commit,
+        seed_agent_tips,
+    })
+}
+
+fn verify_finalize(cache_dir: &Path) -> Result<FinalizeSeedMetadata> {
     let meta = read_hub_meta(cache_dir)?
         .ok_or_else(|| anyhow::anyhow!("v3 meta marker missing during finalize"))?;
 
-    let (Some(genesis_ckpt), Some(seed_tips)) =
+    let seed = if let (Some(genesis_checkpoint_commit), Some(seed_agent_tips)) =
         (meta.genesis_checkpoint_commit, meta.seed_agent_tips)
-    else {
+    {
+        FinalizeSeedMetadata {
+            genesis_checkpoint_commit,
+            seed_agent_tips,
+        }
+    } else {
         let genesis = build_genesis_from_files(cache_dir)?;
-        return verify_against_files(cache_dir, &genesis)
-            .map(|_| ())
-            .context(
-                "refusing to finalize: this hub was migrated before seed metadata was \
-                 recorded, and the strict re-verification failed (any post-migration hub \
-                 use fails it). Run `crosslink migrate hub-v3 --remigrate-from-v2` to \
-                 re-seed with metadata, then finalize immediately",
-            );
+        recover_pre_metadata_seed(cache_dir, &genesis).context(
+            "refusing to finalize: this hub was migrated before seed metadata was recorded",
+        )?
     };
+    let genesis_ckpt = &seed.genesis_checkpoint_commit;
+    let seed_tips = &seed.seed_agent_tips;
 
     let spec = format!("{genesis_ckpt}:state.json");
     let bytes = git_cat_file_blob_optional(cache_dir, &spec)?.ok_or_else(|| {
@@ -1192,14 +1296,14 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
         );
     }
 
-    if !git_is_ancestor(cache_dir, &genesis_ckpt, CHECKPOINT_REF)? {
+    if !git_is_ancestor(cache_dir, genesis_ckpt, CHECKPOINT_REF)? {
         bail!(
             "refusing to finalize: the seeded genesis checkpoint {genesis_ckpt} is no longer \
              an ancestor of {CHECKPOINT_REF} (force-reset or tampering). Run `crosslink \
              migrate hub-v3 --remigrate-from-v2`, then finalize immediately."
         );
     }
-    for (agent_id, seed_sha) in &seed_tips {
+    for (agent_id, seed_sha) in seed_tips {
         let ref_name = format!("{}{agent_id}", crate::hub_v3::AGENT_REF_PREFIX);
         if !git_is_ancestor(cache_dir, seed_sha, &ref_name)? {
             bail!(
@@ -1213,7 +1317,7 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
     let meta_sha = crate::hub_v3::git_rev_parse_optional(cache_dir, META_REF)?;
     let source = RefHubSource::at_tips(
         cache_dir,
-        Some(genesis_ckpt),
+        Some(genesis_ckpt.clone()),
         meta_sha,
         seed_tips
             .iter()
@@ -1229,7 +1333,7 @@ fn verify_finalize(cache_dir: &Path) -> Result<()> {
         );
     }
 
-    Ok(())
+    Ok(seed)
 }
 
 fn finalize_migration(
@@ -1272,10 +1376,12 @@ fn finalize_migration(
 
     let repo_root = git_main_repo_root(cache_dir)?;
 
-    verify_finalize(cache_dir)?;
+    let seed = verify_finalize(cache_dir)?;
 
     let mut meta = read_hub_meta(cache_dir)?
         .ok_or_else(|| anyhow::anyhow!("v3 meta marker missing during finalize"))?;
+    meta.genesis_checkpoint_commit = Some(seed.genesis_checkpoint_commit);
+    meta.seed_agent_tips = Some(seed.seed_agent_tips);
     meta.finalized_at = Some(Utc::now());
     let hub_json = serde_json::to_vec_pretty(&meta).context("serialize finalized HubMeta")?;
 
@@ -2805,12 +2911,12 @@ mod tests {
         );
     }
 
-    fn append_post_genesis_event(cache_dir: &Path) -> Uuid {
+    fn append_post_genesis_event(cache_dir: &Path, agent_id: &str, agent_seq: u64) -> Uuid {
         use crate::events::{Event, EventEnvelope};
         let new_uuid = Uuid::new_v4();
         let env = EventEnvelope {
-            agent_id: "alpha".to_string(),
-            agent_seq: 9999,
+            agent_id: agent_id.to_string(),
+            agent_seq,
             timestamp: Utc::now() + chrono::Duration::seconds(60),
             event: Event::IssueCreated {
                 uuid: new_uuid,
@@ -2819,7 +2925,7 @@ mod tests {
                 priority: "medium".to_string(),
                 labels: vec![],
                 parent_uuid: None,
-                created_by: "alpha".to_string(),
+                created_by: agent_id.to_string(),
                 display_id: None,
                 scheduled_at: None,
                 due_at: None,
@@ -2827,13 +2933,7 @@ mod tests {
             signed_by: None,
             signature: None,
         };
-        let tip = rev(cache_dir, &agent_ref_name("alpha").unwrap()).unwrap();
-        let mut bytes = git_cat_file_blob_optional(cache_dir, &format!("{tip}:events.log"))
-            .unwrap()
-            .unwrap();
-        bytes.extend_from_slice(serde_json::to_string(&env).unwrap().as_bytes());
-        bytes.push(b'\n');
-        hub_v3::commit_log_bytes(cache_dir, "alpha", &bytes, "test: post-genesis event").unwrap();
+        hub_v3::append_event_to_ref(cache_dir, agent_id, &env).unwrap();
         new_uuid
     }
 
@@ -2862,7 +2962,7 @@ mod tests {
             "alpha seed tip recorded"
         );
 
-        append_post_genesis_event(&cache_dir);
+        append_post_genesis_event(&cache_dir, "alpha", 9999);
         let advanced = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
             .unwrap()
             .state;
@@ -2950,28 +3050,57 @@ mod tests {
         hub_v3(&crosslink_dir, true, true, false, false).unwrap();
         let meta = read_hub_meta(&repo_root).unwrap().unwrap();
         assert!(meta.finalized_at.is_some(), "fallback finalize stamped");
+        assert!(meta.genesis_checkpoint_commit.is_some());
+        assert!(meta.seed_agent_tips.is_some());
     }
 
     #[test]
-    fn finalize_pre_metadata_hub_with_activity_steers_to_remigrate() {
+    fn finalize_pre_metadata_hub_preserves_post_migration_activity() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
         hub_v3(&crosslink_dir, false, false, false, false).unwrap();
         strip_seed_metadata(&cache_dir);
-        append_post_genesis_event(&cache_dir);
+        let post_uuid = append_post_genesis_event(&cache_dir, "alpha", 9999);
+        let alpha_ref = agent_ref_name("alpha").unwrap();
+        let alpha_tip = rev(&cache_dir, &alpha_ref).unwrap();
 
-        let err = hub_v3(&crosslink_dir, true, true, false, false).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("remigrate-from-v2"),
-            "pre-metadata hub with activity must steer to remigrate, got: {msg}"
-        );
-
-        hub_v3(&crosslink_dir, false, false, false, true).unwrap();
-        let meta = read_hub_meta(&cache_dir).unwrap().unwrap();
-        assert!(
-            meta.genesis_checkpoint_commit.is_some(),
-            "remigrate records seed metadata"
-        );
+        let repo_root = wp_of(&crosslink_dir);
         hub_v3(&crosslink_dir, true, true, false, false).unwrap();
+
+        assert_eq!(
+            rev(&repo_root, &alpha_ref).as_deref(),
+            Some(alpha_tip.as_str())
+        );
+        let state = compaction::reduce(&RefHubSource::new(&repo_root).unwrap())
+            .unwrap()
+            .state;
+        assert!(state.issues.contains_key(&post_uuid));
+        let meta = read_hub_meta(&repo_root).unwrap().unwrap();
+        assert!(meta.finalized_at.is_some());
+        assert!(meta.genesis_checkpoint_commit.is_some());
+        assert!(meta.seed_agent_tips.unwrap().contains_key("alpha"));
+    }
+
+    #[test]
+    fn finalize_pre_metadata_hub_preserves_v3_only_agent_ref() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+        strip_seed_metadata(&cache_dir);
+        let post_uuid = append_post_genesis_event(&cache_dir, "gamma", 1);
+        let gamma_ref = agent_ref_name("gamma").unwrap();
+        let gamma_tip = rev(&cache_dir, &gamma_ref).unwrap();
+
+        let repo_root = wp_of(&crosslink_dir);
+        hub_v3(&crosslink_dir, true, true, false, false).unwrap();
+
+        assert_eq!(
+            rev(&repo_root, &gamma_ref).as_deref(),
+            Some(gamma_tip.as_str())
+        );
+        let state = compaction::reduce(&RefHubSource::new(&repo_root).unwrap())
+            .unwrap()
+            .state;
+        assert!(state.issues.contains_key(&post_uuid));
+        let meta = read_hub_meta(&repo_root).unwrap().unwrap();
+        assert!(!meta.seed_agent_tips.unwrap().contains_key("gamma"));
     }
 }
