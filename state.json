@@ -1,6 +1,6 @@
 {
   "next_display_id": 788,
-  "next_comment_id": 1134,
+  "next_comment_id": 1135,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23086,7 +23086,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-19T06:40:39.700831442Z",
-      "updated_at": "2026-08-19T06:41:14.906908506Z",
+      "updated_at": "2026-08-19T06:46:40.236287084Z",
       "labels": [
         "architecture"
       ],
@@ -23106,6 +23106,13 @@
           "content": "[action] Review origin/develop architecture: boundaries, persistence, agent providers, failure modes, alternatives, and migration path",
           "created_at": "2026-08-19T06:41:14.906902684Z",
           "kind": "note"
+        },
+        "e14c0492-71a5-449c-95dd-723f0b999cf2": {
+          "display_id": 1134,
+          "author": "anon-ab6221f8",
+          "content": "Architecture review of origin/develop 35255a17 complete. Verdict: changes required. Preserve Rust, per-agent Git refs, signed domain events, SQLite projections, worktree isolation, and provider invocation IR. Replace the global timestamp watermark with per-agent causal frontiers; stop rewriting whole events.log and checkpoint state per mutation; make every CLI/API/TUI/orchestrator mutation use one application service and fail closed; project incrementally into SQLite; use remote CAS refs for authoritative online locks; eliminate the v3 cache worktree; split the 94k-line duplicate lib/bin module tree into a modular workspace; consolidate hooks/MCP into binary subcommands and generate provider assets from one canonical bundle. Current high-risk evidence includes direct SQLite-only REST/orchestrator writes, silent SharedWriter fallback, global-watermark late-event loss, scalar checkpoint adoption, warning-only signature validation, forced dashboard wildcard fetch, and full-state hydration per write.",
+          "created_at": "2026-08-19T06:46:40.235900269Z",
+          "kind": "result"
         }
       }
     },
@@ -24716,11 +24723,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 24,
       "timestamp": "2026-08-19T06:41:14.906908506Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 25,
+      "timestamp": "2026-08-19T06:46:40.236287084Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T06:41:14.906908506Z",
+    "timestamp": "2026-08-19T06:46:40.236287084Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 24
+    "agent_seq": 25
   }
 }
