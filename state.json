@@ -1,6 +1,6 @@
 {
   "next_display_id": 793,
-  "next_comment_id": 1161,
+  "next_comment_id": 1162,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16214,7 +16214,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-25T10:54:23.858192654Z",
-      "updated_at": "2026-08-25T10:54:38.490391969Z",
+      "updated_at": "2026-08-25T10:54:42.580647999Z",
       "labels": [
         "bug"
       ],
@@ -16225,6 +16225,13 @@
           "content": "Move initialized-project discovery ahead of dedupe claims in every provider hook, sync the generated Codex plugin assets, and add a regression covering silent no-residue behavior outside Crosslink projects. Verify with provider hook tests, formatter, generator check, and plugin validation before committing.",
           "created_at": "2026-08-25T10:54:38.490384691Z",
           "kind": "plan"
+        },
+        "bc0770fa-b341-484a-b698-7c5edc224e1c": {
+          "display_id": 1161,
+          "author": "anon-ab6221f8",
+          "content": "[action] Implemented hook scope gate and regression; provider hook suite and plugin sync validation pass. Preparing reviewed local commit and installation.",
+          "created_at": "2026-08-25T10:54:42.580643662Z",
+          "kind": "note"
         }
       }
     },
@@ -25225,11 +25232,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 68,
       "timestamp": "2026-08-25T10:54:38.490391969Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 69,
+      "timestamp": "2026-08-25T10:54:42.580647999Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-25T10:54:38.490391969Z",
+    "timestamp": "2026-08-25T10:54:42.580647999Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 68
+    "agent_seq": 69
   }
 }
