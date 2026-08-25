@@ -1,5 +1,5 @@
 {
-  "next_display_id": 792,
+  "next_display_id": 793,
   "next_comment_id": 1160,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -498,6 +498,7 @@
     "9c63106d-d711-4d7b-b31e-c51727d9acbc": 122,
     "9c705caa-6b06-40e5-967c-06ba6e3d479d": 231,
     "9c8298be-88cb-4b3d-8e1a-1c1f6a0693a0": 512,
+    "9da9135a-7c1d-42e8-93ce-2d8a77b46cd7": 792,
     "9e1471c3-9e48-42ea-8a4b-a7b3cd0d6272": 148,
     "9e31e3b4-50fb-4f77-b7b8-9857db1f4caa": 548,
     "9ef980ce-39a6-4881-bed8-68bcd6e8d1c5": 695,
@@ -16204,6 +16205,17 @@
         }
       }
     },
+    "9da9135a-7c1d-42e8-93ce-2d8a77b46cd7": {
+      "uuid": "9da9135a-7c1d-42e8-93ce-2d8a77b46cd7",
+      "display_id": 792,
+      "title": "Scope Codex hooks to initialized Crosslink projects",
+      "description": "Prevent globally installed provider hooks from injecting context, enforcing workflow, or creating .crosslink caches outside repositories containing .crosslink/hook-config.json.",
+      "status": "open",
+      "priority": "high",
+      "created_by": "anon-ab6221f8",
+      "created_at": "2026-08-25T10:54:23.858192654Z",
+      "updated_at": "2026-08-25T10:54:23.858192654Z"
+    },
     "9e1471c3-9e48-42ea-8a4b-a7b3cd0d6272": {
       "uuid": "9e1471c3-9e48-42ea-8a4b-a7b3cd0d6272",
       "display_id": 148,
@@ -25186,11 +25198,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 65,
       "timestamp": "2026-08-19T08:33:20.923397969Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 66,
+      "timestamp": "2026-08-25T10:54:23.858192654Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-19T08:33:20.923397969Z",
+    "timestamp": "2026-08-25T10:54:23.858192654Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 65
+    "agent_seq": 66
   }
 }
