@@ -1,6 +1,6 @@
 {
   "next_display_id": 793,
-  "next_comment_id": 1160,
+  "next_comment_id": 1161,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16214,10 +16214,19 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-25T10:54:23.858192654Z",
-      "updated_at": "2026-08-25T10:54:28.319446188Z",
+      "updated_at": "2026-08-25T10:54:38.490391969Z",
       "labels": [
         "bug"
-      ]
+      ],
+      "comments": {
+        "06e477f2-d9b0-4cb7-89ec-ea3f05bcacad": {
+          "display_id": 1160,
+          "author": "anon-ab6221f8",
+          "content": "Move initialized-project discovery ahead of dedupe claims in every provider hook, sync the generated Codex plugin assets, and add a regression covering silent no-residue behavior outside Crosslink projects. Verify with provider hook tests, formatter, generator check, and plugin validation before committing.",
+          "created_at": "2026-08-25T10:54:38.490384691Z",
+          "kind": "plan"
+        }
+      }
     },
     "9e1471c3-9e48-42ea-8a4b-a7b3cd0d6272": {
       "uuid": "9e1471c3-9e48-42ea-8a4b-a7b3cd0d6272",
@@ -25211,11 +25220,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 67,
       "timestamp": "2026-08-25T10:54:28.319446188Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 68,
+      "timestamp": "2026-08-25T10:54:38.490391969Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-25T10:54:28.319446188Z",
+    "timestamp": "2026-08-25T10:54:38.490391969Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 67
+    "agent_seq": 68
   }
 }
