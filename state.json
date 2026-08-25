@@ -1,6 +1,6 @@
 {
   "next_display_id": 793,
-  "next_comment_id": 1163,
+  "next_comment_id": 1164,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16214,7 +16214,7 @@
       "priority": "high",
       "created_by": "anon-ab6221f8",
       "created_at": "2026-08-25T10:54:23.858192654Z",
-      "updated_at": "2026-08-25T10:55:05.391318055Z",
+      "updated_at": "2026-08-25T11:01:32.245053366Z",
       "labels": [
         "bug"
       ],
@@ -16225,6 +16225,13 @@
           "content": "Move initialized-project discovery ahead of dedupe claims in every provider hook, sync the generated Codex plugin assets, and add a regression covering silent no-residue behavior outside Crosslink projects. Verify with provider hook tests, formatter, generator check, and plugin validation before committing.",
           "created_at": "2026-08-25T10:54:38.490384691Z",
           "kind": "plan"
+        },
+        "72574051-23ec-43d6-9b5d-ac25c0835d45": {
+          "display_id": 1163,
+          "author": "anon-ab6221f8",
+          "content": "Local installation complete. Release binary /home/doll/.local/bin/crosslink reports 0.9.0-beta.1+34d0381e. Codex plugin crosslink-codex@personal is installed and enabled at cache-busted version 0.9.0-beta.1+codex.20260825105702. Canonical source manifest restored, plugin cache validated, stray /home/doll/.crosslink cache moved to Trash, and direct outside-project prompt hook check was silent with no cache creation.",
+          "created_at": "2026-08-25T11:01:32.245047823Z",
+          "kind": "result"
         },
         "7e922e4a-dbf5-4877-97e0-52a8791efe2a": {
           "display_id": 1162,
@@ -25249,11 +25256,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 70,
       "timestamp": "2026-08-25T10:55:05.391318055Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 71,
+      "timestamp": "2026-08-25T11:01:32.245053366Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-25T10:55:05.391318055Z",
+    "timestamp": "2026-08-25T11:01:32.245053366Z",
     "agent_id": "anon-ab6221f8",
-    "agent_seq": 70
+    "agent_seq": 71
   }
 }
