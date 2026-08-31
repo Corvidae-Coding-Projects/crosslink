@@ -1,6 +1,6 @@
 {
   "next_display_id": 794,
-  "next_comment_id": 1171,
+  "next_comment_id": 1172,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -21390,7 +21390,7 @@
       "priority": "high",
       "created_by": "w4c5",
       "created_at": "2026-08-31T21:46:48.530831062Z",
-      "updated_at": "2026-08-31T23:42:06.587200338Z",
+      "updated_at": "2026-08-31T23:51:21.773760286Z",
       "labels": [
         "refactor"
       ],
@@ -21451,6 +21451,15 @@
           "kind": "observation",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABACXkzuU74bXzh0Ffb5QcSq8OO+QhWvJW7deoEybQhLe/qw9CWySBEhBaD0rfRNJkt+w4e/82tOXx0+lZenDr3DA=="
+        },
+        "e544f1fc-dc59-4ca4-880a-4d0e3ab89cf1": {
+          "display_id": 1171,
+          "author": "w4c5",
+          "content": "Verified publication update: added exact allowed_signers trust bytes to the canonical semantic digest and corrected the atomic-path failpoints so Publish/After fires immediately after the atomic commit point and Alias/Before plus Alias/After bracket compatibility/local alias convergence. Final focused results: cargo test --lib reconcile::publication::tests -- --nocapture = 17 passed; cargo test --bin crosslink commands::migrate_hub_v3::tests -- --nocapture = 17 passed. Final quality gate: cargo clippy --all-targets --all-features -- -D warnings passed; cargo build passed; cargo test --all-features passed (1838 lib, 2929 bin, 1 deletion guard, 203 CLI integration, 16 provider hooks, 159 smoke with 4 expected ignores, 0 doctests); cargo fmt --all -- --check passed.",
+          "created_at": "2026-08-31T23:51:21.771185203Z",
+          "kind": "result",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeqAbRGO0xaERgS5wvjTqBb9bZBgTxYRrISaSRatuaEpiHPsSUehwDL5XWecC5EEgcTsagSL6420NysGH0ngUAg=="
         }
       }
     },
@@ -25405,11 +25414,16 @@
       "agent_id": "w4c5",
       "agent_seq": 11,
       "timestamp": "2026-08-31T23:42:06.587200338Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 12,
+      "timestamp": "2026-08-31T23:51:21.773760286Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-31T23:42:06.587200338Z",
+    "timestamp": "2026-08-31T23:51:21.773760286Z",
     "agent_id": "w4c5",
-    "agent_seq": 11
+    "agent_seq": 12
   }
 }
