@@ -939,6 +939,10 @@
     "786": {
       "agent_id": "dashboard-bootstrap",
       "claimed_at": "2026-06-25T06:57:09.279557146Z"
+    },
+    "793": {
+      "agent_id": "w4c5",
+      "claimed_at": "2026-08-31T21:46:58.878177895Z"
     }
   },
   "issues": {
@@ -25297,11 +25301,16 @@
       "agent_id": "w4c5",
       "agent_seq": 2,
       "timestamp": "2026-08-31T21:46:53.326534473Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 3,
+      "timestamp": "2026-08-31T21:46:58.878177895Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-31T21:46:53.326534473Z",
+    "timestamp": "2026-08-31T21:46:58.878177895Z",
     "agent_id": "w4c5",
-    "agent_seq": 2
+    "agent_seq": 3
   }
 }
