@@ -1,5 +1,5 @@
 {
-  "next_display_id": 793,
+  "next_display_id": 794,
   "next_comment_id": 1165,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -685,6 +685,7 @@
     "dbd2d560-8b18-4f6e-8fb3-cd88405228e5": 270,
     "dc1f4872-07f8-4622-aa7f-3429501b0391": 120,
     "dd1202c5-651d-4596-b25d-65378d4e1812": 739,
+    "dd1de3f5-0a7b-4f8f-884c-f99285c8831b": 793,
     "dee26255-71db-4be3-aace-6375cbc837ee": 100,
     "dee298fa-1dea-49b9-911b-5476cb695e0b": 194,
     "dfebabfa-a1b9-4368-8305-9a7d8bdc51c9": 413,
@@ -21377,6 +21378,16 @@
         }
       }
     },
+    "dd1de3f5-0a7b-4f8f-884c-f99285c8831b": {
+      "uuid": "dd1de3f5-0a7b-4f8f-884c-f99285c8831b",
+      "display_id": 793,
+      "title": "Implement verified remote reconciliation publication",
+      "status": "open",
+      "priority": "high",
+      "created_by": "w4c5",
+      "created_at": "2026-08-31T21:46:48.530831062Z",
+      "updated_at": "2026-08-31T21:46:48.530831062Z"
+    },
     "dee26255-71db-4be3-aace-6375cbc837ee": {
       "uuid": "dee26255-71db-4be3-aace-6375cbc837ee",
       "display_id": 100,
@@ -25273,11 +25284,16 @@
       "agent_id": "anon-ab6221f8",
       "agent_seq": 72,
       "timestamp": "2026-08-25T11:01:49.691300657Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 1,
+      "timestamp": "2026-08-31T21:46:48.530831062Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-08-25T11:01:49.691300657Z",
-    "agent_id": "anon-ab6221f8",
-    "agent_seq": 72
+    "timestamp": "2026-08-31T21:46:48.530831062Z",
+    "agent_id": "w4c5",
+    "agent_seq": 1
   }
 }
