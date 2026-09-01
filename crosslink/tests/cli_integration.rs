@@ -1,82 +1,5 @@
-use std::cell::Cell;
 use std::process::Command;
-use std::sync::{Condvar, Mutex, OnceLock};
 use tempfile::{tempdir, TempDir};
-
-const MAX_CONCURRENT_TEST_REPOSITORIES: usize = 2;
-
-thread_local! {
-    static THREAD_TEST_DIRECTORIES: Cell<usize> = const { Cell::new(0) };
-}
-
-fn test_repository_slots() -> &'static (Mutex<usize>, Condvar) {
-    static SLOTS: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
-    SLOTS.get_or_init(|| (Mutex::new(0), Condvar::new()))
-}
-
-fn acquire_test_repository_slot() {
-    let nested = THREAD_TEST_DIRECTORIES.with(|count| {
-        let current = count.get();
-        count.set(current + 1);
-        current > 0
-    });
-    if nested {
-        return;
-    }
-    let (slots, available) = test_repository_slots();
-    let mut active = slots.lock().unwrap_or_else(|error| error.into_inner());
-    while *active >= MAX_CONCURRENT_TEST_REPOSITORIES {
-        active = available
-            .wait(active)
-            .unwrap_or_else(|error| error.into_inner());
-    }
-    *active += 1;
-}
-
-fn release_test_repository_slot() {
-    let remaining = THREAD_TEST_DIRECTORIES.with(|count| {
-        let current = count.get();
-        assert!(current > 0);
-        count.set(current - 1);
-        current - 1
-    });
-    if remaining > 0 {
-        return;
-    }
-    let (slots, available) = test_repository_slots();
-    let mut active = slots.lock().unwrap_or_else(|error| error.into_inner());
-    *active -= 1;
-    available.notify_one();
-}
-
-struct TestDir {
-    inner: TempDir,
-}
-
-impl TestDir {
-    fn new() -> Self {
-        acquire_test_repository_slot();
-        Self {
-            inner: tempdir().unwrap(),
-        }
-    }
-
-    fn path(&self) -> &std::path::Path {
-        self.inner.path()
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        if self.inner.path().join(".crosslink/daemon.pid").is_file() {
-            let _ = Command::new(env!("CARGO_BIN_EXE_crosslink"))
-                .current_dir(self.inner.path())
-                .args(["daemon", "stop"])
-                .output();
-        }
-        release_test_repository_slot();
-    }
-}
 
 fn run_crosslink(dir: &std::path::Path, args: &[&str]) -> (bool, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
@@ -106,8 +29,8 @@ fn run_crosslink_info(dir: &std::path::Path, args: &[&str]) -> (bool, String, St
     (output.status.success(), stdout, stderr)
 }
 
-fn test_dir() -> TestDir {
-    let dir = TestDir::new();
+fn test_dir() -> TempDir {
+    let dir = tempdir().unwrap();
     assert!(Command::new("git")
         .current_dir(dir.path())
         .args(["init"])
@@ -141,16 +64,47 @@ fn contains_issue_ref(text: &str, id: u32) -> bool {
 
 fn init_crosslink(dir: &std::path::Path) {
     init_crosslink_unready(dir);
-    let (success, stdout, stderr) =
-        run_crosslink(dir, &["daemon", "ensure", "--wait-ready", "--json"]);
-    assert!(
-        success,
-        "Failed to establish repository readiness: stdout={stdout} stderr={stderr}"
-    );
-    let response: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|error| panic!("Invalid daemon readiness JSON ({error}): {stdout}"));
-    assert_eq!(response["ready"], true, "repository did not become ready");
-    assert_eq!(response["running"], true, "repository daemon is not live");
+    let crosslink_dir = dir.join(".crosslink");
+    let identity = crosslink::reconcile::readiness::DaemonIdentity {
+        schema_version: crosslink::reconcile::readiness::READINESS_SCHEMA_VERSION,
+        repository_id: crosslink::reconcile::readiness::repository_id(&crosslink_dir).unwrap(),
+        daemon_epoch: uuid::Uuid::new_v4().to_string(),
+        pid: std::process::id(),
+        process_start: crosslink::reconcile::readiness::current_process_start_token().unwrap(),
+    };
+    crosslink::reconcile::readiness::write_daemon_identity(&crosslink_dir, &identity).unwrap();
+    let transition =
+        crosslink::reconcile::readiness::acquire_transition_permit(&crosslink_dir).unwrap();
+    let activation = crosslink::reconcile::migration::activate_repository(&crosslink_dir).unwrap();
+    let (state, generation_id) = match activation {
+        crosslink::reconcile::migration::RepositoryActivation::ReadyCurrent { generation_id } => (
+            crosslink::reconcile::readiness::ReadinessState::ReadyCurrent,
+            generation_id,
+        ),
+        crosslink::reconcile::migration::RepositoryActivation::ReadyMigrated { generation_id } => (
+            crosslink::reconcile::readiness::ReadinessState::ReadyMigrated,
+            generation_id,
+        ),
+        crosslink::reconcile::migration::RepositoryActivation::ReadyAdopted { generation_id } => (
+            crosslink::reconcile::readiness::ReadinessState::ReadyAdopted,
+            generation_id,
+        ),
+        other => panic!("test repository did not become ready: {other:?}"),
+    };
+    let record = crosslink::reconcile::readiness::write_record(
+        &crosslink_dir,
+        crosslink::reconcile::readiness::ReadinessDraft {
+            daemon_epoch: &identity.daemon_epoch,
+            daemon_pid: identity.pid,
+            attempt_id: "cli-integration",
+            state,
+            generation_id: Some(&generation_id),
+            reason: None,
+        },
+    )
+    .unwrap();
+    drop(transition);
+    crosslink::reconcile::readiness::validate_record(&crosslink_dir, &record).unwrap();
 }
 
 fn init_crosslink_unready(dir: &std::path::Path) {
@@ -3004,9 +2958,9 @@ fn test_init_deploys_claude_skills() {
     assert!(skills_dir.join("architect/SKILL.md").exists());
 }
 
-fn setup_repo_with_remote() -> (TestDir, tempfile::TempDir) {
+fn setup_repo_with_remote() -> (TempDir, TempDir) {
     let remote_dir = tempdir().unwrap();
-    let work_dir = TestDir::new();
+    let work_dir = tempdir().unwrap();
 
     let out = Command::new("git")
         .current_dir(remote_dir.path())
