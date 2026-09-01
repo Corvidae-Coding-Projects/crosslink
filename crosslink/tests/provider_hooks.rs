@@ -6,6 +6,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+const READY_ENVELOPE: &str = r#"{"schema_version":1,"protocol_version":1,"state":"ready_current","ready":true,"running":true,"repository_id":"repo","daemon_epoch":"epoch","daemon_pid":123,"attempt_id":"attempt","generation_id":"generation","updated_at":"2026-09-01T00:00:00Z","reason":null,"evidence_path":null,"evidence_sha256":null}"#;
+const WAITING_ENVELOPE: &str = r#"{"schema_version":1,"protocol_version":1,"state":"waiting_for_remote","ready":false,"running":true,"repository_id":"repo","daemon_epoch":"epoch","daemon_pid":123,"attempt_id":"attempt","generation_id":null,"updated_at":"2026-09-01T00:00:00Z","reason":"offline","evidence_path":"/tmp/evidence","evidence_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}"#;
+const BLOCKED_ENVELOPE: &str = r#"{"schema_version":1,"protocol_version":1,"state":"blocked_corrupt","ready":false,"running":true,"repository_id":"repo","daemon_epoch":"epoch","daemon_pid":123,"attempt_id":"attempt","generation_id":null,"updated_at":"2026-09-01T00:00:00Z","reason":"corrupt","evidence_path":"/tmp/evidence","evidence_sha256":"1111111111111111111111111111111111111111111111111111111111111111"}"#;
+
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -127,7 +131,10 @@ fn strict_codex_patch_is_blocked_before_mutation_without_active_issue() {
     let fake = cwd.path().join("fake-crosslink");
     std::fs::write(
         &fake,
-        "#!/bin/sh\ncase \"$*\" in\n  'agent flags --strict') exit 0 ;;\n  'session status') printf 'Session #1 (started)\\nNo active work item\\n' ;;\nesac\n",
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  'daemon status --json') printf '%s\\n' '{}' ;;\n  'agent flags --strict') exit 0 ;;\n  'session status') printf 'Session #1 (started)\\nNo active work item\\n' ;;\nesac\n",
+            READY_ENVELOPE,
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -166,7 +173,10 @@ fn kickoff_status_edit_is_allowed_after_session_end() {
     let fake = cwd.path().join("fake-crosslink");
     std::fs::write(
         &fake,
-        "#!/bin/sh\ncase \"$*\" in\n  'agent flags --strict') exit 0 ;;\n  'session status') printf 'Session #1 (ended)\\nNo active work item\\n' ;;\nesac\n",
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  'daemon status --json') printf '%s\\n' '{}' ;;\n  'agent flags --strict') exit 0 ;;\n  'session status') printf 'Session #1 (ended)\\nNo active work item\\n' ;;\nesac\n",
+            READY_ENVELOPE,
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -212,7 +222,11 @@ fn post_edit_checks_every_surviving_path_once_with_bounded_codex_json() {
     std::fs::write(cwd.path().join(".crosslink/hook-config.json"), "{}\n").unwrap();
     std::fs::create_dir_all(cwd.path().join("src")).unwrap();
     for name in ["a.rs", "b.rs", "lib.rs", "moved.rs"] {
-        std::fs::write(cwd.path().join("src").join(name), "pub fn complete() {}\n").unwrap();
+        std::fs::write(
+            cwd.path().join("src").join(name),
+            "pub fn complete() -> bool { true }\n",
+        )
+        .unwrap();
     }
 
     let mut payload: Value = serde_json::from_slice(
@@ -252,8 +266,9 @@ fn install_recording_crosslink(cwd: &Path) -> (PathBuf, PathBuf) {
     std::fs::write(
         &fake,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in\n  'session status') printf 'Session #1 (started)\\nWorking on: #12\\nLast action: reviewed provider changes\\n' ;;\n  'session last-handoff') printf 'No previous handoff\\n' ;;\nesac\n",
-            log.display()
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in\n  'daemon ensure --wait-ready --json'|'daemon status --json') printf '%s\\n' '{}' ;;\n  'session status') printf 'Session #1 (started)\\nWorking on: #12\\nLast action: reviewed provider changes\\n' ;;\n  'session last-handoff') printf 'No previous handoff\\n' ;;\nesac\n",
+            log.display(),
+            READY_ENVELOPE,
         ),
     )
     .unwrap();
@@ -264,6 +279,318 @@ fn install_recording_crosslink(cwd: &Path) -> (PathBuf, PathBuf) {
     )
     .unwrap();
     (fake, log)
+}
+
+fn install_readiness_crosslink(cwd: &Path, response: &str, exit_code: i32) -> PathBuf {
+    std::fs::create_dir_all(cwd.join(".crosslink")).unwrap();
+    let log = cwd.join("crosslink-calls.log");
+    let fake = cwd.join("fake-crosslink");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in\n  'daemon ensure --wait-ready --json'|'daemon status --json') printf '%s\\n' '{}'; exit {} ;;\n  'session status') printf 'Session #1 (started)\\nWorking on: #12\\n' ;;\n  'session last-handoff') printf 'No previous handoff\\n' ;;\nesac\n",
+            log.display(),
+            response.replace('\'', "'\\''"),
+            exit_code,
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        cwd.join(".crosslink/hook-config.json"),
+        serde_json::to_vec(&serde_json::json!({"crosslink_binary": fake})).unwrap(),
+    )
+    .unwrap();
+    log
+}
+
+#[test]
+fn session_start_stops_after_first_readiness_call_for_both_providers() {
+    for provider in ["claude", "codex"] {
+        for (name, response, exit_code) in [
+            ("waiting", WAITING_ENVELOPE, 20),
+            ("blocked", BLOCKED_ENVELOPE, 21),
+            ("malformed", "{", 1),
+        ] {
+            let cwd = tempfile::tempdir().unwrap();
+            let log = install_readiness_crosslink(cwd.path(), response, exit_code);
+            let payload = serde_json::json!({
+                "hook_event_name": "SessionStart",
+                "session_id": format!("{provider}-{name}"),
+                "turn_id": format!("{provider}-{name}-turn"),
+                "source": "startup",
+                "cwd": cwd.path(),
+            });
+            let output = run_hook(
+                "session-start.py",
+                &serde_json::to_vec(&payload).unwrap(),
+                cwd.path(),
+                provider,
+            );
+            assert_eq!(output.status.code(), Some(2), "{provider}/{name}");
+            let calls = std::fs::read_to_string(log).unwrap();
+            assert_eq!(
+                calls.lines().collect::<Vec<_>>(),
+                ["daemon ensure --wait-ready --json"],
+                "{provider}/{name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn work_check_readiness_and_shell_parser_fail_closed_for_both_providers() {
+    for provider in ["claude", "codex"] {
+        for command in [
+            "crosslink issue create poisoned",
+            "git status&&git reset --hard HEAD",
+            "cat Cargo.toml > copied.toml",
+            "find . -delete",
+        ] {
+            let cwd = tempfile::tempdir().unwrap();
+            install_readiness_crosslink(cwd.path(), WAITING_ENVELOPE, 20);
+            let payload = serde_json::json!({
+                "hook_event_name": "PreToolUse",
+                "session_id": format!("{provider}-waiting"),
+                "tool_use_id": format!("{provider}-{command}"),
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+                "cwd": cwd.path(),
+            });
+            let output = run_hook(
+                "work-check.py",
+                &serde_json::to_vec(&payload).unwrap(),
+                cwd.path(),
+                provider,
+            );
+            assert_eq!(output.status.code(), Some(2), "{provider}/{command}");
+        }
+
+        let cwd = tempfile::tempdir().unwrap();
+        install_readiness_crosslink(cwd.path(), READY_ENVELOPE, 0);
+        let payload = serde_json::json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": format!("{provider}-merge-base"),
+            "tool_use_id": format!("{provider}-merge-base-tool"),
+            "tool_name": "Bash",
+            "tool_input": {"command": "git merge-base HEAD origin/develop"},
+            "cwd": cwd.path(),
+        });
+        let output = run_hook(
+            "work-check.py",
+            &serde_json::to_vec(&payload).unwrap(),
+            cwd.path(),
+            provider,
+        );
+        assert!(
+            output.status.success(),
+            "{provider}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        for command in [
+            "git status&&git reset --hard HEAD",
+            "git status||git reset --hard HEAD",
+            "git status;git reset --hard HEAD",
+            "git status|git reset --hard HEAD",
+        ] {
+            let payload = serde_json::json!({
+                "hook_event_name": "PreToolUse",
+                "session_id": format!("{provider}-ready-bypass"),
+                "tool_use_id": format!("{provider}-{command}"),
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+                "cwd": cwd.path(),
+            });
+            let output = run_hook(
+                "work-check.py",
+                &serde_json::to_vec(&payload).unwrap(),
+                cwd.path(),
+                provider,
+            );
+            assert_eq!(output.status.code(), Some(2), "{provider}/{command}");
+        }
+    }
+}
+
+#[test]
+fn work_check_allows_only_the_explicit_init_recovery_in_a_blocked_repository() {
+    for provider in ["claude", "codex"] {
+        let cwd = tempfile::tempdir().unwrap();
+        let log = install_readiness_crosslink(cwd.path(), BLOCKED_ENVELOPE, 21);
+        let payload = serde_json::json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": format!("{provider}-init-recovery"),
+            "tool_use_id": format!("{provider}-init-recovery-tool"),
+            "tool_name": "Bash",
+            "tool_input": {"command": "crosslink init --force --no-prompt"},
+            "cwd": cwd.path(),
+        });
+        let output = run_hook(
+            "work-check.py",
+            &serde_json::to_vec(&payload).unwrap(),
+            cwd.path(),
+            provider,
+        );
+        assert!(
+            output.status.success(),
+            "{provider}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let calls = std::fs::read_to_string(log).unwrap();
+        assert!(!calls.lines().any(|call| call == "daemon status --json"));
+    }
+}
+
+#[test]
+fn work_check_readiness_diagnostics_match_cli_access_for_both_providers() {
+    for provider in ["claude", "codex"] {
+        for command in [
+            "crosslink export --format json",
+            "crosslink workflow diff",
+            "crosslink context show",
+            "crosslink integrity hydration",
+            "crosslink prune --dry-run",
+            "crosslink container ps",
+            "crosslink container logs fixture",
+            "crosslink swarm status",
+            "crosslink swarm list",
+            "crosslink dashboard serve",
+            "crosslink tui",
+            "crosslink serve",
+            "crosslink knowledge import input.md --dry-run",
+            "crosslink migrate-to-shared",
+            "crosslink migrate-from-shared",
+            "crosslink migrate-rename-branch",
+            "git merge-base HEAD origin/develop",
+        ] {
+            let cwd = tempfile::tempdir().unwrap();
+            let log = install_readiness_crosslink(cwd.path(), BLOCKED_ENVELOPE, 21);
+            let payload = serde_json::json!({
+                "hook_event_name": "PreToolUse",
+                "session_id": format!("{provider}-diagnostic"),
+                "tool_use_id": format!("{provider}-{command}"),
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+                "cwd": cwd.path(),
+            });
+            let output = run_hook(
+                "work-check.py",
+                &serde_json::to_vec(&payload).unwrap(),
+                cwd.path(),
+                provider,
+            );
+            assert!(
+                output.status.success(),
+                "{provider}/{command}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let calls = std::fs::read_to_string(log).unwrap();
+            assert!(!calls.lines().any(|call| call == "daemon status --json"));
+            assert!(!cwd.path().join(".crosslink/.cache/hook-dedupe").exists());
+        }
+        for command in [
+            "crosslink config",
+            "crosslink export --output report.json",
+            "crosslink integrity hydration --repair",
+            "crosslink prune",
+            "crosslink container start fixture",
+            "crosslink swarm resume",
+            "crosslink swarm sync-status",
+            "crosslink dashboard serve --rotate-token",
+            "crosslink dashboard discover --track",
+            "crosslink knowledge import input.md",
+            "crosslink issue list --refresh",
+            "crosslink issue tested",
+            "crosslink archive older 30",
+        ] {
+            let cwd = tempfile::tempdir().unwrap();
+            let log = install_readiness_crosslink(cwd.path(), BLOCKED_ENVELOPE, 21);
+            let payload = serde_json::json!({
+                "hook_event_name": "PreToolUse",
+                "session_id": format!("{provider}-mutation"),
+                "tool_use_id": format!("{provider}-{command}"),
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+                "cwd": cwd.path(),
+            });
+            let output = run_hook(
+                "work-check.py",
+                &serde_json::to_vec(&payload).unwrap(),
+                cwd.path(),
+                provider,
+            );
+            assert_eq!(output.status.code(), Some(2), "{provider}/{command}");
+            let calls = std::fs::read_to_string(log).unwrap();
+            assert!(calls.lines().any(|call| call == "daemon status --json"));
+        }
+    }
+}
+
+#[test]
+fn readiness_envelope_validation_is_strict_for_both_hooks_and_providers() {
+    let ready: Value = serde_json::from_str(READY_ENVELOPE).unwrap();
+    let mut missing = ready.clone();
+    missing.as_object_mut().unwrap().remove("repository_id");
+    let mut wrong_type = ready.clone();
+    wrong_type["daemon_pid"] = Value::String("123".to_string());
+    let mut unsupported = ready.clone();
+    unsupported["schema_version"] = Value::from(99);
+    let mut unknown = ready.clone();
+    unknown["unexpected"] = Value::Bool(true);
+    let mut inconsistent = ready.clone();
+    inconsistent["ready"] = Value::Bool(false);
+    let mut missing_generation = ready;
+    missing_generation["generation_id"] = Value::Null;
+    let mut invalid_evidence: Value = serde_json::from_str(BLOCKED_ENVELOPE).unwrap();
+    invalid_evidence["evidence_sha256"] = Value::String("ABC".to_string());
+
+    for provider in ["claude", "codex"] {
+        for (name, response) in [
+            ("missing", missing.clone()),
+            ("wrong-type", wrong_type.clone()),
+            ("unsupported", unsupported.clone()),
+            ("unknown", unknown.clone()),
+            ("inconsistent", inconsistent.clone()),
+            ("missing-generation", missing_generation.clone()),
+            ("invalid-evidence", invalid_evidence.clone()),
+        ] {
+            for script in ["session-start.py", "work-check.py"] {
+                let cwd = tempfile::tempdir().unwrap();
+                install_readiness_crosslink(cwd.path(), &response.to_string(), 0);
+                let payload = if script == "session-start.py" {
+                    serde_json::json!({
+                        "hook_event_name": "SessionStart",
+                        "session_id": format!("{provider}-{name}-session"),
+                        "turn_id": format!("{provider}-{name}-turn"),
+                        "source": "startup",
+                        "cwd": cwd.path(),
+                    })
+                } else {
+                    serde_json::json!({
+                        "hook_event_name": "PreToolUse",
+                        "session_id": format!("{provider}-{name}-session"),
+                        "tool_use_id": format!("{provider}-{name}-tool"),
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "crosslink issue create rejected"},
+                        "cwd": cwd.path(),
+                    })
+                };
+                let output = run_hook(
+                    script,
+                    &serde_json::to_vec(&payload).unwrap(),
+                    cwd.path(),
+                    provider,
+                );
+                assert_eq!(
+                    output.status.code(),
+                    Some(2),
+                    "{provider}/{script}/{name}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -299,7 +626,10 @@ fn codex_nonblocking_work_warning_uses_hook_specific_json() {
     let (fake, _log) = install_recording_crosslink(cwd.path());
     std::fs::write(
         &fake,
-        "#!/bin/sh\nif [ \"$*\" = 'session status' ]; then printf 'Session #1 (started)\\nNo active work item\\n'; fi\nexit 0\n",
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  'daemon status --json') printf '%s\\n' '{}' ;;\n  'session status') printf 'Session #1 (started)\\nNo active work item\\n' ;;\nesac\nexit 0\n",
+            READY_ENVELOPE,
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -317,7 +647,7 @@ fn codex_nonblocking_work_warning_uses_hook_specific_json() {
         "session_id": "codex-normal",
         "tool_use_id": "edit-1",
         "tool_name": "apply_patch",
-        "tool_input": {"command": "*** Begin Patch\n*** Add File: src/new.rs\n+fn complete() {}\n*** End Patch"},
+        "tool_input": {"command": "*** Begin Patch\n*** Add File: src/new.rs\n+fn complete() -> bool { true }\n*** End Patch"},
         "cwd": cwd.path(),
     });
     let output = run_hook(
@@ -346,6 +676,8 @@ fn session_lifecycle_context_is_provider_correct_and_deduplicated() {
         )
         .unwrap();
         for source in ["startup", "resume", "clear", "compact"] {
+            let calls_before =
+                std::fs::read_to_string(&log).map_or(0, |calls| calls.lines().count());
             let payload = serde_json::json!({
                 "hook_event_name": "SessionStart",
                 "session_id": format!("{provider}-session"),
@@ -356,6 +688,12 @@ fn session_lifecycle_context_is_provider_correct_and_deduplicated() {
             let bytes = serde_json::to_vec(&payload).unwrap();
             let first = run_hook("session-start.py", &bytes, cwd.path(), provider);
             assert!(first.status.success(), "{provider}/{source}");
+            let calls_after_first = std::fs::read_to_string(&log).unwrap();
+            assert_eq!(
+                calls_after_first.lines().nth(calls_before),
+                Some("daemon ensure --wait-ready --json"),
+                "{provider}/{source}"
+            );
             let context = if provider == "codex" {
                 let value: Value = serde_json::from_slice(&first.stdout).unwrap();
                 value["hookSpecificOutput"]["additionalContext"]
@@ -373,7 +711,11 @@ fn session_lifecycle_context_is_provider_correct_and_deduplicated() {
             assert!(duplicate.status.success());
             assert!(duplicate.stdout.is_empty());
             let count_after = std::fs::read_to_string(&log).unwrap().lines().count();
-            assert_eq!(count_before, count_after, "duplicate {provider}/{source}");
+            assert_eq!(
+                count_before + 1,
+                count_after,
+                "duplicate {provider}/{source}"
+            );
         }
         let calls = std::fs::read_to_string(log).unwrap();
         assert!(!calls.lines().any(|line| line == "session start"));

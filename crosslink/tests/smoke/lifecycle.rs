@@ -395,6 +395,7 @@ fn test_issue_tree_status_filter() {
 #[test]
 fn test_daemon_status_not_running() {
     let h = SmokeHarness::new();
+    h.stop_daemon();
 
     let result = h.run(&["daemon", "status"]);
     let combined = format!("{}{}", result.stdout, result.stderr);
@@ -402,6 +403,7 @@ fn test_daemon_status_not_running() {
         combined.contains("not running")
             || combined.contains("Not running")
             || combined.contains("No daemon")
+            || combined.contains("stopped")
             || !result.success,
         "daemon status when not running should be informative.\nstdout: {}\nstderr: {}",
         result.stdout,
@@ -412,6 +414,7 @@ fn test_daemon_status_not_running() {
 #[test]
 fn test_daemon_stop_idempotent() {
     let h = SmokeHarness::new();
+    h.stop_daemon();
 
     let result = h.run(&["daemon", "stop"]);
     let combined = format!("{}{}", result.stdout, result.stderr);
@@ -430,6 +433,7 @@ fn test_daemon_stop_idempotent() {
 #[ignore = "daemon start spawns a background process; requires a stable process environment, skip in CI"]
 fn test_daemon_start_stop_lifecycle() {
     let h = SmokeHarness::new();
+    h.stop_daemon();
 
     h.run_ok(&["daemon", "start"]);
 

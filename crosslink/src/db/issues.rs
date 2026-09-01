@@ -3,7 +3,7 @@ use chrono::Utc;
 use rusqlite::params;
 
 use super::core::{
-    validate_priority, validate_status, Database, MAX_DESCRIPTION_LEN, MAX_TITLE_LEN,
+    validate_issue_description, validate_issue_title, validate_priority, validate_status, Database,
 };
 use super::helpers::issue_from_row;
 use crate::models::Issue;
@@ -37,14 +37,8 @@ impl Database {
         parent_id: Option<i64>,
     ) -> Result<i64> {
         validate_priority(priority)?;
-        if title.len() > MAX_TITLE_LEN {
-            anyhow::bail!("Title exceeds maximum length of {MAX_TITLE_LEN} characters");
-        }
-        if let Some(d) = description {
-            if d.len() > MAX_DESCRIPTION_LEN {
-                anyhow::bail!("Description exceeds maximum length of {MAX_DESCRIPTION_LEN} bytes");
-            }
-        }
+        validate_issue_title(title)?;
+        validate_issue_description(description)?;
         let now = Utc::now().to_rfc3339();
         let uuid = uuid::Uuid::new_v4().to_string();
         self.conn.execute(
@@ -181,15 +175,9 @@ impl Database {
     ) -> Result<bool> {
         let id = self.resolve_id(id);
         if let Some(t) = title {
-            if t.len() > MAX_TITLE_LEN {
-                anyhow::bail!("Title exceeds maximum length of {MAX_TITLE_LEN} characters");
-            }
+            validate_issue_title(t)?;
         }
-        if let Some(d) = description {
-            if d.len() > MAX_DESCRIPTION_LEN {
-                anyhow::bail!("Description exceeds maximum length of {MAX_DESCRIPTION_LEN} bytes");
-            }
-        }
+        validate_issue_description(description)?;
         let now = Utc::now().to_rfc3339();
         let mut updates = vec!["updated_at = ?1".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(now)];

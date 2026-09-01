@@ -49,6 +49,9 @@ jobs:
       - name: Verify generated Codex plugin assets
         run: python3 scripts/sync-codex-plugin.py --check
 
+      - name: Run reconciliation fixture tests
+        run: cargo test --lib --verbose reconcile::tests
+
       - name: Run unit tests
         run: cargo test --bin crosslink --verbose -- --skip proptest
 

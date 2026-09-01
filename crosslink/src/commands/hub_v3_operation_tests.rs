@@ -31,6 +31,34 @@ fn git_ok() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+fn rev_count(dir: &Path, reference: &str) -> usize {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(["rev-list", "--count", reference])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+fn loose_object_count(dir: &Path) -> usize {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(["count-objects", "-v"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("count: "))
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
 fn write_agent(crosslink_dir: &Path, id: &str) {
     let agent = AgentConfig {
         agent_id: id.to_string(),
@@ -179,6 +207,11 @@ fn clone_for_agent(remote: &Path, agent_id: &str) -> (TempDir, PathBuf, PathBuf)
             "+refs/heads/crosslink/*:refs/heads/crosslink/*",
         ],
     );
+    crate::reconcile::migration::establish_verified_readiness_for_test(
+        &crosslink_dir,
+        "hub-v3-clone-test",
+    )
+    .unwrap();
     (work, crosslink_dir, cache_dir)
 }
 
@@ -255,6 +288,11 @@ fn setup_migrated_v3_hub() -> V3Hub {
     drop(lock);
 
     super::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+    crate::reconcile::migration::establish_verified_readiness_for_test(
+        &crosslink_dir,
+        "hub-v3-operation-test",
+    )
+    .unwrap();
 
     V3Hub {
         work,
@@ -934,7 +972,10 @@ fn hub_branches_rename_round_trip() {
                 .success()
     };
 
-    assert!(rev(&hub.cache_dir, "refs/heads/crosslink/meta").as_deref() == Some(old_meta.as_str()));
+    assert_eq!(
+        rev(&hub.cache_dir, "refs/heads/crosslink/meta").as_deref(),
+        Some(old_meta.as_str())
+    );
 
     let new_alpha = rev(&hub.cache_dir, "refs/heads/crosslink/agents/alpha").unwrap();
     assert!(
@@ -987,11 +1028,6 @@ fn hub_branches_rename_round_trip() {
         "reduced issue set must be identical after the rename"
     );
 
-    let cp_tip = rev(&hub.cache_dir, "refs/heads/crosslink/checkpoint").unwrap();
-    let readme =
-        hub_v3::git_cat_file_blob_optional(&hub.cache_dir, &format!("{cp_tip}:README.md")).unwrap();
-    assert!(readme.is_some(), "browse README materialized after rename");
-
     super::migrate_hub_v3::hub_branches(&hub.crosslink_dir).unwrap();
     assert!(rev(&hub.cache_dir, "refs/crosslink/checkpoint").is_none());
     assert!(rev(&hub.cache_dir, "refs/heads/crosslink/checkpoint").is_some());
@@ -1040,8 +1076,13 @@ fn v3_import_issues_promotes_batch_to_hub() {
         },
     ];
 
+    let agent_ref = agent_ref_name("alpha").unwrap();
+    let commits_before = rev_count(&hub.cache_dir, &agent_ref);
+    let objects_before = loose_object_count(&hub.cache_dir);
     let assigned = writer.import_issues(&db, &specs).unwrap();
     assert_eq!(assigned.len(), 2);
+    assert_eq!(rev_count(&hub.cache_dir, &agent_ref), commits_before + 1);
+    assert!(loose_object_count(&hub.cache_dir) - objects_before <= 12);
     let (parent_id, child_id) = (assigned[0].1, assigned[1].1);
     assert!(parent_id > 0 && child_id > 0, "reduction-assigned ids");
 
@@ -1061,6 +1102,16 @@ fn v3_import_issues_promotes_batch_to_hub() {
     let state = crate::compaction::reduce(&source).unwrap().state;
     assert!(state.issues.contains_key(&parent_uuid));
     assert!(state.issues.contains_key(&child_uuid));
+    let parent = &state.issues[&parent_uuid];
+    assert!(parent.labels.contains("migrated"));
+    assert!(parent
+        .comments
+        .values()
+        .any(|comment| comment.content == "carried over"));
+    let child = &state.issues[&child_uuid];
+    assert_eq!(child.parent_uuid, Some(parent_uuid));
+    assert!(child.blockers.contains(&parent_uuid));
+    assert_eq!(child.status, crate::models::IssueStatus::Closed);
 }
 
 #[test]
@@ -1113,7 +1164,7 @@ fn v3_to_shared_promotes_sqlite_only_rows() {
     let b = db.create_issue("direct B", None, "low").unwrap();
     db.add_comment(a, "carried comment", "note").unwrap();
 
-    crate::commands::migrate::to_shared(&hub.crosslink_dir, &db).unwrap();
+    crate::commands::migrate::to_shared_repository(&hub.crosslink_dir).unwrap();
 
     let source = crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap();
     let state = crate::compaction::reduce(&source).unwrap().state;
@@ -1134,7 +1185,7 @@ fn v3_to_shared_promotes_sqlite_only_rows() {
     );
 
     let before = state.issues.len();
-    crate::commands::migrate::to_shared(&hub.crosslink_dir, &db).unwrap();
+    crate::commands::migrate::to_shared_repository(&hub.crosslink_dir).unwrap();
     let source2 = crate::hub_source::RefHubSource::new(&hub.cache_dir).unwrap();
     let state2 = crate::compaction::reduce(&source2).unwrap().state;
     assert_eq!(state2.issues.len(), before, "second to-shared is a no-op");

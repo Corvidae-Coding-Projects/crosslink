@@ -7,7 +7,7 @@ use crate::server::{
             notify_lock_changed,
         },
         config::{get_config, update_config},
-        health::health,
+        health::{health, readiness},
         issues::{
             add_blocker, add_comment, add_label, close_issue, create_issue, create_subissue,
             delete_issue, get_issue, list_blocked, list_comments, list_issues, list_ready,
@@ -39,6 +39,7 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
 
     let api = Router::new()
         .route("/health", get(health))
+        .route("/readiness", get(readiness))
         .route("/agents", get(list_agents))
         .route("/agents/{id}", get(get_agent))
         .route("/agents/{id}/status", get(get_agent_status))
@@ -118,6 +119,10 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .nest("/api/v1", crate::dashboard::pty_api::rest_router())
         .nest("/ws", crate::dashboard::pty_api::ws_router())
         .route("/ws", get(ws_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::server::readiness_middleware,
+        ))
         .with_state(state);
 
     if let Some(dir) = dashboard_dir {
@@ -134,6 +139,39 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
 mod tests {
     use super::*;
     use crate::db::Database;
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use tower::util::ServiceExt;
+
+    fn test_state(ready_barrier: bool) -> (AppState, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink = dir.path().join(".crosslink");
+        std::fs::create_dir(&crosslink).unwrap();
+        if ready_barrier {
+            std::fs::write(crosslink.join("hook-config.json"), "{}").unwrap();
+            std::fs::write(crosslink.join("agent.json"), "{}").unwrap();
+        }
+        let db = Database::open(&crosslink.join("issues.db")).unwrap();
+        (AppState::new(db, crosslink), dir)
+    }
+
+    async fn response(
+        method: Method,
+        path: &str,
+        body: &'static str,
+        app: Router,
+    ) -> axum::response::Response {
+        app.oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
 
     #[test]
     fn test_build_router_with_dashboard_dir() {
@@ -144,5 +182,130 @@ mod tests {
         std::fs::create_dir_all(&dashboard).unwrap();
 
         let _router = build_router(state, Some(dashboard));
+    }
+
+    #[tokio::test]
+    async fn non_ready_route_matrix_preserves_diagnostics_and_blocks_mutations() {
+        let (state, _dir) = test_state(true);
+        let app = build_router(state, None);
+        for path in [
+            "/api/v1/health",
+            "/api/v1/issues",
+            "/api/v1/orchestrator/status",
+            "/api/v1/dashboard/projects",
+            "/api/v1/dashboard/github/config",
+            "/api/v1/dashboard/webhooks",
+            "/api/v1/pty/sessions",
+            "/ws",
+        ] {
+            let result = response(Method::GET, path, "", app.clone()).await;
+            assert_ne!(result.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        }
+        for (method, path, body) in [
+            (
+                Method::POST,
+                "/api/v1/issues",
+                r#"{"title":"blocked","priority":"medium"}"#,
+            ),
+            (Method::POST, "/api/v1/sync/fetch", "{}"),
+            (Method::GET, "/api/v1/orchestrator/agents/poll", ""),
+            (Method::POST, "/api/v1/dashboard/clone", "{}"),
+            (Method::POST, "/api/v1/dashboard/github/config", "{}"),
+            (Method::PUT, "/api/v1/dashboard/webhooks", r#"{"urls":[]}"#),
+            (Method::POST, "/api/v1/pty", "{}"),
+            (Method::GET, "/ws/pty/missing", ""),
+        ] {
+            let result = response(method, path, body, app.clone()).await;
+            assert_eq!(result.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+            let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let envelope: crate::reconcile::readiness::DaemonResponse =
+                serde_json::from_slice(&bytes).unwrap();
+            assert!(!envelope.ready, "{path}");
+            assert!(envelope.state.is_none(), "{path}");
+            assert!(envelope
+                .reason
+                .as_deref()
+                .is_some_and(|value| !value.is_empty()));
+        }
+    }
+
+    #[tokio::test]
+    async fn mutating_http_request_completes_after_external_operation_releases() {
+        let (state, _dir) = test_state(false);
+        let crosslink = state.crosslink_dir.clone();
+        let app = build_router(state, None);
+        let operation =
+            crate::reconcile::readiness::acquire_mutation_operation_permit(&crosslink).unwrap();
+        let mut request = tokio::spawn(response(
+            Method::POST,
+            "/api/v1/issues",
+            r#"{"title":"serialized","priority":"medium"}"#,
+            app,
+        ));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut request)
+                .await
+                .is_err()
+        );
+        drop(operation);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn corrupt_projection_keeps_health_and_readiness_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink = dir.path().join(".crosslink");
+        std::fs::create_dir(&crosslink).unwrap();
+        std::fs::write(crosslink.join("hook-config.json"), "{}").unwrap();
+        std::fs::write(crosslink.join("agent.json"), "{}").unwrap();
+        let identity = crate::reconcile::readiness::DaemonIdentity {
+            schema_version: crate::reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: crate::reconcile::readiness::repository_id(&crosslink).unwrap(),
+            daemon_epoch: "server-corrupt-test".to_string(),
+            pid: std::process::id(),
+            process_start: crate::reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        crate::reconcile::readiness::write_daemon_identity(&crosslink, &identity).unwrap();
+        crate::reconcile::readiness::write_record(
+            &crosslink,
+            crate::reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "server-corrupt-attempt",
+                state: crate::reconcile::readiness::ReadinessState::BlockedCorrupt,
+                generation_id: None,
+                reason: Some("truncated projection"),
+            },
+        )
+        .unwrap();
+        let state = AppState::new(Database::open_ephemeral().unwrap(), crosslink)
+            .with_database_unavailable(Some("truncated projection".to_string()));
+        let app = build_router(state, None);
+        assert_eq!(
+            response(Method::GET, "/api/v1/health", "", app.clone())
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        let readiness = response(Method::GET, "/api/v1/readiness", "", app.clone()).await;
+        assert_eq!(readiness.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(readiness.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(envelope["state"], "blocked_corrupt");
+        let issues = response(Method::GET, "/api/v1/issues", "", app).await;
+        assert_eq!(issues.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let bytes = axum::body::to_bytes(issues.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(envelope["error"], "database_unavailable");
     }
 }

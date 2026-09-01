@@ -45,6 +45,8 @@ pub async fn run_cli(
     subject: Option<&str>,
     args: &[&str],
 ) -> Result<ActionResult> {
+    let target_crosslink = project.clone_path.join(".crosslink");
+    let _permit = crate::reconcile::readiness::acquire_mutation_permit(&target_crosslink)?;
     let requested_at = Utc::now().to_rfc3339();
     let payload_json = serde_json::to_string(&serde_json::json!({
         "args": args,

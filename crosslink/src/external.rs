@@ -207,6 +207,15 @@ impl ExternalCache {
         Ok(dir)
     }
 
+    pub fn cached_knowledge(&self) -> Result<PathBuf> {
+        let dir = self.knowledge_dir();
+        anyhow::ensure!(
+            dir.is_dir(),
+            "external knowledge cache is unavailable; retry with --refresh while the repository is ready"
+        );
+        Ok(dir)
+    }
+
     pub fn ensure_hub(&self, data_ttl: u64, url_ttl: u64, force_refresh: bool) -> Result<PathBuf> {
         let dir = self.cache_dir.join("hub");
         if !force_refresh && self.is_data_fresh("hub", data_ttl) {
@@ -214,6 +223,15 @@ impl ExternalCache {
         }
         let url = self.resolve_url(url_ttl, force_refresh)?;
         self.fetch_branch(&url, "crosslink/hub", &dir, "hub")?;
+        Ok(dir)
+    }
+
+    pub fn cached_hub(&self) -> Result<PathBuf> {
+        let dir = self.cache_dir.join("hub");
+        anyhow::ensure!(
+            dir.is_dir(),
+            "external issue cache is unavailable; retry with --refresh while the repository is ready"
+        );
         Ok(dir)
     }
 
@@ -645,6 +663,17 @@ mod tests {
         let h1 = cache_hash("github.com/org/repo-a");
         let h2 = cache_hash("github.com/org/repo-b");
         assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn stale_cache_accessors_do_not_create_or_refresh_storage() {
+        let root = tempfile::tempdir().unwrap();
+        let crosslink = root.path().join(".crosslink");
+        fs::create_dir(&crosslink).unwrap();
+        let cache = ExternalCache::new(&crosslink, "github.com/example/project");
+        assert!(cache.cached_hub().is_err());
+        assert!(cache.cached_knowledge().is_err());
+        assert_eq!(fs::read_dir(&crosslink).unwrap().count(), 0);
     }
 
     #[test]

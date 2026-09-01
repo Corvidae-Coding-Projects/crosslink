@@ -32,10 +32,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   sources `model`/`effort`/`budget_usd` from its budget config instead of
   hardcoding `opus` at launch, and the spend ceiling applies per dispatched
   agent (a wave of N agents can spend up to N x the amount).
-- `crosslink migrate hub-v3 --remigrate-from-v2` - regenerates the v3 genesis
-  from the current `crosslink/hub` (v2) tip and force-pushes it, superseding a
-  stale remote v3 hub. The discoverable recovery path when a v2-only binary
-  kept writing after an earlier migration (Corvidae-Coding-Projects/crosslink#653).
+- Repository reconciliation now pins local and remote historical evidence,
+  prepares immutable v3 objects, verifies canonical semantics, and publishes a
+  single generation transaction. The reconciliation transaction can resume
+  interruptions, adopt an independently verified racing winner, preserve
+  concurrent/offline work, and retire legacy remote authority without a
+  finalize/remigrate sequence.
 
 ### Changed
 
@@ -46,13 +48,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   examine, never instructions to obey.
 - Repository ownership, package metadata, documentation, release assets, and
   remotes now use `Corvidae-Coding-Projects/crosslink` as the canonical source.
-- `crosslink migrate hub-v3` now guards against silently adopting a **stale**
-  remote v3 hub. Before adopting, it compares the remote's genesis against the
-  live `crosslink/hub` (v2) tip; if v2 has advanced past the genesis, adoption
-  is refused (with the issue/commit delta and the `--remigrate-from-v2`
-  remedy) unless `--adopt-stale` is passed. `--finalize` applies the same check
-  and refuses to delete the v2 branch while it is ahead of v3, so a stale adopt
-  can never escalate to real data loss (Corvidae-Coding-Projects/crosslink#653).
+- `crosslink migrate hub-v3` is now a compatibility adapter over automatic
+  repository reconciliation. `--finalize --yes-delete-v2` is accepted as an
+  idempotent compatibility request; `--adopt-stale` and
+  `--remigrate-from-v2` fail with guidance because unverifiable or forced
+  publication is no longer part of the migration policy.
 
 ### Fixed
 

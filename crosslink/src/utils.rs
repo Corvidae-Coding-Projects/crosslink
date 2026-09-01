@@ -2,6 +2,14 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[deprecated(note = "use agents::resolve_agent")]
+pub fn read_agent_binary(crosslink_dir: &Path) -> String {
+    crate::agents::resolve_agent(crosslink_dir).map_or_else(
+        |_| "claude".to_string(),
+        |agent| agent.binary.to_string_lossy().into_owned(),
+    )
+}
+
 pub fn read_kickoff_template(crosslink_dir: &Path) -> Option<String> {
     let config_path = crosslink_dir.join("hook-config.json");
     let content = std::fs::read_to_string(&config_path).ok()?;
@@ -191,6 +199,49 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
     }
 
     Ok(())
+}
+
+#[cfg(windows)]
+pub fn durable_rename(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+    replace: bool,
+) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let flags = 0x0000_0008 | u32::from(replace);
+    if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn durable_rename(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+    _replace: bool,
+) -> std::io::Result<()> {
+    std::fs::rename(source, destination)
 }
 
 #[cfg(windows)]

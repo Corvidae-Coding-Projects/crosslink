@@ -255,11 +255,12 @@ fn test_parallel_lock_claim_one_winner() {
 
 #[test]
 fn test_offline_local_operations_then_sync() {
-    let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir");
-    let bin = std::path::PathBuf::from(env!("CARGO_BIN_EXE_crosslink"));
+    let mut h = SmokeHarness::new_bare();
+    let temp_path = h.temp_dir.path().to_path_buf();
+    let bin = h.crosslink_bin.clone();
 
     let out = Command::new("git")
-        .current_dir(temp_dir.path())
+        .current_dir(&temp_path)
         .args(["init", "-b", "main"])
         .output()
         .expect("git init failed to execute");
@@ -270,28 +271,28 @@ fn test_offline_local_operations_then_sync() {
         vec!["config", "user.name", "Offline Test"],
     ] {
         let out = Command::new("git")
-            .current_dir(temp_dir.path())
+            .current_dir(&temp_path)
             .args(&args)
             .output()
             .expect("git config failed");
         assert!(out.status.success(), "git config {args:?} failed");
     }
 
-    std::fs::write(temp_dir.path().join("README.md"), "# offline test\n")
+    std::fs::write(temp_path.join("README.md"), "# offline test\n")
         .expect("failed to write README");
     let _ = Command::new("git")
-        .current_dir(temp_dir.path())
+        .current_dir(&temp_path)
         .args(["add", "README.md"])
         .output();
     let out = Command::new("git")
-        .current_dir(temp_dir.path())
+        .current_dir(&temp_path)
         .args(["commit", "-m", "initial", "--no-gpg-sign"])
         .output()
         .expect("git commit failed");
     assert!(out.status.success(), "initial commit failed");
 
     let out = Command::new(&bin)
-        .current_dir(temp_dir.path())
+        .current_dir(&temp_path)
         .args(["init", "--defaults", "--skip-cpitd", "--skip-signing"])
         .output()
         .expect("crosslink init failed to execute");
@@ -300,10 +301,11 @@ fn test_offline_local_operations_then_sync() {
         "crosslink init failed: {}",
         String::from_utf8_lossy(&out.stderr),
     );
+    h.ensure_ready();
 
     let run = |args: &[&str]| -> (bool, String, String) {
         let out = Command::new(&bin)
-            .current_dir(temp_dir.path())
+            .current_dir(&temp_path)
             .args(args)
             .output()
             .expect("failed to execute crosslink");
@@ -392,7 +394,7 @@ fn test_offline_local_operations_then_sync() {
     assert!(out.status.success(), "git init --bare failed");
 
     let out = Command::new("git")
-        .current_dir(temp_dir.path())
+        .current_dir(&temp_path)
         .args([
             "remote",
             "add",
@@ -404,7 +406,7 @@ fn test_offline_local_operations_then_sync() {
     assert!(out.status.success(), "git remote add failed");
 
     let out = Command::new("git")
-        .current_dir(temp_dir.path())
+        .current_dir(&temp_path)
         .args(["push", "-u", "origin", "main"])
         .output()
         .expect("git push failed");

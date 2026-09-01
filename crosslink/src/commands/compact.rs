@@ -34,6 +34,7 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
         let source = crate::hub_source::RefHubSource::new(&cache_dir)?;
         let outcome = crate::compaction::reduce(&source)?;
         crate::hydration::hydrate_from_state(&outcome.state, db)?;
+        crate::hydration::record_hydrated_ref_durable(crosslink_dir)?;
         return Ok(());
     }
 

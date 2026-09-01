@@ -25,7 +25,7 @@ const OLD_BRANCH: &str = "crosslink/locks";
 
 pub use crate::signing::SignatureVerification;
 
-pub use self::cache::HubWriteLock;
+pub use self::cache::{HubWriteLock, ReconciliationCacheOutcome};
 
 #[cfg(test)]
 pub use self::cache::acquire_hub_lock;

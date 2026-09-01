@@ -7,18 +7,29 @@ use crate::utils::format_issue_id;
 use crate::MilestoneCommands;
 
 pub fn run(command: MilestoneCommands, db: &Database, crosslink_dir: &Path) -> Result<()> {
-    let shared = SharedWriter::new(crosslink_dir)?;
-    let shared_ref = shared.as_ref();
     match command {
-        MilestoneCommands::Create { name, description } => {
-            create(db, shared_ref, &name, description.as_deref())
-        }
         MilestoneCommands::List { status } => list(db, Some(&status)),
         MilestoneCommands::Show { id } => show(db, id),
-        MilestoneCommands::Add { id, issues } => add(db, shared_ref, id, &issues),
-        MilestoneCommands::Remove { id, issue } => remove(db, shared_ref, id, issue),
-        MilestoneCommands::Close { id } => close(db, shared_ref, id),
-        MilestoneCommands::Delete { id } => delete(db, shared_ref, id),
+        MilestoneCommands::Create { name, description } => {
+            let shared = SharedWriter::new(crosslink_dir)?;
+            create(db, shared.as_ref(), &name, description.as_deref())
+        }
+        MilestoneCommands::Add { id, issues } => {
+            let shared = SharedWriter::new(crosslink_dir)?;
+            add(db, shared.as_ref(), id, &issues)
+        }
+        MilestoneCommands::Remove { id, issue } => {
+            let shared = SharedWriter::new(crosslink_dir)?;
+            remove(db, shared.as_ref(), id, issue)
+        }
+        MilestoneCommands::Close { id } => {
+            let shared = SharedWriter::new(crosslink_dir)?;
+            close(db, shared.as_ref(), id)
+        }
+        MilestoneCommands::Delete { id } => {
+            let shared = SharedWriter::new(crosslink_dir)?;
+            delete(db, shared.as_ref(), id)
+        }
     }
 }
 
@@ -219,6 +230,10 @@ pub fn close(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()
 
 pub fn delete(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
     if let Some(sw) = shared {
+        if db.get_milestone(id)?.is_none() {
+            println!("Milestone #{id} not found");
+            return Ok(());
+        }
         sw.delete_milestone(db, id)?;
         println!("Deleted milestone #{id}");
     } else if db.delete_milestone(id)? {

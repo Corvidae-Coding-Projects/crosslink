@@ -1,5 +1,34 @@
-use std::process::Command;
-use tempfile::tempdir;
+use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
+use tempfile::{tempdir, TempDir};
+
+struct ReadinessWitness {
+    _child: Mutex<Child>,
+    pid: u32,
+    process_start: String,
+}
+
+fn readiness_witness() -> &'static ReadinessWitness {
+    static WITNESS: OnceLock<ReadinessWitness> = OnceLock::new();
+    WITNESS.get_or_init(|| {
+        let child = Command::new("git")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args(["cat-file", "--batch"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("Failed to start readiness witness");
+        let pid = child.id();
+        let process_start = crosslink::reconcile::readiness::process_start_token_for(pid)
+            .expect("Failed to identify readiness witness");
+        ReadinessWitness {
+            _child: Mutex::new(child),
+            pid,
+            process_start,
+        }
+    })
+}
 
 fn run_crosslink(dir: &std::path::Path, args: &[&str]) -> (bool, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
@@ -29,7 +58,7 @@ fn run_crosslink_info(dir: &std::path::Path, args: &[&str]) -> (bool, String, St
     (output.status.success(), stdout, stderr)
 }
 
-fn test_dir() -> tempfile::TempDir {
+fn test_dir() -> TempDir {
     let dir = tempdir().unwrap();
     assert!(Command::new("git")
         .current_dir(dir.path())
@@ -63,8 +92,68 @@ fn contains_issue_ref(text: &str, id: u32) -> bool {
 }
 
 fn init_crosslink(dir: &std::path::Path) {
+    init_crosslink_unready(dir);
+    let crosslink_dir = dir.join(".crosslink");
+    let witness = readiness_witness();
+    let identity = crosslink::reconcile::readiness::DaemonIdentity {
+        schema_version: crosslink::reconcile::readiness::READINESS_SCHEMA_VERSION,
+        repository_id: crosslink::reconcile::readiness::repository_id(&crosslink_dir).unwrap(),
+        daemon_epoch: uuid::Uuid::new_v4().to_string(),
+        pid: witness.pid,
+        process_start: witness.process_start.clone(),
+    };
+    crosslink::reconcile::readiness::write_daemon_identity(&crosslink_dir, &identity).unwrap();
+    let transition =
+        crosslink::reconcile::readiness::acquire_transition_permit(&crosslink_dir).unwrap();
+    let activation = crosslink::reconcile::migration::activate_repository(&crosslink_dir).unwrap();
+    let (state, generation_id) = match activation {
+        crosslink::reconcile::migration::RepositoryActivation::ReadyCurrent { generation_id } => (
+            crosslink::reconcile::readiness::ReadinessState::ReadyCurrent,
+            generation_id,
+        ),
+        crosslink::reconcile::migration::RepositoryActivation::ReadyMigrated { generation_id } => (
+            crosslink::reconcile::readiness::ReadinessState::ReadyMigrated,
+            generation_id,
+        ),
+        crosslink::reconcile::migration::RepositoryActivation::ReadyAdopted { generation_id } => (
+            crosslink::reconcile::readiness::ReadinessState::ReadyAdopted,
+            generation_id,
+        ),
+        other => panic!("test repository did not become ready: {other:?}"),
+    };
+    let record = crosslink::reconcile::readiness::write_record(
+        &crosslink_dir,
+        crosslink::reconcile::readiness::ReadinessDraft {
+            daemon_epoch: &identity.daemon_epoch,
+            daemon_pid: identity.pid,
+            attempt_id: "cli-integration",
+            state,
+            generation_id: Some(&generation_id),
+            reason: None,
+        },
+    )
+    .unwrap();
+    drop(transition);
+    crosslink::reconcile::readiness::validate_record(&crosslink_dir, &record).unwrap();
+}
+
+fn init_crosslink_unready(dir: &std::path::Path) {
     let (success, _, stderr) = run_crosslink(dir, &["init"]);
     assert!(success, "Failed to init: {stderr}");
+}
+
+fn add_current_reconcile_refs(dir: &std::path::Path) {
+    for ref_name in [
+        "refs/heads/crosslink/meta",
+        "refs/heads/crosslink/checkpoint",
+    ] {
+        let output = Command::new("git")
+            .current_dir(dir)
+            .args(["update-ref", ref_name, "HEAD"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
 }
 
 #[test]
@@ -87,6 +176,22 @@ fn test_init_twice_warns() {
 
     assert!(success);
     assert!(stdout.contains("Already") || stdout.contains("already") || stdout.contains("exists"));
+}
+
+#[test]
+fn test_initialized_readiness_is_visible_across_processes() {
+    let dir = test_dir();
+    init_crosslink(dir.path());
+
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["--json", "daemon", "status"]);
+
+    assert!(
+        success,
+        "readiness status failed: stdout={stdout} stderr={stderr}"
+    );
+    let response: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(response["ready"], true);
+    assert_eq!(response["running"], true);
 }
 
 #[test]
@@ -2080,8 +2185,8 @@ fn test_stress_many_issues() {
 
     for i in 0..100 {
         let title = format!("Issue number {i}");
-        let (success, _, _) = run_crosslink(dir.path(), &["create", &title]);
-        assert!(success, "Failed to create issue {i}");
+        let (success, _, stderr) = run_crosslink(dir.path(), &["create", &title]);
+        assert!(success, "Failed to create issue {i}: {stderr}");
     }
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
@@ -2260,12 +2365,18 @@ fn test_stress_rapid_operations() {
 
     for i in 0..20 {
         let title = format!("Rapid issue {i}");
-        run_crosslink(dir.path(), &["create", &title]);
+        let (success, _, stderr) = run_crosslink(dir.path(), &["create", &title]);
+        assert!(success, "Failed to create rapid issue {i}: {stderr}");
         let id = (i + 1).to_string();
-        run_crosslink(dir.path(), &["close", &id]);
-        run_crosslink(dir.path(), &["issue", "reopen", &id]);
-        run_crosslink(dir.path(), &["issue", "comment", &id, "Rapid comment"]);
-        run_crosslink(dir.path(), &["issue", "label", &id, "rapid"]);
+        let (success, _, stderr) = run_crosslink(dir.path(), &["close", &id]);
+        assert!(success, "Failed to close rapid issue {i}: {stderr}");
+        let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "reopen", &id]);
+        assert!(success, "Failed to reopen rapid issue {i}: {stderr}");
+        let (success, _, stderr) =
+            run_crosslink(dir.path(), &["issue", "comment", &id, "Rapid comment"]);
+        assert!(success, "Failed to comment on rapid issue {i}: {stderr}");
+        let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "label", &id, "rapid"]);
+        assert!(success, "Failed to label rapid issue {i}: {stderr}");
     }
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
@@ -2535,7 +2646,7 @@ fn test_integrity_schema_pass() {
 #[test]
 fn test_integrity_counters_skipped_without_sync() {
     let dir = test_dir();
-    init_crosslink(dir.path());
+    init_crosslink_unready(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "counters"]);
     assert!(success);
     assert!(stdout.contains("SKIPPED"));
@@ -2544,7 +2655,7 @@ fn test_integrity_counters_skipped_without_sync() {
 #[test]
 fn test_integrity_locks_skipped_without_sync() {
     let dir = test_dir();
-    init_crosslink(dir.path());
+    init_crosslink_unready(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "locks"]);
     assert!(success);
     assert!(stdout.contains("SKIPPED"));
@@ -2553,7 +2664,7 @@ fn test_integrity_locks_skipped_without_sync() {
 #[test]
 fn test_integrity_hydration_skipped_without_sync() {
     let dir = test_dir();
-    init_crosslink(dir.path());
+    init_crosslink_unready(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "hydration"]);
     assert!(success);
     assert!(stdout.contains("SKIPPED"));
@@ -2774,6 +2885,8 @@ fn test_knowledge_search_with_tag_filter() {
 fn test_knowledge_import_dry_run() {
     let dir = test_dir();
     init_git_and_crosslink(dir.path());
+    let (initialized, _, initialization_error) = run_crosslink(dir.path(), &["knowledge", "sync"]);
+    assert!(initialized, "{initialization_error}");
 
     let fixtures = dir.path().join("import-fixtures");
     std::fs::create_dir_all(&fixtures).unwrap();
@@ -2891,7 +3004,7 @@ fn test_init_deploys_claude_skills() {
     assert!(skills_dir.join("architect/SKILL.md").exists());
 }
 
-fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
+fn setup_repo_with_remote() -> (TempDir, TempDir) {
     let remote_dir = tempdir().unwrap();
     let work_dir = tempdir().unwrap();
 
@@ -3742,4 +3855,82 @@ fn test_design_detects_both_agent_environments() {
         assert_eq!(output.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
     }
+}
+
+#[test]
+fn test_reconcile_check_json_reports_current_without_writes() {
+    let dir = test_dir();
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(crosslink_dir.join("hook-config.json"), "{}\n").unwrap();
+    let database_path = crosslink_dir.join("issues.db");
+    let database = crosslink::db::Database::open(&database_path).unwrap();
+    drop(database);
+    add_current_reconcile_refs(dir.path());
+
+    let database_before = std::fs::read(&database_path).unwrap();
+    let refs_before = Command::new("git")
+        .current_dir(dir.path())
+        .args([
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/crosslink/",
+            "refs/heads/crosslink/",
+        ])
+        .output()
+        .unwrap()
+        .stdout;
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["reconcile", "--check", "--json"]);
+    assert!(success, "{stderr}");
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["plan"]["state"], "ready_current");
+    assert_eq!(report["format"]["local_database"]["kind"], "sqlite");
+    assert_eq!(report["format"]["shared_store"]["kind"], "visible_v3");
+    assert_eq!(database_before, std::fs::read(&database_path).unwrap());
+    let refs_after = Command::new("git")
+        .current_dir(dir.path())
+        .args([
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/crosslink/",
+            "refs/heads/crosslink/",
+        ])
+        .output()
+        .unwrap()
+        .stdout;
+    assert_eq!(refs_before, refs_after);
+}
+
+#[test]
+fn test_reconcile_check_json_plans_historical_sqlite_and_v2_without_writes() {
+    let dir = test_dir();
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(crosslink_dir.join("hook-config.json"), "{}\n").unwrap();
+    let database_path = crosslink_dir.join("issues.db");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    connection
+        .execute_batch(include_str!("fixtures/reconcile/sqlite/v17.sql"))
+        .unwrap();
+    drop(connection);
+    let ref_output = Command::new("git")
+        .current_dir(dir.path())
+        .args(["update-ref", "refs/heads/crosslink/hub", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(ref_output.status.success());
+
+    let database_before = std::fs::read(&database_path).unwrap();
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["reconcile", "--check", "--json"]);
+    assert!(success, "{stderr}");
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["plan"]["state"], "migration_required");
+    assert_eq!(report["format"]["local_database"]["version"], 17);
+    assert_eq!(report["format"]["shared_store"]["kind"], "v2");
+    let actions = report["plan"]["actions"].as_array().unwrap();
+    assert!(actions
+        .iter()
+        .any(|action| action["action"] == "migrate_local_database"));
+    assert!(actions.iter().any(|action| action["action"] == "import_v2"));
+    assert_eq!(database_before, std::fs::read(&database_path).unwrap());
 }

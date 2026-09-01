@@ -198,8 +198,6 @@ pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
     if !sync.is_initialized() {
         bail!("Hub cache not initialized. Run `crosslink sync` first.");
     }
-    sync.fetch()?;
-
     match resolve_swarm(&sync) {
         Ok(ctx) => {
             if let Ok(plan) = read_hub_json::<SwarmPlan>(&sync, &ctx.plan_path()) {

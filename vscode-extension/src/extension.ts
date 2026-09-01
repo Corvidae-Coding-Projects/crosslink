@@ -3,7 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
-import { DaemonManager } from './daemon';
+import {
+    DaemonManager,
+    DaemonReadinessResponse,
+    readinessPresentation,
+    reconnectAfterConfigurationChange,
+    startSessionAfterReadiness,
+} from './daemon';
 import { validateBinaries, resolveBinaryPath, verifyBinaryChecksum } from './platform';
 
 let daemonManager: DaemonManager | null = null;
@@ -54,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workspaceFolder = getWorkspaceFolder();
     if (!workspaceFolder) {
         outputChannel.appendLine('No workspace folder open');
-        updateStatusBar(false);
+        updateStatusBar(null);
         registerCommands(context);
         return;
     }
@@ -79,18 +85,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     if (autoStart && daemonManager.hasCrosslinkProject()) {
         try {
-            await daemonManager.start();
-            updateStatusBar(true);
+            const readiness = await daemonManager.start();
+            updateStatusBar(readiness);
             if (showOutput) {
                 outputChannel.show();
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             outputChannel.appendLine(`Failed to auto-start daemon: ${message}`);
-            updateStatusBar(false);
+            updateStatusBar(daemonManager.getLastResponse(), message);
         }
     } else {
-        updateStatusBar(false);
+        updateStatusBar(null);
     }
 
 
@@ -145,7 +151,30 @@ function registerInitCommands(reg: RegFn): void {
 
 function registerSessionCommands(reg: RegFn): void {
     reg('crosslink.sessionStart', async () => {
-        await executeCrosslinkCommand(['session', 'start'], 'Starting session...');
+        if (!daemonManager) {
+            vscode.window.showErrorMessage('No workspace folder open');
+            return;
+        }
+        try {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Starting session...',
+                    cancellable: false,
+                },
+                async () => {
+                    if (!daemonManager) {
+                        throw new Error('Daemon manager was disposed during session start');
+                    }
+                    await startSessionAfterReadiness(daemonManager);
+                },
+            );
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            outputChannel.appendLine(`Error: ${message}`);
+            updateStatusBar(daemonManager.getLastResponse(), message);
+            vscode.window.showErrorMessage(`Crosslink: ${message}`);
+        }
     });
 
     reg('crosslink.sessionEnd', async () => {
@@ -195,8 +224,8 @@ function registerDaemonCommands(reg: RegFn): void {
             return;
         }
         try {
-            await daemonManager.start();
-            updateStatusBar(true);
+            const readiness = await daemonManager.start();
+            updateStatusBar(readiness);
             vscode.window.showInformationMessage('Crosslink daemon started');
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -209,9 +238,14 @@ function registerDaemonCommands(reg: RegFn): void {
             vscode.window.showErrorMessage('No workspace folder open');
             return;
         }
-        daemonManager.stop();
-        updateStatusBar(false);
-        vscode.window.showInformationMessage('Crosslink daemon stopped');
+        try {
+            await daemonManager.stop();
+            updateStatusBar(null);
+            vscode.window.showInformationMessage('Crosslink daemon stopped');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`Failed to stop daemon: ${message}`);
+        }
     });
 
     reg('crosslink.daemonStatus', async () => {
@@ -219,12 +253,17 @@ function registerDaemonCommands(reg: RegFn): void {
             vscode.window.showInformationMessage('Crosslink: No workspace open');
             return;
         }
-        const running = daemonManager.isRunning();
-        const pid = daemonManager.getPid();
-        if (running && pid) {
-            vscode.window.showInformationMessage(`Crosslink daemon running (PID: ${pid})`);
-        } else {
-            vscode.window.showInformationMessage('Crosslink daemon not running');
+        try {
+            const status = await daemonManager.status();
+            updateStatusBar(status);
+            const reason = status.reason ? `: ${status.reason}` : '';
+            vscode.window.showInformationMessage(
+                `Crosslink daemon ${status.state}${status.daemon_pid ? ` (PID: ${status.daemon_pid})` : ''}${reason}`,
+            );
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            updateStatusBar(daemonManager.getLastResponse(), message);
+            vscode.window.showErrorMessage(`Failed to read daemon status: ${message}`);
         }
     });
 }
@@ -595,16 +634,17 @@ function getWorkspaceFolder(): string | undefined {
     return folders[0].uri.fsPath;
 }
 
-function updateStatusBar(running: boolean): void {
-    if (running) {
-        statusBarItem.text = '$(pulse) Crosslink';
-        statusBarItem.tooltip = 'Crosslink daemon running (click for status)';
-        statusBarItem.backgroundColor = undefined;
-    } else {
-        statusBarItem.text = '$(circle-slash) Crosslink';
-        statusBarItem.tooltip = 'Crosslink daemon not running (click for status)';
-        statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    }
+function updateStatusBar(response: DaemonReadinessResponse | null, error?: string): void {
+    const presentation = readinessPresentation(response, error);
+    statusBarItem.text = presentation.text;
+    statusBarItem.tooltip = presentation.tooltip;
+    statusBarItem.backgroundColor = presentation.tone === 'ready'
+        ? undefined
+        : new vscode.ThemeColor(
+            presentation.tone === 'blocked'
+                ? 'statusBarItem.errorBackground'
+                : 'statusBarItem.warningBackground',
+        );
     statusBarItem.show();
 }
 
@@ -613,28 +653,22 @@ function handleConfigChange(): void {
     const newOverridePath = config.get<string>('binaryPath');
 
 
-    if (daemonManager?.isRunning()) {
-        outputChannel.appendLine('Configuration changed, restarting daemon...');
-        daemonManager.stop();
-
-        const workspaceFolder = getWorkspaceFolder();
-        if (workspaceFolder) {
-
-            daemonManager = new DaemonManager({
-                extensionPath: storedExtensionPath,
-                workspaceFolder,
-                outputChannel,
-                overrideBinaryPath: newOverridePath,
-            });
-
-            daemonManager.start().then(() => {
-                updateStatusBar(true);
-            }).catch((err) => {
-                const message = err instanceof Error ? err.message : String(err);
-                outputChannel.appendLine(`Failed to restart daemon: ${message}`);
-                updateStatusBar(false);
-            });
-        }
+    const workspaceFolder = getWorkspaceFolder();
+    if (workspaceFolder) {
+        outputChannel.appendLine('Configuration changed, reconnecting to repository daemon...');
+        daemonManager = new DaemonManager({
+            extensionPath: storedExtensionPath,
+            workspaceFolder,
+            outputChannel,
+            overrideBinaryPath: newOverridePath,
+        });
+        reconnectAfterConfigurationChange(daemonManager).then((readiness) => {
+            updateStatusBar(readiness);
+        }).catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            outputChannel.appendLine(`Failed to reconnect to daemon: ${message}`);
+            updateStatusBar(daemonManager?.getLastResponse() ?? null, message);
+        });
     }
 }
 

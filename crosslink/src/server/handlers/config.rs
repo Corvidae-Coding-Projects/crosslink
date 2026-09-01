@@ -176,6 +176,7 @@ pub async fn update_config(
 
 #[cfg(test)]
 mod tests {
+    use super::{get_config, update_config};
     use axum::{
         body::Body,
         http::{Method, Request, StatusCode},
@@ -185,14 +186,23 @@ mod tests {
     use tower::util::ServiceExt;
 
     use crate::db::Database;
-    use crate::server::{routes::build_router, state::AppState};
+    use crate::server::state::AppState;
+
+    fn router(state: AppState) -> Router {
+        Router::new()
+            .route(
+                "/api/v1/config",
+                axum::routing::get(get_config).patch(update_config),
+            )
+            .with_state(state)
+    }
 
     fn test_app() -> (Router, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).expect("test db");
         let state = AppState::new(db, dir.path().join(".crosslink"));
-        (build_router(state, None), dir)
+        (router(state), dir)
     }
 
     fn test_app_with_config(config: &Value) -> (Router, tempfile::TempDir) {
@@ -206,7 +216,7 @@ mod tests {
         std::fs::write(&config_path, serde_json::to_string_pretty(config).unwrap()).unwrap();
 
         let state = AppState::new(db, crosslink_dir);
-        (build_router(state, None), dir)
+        (router(state), dir)
     }
 
     async fn body_json(resp: axum::response::Response) -> Value {

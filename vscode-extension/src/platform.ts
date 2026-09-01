@@ -14,19 +14,12 @@ export interface PlatformInfo {
     requiresChmod: boolean;
 }
 
-let _cachedPlatformInfo: PlatformInfo | null = null;
-
-
-
-
-
-export function detectPlatform(): PlatformInfo {
-    if (_cachedPlatformInfo) {
-        return _cachedPlatformInfo;
-    }
-
-    const platform = os.platform() as Platform;
-    const arch = os.arch() as Architecture;
+export function detectPlatform(
+    platformValue: string = os.platform(),
+    archValue: string = os.arch()
+): PlatformInfo {
+    const platform = platformValue as Platform;
+    const arch = archValue as Architecture;
 
 
     if (!['win32', 'linux', 'darwin'].includes(platform)) {
@@ -42,13 +35,12 @@ export function detectPlatform(): PlatformInfo {
     const binaryName = getBinaryName(platform, arch);
     const requiresChmod = platform !== 'win32';
 
-    _cachedPlatformInfo = {
+    return {
         platform,
         arch,
         binaryName,
         requiresChmod,
     };
-    return _cachedPlatformInfo;
 }
 
 

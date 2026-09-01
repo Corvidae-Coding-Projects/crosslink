@@ -343,15 +343,11 @@ fn test_import_export_roundtrip() {
     let issues1: Vec<serde_json::Value> = serde_json::from_str(&export1).unwrap();
     assert_eq!(issues1.len(), 10);
 
-    let db_path = h.db_path();
-    fs::remove_file(&db_path).expect("Failed to remove database");
+    let imported = SmokeHarness::new();
+    imported.run_ok(&["import", export1_path.to_str().unwrap()]);
 
-    h.run_ok(&["init"]);
-
-    h.run_ok(&["import", export1_path.to_str().unwrap()]);
-
-    let export2_path = h.temp_dir.path().join("export2.json");
-    h.run_ok(&["export", "-o", export2_path.to_str().unwrap(), "-f", "json"]);
+    let export2_path = imported.temp_dir.path().join("export2.json");
+    imported.run_ok(&["export", "-o", export2_path.to_str().unwrap(), "-f", "json"]);
     let export2 = fs::read_to_string(&export2_path).unwrap();
     let issues2: Vec<serde_json::Value> = serde_json::from_str(&export2).unwrap();
 

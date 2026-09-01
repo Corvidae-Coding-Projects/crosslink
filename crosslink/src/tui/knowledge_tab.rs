@@ -124,12 +124,26 @@ impl KnowledgeTab {
         if self.syncing {
             return;
         }
+        if let Err(error) = crate::reconcile::readiness::require_mutation_ready(&self.crosslink_dir)
+        {
+            self.error_msg = Some(format!("Knowledge sync blocked: {error}"));
+            return;
+        }
         self.syncing = true;
         let (tx, rx) = mpsc::channel();
         self.sync_rx = Some(rx);
         let crosslink_dir = self.crosslink_dir.clone();
 
         std::thread::spawn(move || {
+            let _permit = match crate::reconcile::readiness::acquire_mutation_operation_permit(
+                &crosslink_dir,
+            ) {
+                Ok(permit) => permit,
+                Err(error) => {
+                    let _ = tx.send(Some(error.to_string()));
+                    return;
+                }
+            };
             let result = match KnowledgeManager::new(&crosslink_dir) {
                 Ok(km) => match km.sync() {
                     Ok(_) => None,

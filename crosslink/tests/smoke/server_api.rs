@@ -500,8 +500,8 @@ fn test_api_sync_status() {
         "Should have hub_initialized field"
     );
     assert_eq!(
-        json["hub_branch"], "crosslink/hub",
-        "hub_branch should be crosslink/hub"
+        json["hub_branch"], "crosslink/checkpoint",
+        "hub_branch should identify the canonical v3 checkpoint"
     );
     assert!(json.get("remote").is_some(), "Should have remote field");
     assert!(

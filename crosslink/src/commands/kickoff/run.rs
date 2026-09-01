@@ -291,7 +291,7 @@ pub fn run(
 
 fn prepare_local_kickoff_writer(
     crosslink_dir: &Path,
-    db: &Database,
+    _db: &Database,
 ) -> Result<Option<SharedWriter>> {
     if crate::identity::AgentConfig::load(crosslink_dir)?.is_none() {
         return Ok(None);
@@ -309,8 +309,19 @@ fn prepare_local_kickoff_writer(
         bail!("Local-only kickoff requires a v3 coordination hub");
     }
 
-    crate::commands::migrate::promote_sqlite_to_v3(crosslink_dir, db, &sync)
-        .context("Failed to share local issues before kickoff")?;
+    match crate::reconcile::migration::activate_repository(crosslink_dir)
+        .context("Failed to reconcile local issues before kickoff")?
+    {
+        crate::reconcile::migration::RepositoryActivation::ReadyCurrent { .. }
+        | crate::reconcile::migration::RepositoryActivation::ReadyMigrated { .. }
+        | crate::reconcile::migration::RepositoryActivation::ReadyAdopted { .. } => {}
+        crate::reconcile::migration::RepositoryActivation::WaitingForRemote { reason } => {
+            bail!("Local kickoff reconciliation is waiting for remote: {reason}")
+        }
+        crate::reconcile::migration::RepositoryActivation::BlockedCorrupt { reason } => {
+            bail!("Local kickoff reconciliation is blocked: {reason}")
+        }
+    }
     SharedWriter::new(crosslink_dir)
 }
 

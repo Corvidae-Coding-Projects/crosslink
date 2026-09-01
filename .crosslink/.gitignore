@@ -13,3 +13,12 @@ rules.local/
 promotion-log.json
 hub-v3-shadow-stats.json
 sentinel.log
+daemon.pid
+daemon.log
+daemon.start.lock
+daemon.run.lock
+.daemon-*.tmp
+readiness/
+hydrated-frontiers/
+reconciliation-journal.json
+integrity/

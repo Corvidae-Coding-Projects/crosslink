@@ -19,6 +19,7 @@ impl SharedWriter {
         let desc_owned = description.map(std::string::ToString::to_string);
 
         let _ = self.write_commit_push(
+            db,
             |_writer| {
                 let event = crate::events::Event::MilestoneCreated {
                     uuid,
@@ -34,8 +35,6 @@ impl SharedWriter {
             &format!("create milestone: {name}"),
         )?;
 
-        self.hydrate_with_retry(db);
-
         if let Some(id) = self.v3_assigned_milestone_id(&uuid) {
             return Ok(id);
         }
@@ -44,6 +43,7 @@ impl SharedWriter {
 
     pub fn close_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let entry = writer.load_milestone_by_id(milestone_id)?;
                 let closed_at = Utc::now();
@@ -57,8 +57,6 @@ impl SharedWriter {
             },
             &format!("close milestone #{milestone_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
@@ -66,6 +64,7 @@ impl SharedWriter {
         let entry = self.load_milestone_by_id(milestone_id)?;
 
         let _ = self.write_commit_push(
+            db,
             |_writer| {
                 let event = crate::events::Event::MilestoneDeleted { uuid: entry.uuid };
                 Ok(WriteSet {
@@ -74,8 +73,6 @@ impl SharedWriter {
             },
             &format!("delete milestone #{milestone_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
@@ -90,6 +87,7 @@ impl SharedWriter {
 
         let ids: Vec<i64> = issue_ids.to_vec();
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let mut events = Vec::new();
                 for &issue_id in &ids {
@@ -103,13 +101,12 @@ impl SharedWriter {
             },
             &format!("add {} issue(s) to milestone #{}", ids.len(), milestone_id),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
     pub fn clear_milestone_on_issue(&self, db: &Database, issue_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::MilestoneAssigned {
@@ -122,8 +119,6 @@ impl SharedWriter {
             },
             &format!("remove issue #{issue_id} from milestone"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 }

@@ -22,8 +22,9 @@ fn fetch_and_load_locks(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
     let agent = crate::identity::AgentConfig::load(crosslink_dir).ok()??;
     let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
 
-    let _ = sync.init_cache();
-    let _ = sync.fetch();
+    if !sync.is_initialized() {
+        return None;
+    }
     let locks = sync.read_locks_auto().ok()?;
     Some((locks, agent.agent_id))
 }

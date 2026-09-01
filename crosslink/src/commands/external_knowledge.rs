@@ -19,9 +19,15 @@ fn get_reader(
         }
         RepoSource::Remote(_) => {
             let cache = ExternalCache::new(crosslink_dir, repo_value);
-            let data_ttl = read_data_ttl(crosslink_dir);
-            let url_ttl = read_url_ttl(crosslink_dir);
-            let knowledge_dir = cache.ensure_knowledge(data_ttl, url_ttl, refresh)?;
+            let knowledge_dir = if refresh {
+                cache.ensure_knowledge(
+                    read_data_ttl(crosslink_dir),
+                    read_url_ttl(crosslink_dir),
+                    true,
+                )?
+            } else {
+                cache.cached_knowledge()?
+            };
             let reader = ExternalKnowledgeReader::new(knowledge_dir);
             Ok((reader, repo_value.to_string()))
         }

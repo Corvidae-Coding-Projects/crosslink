@@ -25,9 +25,6 @@ pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
         return Ok(LockStatus::NotConfigured);
     };
 
-    let _ = sync.init_cache();
-    let _ = sync.fetch();
-
     if !sync.is_initialized() {
         return Ok(LockStatus::NotConfigured);
     }
@@ -124,6 +121,7 @@ fn auto_steal_if_configured(
 }
 
 pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Result<()> {
+    let _operation = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
     match check_lock(crosslink_dir, issue_id)? {
         LockStatus::NotConfigured | LockStatus::Available | LockStatus::LockedBySelf => Ok(()),
         LockStatus::LockedByOther { agent_id, stale } => {
@@ -295,6 +293,7 @@ mod tests {
         let crosslink_dir = repo_root.join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         write_agent_config(&crosslink_dir, self_agent);
+        std::fs::write(crosslink_dir.join("hook-config.json"), r"{}").unwrap();
 
         let sync = SyncManager::new(&crosslink_dir).unwrap();
         sync.init_cache().unwrap();
@@ -339,6 +338,12 @@ mod tests {
                 crate::hub_v3::write_heartbeat_to_ref(cache_dir, holder, &hb).unwrap();
             }
         }
+
+        crate::reconcile::migration::establish_verified_readiness_for_test(
+            &crosslink_dir,
+            "lock-check-test",
+        )
+        .unwrap();
 
         Some((dir, crosslink_dir))
     }
@@ -669,61 +674,10 @@ mod tests {
 
     #[test]
     fn test_enforce_lock_locked_by_other_stale_no_auto_steal_proceeds() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map_or(true, |s| !s.success()) {
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 8, Some("other-agent"), false)
+        else {
             return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        std::fs::create_dir_all(&crosslink_dir).unwrap();
-        write_agent_config(&crosslink_dir, "agent-self");
-
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("meta")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("locks")).unwrap();
-
-        let claimed_at = chrono::Utc::now() - chrono::Duration::minutes(120);
-
-        let heartbeat_json = serde_json::json!({
-            "agent_id": "other-agent",
-            "last_heartbeat": claimed_at.to_rfc3339(),
-            "active_issue_id": 8,
-            "machine_id": "other-machine"
-        });
-        std::fs::write(
-            hub_cache.join("heartbeats").join("other-agent.json"),
-            serde_json::to_string_pretty(&heartbeat_json).unwrap(),
-        )
-        .unwrap();
-
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                "8": {
-                    "agent_id": "other-agent",
-                    "branch": null,
-                    "claimed_at": claimed_at.to_rfc3339(),
-                    "signed_by": ""
-                }
-            },
-            "settings": {
-                "stale_lock_timeout_minutes": 60
-            }
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string_pretty(&locks_json).unwrap(),
-        )
-        .unwrap();
-
-        std::fs::write(crosslink_dir.join("hook-config.json"), r"{}").unwrap();
+        };
 
         let db = temp_db();
 
@@ -977,31 +931,17 @@ mod tests {
 
     #[test]
     fn test_enforce_lock_auto_steal_err_proceeds() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map_or(true, |s| !s.success()) {
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 60, Some("other-agent"), false)
+        else {
             return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(&hub_cache).unwrap();
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-
-        write_agent_config(&crosslink_dir, "agent-self");
+        };
 
         std::fs::write(
             crosslink_dir.join("hook-config.json"),
             r#"{"auto_steal_stale_locks": 1}"#,
         )
         .unwrap();
-
-        write_v1_locks_json(&hub_cache, 60, "other-agent", 200, 60);
+        std::fs::create_dir_all(crosslink_dir.join(".hub-cache/locks/60.json")).unwrap();
 
         let db = temp_db();
         let result = enforce_lock(&crosslink_dir, 60, &db);
@@ -1093,7 +1033,27 @@ mod tests {
         std::fs::create_dir_all(&hub_cache).unwrap();
         std::fs::write(hub_cache.join("locks.json"), b"not valid json!!!").unwrap();
 
+        fn snapshot(path: &Path) -> Vec<(String, Vec<u8>)> {
+            let mut entries = std::fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            entries.sort();
+            entries
+                .into_iter()
+                .filter(|path| path.is_file())
+                .map(|path| {
+                    (
+                        path.file_name().unwrap().to_string_lossy().to_string(),
+                        std::fs::read(path).unwrap(),
+                    )
+                })
+                .collect()
+        }
+
+        let before = snapshot(&hub_cache);
         let status = check_lock(&crosslink_dir, 1).unwrap();
         assert_eq!(status, LockStatus::Available);
+        assert_eq!(snapshot(&hub_cache), before);
     }
 }

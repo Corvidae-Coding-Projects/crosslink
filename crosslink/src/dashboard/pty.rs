@@ -51,6 +51,8 @@ pub struct PtySession {
     pub exit_notify: Arc<Notify>,
 
     reader_handle: Mutex<Option<JoinHandle<()>>>,
+
+    _mutation_permit: Option<crate::reconcile::readiness::MutationPermit>,
 }
 
 impl PtySession {
@@ -157,6 +159,8 @@ pub fn spawn_pty(
     rows: u16,
     cols: u16,
 ) -> Result<Arc<PtySession>> {
+    let mutation_permit =
+        crate::reconcile::readiness::acquire_mutation_permit(&cwd.join(".crosslink"))?;
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -255,6 +259,7 @@ pub fn spawn_pty(
         exit_code,
         exit_notify,
         reader_handle: Mutex::new(Some(reader_handle)),
+        _mutation_permit: mutation_permit,
     }))
 }
 

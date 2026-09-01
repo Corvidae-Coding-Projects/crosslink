@@ -8,8 +8,8 @@
           {
             "type": "command",
             "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/work-check.py\"",
-            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\work-check.py')\"",
-            "timeout": 3
+            "commandWindows": "powershell -NoProfile -EncodedCommand JABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAGUAbgB2ADoAUABMAFUARwBJAE4AXwBSAE8ATwBUACAAJwBoAG8AbwBrAHMAXAB3AG8AcgBrAC0AYwBoAGUAYwBrAC4AcAB5ACcAKQA7ACAAZQB4AGkAdAAgACQATABBAFMAVABFAFgASQBUAEMATwBEAEUA",
+            "timeout": 7
           }
         ]
       }
@@ -22,7 +22,7 @@
           {
             "type": "command",
             "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/post-edit-check.py\"",
-            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\post-edit-check.py')\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAGUAbgB2ADoAUABMAFUARwBJAE4AXwBSAE8ATwBUACAAJwBoAG8AbwBrAHMAXABwAG8AcwB0AC0AZQBkAGkAdAAtAGMAaABlAGMAawAuAHAAeQAnACkAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
             "timeout": 5
           }
         ]
@@ -33,7 +33,7 @@
           {
             "type": "command",
             "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/heartbeat.py\"",
-            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\heartbeat.py')\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAGUAbgB2ADoAUABMAFUARwBJAE4AXwBSAE8ATwBUACAAJwBoAG8AbwBrAHMAXABoAGUAYQByAHQAYgBlAGEAdAAuAHAAeQAnACkAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
             "timeout": 3
           }
         ]
@@ -47,8 +47,8 @@
           {
             "type": "command",
             "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/session-start.py\"",
-            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\session-start.py')\"",
-            "timeout": 10
+            "commandWindows": "powershell -NoProfile -EncodedCommand JABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAGUAbgB2ADoAUABMAFUARwBJAE4AXwBSAE8ATwBUACAAJwBoAG8AbwBrAHMAXABzAGUAcwBzAGkAbwBuAC0AcwB0AGEAcgB0AC4AcAB5ACcAKQA7ACAAZQB4AGkAdAAgACQATABBAFMAVABFAFgASQBUAEMATwBEAEUA",
+            "timeout": 131
           }
         ]
       }
@@ -60,7 +60,7 @@
           {
             "type": "command",
             "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/prompt-guard.py\"",
-            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\prompt-guard.py')\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAGUAbgB2ADoAUABMAFUARwBJAE4AXwBSAE8ATwBUACAAJwBoAG8AbwBrAHMAXABwAHIAbwBtAHAAdAAtAGcAdQBhAHIAZAAuAHAAeQAnACkAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
             "timeout": 5
           }
         ]
@@ -73,7 +73,7 @@
           {
             "type": "command",
             "command": "CROSSLINK_HOOK_PROVIDER=codex python3 \"$PLUGIN_ROOT/hooks/prompt-guard.py\"",
-            "commandWindows": "powershell -NoProfile -Command \"$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\prompt-guard.py')\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAGUAbgB2ADoAUABMAFUARwBJAE4AXwBSAE8ATwBUACAAJwBoAG8AbwBrAHMAXABwAHIAbwBtAHAAdAAtAGcAdQBhAHIAZAAuAHAAeQAnACkAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
             "timeout": 5
           }
         ]

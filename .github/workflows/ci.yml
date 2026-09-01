@@ -58,6 +58,41 @@ jobs:
       - name: Clippy (strict)
         run: cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used
 
+      - name: Run doctests
+        run: cargo test --doc --locked --all-features
+
+      - name: Build release binary
+        run: cargo build --release --locked --all-features
+
+  vscode:
+    needs: lint
+    name: VS Code Extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run readiness unit tests
+        run: npx mocha --ui tdd out/test/daemon.test.js
+
 
 
 
@@ -104,6 +139,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -118,6 +158,9 @@ jobs:
       - name: Build
         run: cargo build --locked --verbose
 
+      - name: Run reconciliation fixture tests
+        run: cargo test --lib --verbose reconcile::tests
+
       - name: Run unit tests (with proptests, Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --bin crosslink --verbose
@@ -128,6 +171,7 @@ jobs:
 
       - name: Run platform and provider unit tests (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
           $filters = @(
             "agents::",
@@ -145,18 +189,180 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Run bounded Windows reconciliation durability manifest
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cargo test --bin crosslink --verbose reconcile::readiness::tests::windows_atomic_readiness_manifest -- --exact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --bin crosslink --verbose reconcile::migration::tests::windows_projection_and_wal_manifest -- --exact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run integration tests
+        if: matrix.os != 'windows-latest'
         run: cargo test --test cli_integration --verbose
+
+      - name: Run bounded repository readiness integration tests
+        if: matrix.os != 'windows-latest'
+        run: cargo test --test daemon_readiness --verbose -- --test-threads=1
 
       - name: Run provider hook fixture tests
         if: matrix.os != 'windows-latest'
         run: cargo test --test provider_hooks --verbose
 
+      - name: Run cross-platform provider readiness and Windows wrapper tests
+        run: cargo test --test provider_readiness_wire --verbose
+
+
+  windows-cli:
+    needs: lint
+    name: Windows CLI (${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CLI_TEST_FILTERS: >-
+        test_a test_b test_c test_d test_e test_f test_g test_h test_i test_j test_k test_l
+        test_m test_n test_o test_p test_q test_r test_search test_security test_sentinel
+        test_session test_show test_special test_sql test_start test_stop test_stress test_subissue
+        test_t test_u test_v test_w test_x test_y test_z
+    defaults:
+      run:
+        working-directory: crosslink
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: a-f
+            prefixes: test_a test_b test_c test_d test_e test_f
+          - shard: g-l
+            prefixes: test_g test_h test_i test_j test_k test_l
+          - shard: m-r
+            prefixes: test_m test_n test_o test_p test_q test_r
+          - shard: s-core
+            prefixes: test_search test_security test_sentinel test_session test_show test_special test_sql test_start test_stop
+          - shard: s-stress
+            prefixes: test_stress test_subissue
+          - shard: t-z
+            prefixes: test_t test_u test_v test_w test_x test_y test_z
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Verify complete shard partition
+        shell: pwsh
+        run: |
+          $listed = cargo test --test cli_integration -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tests = @($listed | Where-Object { $_ -match ': test$' } | ForEach-Object { ($_ -split ':')[0] })
+          $filters = $env:CLI_TEST_FILTERS -split ' '
+          $invalid = @(
+            foreach ($test in $tests) {
+              $matches = @($filters | Where-Object { $test.Contains($_) })
+              if ($matches.Count -ne 1) { "$test=$($matches -join ',')" }
+            }
+          )
+          if ($tests.Count -eq 0 -or $invalid.Count -ne 0) {
+            Write-Error "CLI test partition is incomplete or overlapping: $($invalid -join '; ')"
+            exit 1
+          }
+
+      - name: Run CLI shard
+        shell: pwsh
+        run: |
+          $prefixes = "${{ matrix.prefixes }}" -split ' '
+          foreach ($prefix in $prefixes) {
+            cargo test --test cli_integration --verbose $prefix
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+
+  windows-readiness:
+    needs: lint
+    name: Windows readiness (${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DAEMON_TEST_FILTERS: >-
+        concurrent_ensure_converges_and_offline_exit_is_structured
+        corrupt_projection_exit_is_structured_and_daemon_remains_reportable
+        daemon_status_outside_a_repository_returns_the_closed_error_envelope
+        diagnostic_commands_leave_waiting_and_blocked_repositories_byte_unchanged
+        fresh_hook_initialized_local_repository_bootstraps_to_ready
+    defaults:
+      run:
+        working-directory: crosslink
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: convergence
+            filters: concurrent_ensure_converges_and_offline_exit_is_structured
+          - shard: diagnostics
+            filters: diagnostic_commands_leave_waiting_and_blocked_repositories_byte_unchanged
+          - shard: lifecycle
+            filters: corrupt_projection_exit_is_structured_and_daemon_remains_reportable daemon_status_outside_a_repository_returns_the_closed_error_envelope fresh_hook_initialized_local_repository_bootstraps_to_ready
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Verify complete readiness partition
+        shell: pwsh
+        run: |
+          $listed = cargo test --test daemon_readiness -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tests = @($listed | Where-Object { $_ -match ': test$' } | ForEach-Object { ($_ -split ':')[0] })
+          $filters = $env:DAEMON_TEST_FILTERS -split ' '
+          $invalid = @(
+            foreach ($test in $tests) {
+              $matches = @($filters | Where-Object { $test -eq $_ })
+              if ($matches.Count -ne 1) { "$test=$($matches -join ',')" }
+            }
+          )
+          if ($tests.Count -eq 0 -or $invalid.Count -ne 0) {
+            Write-Error "Readiness test partition is incomplete or overlapping: $($invalid -join '; ')"
+            exit 1
+          }
+
+      - name: Run readiness shard
+        shell: pwsh
+        run: |
+          $filters = "${{ matrix.filters }}" -split ' '
+          foreach ($filter in $filters) {
+            cargo test --test daemon_readiness --verbose $filter -- --exact --test-threads=1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
 
 
 
   proptest:
-    needs: test
+    needs: [test, windows-cli, windows-readiness]
     name: Property Tests
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
@@ -189,7 +395,7 @@ jobs:
 
 
   fuzz:
-    needs: test
+    needs: [test, windows-cli, windows-readiness]
     name: Fuzz Tests
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')

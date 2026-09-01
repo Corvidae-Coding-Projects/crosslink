@@ -8,8 +8,8 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/work-check.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\work-check.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
-            "timeout": 3
+            "commandWindows": "powershell -NoProfile -EncodedCommand JAByAG8AbwB0AD0AKABnAGkAdAAgAHIAZQB2AC0AcABhAHIAcwBlACAALQAtAHMAaABvAHcALQB0AG8AcABsAGUAdgBlAGwAIAAyAD4AJABuAHUAbABsACkAOwAgAGkAZgAoACQATABBAFMAVABFAFgASQBUAEMATwBEAEUAIAAtAG4AZQAgADAAKQB7AGUAeABpAHQAIAAwAH0AOwAgACQAaABvAG8AawA9AEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwAuAGMAcgBvAHMAcwBsAGkAbgBrAFwAaQBuAHQAZQBnAHIAYQB0AGkAbwBuAHMAXABoAG8AbwBrAHMAXAB3AG8AcgBrAC0AYwBoAGUAYwBrAC4AcAB5ACcAOwAgAGkAZgAoAFQAZQBzAHQALQBQAGEAdABoACAAJABoAG8AbwBrACkAewAkAGUAbgB2ADoAQwBSAE8AUwBTAEwASQBOAEsAXwBIAE8ATwBLAF8AUABSAE8AVgBJAEQARQBSAD0AJwBjAG8AZABlAHgAJwA7ACAAcAB5ACAALQAzACAAJABoAG8AbwBrADsAIABlAHgAaQB0ACAAJABMAEEAUwBUAEUAWABJAFQAQwBPAEQARQB9AA==",
+            "timeout": 7
           }
         ]
       }
@@ -22,7 +22,7 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/post-edit-check.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\post-edit-check.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JAByAG8AbwB0AD0AKABnAGkAdAAgAHIAZQB2AC0AcABhAHIAcwBlACAALQAtAHMAaABvAHcALQB0AG8AcABsAGUAdgBlAGwAIAAyAD4AJABuAHUAbABsACkAOwAgAGkAZgAoACQATABBAFMAVABFAFgASQBUAEMATwBEAEUAIAAtAG4AZQAgADAAKQB7AGUAeABpAHQAIAAwAH0AOwAgACQAaABvAG8AawA9AEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwAuAGMAcgBvAHMAcwBsAGkAbgBrAFwAaQBuAHQAZQBnAHIAYQB0AGkAbwBuAHMAXABoAG8AbwBrAHMAXABwAG8AcwB0AC0AZQBkAGkAdAAtAGMAaABlAGMAawAuAHAAeQAnADsAIABpAGYAKABUAGUAcwB0AC0AUABhAHQAaAAgACQAaABvAG8AawApAHsAJABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACQAaABvAG8AawB9AA==",
             "timeout": 5
           }
         ]
@@ -33,7 +33,7 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/heartbeat.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\heartbeat.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JAByAG8AbwB0AD0AKABnAGkAdAAgAHIAZQB2AC0AcABhAHIAcwBlACAALQAtAHMAaABvAHcALQB0AG8AcABsAGUAdgBlAGwAIAAyAD4AJABuAHUAbABsACkAOwAgAGkAZgAoACQATABBAFMAVABFAFgASQBUAEMATwBEAEUAIAAtAG4AZQAgADAAKQB7AGUAeABpAHQAIAAwAH0AOwAgACQAaABvAG8AawA9AEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwAuAGMAcgBvAHMAcwBsAGkAbgBrAFwAaQBuAHQAZQBnAHIAYQB0AGkAbwBuAHMAXABoAG8AbwBrAHMAXABoAGUAYQByAHQAYgBlAGEAdAAuAHAAeQAnADsAIABpAGYAKABUAGUAcwB0AC0AUABhAHQAaAAgACQAaABvAG8AawApAHsAJABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACQAaABvAG8AawB9AA==",
             "timeout": 3
           }
         ]
@@ -47,8 +47,8 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/session-start.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\session-start.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
-            "timeout": 10
+            "commandWindows": "powershell -NoProfile -EncodedCommand JAByAG8AbwB0AD0AKABnAGkAdAAgAHIAZQB2AC0AcABhAHIAcwBlACAALQAtAHMAaABvAHcALQB0AG8AcABsAGUAdgBlAGwAIAAyAD4AJABuAHUAbABsACkAOwAgAGkAZgAoACQATABBAFMAVABFAFgASQBUAEMATwBEAEUAIAAtAG4AZQAgADAAKQB7AGUAeABpAHQAIAAwAH0AOwAgACQAaABvAG8AawA9AEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwAuAGMAcgBvAHMAcwBsAGkAbgBrAFwAaQBuAHQAZQBnAHIAYQB0AGkAbwBuAHMAXABoAG8AbwBrAHMAXABzAGUAcwBzAGkAbwBuAC0AcwB0AGEAcgB0AC4AcAB5ACcAOwAgAGkAZgAoAFQAZQBzAHQALQBQAGEAdABoACAAJABoAG8AbwBrACkAewAkAGUAbgB2ADoAQwBSAE8AUwBTAEwASQBOAEsAXwBIAE8ATwBLAF8AUABSAE8AVgBJAEQARQBSAD0AJwBjAG8AZABlAHgAJwA7ACAAcAB5ACAALQAzACAAJABoAG8AbwBrADsAIABlAHgAaQB0ACAAJABMAEEAUwBUAEUAWABJAFQAQwBPAEQARQB9AA==",
+            "timeout": 131
           }
         ]
       }
@@ -60,7 +60,7 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/prompt-guard.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\prompt-guard.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JAByAG8AbwB0AD0AKABnAGkAdAAgAHIAZQB2AC0AcABhAHIAcwBlACAALQAtAHMAaABvAHcALQB0AG8AcABsAGUAdgBlAGwAIAAyAD4AJABuAHUAbABsACkAOwAgAGkAZgAoACQATABBAFMAVABFAFgASQBUAEMATwBEAEUAIAAtAG4AZQAgADAAKQB7AGUAeABpAHQAIAAwAH0AOwAgACQAaABvAG8AawA9AEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwAuAGMAcgBvAHMAcwBsAGkAbgBrAFwAaQBuAHQAZQBnAHIAYQB0AGkAbwBuAHMAXABoAG8AbwBrAHMAXABwAHIAbwBtAHAAdAAtAGcAdQBhAHIAZAAuAHAAeQAnADsAIABpAGYAKABUAGUAcwB0AC0AUABhAHQAaAAgACQAaABvAG8AawApAHsAJABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACQAaABvAG8AawB9AA==",
             "timeout": 5
           }
         ]
@@ -73,7 +73,7 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/prompt-guard.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=codex __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\prompt-guard.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='codex'; py -3 $hook}\"",
+            "commandWindows": "powershell -NoProfile -EncodedCommand JAByAG8AbwB0AD0AKABnAGkAdAAgAHIAZQB2AC0AcABhAHIAcwBlACAALQAtAHMAaABvAHcALQB0AG8AcABsAGUAdgBlAGwAIAAyAD4AJABuAHUAbABsACkAOwAgAGkAZgAoACQATABBAFMAVABFAFgASQBUAEMATwBEAEUAIAAtAG4AZQAgADAAKQB7AGUAeABpAHQAIAAwAH0AOwAgACQAaABvAG8AawA9AEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwAuAGMAcgBvAHMAcwBsAGkAbgBrAFwAaQBuAHQAZQBnAHIAYQB0AGkAbwBuAHMAXABoAG8AbwBrAHMAXABwAHIAbwBtAHAAdAAtAGcAdQBhAHIAZAAuAHAAeQAnADsAIABpAGYAKABUAGUAcwB0AC0AUABhAHQAaAAgACQAaABvAG8AawApAHsAJABlAG4AdgA6AEMAUgBPAFMAUwBMAEkATgBLAF8ASABPAE8ASwBfAFAAUgBPAFYASQBEAEUAUgA9ACcAYwBvAGQAZQB4ACcAOwAgAHAAeQAgAC0AMwAgACQAaABvAG8AawB9AA==",
             "timeout": 5
           }
         ]

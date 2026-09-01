@@ -354,10 +354,9 @@ fn run_polling_cycle(
     config: &SentinelConfig,
     model_override: Option<&str>,
 ) -> Result<()> {
+    let _permit = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
     let db = Database::open(&crosslink_dir.join("issues.db"))?;
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)
-        .ok()
-        .flatten();
+    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?;
 
     let stats = engine::run_oneshot(
         crosslink_dir,
@@ -393,10 +392,9 @@ fn run_webhook_cycle(
     signal: super::sources::Signal,
     model_override: Option<&str>,
 ) -> Result<()> {
+    let _permit = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
     let db = Database::open(&crosslink_dir.join("issues.db"))?;
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)
-        .ok()
-        .flatten();
+    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?;
 
     let signal_ref = signal.reference.clone();
     let stats = engine::process_signal_batch(
@@ -441,13 +439,7 @@ fn is_process_running(pid: u32) -> bool {
 
 #[cfg(windows)]
 fn is_process_running(pid: u32) -> bool {
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .output()
-        .is_ok_and(|output| {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.contains(&pid.to_string())
-        })
+    crate::reconcile::readiness::is_process_running(pid)
 }
 
 #[cfg(not(windows))]

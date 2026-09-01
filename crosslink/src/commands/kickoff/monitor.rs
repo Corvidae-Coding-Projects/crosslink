@@ -8,7 +8,7 @@ use crate::agents::{parse_jsonl_event, runtime_provider, runtime_snapshot};
 const RUNTIME_LOG: &str = ".crosslink/runtime/agent-events.jsonl";
 const USAGE_MARKER: &str = ".crosslink/runtime/recorded-usage.json";
 
-fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, agent_id: &str) {
+pub(super) fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, agent_id: &str) {
     use sha2::{Digest, Sha256};
 
     let provider = runtime_provider(worktree_dir);
@@ -139,8 +139,6 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         return Ok(());
     }
 
-    record_runtime_usage(crosslink_dir, &worktree_dir, agent);
-
     let status_file = worktree_dir.join(".kickoff-status");
     let mut agent_status = if status_file.exists() {
         std::fs::read_to_string(&status_file)
@@ -161,22 +159,6 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
 
     if agent_status.contains("running") && is_timed_out(&worktree_dir) {
         agent_status = "timed-out".to_string();
-    }
-
-    let normalized = normalize_status(&agent_status);
-    let pipeline_status = if normalized == "done" {
-        Some("completed")
-    } else if normalized == "failed" {
-        Some("failed")
-    } else {
-        None
-    };
-    if let Some(ps) = pipeline_status {
-        let _ = super::pipeline::reconcile_completion_by_worktree(
-            root,
-            &worktree_dir.to_string_lossy(),
-            ps,
-        );
     }
 
     println!("Agent:     {agent}");
@@ -282,7 +264,6 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
 
             let agent_id = read_agent_id(&wt_path, crosslink_dir)
                 .unwrap_or_else(|| format!("driver--{dir_name}"));
-            record_runtime_usage(crosslink_dir, &wt_path, &agent_id);
             if let Some(status) = runtime_snapshot(&wt_path).status {
                 if agent_status == "running"
                     || matches!(status.as_str(), "done" | "failed" | "timed-out" | "waiting")
@@ -454,8 +435,6 @@ pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) 
 
 pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
     if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
-        let _ = sync.init_cache();
-        let _ = sync.fetch();
         let cache = sync.cache_path();
 
         let slug = agent.rsplit("--").next().unwrap_or(agent);
@@ -541,12 +520,15 @@ pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
     Ok(())
 }
 
-pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
+pub fn stop(crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
     let slug = agent
         .strip_prefix("feature/")
         .or_else(|| agent.strip_prefix("feat-"))
         .unwrap_or(agent);
     let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
+    if let Some(root) = crosslink_dir.parent() {
+        record_runtime_usage(crosslink_dir, &root.join(".worktrees").join(wt_slug), agent);
+    }
 
     let session_name = tmux_session_name(wt_slug);
     if tmux_session_exists(&session_name) {

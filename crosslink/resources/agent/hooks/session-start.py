@@ -13,7 +13,13 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crosslink_config import find_crosslink_binary, find_crosslink_dir
-from hook_protocol import EXTERNAL_CONTENT_NOTICE, claim_event, emit_context, normalize_input
+from hook_protocol import (
+    EXTERNAL_CONTENT_NOTICE,
+    claim_event,
+    emit_context,
+    normalize_input,
+    validate_readiness_envelope,
+)
 
 
 
@@ -37,6 +43,34 @@ def run_crosslink(args):
         return result.stdout.strip() if result.returncode == 0 else None
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         return None
+
+
+def ensure_readiness():
+    global _crosslink_bin
+    crosslink_dir = find_crosslink_dir()
+    if _crosslink_bin is None:
+        _crosslink_bin = find_crosslink_binary(crosslink_dir)
+    try:
+        result = subprocess.run(
+            [_crosslink_bin, "daemon", "ensure", "--wait-ready", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=130,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as error:
+        return None, f"readiness ensure failed: {error}"
+    try:
+        response = json.loads(result.stdout.strip())
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None, "readiness ensure returned malformed JSON"
+    valid, validation_error = validate_readiness_envelope(response)
+    if not valid:
+        return None, validation_error
+    state = response["state"]
+    if result.returncode == 0 and response["ready"]:
+        return response, None
+    reason = response["reason"]
+    return response, f"repository readiness is {state or 'unknown'}: {reason or 'no reason reported'}"
 
 
 def _is_initialized(candidate):
@@ -230,11 +264,16 @@ def main():
         event = normalize_input(raw)
     except (ValueError, TypeError, OSError):
         sys.exit(0)
-    if not claim_event("crosslink-session-start", event):
-        sys.exit(0)
-
     if not check_crosslink_initialized():
 
+        sys.exit(0)
+
+    readiness, readiness_error = ensure_readiness()
+    if readiness_error:
+        print(readiness_error, file=sys.stderr)
+        sys.exit(2)
+
+    if not claim_event("crosslink-session-start", event):
         sys.exit(0)
 
     context_parts = ["<crosslink-session-context>"]

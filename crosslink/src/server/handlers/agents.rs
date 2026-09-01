@@ -754,7 +754,7 @@ mod tests {
 
         assert_eq!(body["agent_id"], "my-agent");
         assert_eq!(body["status"], "active");
-        assert!(body["heartbeat_history"].as_array().unwrap().len() == 1);
+        assert_eq!(body["heartbeat_history"].as_array().unwrap().len(), 1);
     }
 
     #[tokio::test]

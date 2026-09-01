@@ -824,7 +824,16 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
         };
     }
 
-    let _ = sync.fetch();
+    if let Ok(_permit) =
+        crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)
+    {
+        if sync.fetch().is_ok() {
+            if let Ok(db) = crate::db::Database::open(&crosslink_dir.join("issues.db")) {
+                let _ =
+                    crate::hydration::hydrate_current_authority_under_operation(crosslink_dir, &db);
+            }
+        }
+    }
 
     let (locks, lock_error) = match sync.read_locks_auto() {
         Ok(l) => (l, None),
@@ -1165,6 +1174,11 @@ mod tests {
         drop(lock);
         crate::commands::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false)
             .unwrap();
+        crate::reconcile::migration::establish_verified_readiness_for_test(
+            &crosslink_dir,
+            "tui-agents-test",
+        )
+        .unwrap();
 
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 

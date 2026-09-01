@@ -20,9 +20,15 @@ fn get_reader(
         }
         RepoSource::Remote(_) => {
             let cache = ExternalCache::new(crosslink_dir, repo_value);
-            let data_ttl = read_data_ttl(crosslink_dir);
-            let url_ttl = read_url_ttl(crosslink_dir);
-            let hub_dir = cache.ensure_hub(data_ttl, url_ttl, refresh)?;
+            let hub_dir = if refresh {
+                cache.ensure_hub(
+                    read_data_ttl(crosslink_dir),
+                    read_url_ttl(crosslink_dir),
+                    true,
+                )?
+            } else {
+                cache.cached_hub()?
+            };
             let reader = ExternalIssueReader::from_hub_dir(&hub_dir)?;
             Ok((reader, repo_value.to_string()))
         }

@@ -755,6 +755,8 @@ mod integration {
     use crate::db::Database;
     use crate::identity::{AgentConfig, AgentRole};
     use std::process::Command;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
     use tempfile::TempDir;
 
     fn setup_shared_writer_env() -> (TempDir, TempDir, std::path::PathBuf) {
@@ -829,6 +831,45 @@ mod integration {
 
         let sync = crate::sync::SyncManager::new(&crosslink_dir).unwrap();
         sync.init_cache().unwrap();
+        drop(sync);
+        let projection = Database::open(&crosslink_dir.join("issues.db")).unwrap();
+        drop(projection);
+        let activation = crate::reconcile::migration::activate_repository(&crosslink_dir).unwrap();
+        let (state, generation_id) = match activation {
+            crate::reconcile::migration::RepositoryActivation::ReadyCurrent { generation_id } => (
+                crate::reconcile::readiness::ReadinessState::ReadyCurrent,
+                generation_id,
+            ),
+            crate::reconcile::migration::RepositoryActivation::ReadyMigrated { generation_id } => (
+                crate::reconcile::readiness::ReadinessState::ReadyMigrated,
+                generation_id,
+            ),
+            crate::reconcile::migration::RepositoryActivation::ReadyAdopted { generation_id } => (
+                crate::reconcile::readiness::ReadinessState::ReadyAdopted,
+                generation_id,
+            ),
+            other => panic!("unexpected activation: {other:?}"),
+        };
+        let identity = crate::reconcile::readiness::DaemonIdentity {
+            schema_version: crate::reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: crate::reconcile::readiness::repository_id(&crosslink_dir).unwrap(),
+            daemon_epoch: Uuid::new_v4().to_string(),
+            pid: std::process::id(),
+            process_start: crate::reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        crate::reconcile::readiness::write_daemon_identity(&crosslink_dir, &identity).unwrap();
+        crate::reconcile::readiness::write_record(
+            &crosslink_dir,
+            crate::reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "shared-writer-test",
+                state,
+                generation_id: Some(&generation_id),
+                reason: None,
+            },
+        )
+        .unwrap();
 
         (work_dir, remote_dir, crosslink_dir)
     }
@@ -933,6 +974,76 @@ mod integration {
     }
 
     #[test]
+    fn test_new_rejects_waiting_repository_before_cache_mutation() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let identity = crate::reconcile::readiness::read_daemon_identity(&crosslink_dir)
+            .unwrap()
+            .unwrap();
+        crate::reconcile::readiness::write_record(
+            &crosslink_dir,
+            crate::reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "offline",
+                state: crate::reconcile::readiness::ReadinessState::WaitingForRemote,
+                generation_id: None,
+                reason: Some("offline"),
+            },
+        )
+        .unwrap();
+        let cache = crosslink_dir.join(".hub-cache");
+        let refs_before = Command::new("git")
+            .current_dir(&cache)
+            .args(["for-each-ref", "--format=%(refname) %(objectname)"])
+            .output()
+            .unwrap()
+            .stdout;
+        let error = SharedWriter::new(&crosslink_dir).err().unwrap();
+        assert!(error.to_string().contains("waiting_for_remote"));
+        let refs_after = Command::new("git")
+            .current_dir(&cache)
+            .args(["for-each-ref", "--format=%(refname) %(objectname)"])
+            .output()
+            .unwrap()
+            .stdout;
+        assert_eq!(refs_after, refs_before);
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_new_holds_operation_authority_until_construction_finishes() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let outer =
+            crate::reconcile::readiness::acquire_mutation_operation_permit(&crosslink_dir).unwrap();
+        let transition_dir = crosslink_dir.clone();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let transition = std::thread::spawn(move || {
+            let permit =
+                crate::reconcile::readiness::acquire_transition_permit(&transition_dir).unwrap();
+            acquired_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            drop(permit);
+        });
+        let transition_path = crosslink_dir.join("readiness/transition.lock");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !transition_path.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "transition did not publish its barrier"
+            );
+            std::thread::yield_now();
+        }
+        assert!(SharedWriter::new(&crosslink_dir).unwrap().is_some());
+        assert!(acquired_rx.try_recv().is_err());
+        drop(outer);
+        acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        release_tx.send(()).unwrap();
+        transition.join().unwrap();
+        drop(work_dir);
+    }
+
+    #[test]
     fn test_new_creates_issues_and_meta_dirs() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
         SharedWriter::new(&crosslink_dir).unwrap().unwrap();
@@ -964,29 +1075,8 @@ mod integration {
     #[test]
     fn test_read_lock_v2_reads_existing_lock_file() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let locks_dir = crosslink_dir.join(".hub-cache").join("locks");
-        std::fs::create_dir_all(&locks_dir).unwrap();
-        let lock = crate::issue_file::LockFileV2 {
-            issue_id: 42,
-            agent_id: "test-agent".to_string(),
-            branch: Some("feature/x".to_string()),
-            claimed_at: chrono::Utc::now(),
-            signed_by: None,
-        };
-        std::fs::write(
-            locks_dir.join("42.json"),
-            serde_json::to_string_pretty(&lock).unwrap(),
-        )
-        .unwrap();
-
-        let result = writer.read_lock_v2(42).unwrap();
-        assert!(result.is_some());
-        let read_lock = result.unwrap();
-        assert_eq!(read_lock.issue_id, 42);
-        assert_eq!(read_lock.agent_id, "test-agent");
-        assert_eq!(read_lock.branch, Some("feature/x".to_string()));
+        let error = SharedWriter::new(&crosslink_dir).err().unwrap();
+        assert!(error.to_string().contains("readiness"));
         drop(work_dir);
     }
 
@@ -1136,7 +1226,21 @@ mod integration {
     }
 
     #[test]
-    fn test_new_without_agent_config_hub_init_fails_returns_none() {
+    fn initialized_cache_without_agent_or_daemon_stays_fail_closed() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        std::fs::remove_file(crosslink_dir.join("agent.json")).unwrap();
+        std::fs::remove_file(crosslink_dir.join("daemon.pid")).unwrap();
+        std::fs::remove_dir_all(crosslink_dir.join("readiness")).unwrap();
+        let error = match SharedWriter::new(&crosslink_dir) {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("initialized repository unexpectedly bypassed readiness"),
+        };
+        assert!(error.contains("readiness is missing"));
+        drop(work_dir);
+    }
+
+    #[test]
+    fn initialized_hook_only_repository_stays_fail_closed_before_cache_bootstrap() {
         let work_dir = tempfile::tempdir().unwrap();
 
         Command::new("git")
@@ -1166,11 +1270,12 @@ mod integration {
         .unwrap();
 
         let result = SharedWriter::new(&crosslink_dir);
-
-        assert!(
-            result.is_ok(),
-            "SharedWriter::new() should not error even when hub unavailable"
-        );
+        let error = result
+            .err()
+            .expect("initialized repository must require readiness");
+        assert!(error.to_string().contains("readiness is missing"));
+        assert!(!crosslink_dir.join(".hub-cache").exists());
+        assert!(!crosslink_dir.join("issues.db").exists());
 
         drop(work_dir);
     }
@@ -1255,17 +1360,8 @@ mod integration {
     #[test]
     fn test_v2_create_issue_refuses_with_migrate_message() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let err = writer
-            .create_issue(&db, "Should refuse", None, "medium", None, None)
-            .expect_err("create_issue must refuse on a v2 hub");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("migrate hub-v3"),
-            "refusal must point at `crosslink migrate hub-v3`; got: {msg}"
-        );
+        let error = SharedWriter::new(&crosslink_dir).err().unwrap();
+        assert!(error.to_string().contains("readiness"));
         drop(work_dir);
     }
 
@@ -1286,16 +1382,8 @@ mod integration {
     #[test]
     fn test_v2_lock_claim_refuses() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let err = writer
-            .claim_lock_v2(1, None)
-            .expect_err("claim_lock_v2 must refuse on a v2 hub");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("migrate hub-v3"),
-            "refusal must point at `crosslink migrate hub-v3`; got: {msg}"
-        );
+        let error = SharedWriter::new(&crosslink_dir).err().unwrap();
+        assert!(error.to_string().contains("readiness"));
         drop(work_dir);
     }
 }

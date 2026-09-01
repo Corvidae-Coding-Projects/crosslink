@@ -21,6 +21,9 @@ pub struct CheckpointState {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub deleted_issues: BTreeSet<Uuid>,
 
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub deleted_milestones: BTreeSet<Uuid>,
+
     #[serde(default = "default_next_id")]
     pub next_milestone_id: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -48,6 +51,7 @@ impl Default for CheckpointState {
             issues: BTreeMap::new(),
             milestones: BTreeMap::new(),
             deleted_issues: BTreeSet::new(),
+            deleted_milestones: BTreeSet::new(),
             next_milestone_id: 1,
             skew_warnings: Vec::new(),
             compaction_lease: None,

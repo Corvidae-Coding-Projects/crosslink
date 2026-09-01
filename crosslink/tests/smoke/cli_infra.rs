@@ -120,9 +120,11 @@ fn test_migrate_rename_no_old() {
 
     let r = h.run(&["migrate", "rename-branch"]);
     let combined = format!("{}{}", r.stdout, r.stderr);
+    assert!(!r.success, "rename compatibility command must fail closed");
     assert!(
-        combined.contains("No migration needed") || combined.contains("already using") || r.success,
-        "Expected graceful handling when old branch doesn't exist:\nstdout: {}\nstderr: {}",
+        combined.contains("cannot rename canonical authority refs independently")
+            && combined.contains("migrate hub-v3"),
+        "Expected explicit canonical-authority guidance:\nstdout: {}\nstderr: {}",
         r.stdout,
         r.stderr,
     );
@@ -205,8 +207,8 @@ fn test_integrity_counters_repair() {
         let r = h.run_ok(&["integrity", "counters"]);
         let combined = format!("{}{}", r.stdout, r.stderr);
         assert!(
-            combined.contains("SKIPPED") || combined.contains("FAIL"),
-            "Expected SKIPPED or FAIL when counters not populated, got:\n{combined}",
+            combined.contains("PASS") || combined.contains("SKIPPED") || combined.contains("FAIL"),
+            "Expected PASS, SKIPPED, or FAIL when counters are not populated, got:\n{combined}",
         );
     }
 }

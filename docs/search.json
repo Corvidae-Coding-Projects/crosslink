@@ -48,7 +48,7 @@
     "href": "getting-started/installation.html#requirements",
     "title": "Installation",
     "section": "Requirements",
-    "text": "Requirements\n\nRust 1.87+ (for cargo install) — install rustup\nPython 3.6+ — required for Claude Code and Codex hooks\nGit — required for multi-agent coordination features\nA normal signed-in Claude Code or Codex CLI account for autonomous runs",
+    "text": "Requirements\n\nRust 1.88+ (for cargo install) — install rustup\nPython 3.6+ — required for Claude Code and Codex hooks\nGit — required for multi-agent coordination features\nA normal signed-in Claude Code or Codex CLI account for autonomous runs",
     "crumbs": [
       "Getting started",
       "Installation"

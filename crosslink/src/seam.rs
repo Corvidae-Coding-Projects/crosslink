@@ -416,7 +416,7 @@ fn record_pairs(files: &[PathBuf], counts: &mut HashMap<(PathBuf, PathBuf), usiz
 }
 
 fn apply_coupling(mut partitions: Vec<Partition>, coupling: &CouplingMap) -> Vec<Partition> {
-    fn find(parent: &mut [usize], mut x: usize) -> usize {
+    const fn find(parent: &mut [usize], mut x: usize) -> usize {
         while parent[x] != x {
             parent[x] = parent[parent[x]];
             x = parent[x];

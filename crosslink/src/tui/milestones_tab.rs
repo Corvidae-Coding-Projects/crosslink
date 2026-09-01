@@ -95,7 +95,7 @@ impl MilestonesTab {
     }
 
     fn open_db(&self) -> Option<Database> {
-        Database::open(&self.db_path).ok()
+        Database::open_read_only(&self.db_path).ok()
     }
 
     fn load_milestones(&mut self, db: &Database) {
