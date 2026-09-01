@@ -529,10 +529,10 @@ pub fn source_fingerprint(crosslink_dir: &Path) -> Result<String> {
     let root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!(".crosslink directory has no repository root"))?;
-    evidence.extend(reconciliation_source_refs(root)?);
+    evidence.extend(reconciliation_source_refs("repository", root)?);
     if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
         if sync.cache_path().is_dir() {
-            evidence.extend(reconciliation_source_refs(sync.cache_path())?);
+            evidence.extend(reconciliation_source_refs("cache", sync.cache_path())?);
         }
     }
     evidence.sort();
@@ -1779,7 +1779,7 @@ fn remove_owned_file(path: &Path, contents: &[u8]) {
     }
 }
 
-fn reconciliation_source_refs(repository: &Path) -> Result<Vec<String>> {
+fn reconciliation_source_refs(source: &str, repository: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
         .current_dir(repository)
         .args(["for-each-ref", "--format=%(refname)%00%(objectname)"])
@@ -1806,7 +1806,7 @@ fn reconciliation_source_refs(repository: &Path) -> Result<Vec<String>> {
                 || name.starts_with(crate::hub_v3::OLD_AGENT_REF_PREFIX)
                 || name.ends_with("/crosslink/hub")
                 || name.ends_with("/crosslink/locks");
-            relevant.then(|| format!("{}:{name}:{oid}", repository.display()))
+            relevant.then(|| format!("{source}:{name}:{oid}"))
         })
         .collect())
 }
@@ -2058,6 +2058,23 @@ mod tests {
         git(root.path(), &["commit", "-qm", "advance"]);
         git(root.path(), &["update-ref", &legacy_ref, "HEAD"]);
         assert_ne!(source_fingerprint(&crosslink).unwrap(), legacy);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_fingerprint_is_stable_across_repository_path_aliases() {
+        let root = git_initialized();
+        git(
+            root.path(),
+            &["update-ref", "refs/heads/crosslink/hub", "HEAD"],
+        );
+        let aliases = tempfile::tempdir().unwrap();
+        let alias = aliases.path().join("repository");
+        std::os::unix::fs::symlink(root.path(), &alias).unwrap();
+
+        let direct = source_fingerprint(&root.path().join(".crosslink")).unwrap();
+        let indirect = source_fingerprint(&alias.join(".crosslink")).unwrap();
+        assert_eq!(direct, indirect);
     }
 
     #[test]

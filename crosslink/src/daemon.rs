@@ -263,6 +263,8 @@ fn ensure_process(crosslink_dir: &Path) -> Result<DaemonIdentity> {
     let stdout = fs::File::create(&log_path)
         .with_context(|| format!("creating daemon log {}", log_path.display()))?;
     let stderr = stdout.try_clone().context("cloning daemon log handle")?;
+    #[cfg(windows)]
+    prevent_standard_handle_inheritance()?;
     let mut command = Command::new(executable);
     command
         .args(["daemon", "run", "--dir"])
@@ -282,6 +284,36 @@ fn ensure_process(crosslink_dir: &Path) -> Result<DaemonIdentity> {
     };
     readiness::write_daemon_identity(crosslink_dir, &identity)?;
     Ok(identity)
+}
+
+#[cfg(windows)]
+fn prevent_standard_handle_inheritance() -> Result<()> {
+    use std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        #[link_name = "GetStdHandle"]
+        fn get_std_handle(stream: u32) -> *mut c_void;
+        #[link_name = "SetHandleInformation"]
+        fn set_handle_information(handle: *mut c_void, mask: u32, flags: u32) -> i32;
+    }
+
+    const STD_INPUT_HANDLE: u32 = -10_i32 as u32;
+    const STD_OUTPUT_HANDLE: u32 = -11_i32 as u32;
+    const STD_ERROR_HANDLE: u32 = -12_i32 as u32;
+    const HANDLE_FLAG_INHERIT: u32 = 1;
+
+    for stream in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        let handle = unsafe { get_std_handle(stream) };
+        if handle.is_null() || handle.addr() == usize::MAX {
+            continue;
+        }
+        if unsafe { set_handle_information(handle, HANDLE_FLAG_INHERIT, 0) } == 0 {
+            return Err(std::io::Error::last_os_error())
+                .context("disabling standard handle inheritance for daemon launch");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
