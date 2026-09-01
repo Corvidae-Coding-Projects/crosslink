@@ -620,7 +620,7 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
         if !deferred && !reconcile_until_ready(crosslink_dir, &identity, should_exit)? {
             return Ok(());
         }
-        let mutation_permit = readiness::acquire_mutation_permit(crosslink_dir)?;
+        let mutation_operation = acquire_housekeeping_operation(crosslink_dir)?;
         let mut active_issue_id = None;
         match Database::open_read_only(&db_path) {
             Ok(db) => {
@@ -644,7 +644,7 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
             }
             Err(error) => tracing::warn!("failed to open database: {error}"),
         }
-        drop(mutation_permit);
+        drop(mutation_operation);
         heartbeat_counter += 1;
         if heartbeat_counter.is_multiple_of(5) {
             if let Err(error) = run_sync_tick(crosslink_dir, &db_path, active_issue_id) {
@@ -653,6 +653,12 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
         }
     }
     Ok(())
+}
+
+fn acquire_housekeeping_operation(
+    crosslink_dir: &Path,
+) -> Result<readiness::MutationOperationPermit> {
+    readiness::acquire_mutation_operation_permit(crosslink_dir)
 }
 
 fn defer_reconciliation_for_active_mutations(
@@ -1384,6 +1390,45 @@ mod tests {
     }
 
     #[test]
+    fn housekeeping_waits_for_foreground_readiness_publication() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let ready = readiness::read_record(&crosslink).unwrap().unwrap();
+        let foreground = readiness::acquire_mutation_operation_permit(&crosslink).unwrap();
+        readiness::write_record(
+            &crosslink,
+            ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "foreground",
+                state: ReadinessState::Reconciling,
+                generation_id: None,
+                reason: None,
+            },
+        )
+        .unwrap();
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let worker_dir = crosslink.clone();
+        let worker = thread::spawn(move || {
+            result_tx
+                .send(acquire_housekeeping_operation(&worker_dir))
+                .unwrap();
+        });
+        assert!(result_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        record_ready(
+            &crosslink,
+            &identity,
+            "foreground-complete",
+            ready.state,
+            ready.generation_id.as_deref().unwrap(),
+        )
+        .unwrap();
+        drop(foreground);
+        let housekeeping = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        drop(housekeeping.unwrap());
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn authority_advance_during_deferral_keeps_daemon_live_and_then_converges() {
         let (_work, _remote, crosslink, identity) = ready_connected();
         let long_mutation = readiness::acquire_mutation_permit(&crosslink).unwrap();
@@ -1470,7 +1515,9 @@ mod tests {
             .stdout;
         assert_eq!(refs_offline, refs_before);
         fs::rename(&offline, remote.path()).unwrap();
-        let result = match done_rx.recv_timeout(Duration::from_secs(5)) {
+        let result = match done_rx.recv_timeout(Duration::from_secs(
+            MAX_RETRY_SECS + START_LOCK_DEADLINE_SECS,
+        )) {
             Ok(result) => result,
             Err(error) => {
                 should_exit.store(true, Ordering::SeqCst);

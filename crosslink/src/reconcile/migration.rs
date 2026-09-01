@@ -1258,20 +1258,12 @@ fn logical_sqlite_snapshot(path: &Path, name: &str) -> Result<(tempfile::TempDir
         .execute(&format!("VACUUM INTO '{escaped}'"), [])
         .with_context(|| format!("snapshotting logical local database {}", path.display()))?;
     drop(connection);
-    fs::File::open(&snapshot)
-        .with_context(|| {
-            format!(
-                "opening logical local database snapshot {}",
-                snapshot.display()
-            )
-        })?
-        .sync_all()
-        .with_context(|| {
-            format!(
-                "syncing logical local database snapshot {}",
-                snapshot.display()
-            )
-        })?;
+    sync_file(&snapshot).with_context(|| {
+        format!(
+            "syncing logical local database snapshot {}",
+            snapshot.display()
+        )
+    })?;
     Ok((workspace, snapshot))
 }
 
