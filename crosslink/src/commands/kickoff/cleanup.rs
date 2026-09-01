@@ -15,6 +15,15 @@ pub fn cleanup(
     json_output: bool,
 ) -> Result<()> {
     let agents = discover_agents(crosslink_dir)?;
+    if !dry_run {
+        for agent in &agents {
+            super::monitor::record_runtime_usage(
+                crosslink_dir,
+                Path::new(&agent.worktree),
+                &agent.id,
+            );
+        }
+    }
 
     let (active, removable): (Vec<_>, Vec<_>) = agents
         .into_iter()

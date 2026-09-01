@@ -32,6 +32,7 @@ pub struct SharedWriter {
     pub(super) sync: SyncManager,
     pub(super) agent: AgentConfig,
     pub(super) cache_dir: PathBuf,
+    pub(super) readiness_dir: PathBuf,
 
     pub(super) event_seq: Cell<u64>,
 
@@ -40,10 +41,20 @@ pub struct SharedWriter {
 
 impl SharedWriter {
     pub fn new(crosslink_dir: &Path) -> Result<Option<Self>> {
-        let agent = if let Some(a) = AgentConfig::load(crosslink_dir)? {
+        let configured_agent = AgentConfig::load(crosslink_dir)?;
+        let initial_sync = SyncManager::new(crosslink_dir)?;
+        if configured_agent.is_none()
+            && !initial_sync.is_initialized()
+            && !initial_sync.remote_exists()
+        {
+            return Ok(None);
+        }
+        let _operation =
+            crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
+        let agent = if let Some(a) = configured_agent {
             a
         } else {
-            let sync = SyncManager::new(crosslink_dir)?;
+            let sync = initial_sync;
             if !sync.is_initialized() {
                 if !sync.remote_exists() {
                     return Ok(None);
@@ -81,6 +92,7 @@ impl SharedWriter {
             sync,
             agent,
             cache_dir,
+            readiness_dir: crosslink_dir.to_path_buf(),
             event_seq,
             last_v3_state: std::cell::RefCell::new(None),
         }))
@@ -91,16 +103,16 @@ impl SharedWriter {
         &self.agent.agent_id
     }
 
-    pub(super) fn hub_mode(&self) -> crate::hub_v3::HubMode {
+    pub(super) const fn hub_mode(&self) -> crate::hub_v3::HubMode {
         self.sync.hub_mode()
     }
 
-    pub(super) fn is_v3(&self) -> bool {
+    pub(super) const fn is_v3(&self) -> bool {
         self.hub_mode().is_v3()
     }
 
     #[must_use]
-    pub fn is_v3_public(&self) -> bool {
+    pub const fn is_v3_public(&self) -> bool {
         self.is_v3()
     }
 
@@ -118,21 +130,24 @@ impl SharedWriter {
     }
 
     pub fn hydrate_with_retry(&self, db: &Database) {
+        let result = self
+            .acquire_mutation_operation_permit()
+            .and_then(|_operation| self.hydrate_after_mutation(db));
+        if let Err(error) = result {
+            tracing::warn!("hydration failed after shared mutation: {error}");
+        }
+    }
+
+    pub(crate) fn hydrate_after_mutation(&self, db: &Database) -> Result<()> {
         if self.is_v3() {
             if self.last_v3_state.borrow().is_none() {
-                if let Err(e) = self.refresh_v3_state() {
-                    tracing::warn!("v3 hydrate: state refresh failed: {e}");
-                    return;
-                }
+                self.refresh_v3_state()?;
             }
             if let Some(state) = self.last_v3_state.borrow().as_ref() {
-                if let Err(e) = crate::hydration::hydrate_from_state(state, db) {
-                    tracing::warn!(
-                        "v3 hydrate_from_state failed ({e}). Run `crosslink sync` to recover."
-                    );
-                }
+                crate::hydration::hydrate_from_state(state, db)?;
             }
-            return;
+            crate::hydration::record_hydrated_ref_durable(&self.readiness_dir)?;
+            return Ok(());
         }
         match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
             Ok(_) => {}
@@ -141,14 +156,13 @@ impl SharedWriter {
                     "Warning: hydration failed ({}), retrying once...",
                     first_err
                 );
-                if let Err(retry_err) = crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
-                    tracing::warn!(
-                        "Warning: hydration retry failed ({}). Run `crosslink sync` to recover.",
-                        retry_err
-                    );
-                }
+                crate::hydration::hydrate_to_sqlite(&self.cache_dir, db).with_context(|| {
+                    format!("hydration retry failed after initial error: {first_err}")
+                })?;
             }
         }
+        crate::hydration::record_hydrated_ref_durable(&self.readiness_dir)?;
+        Ok(())
     }
 
     pub(super) fn read_max_event_seq(
@@ -217,7 +231,7 @@ impl SharedWriter {
         envelope
     }
 
-    pub(super) fn emit_compact_push(
+    pub(super) fn emit_compact_push_inner(
         &self,
         event: crate::events::Event,
         _message: &str,
@@ -227,7 +241,10 @@ impl SharedWriter {
         }
 
         let lock_guard = self.sync.acquire_lock()?;
-        self.commit_v3(vec![event], &lock_guard)
+        let outcome = self.commit_v3(vec![event], &lock_guard)?;
+        let db = Database::open(&self.readiness_dir.join("issues.db"))?;
+        crate::hydration::hydrate_current_authority_under_operation(&self.readiness_dir, &db)?;
+        Ok(outcome)
     }
 
     pub fn write_agent_request(
@@ -235,6 +252,7 @@ impl SharedWriter {
         target_agent_id: &str,
         request: &crate::agent_requests::AgentRequest,
     ) -> Result<PushOutcome> {
+        let _permit = self.acquire_mutation_operation_permit()?;
         let _lock_guard = self.sync.acquire_lock()?;
 
         if !self.is_v3() {
@@ -246,7 +264,9 @@ impl SharedWriter {
             target_agent_id,
             request,
         )?;
-        Ok(self.push_own_ref_outcome())
+        let outcome = self.push_own_ref_outcome();
+        crate::hydration::record_hydrated_ref_durable(&self.readiness_dir)?;
+        Ok(outcome)
     }
 
     pub fn write_agent_ack(
@@ -254,6 +274,7 @@ impl SharedWriter {
         _target_agent_id: &str,
         ack: &crate::agent_requests::AgentRequestAck,
     ) -> Result<PushOutcome> {
+        let _permit = self.acquire_mutation_operation_permit()?;
         let _lock_guard = self.sync.acquire_lock()?;
 
         if !self.is_v3() {
@@ -265,7 +286,9 @@ impl SharedWriter {
             &ack.request_id,
             ack,
         )?;
-        Ok(self.push_own_ref_outcome())
+        let outcome = self.push_own_ref_outcome();
+        crate::hydration::record_hydrated_ref_durable(&self.readiness_dir)?;
+        Ok(outcome)
     }
 
     pub(super) fn sign_comment(
@@ -494,11 +517,20 @@ impl SharedWriter {
     ) -> Result<PushOutcome> {
         let agent_id = self.agent.agent_id.clone();
         let normalized = Self::normalize_events_for_v3(events);
-
-        for event in normalized {
-            let envelope = self.create_envelope(event);
-            crate::hub_v3::append_event_to_ref(&self.cache_dir, &agent_id, &envelope)
-                .context("v3: failed to append event to agent ref")?;
+        let envelopes = normalized
+            .into_iter()
+            .map(|event| self.create_envelope(event))
+            .collect::<Vec<_>>();
+        match envelopes.as_slice() {
+            [] => {}
+            [envelope] => {
+                crate::hub_v3::append_event_to_ref(&self.cache_dir, &agent_id, envelope)
+                    .context("v3: failed to append event to agent ref")?;
+            }
+            _ => {
+                crate::hub_v3::append_events_to_ref(&self.cache_dir, &agent_id, &envelopes)
+                    .context("v3: failed to append event batch to agent ref")?;
+            }
         }
 
         let remote = self.sync.remote();
@@ -668,10 +700,16 @@ impl SharedWriter {
             .and_then(|s| s.milestones.get(uuid).and_then(|m| m.display_id))
     }
 
-    pub(super) fn write_commit_push<F>(&self, mut prepare: F, _message: &str) -> Result<PushOutcome>
+    pub(super) fn write_commit_push<F>(
+        &self,
+        db: &Database,
+        mut prepare: F,
+        _message: &str,
+    ) -> Result<PushOutcome>
     where
         F: FnMut(&Self) -> Result<WriteSet>,
     {
+        let _permit = self.acquire_mutation_operation_permit()?;
         if !self.is_v3() {
             bail!(V2_WRITE_REFUSAL);
         }
@@ -679,6 +717,14 @@ impl SharedWriter {
         let lock_guard = self.sync.acquire_lock()?;
 
         let write_set = prepare(self)?;
-        self.commit_v3(write_set.events, &lock_guard)
+        let outcome = self.commit_v3(write_set.events, &lock_guard)?;
+        self.hydrate_after_mutation(db)?;
+        Ok(outcome)
+    }
+
+    pub(super) fn acquire_mutation_operation_permit(
+        &self,
+    ) -> Result<crate::reconcile::readiness::MutationOperationPermit> {
+        crate::reconcile::readiness::acquire_mutation_operation_permit(&self.readiness_dir)
     }
 }

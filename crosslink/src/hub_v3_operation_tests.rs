@@ -10,7 +10,7 @@ fn hydrate_from_state_empty_is_data_loss_guard() {
     let id = db.create_issue("keep me", None, "medium").unwrap();
     let empty = crate::checkpoint::CheckpointState::default();
     let stats = crate::hydration::hydrate_from_state(&empty, &db).unwrap();
-    assert_eq!(stats.issues, 0, "empty state hydrates nothing");
+    assert_eq!(stats.issues, 1, "the preserved local issue is restored");
     assert!(
         db.get_issue(id).unwrap().is_some(),
         "empty state must not wipe existing SQLite issues"

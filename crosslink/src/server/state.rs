@@ -21,12 +21,17 @@ pub struct AppState {
     pub dashboard_db_path: Option<PathBuf>,
 
     pub pty_registry: crate::dashboard::pty::SessionRegistry,
+
+    pub database_unavailable: Arc<Mutex<Option<String>>>,
+
+    database_path: Option<PathBuf>,
 }
 
 impl AppState {
     pub fn new(db: Database, crosslink_dir: PathBuf) -> Self {
         let (ws_tx, _ws_rx) = ws::channel();
         let auth_token = generate_auth_token();
+        let database_path = db.conn.path().map(PathBuf::from);
         Self {
             db: Arc::new(Mutex::new(db)),
             crosslink_dir,
@@ -35,7 +40,15 @@ impl AppState {
             auth_token,
             dashboard_db_path: None,
             pty_registry: crate::dashboard::pty::SessionRegistry::new(),
+            database_unavailable: Arc::new(Mutex::new(None)),
+            database_path,
         }
+    }
+
+    #[must_use]
+    pub fn with_database_unavailable(mut self, reason: Option<String>) -> Self {
+        self.database_unavailable = Arc::new(Mutex::new(reason));
+        self
     }
 
     #[must_use]
@@ -46,6 +59,17 @@ impl AppState {
 
     pub async fn db(&self) -> MutexGuard<'_, Database> {
         self.db.lock().await
+    }
+
+    pub async fn reopen_db_writable(&self) -> anyhow::Result<()> {
+        let path = self
+            .database_path
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("database has no reopenable filesystem path"))?;
+        let database = Database::open(path)?;
+        *self.db.lock().await = database;
+        *self.database_unavailable.lock().await = None;
+        Ok(())
     }
 }
 

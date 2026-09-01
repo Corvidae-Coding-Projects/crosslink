@@ -318,6 +318,7 @@ fn test_corrupt_db_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
     let h = SmokeHarness::new();
+    h.stop_daemon();
 
     let perms = std::fs::Permissions::from_mode(0o444);
     std::fs::set_permissions(h.db_path(), perms).unwrap();
@@ -338,6 +339,7 @@ fn test_corrupt_db_permissions() {
 #[test]
 fn test_corrupt_missing_db() {
     let h = SmokeHarness::new();
+    h.stop_daemon();
 
     std::fs::remove_file(h.db_path()).unwrap();
 

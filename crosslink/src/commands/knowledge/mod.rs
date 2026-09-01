@@ -53,7 +53,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             repo,
             refresh,
         } => repo.map_or_else(
-            || show(crosslink_dir, &slug, global_json),
+            || show(crosslink_dir, &slug, refresh, global_json),
             |repo_value| {
                 crate::commands::external_knowledge::show(
                     crosslink_dir,
@@ -79,6 +79,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                     tag.as_deref(),
                     contributor.as_deref(),
                     since.as_deref(),
+                    refresh,
                     json,
                 )
             },
@@ -169,6 +170,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                     query.as_deref(),
                     context,
                     source.as_deref(),
+                    refresh,
                     global_json,
                     tag.as_deref(),
                     since.as_deref(),

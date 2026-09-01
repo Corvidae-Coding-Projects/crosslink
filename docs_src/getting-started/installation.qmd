@@ -62,7 +62,7 @@ The extension bundles the CLI binary and provides:
 
 ## Requirements
 
-- **Rust 1.87+** (for `cargo install`) — [install rustup](https://rustup.rs/)
+- **Rust 1.88+** (for `cargo install`) — [install rustup](https://rustup.rs/)
 - **Python 3.6+** — required for Claude Code and Codex hooks
 - **Git** — required for multi-agent coordination features
 - A normal signed-in **Claude Code** or **Codex** CLI account for autonomous runs

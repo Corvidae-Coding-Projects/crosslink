@@ -123,7 +123,7 @@ impl IssuesTab {
     }
 
     fn open_db(&self) -> anyhow::Result<Database> {
-        Database::open(&self.db_path)
+        Database::open_read_only(&self.db_path)
     }
 
     pub fn refresh(&mut self, db: &Database) -> anyhow::Result<()> {

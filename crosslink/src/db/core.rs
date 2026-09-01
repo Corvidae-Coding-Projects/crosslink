@@ -13,6 +13,20 @@ pub const MAX_LABEL_LEN: usize = 128;
 pub const MAX_DESCRIPTION_LEN: usize = 64 * 1024;
 pub const MAX_COMMENT_LEN: usize = 1024 * 1024;
 
+pub fn validate_issue_title(title: &str) -> Result<()> {
+    if title.len() > MAX_TITLE_LEN {
+        anyhow::bail!("Title exceeds maximum length of {MAX_TITLE_LEN} characters");
+    }
+    Ok(())
+}
+
+pub fn validate_issue_description(description: Option<&str>) -> Result<()> {
+    if description.is_some_and(|value| value.len() > MAX_DESCRIPTION_LEN) {
+        anyhow::bail!("Description exceeds maximum length of {MAX_DESCRIPTION_LEN} bytes");
+    }
+    Ok(())
+}
+
 pub fn validate_status(status: &str) -> Result<()> {
     if VALID_STATUSES.contains(&status) {
         Ok(())
@@ -42,11 +56,85 @@ pub struct Database {
 }
 
 impl Database {
+    pub fn open_ephemeral() -> Result<Self> {
+        let conn = Connection::open_in_memory().context("Failed to open ephemeral database")?;
+        let db = Self { conn };
+        db.init_schema()?;
+        Ok(db)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).context("Failed to open database")?;
         let db = Self { conn };
         db.init_schema()?;
         Ok(db)
+    }
+
+    pub fn open_read_only(path: &Path) -> Result<Self> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .context("Failed to open database read-only")?;
+        let db = Self { conn };
+        let version = db.get_schema_version()?;
+        anyhow::ensure!(
+            version <= SCHEMA_VERSION,
+            "database schema version {version} is newer than supported version {SCHEMA_VERSION}"
+        );
+        Ok(db)
+    }
+
+    pub(crate) fn open_without_migrations(path: &Path) -> Result<Self> {
+        let conn = Connection::open(path).context("Failed to open database")?;
+        let db = Self { conn };
+        let version = db.get_schema_version()?;
+        anyhow::ensure!(
+            version >= 0,
+            "database schema version cannot be negative: {version}"
+        );
+        anyhow::ensure!(
+            version <= SCHEMA_VERSION,
+            "database schema version {version} is newer than supported version {SCHEMA_VERSION}"
+        );
+        Ok(db)
+    }
+
+    pub(crate) fn transaction_with_schema_upgrade<T, F>(&self, apply: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        self.conn.pragma_update(None, "foreign_keys", false)?;
+        let version = self.get_schema_version()?;
+        let transaction = self
+            .conn
+            .unchecked_transaction()
+            .context("failed to start atomic schema and projection transaction")?;
+        let result = (|| {
+            for target in (version + 1)..=SCHEMA_VERSION {
+                Self::apply_migration(&transaction, target)
+                    .with_context(|| format!("database migration v{target} failed"))?;
+                transaction
+                    .pragma_update(None, "user_version", target)
+                    .with_context(|| format!("failed to record database migration v{target}"))?;
+            }
+            apply()
+        })();
+        match result {
+            Ok(value) => {
+                transaction
+                    .commit()
+                    .context("failed to commit atomic schema and projection transaction")?;
+                if let Err(error) = self.conn.pragma_update(None, "foreign_keys", true) {
+                    tracing::warn!("failed to re-enable foreign keys after committed projection install: {error}");
+                }
+                Ok(value)
+            }
+            Err(error) => {
+                drop(transaction);
+                if let Err(enable_error) = self.conn.pragma_update(None, "foreign_keys", true) {
+                    tracing::warn!("failed to re-enable foreign keys after rolled back projection install: {enable_error}");
+                }
+                Err(error)
+            }
+        }
     }
 
     pub fn transaction<T, F>(&self, f: F) -> Result<T>

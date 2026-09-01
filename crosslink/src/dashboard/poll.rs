@@ -2,7 +2,6 @@ use anyhow::Result;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use super::alerts;
@@ -22,14 +21,16 @@ const DEFAULT_STALE_LOCK_MINUTES: i64 = 60;
 
 pub async fn run(
     db_path: PathBuf,
+    crosslink_dir: PathBuf,
     cancel: CancellationToken,
     ws_tx: Option<tokio::sync::broadcast::Sender<WsEvent>>,
 ) {
-    run_with_tick(db_path, DEFAULT_TICK, cancel, ws_tx).await;
+    run_with_tick(db_path, Some(crosslink_dir), DEFAULT_TICK, cancel, ws_tx).await;
 }
 
 pub async fn run_with_tick(
     db_path: PathBuf,
+    crosslink_dir: Option<PathBuf>,
     tick: Duration,
     cancel: CancellationToken,
     ws_tx: Option<tokio::sync::broadcast::Sender<WsEvent>>,
@@ -51,7 +52,28 @@ pub async fn run_with_tick(
                 return;
             }
             _ = interval.tick() => {
-                if let Err(e) = poll_all_projects(&db_path, ws_tx.as_ref()).await {
+                let operation = if let Some(crosslink_dir) = crosslink_dir.clone() {
+                    match tokio::task::spawn_blocking(move || {
+                        crate::reconcile::readiness::acquire_mutation_permit(&crosslink_dir)
+                    })
+                    .await
+                    {
+                        Ok(Ok(operation)) => operation,
+                        Ok(Err(error)) => {
+                            tracing::debug!("dashboard poll skipped while repository is not ready: {error}");
+                            continue;
+                        }
+                        Err(error) => {
+                            tracing::warn!("dashboard poll readiness task failed: {error}");
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let result = poll_all_projects(&db_path, ws_tx.as_ref()).await;
+                drop(operation);
+                if let Err(e) = result {
                     tracing::warn!("dashboard poll tick failed: {e}");
                 }
             }
@@ -99,7 +121,33 @@ pub struct PollOutcome {
 }
 
 pub async fn poll_project(db_path: &Path, project: &Project) -> Result<PollOutcome> {
-    let fetch_ok = fetch_hub(&project.clone_path).await.is_ok();
+    let target_crosslink = project.clone_path.join(".crosslink");
+    let target_permit = if target_crosslink.join("hook-config.json").is_file() {
+        match tokio::task::spawn_blocking(move || -> Result<_> {
+            let record =
+                crate::reconcile::migration::refresh_repository_authority(&target_crosslink)?;
+            anyhow::ensure!(
+                record.state.grants_mutations(),
+                "target repository is {:?}",
+                record.state
+            );
+            crate::reconcile::readiness::acquire_mutation_operation_permit(&target_crosslink)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("target readiness task failed: {error}"))?
+        {
+            Ok(permit) => Some(permit),
+            Err(error) => {
+                tracing::debug!(
+                    "dashboard project {} skipped while target repository is not ready: {error}",
+                    project.slug
+                );
+                return Ok(PollOutcome::default());
+            }
+        }
+    } else {
+        None
+    };
 
     let clone_path = project.clone_path.clone();
     let snapshot = match tokio::task::spawn_blocking(move || reader::read_snapshot(&clone_path))
@@ -120,7 +168,7 @@ pub async fn poll_project(db_path: &Path, project: &Project) -> Result<PollOutco
         }
     };
 
-    let status = if fetch_ok || snapshot.hub_sha.is_some() {
+    let status = if snapshot.hub_sha.is_some() {
         "active"
     } else {
         "error"
@@ -171,10 +219,12 @@ pub async fn poll_project(db_path: &Path, project: &Project) -> Result<PollOutco
         }
     }
 
-    Ok(PollOutcome {
+    let outcome = PollOutcome {
         alerts_opened: u32::try_from(sync_stats.opened).unwrap_or(u32::MAX),
         alerts_resolved: u32::try_from(sync_stats.resolved).unwrap_or(u32::MAX),
-    })
+    };
+    drop(target_permit);
+    Ok(outcome)
 }
 
 fn load_active_projects(db_path: &Path) -> Result<Vec<Project>> {
@@ -264,97 +314,6 @@ fn write_project_state(
     )?;
 
     Ok(())
-}
-
-async fn fetch_hub(clone_path: &Path) -> Result<()> {
-    let status = Command::new("git")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_ASKPASS", "")
-        .arg("-C")
-        .arg(clone_path)
-        .args([
-            "-c",
-            "credential.helper=",
-            "fetch",
-            "--quiet",
-            "origin",
-            "+refs/heads/crosslink/*:refs/heads/crosslink/*",
-        ])
-        .status()
-        .await?;
-    if !status.success() {
-        anyhow::bail!("git fetch exited with {status}");
-    }
-
-    if !crate::hub_v3::HubMode::resolve(clone_path).is_v3() {
-        ensure_hub_cache_worktree(clone_path).await;
-    }
-    Ok(())
-}
-
-async fn ensure_hub_cache_worktree(clone_path: &Path) {
-    let cache_path = clone_path.join(".crosslink").join(".hub-cache");
-
-    if let Some(parent) = cache_path.parent() {
-        let _ = tokio::fs::create_dir_all(parent).await;
-    }
-
-    if cache_path.is_dir() {
-        let porcelain = Command::new("git")
-            .arg("-C")
-            .arg(&cache_path)
-            .args(["status", "--porcelain"])
-            .output()
-            .await;
-        let is_dirty = matches!(
-            porcelain,
-            Ok(out) if out.status.success() && !out.stdout.is_empty()
-        );
-        if is_dirty {
-            return;
-        }
-
-        let status = Command::new("git")
-            .arg("-C")
-            .arg(&cache_path)
-            .args(["reset", "--hard", "--quiet", "crosslink/hub"])
-            .status()
-            .await;
-        if let Ok(s) = status {
-            if !s.success() {
-                tracing::warn!(
-                    "hub-cache reset failed at {}: status {s}",
-                    cache_path.display()
-                );
-            }
-        }
-        return;
-    }
-
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(clone_path)
-        .args([
-            "worktree",
-            "add",
-            "--force",
-            "--quiet",
-            cache_path.to_string_lossy().as_ref(),
-            "crosslink/hub",
-        ])
-        .status()
-        .await;
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => tracing::warn!(
-            "`git worktree add` for hub-cache exited with {s} in {}",
-            clone_path.display()
-        ),
-        Err(e) => tracing::warn!(
-            "`git worktree add` for hub-cache failed in {}: {e}",
-            clone_path.display()
-        ),
-    }
 }
 
 #[cfg(test)]
@@ -542,6 +501,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tracked_target_waiting_readiness_skips_fetch_and_dashboard_mutation() {
+        let home = tempdir().unwrap();
+        let db_path = home.path().join("dashboard.db");
+        DashboardDb::open(&db_path).unwrap();
+        let clone = make_fake_clone(&[("README.md", "hi")]);
+        let crosslink = clone.path().join(".crosslink");
+        fs::create_dir(&crosslink).unwrap();
+        fs::write(crosslink.join("hook-config.json"), "{}").unwrap();
+        fs::write(crosslink.join("agent.json"), "{}").unwrap();
+        let identity = crate::reconcile::readiness::DaemonIdentity {
+            schema_version: crate::reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: crate::reconcile::readiness::repository_id(&crosslink).unwrap(),
+            daemon_epoch: "target-waiting".to_string(),
+            pid: std::process::id(),
+            process_start: crate::reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        crate::reconcile::readiness::write_daemon_identity(&crosslink, &identity).unwrap();
+        crate::reconcile::readiness::write_record(
+            &crosslink,
+            crate::reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "target-waiting",
+                state: crate::reconcile::readiness::ReadinessState::WaitingForRemote,
+                generation_id: None,
+                reason: Some("offline"),
+            },
+        )
+        .unwrap();
+        let refs_before = StdCommand::new("git")
+            .current_dir(clone.path())
+            .args(["for-each-ref", "--format=%(refname):%(objectname)"])
+            .output()
+            .unwrap()
+            .stdout;
+        let database_before = fs::read(crosslink.join("issues.db")).ok();
+        let project_id = seed_project(&db_path, "owner/waiting", clone.path());
+        let project = load_active_projects(&db_path)
+            .unwrap()
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .unwrap();
+        let outcome = poll_project(&db_path, &project).await.unwrap();
+        assert_eq!(outcome.alerts_opened, 0);
+        assert_eq!(outcome.alerts_resolved, 0);
+        let refs_after = StdCommand::new("git")
+            .current_dir(clone.path())
+            .args(["for-each-ref", "--format=%(refname):%(objectname)"])
+            .output()
+            .unwrap()
+            .stdout;
+        assert_eq!(refs_after, refs_before);
+        assert_eq!(fs::read(crosslink.join("issues.db")).ok(), database_before);
+        let db = DashboardDb::open(&db_path).unwrap();
+        let states: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_state WHERE project_id = ?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(states, 0);
+    }
+
+    #[tokio::test]
     async fn test_poll_all_projects_tolerates_one_broken() {
         let home = tempdir().unwrap();
         let db_path = home.path().join("dashboard.db");
@@ -583,7 +608,7 @@ mod tests {
         let handle = tokio::spawn({
             let cancel = cancel.clone();
             let path = db_path.clone();
-            async move { run_with_tick(path, Duration::from_millis(50), cancel, None).await }
+            async move { run_with_tick(path, None, Duration::from_millis(50), cancel, None).await }
         });
 
         tokio::time::sleep(Duration::from_millis(120)).await;
@@ -596,11 +621,75 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_hub_fetches_v3_refs_and_skips_worktree() {
+    async fn test_run_skips_fetch_and_dashboard_writes_while_repository_waits() {
+        let home = tempdir().unwrap();
+        let db_path = home.path().join("dashboard.db");
+        DashboardDb::open(&db_path).unwrap();
+        let clone = make_fake_clone(&[("README.md", "hi")]);
+        seed_project(&db_path, "owner/repo", clone.path());
+        let crosslink_dir = home.path().join("project/.crosslink");
+        fs::create_dir_all(&crosslink_dir).unwrap();
+        fs::write(crosslink_dir.join("hook-config.json"), b"{}").unwrap();
+        let identity = crate::reconcile::readiness::DaemonIdentity {
+            schema_version: crate::reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: crate::reconcile::readiness::repository_id(&crosslink_dir).unwrap(),
+            daemon_epoch: "dashboard-waiting".to_string(),
+            pid: std::process::id(),
+            process_start: crate::reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        crate::reconcile::readiness::write_daemon_identity(&crosslink_dir, &identity).unwrap();
+        crate::reconcile::readiness::write_record(
+            &crosslink_dir,
+            crate::reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "dashboard-waiting",
+                state: crate::reconcile::readiness::ReadinessState::WaitingForRemote,
+                generation_id: None,
+                reason: Some("offline"),
+            },
+        )
+        .unwrap();
+        let cancel = CancellationToken::new();
+        let handle = tokio::spawn({
+            let cancel = cancel.clone();
+            let path = db_path.clone();
+            async move {
+                run_with_tick(
+                    path,
+                    Some(crosslink_dir),
+                    Duration::from_millis(20),
+                    cancel,
+                    None,
+                )
+                .await;
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .unwrap()
+            .unwrap();
+        let db = DashboardDb::open(&db_path).unwrap();
+        let states: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM project_state", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(states, 0);
+        let status: String = db
+            .conn
+            .query_row("SELECT status FROM projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "active");
+    }
+
+    #[tokio::test]
+    async fn refresh_uses_observed_refs_before_updating_live_authority() {
         let seed = tempdir().unwrap();
         let sp = seed.path();
         for args in [
-            vec!["init", "-q", "-b", "crosslink/checkpoint"],
+            vec!["init", "-q", "-b", "main"],
             vec!["config", "user.email", "test@test.local"],
             vec!["config", "user.name", "Test"],
             vec!["config", "commit.gpgsign", "false"],
@@ -612,9 +701,7 @@ mod tests {
                 .status()
                 .unwrap();
         }
-        let state =
-            serde_json::to_vec_pretty(&crate::checkpoint::CheckpointState::default()).unwrap();
-        fs::write(sp.join("state.json"), &state).unwrap();
+        fs::write(sp.join("README.md"), "test").unwrap();
         StdCommand::new("git")
             .arg("-C")
             .arg(sp)
@@ -624,13 +711,7 @@ mod tests {
         StdCommand::new("git")
             .arg("-C")
             .arg(sp)
-            .args(["commit", "-q", "-m", "v3 checkpoint"])
-            .status()
-            .unwrap();
-        StdCommand::new("git")
-            .arg("-C")
-            .arg(sp)
-            .args(["branch", "crosslink/meta"])
+            .args(["commit", "-q", "-m", "initial"])
             .status()
             .unwrap();
 
@@ -647,18 +728,14 @@ mod tests {
             .args(["remote", "add", "origin", remote.path().to_str().unwrap()])
             .status()
             .unwrap();
-        StdCommand::new("git")
+        assert!(StdCommand::new("git")
             .arg("-C")
             .arg(sp)
-            .args([
-                "push",
-                "-q",
-                "origin",
-                "crosslink/checkpoint",
-                "crosslink/meta",
-            ])
+            .args(["push", "-q", "origin", "main"])
             .status()
-            .unwrap();
+            .unwrap()
+            .success());
+        crate::hub_v3::bootstrap_v3_hub(sp, "test-agent", Some("origin")).unwrap();
 
         let clone = tempdir().unwrap();
         let cp = clone.path().join("work");
@@ -671,21 +748,117 @@ mod tests {
             ])
             .status()
             .unwrap();
-        assert!(
-            !crate::hub_v3::HubMode::resolve(&cp).is_v3(),
-            "fresh clone has no local v3 refs yet"
-        );
-
-        fetch_hub(&cp).await.unwrap();
-
-        assert!(
-            crate::hub_v3::HubMode::resolve(&cp).is_v3(),
-            "fetch must create local v3 refs"
-        );
-
-        assert!(
-            !cp.join(".crosslink").join(".hub-cache").exists(),
-            "v3 repos must not get a v2 hub-cache worktree"
-        );
+        let crosslink = cp.join(".crosslink");
+        fs::create_dir(&crosslink).unwrap();
+        fs::write(crosslink.join("hook-config.json"), r#"{"remote":"origin"}"#).unwrap();
+        crate::identity::AgentConfig::init(&crosslink, "test-agent", None).unwrap();
+        let identity = crate::reconcile::readiness::DaemonIdentity {
+            schema_version: crate::reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: crate::reconcile::readiness::repository_id(&crosslink).unwrap(),
+            daemon_epoch: uuid::Uuid::new_v4().to_string(),
+            pid: std::process::id(),
+            process_start: crate::reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        crate::reconcile::readiness::write_daemon_identity(&crosslink, &identity).unwrap();
+        let activation = crate::reconcile::migration::activate_repository(&crosslink).unwrap();
+        let (state, generation) = match activation {
+            crate::reconcile::migration::RepositoryActivation::ReadyCurrent { generation_id } => (
+                crate::reconcile::readiness::ReadinessState::ReadyCurrent,
+                generation_id,
+            ),
+            crate::reconcile::migration::RepositoryActivation::ReadyMigrated { generation_id } => (
+                crate::reconcile::readiness::ReadinessState::ReadyMigrated,
+                generation_id,
+            ),
+            crate::reconcile::migration::RepositoryActivation::ReadyAdopted { generation_id } => (
+                crate::reconcile::readiness::ReadinessState::ReadyAdopted,
+                generation_id,
+            ),
+            other => panic!("unexpected activation {other:?}"),
+        };
+        crate::reconcile::migration::write_ready_activation(
+            &crosslink,
+            &identity,
+            "initial-dashboard-test",
+            state,
+            &generation,
+        )
+        .unwrap();
+        let sync = crate::sync::SyncManager::new(&crosslink).unwrap();
+        let old_tip = StdCommand::new("git")
+            .current_dir(sync.cache_path())
+            .args(["rev-parse", crate::hub_v3::CHECKPOINT_REF])
+            .output()
+            .unwrap();
+        let old_tip = String::from_utf8(old_tip.stdout)
+            .unwrap()
+            .trim()
+            .to_string();
+        let tree = StdCommand::new("git")
+            .current_dir(sp)
+            .args(["show", "-s", "--format=%T", &old_tip])
+            .output()
+            .unwrap();
+        let tree = String::from_utf8(tree.stdout).unwrap().trim().to_string();
+        let advanced = StdCommand::new("git")
+            .current_dir(sp)
+            .args([
+                "commit-tree",
+                &tree,
+                "-p",
+                &old_tip,
+                "-m",
+                "advance checkpoint",
+            ])
+            .output()
+            .unwrap();
+        assert!(advanced.status.success());
+        let advanced = String::from_utf8(advanced.stdout)
+            .unwrap()
+            .trim()
+            .to_string();
+        assert!(StdCommand::new("git")
+            .current_dir(sp)
+            .args([
+                "push",
+                "origin",
+                &format!("{advanced}:{}", crate::hub_v3::CHECKPOINT_REF),
+            ])
+            .status()
+            .unwrap()
+            .success());
+        let dashboard = tempdir().unwrap();
+        let db_path = dashboard.path().join("dashboard.db");
+        DashboardDb::open(&db_path).unwrap();
+        let project_id = seed_project(&db_path, "owner/repo", &cp);
+        let project = load_active_projects(&db_path)
+            .unwrap()
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .unwrap();
+        poll_project(&db_path, &project).await.unwrap();
+        let new_tip = StdCommand::new("git")
+            .current_dir(sync.cache_path())
+            .args(["rev-parse", crate::hub_v3::CHECKPOINT_REF])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(new_tip.stdout).unwrap().trim(), advanced);
+        let observed = StdCommand::new("git")
+            .current_dir(sync.cache_path())
+            .args([
+                "for-each-ref",
+                "--format=%(objectname)",
+                "refs/crosslink/reconciliation/observed/",
+            ])
+            .output()
+            .unwrap();
+        assert!(String::from_utf8(observed.stdout)
+            .unwrap()
+            .lines()
+            .any(|oid| oid == advanced));
+        let record = crate::reconcile::readiness::read_record(&crosslink)
+            .unwrap()
+            .unwrap();
+        crate::reconcile::readiness::validate_record(&crosslink, &record).unwrap();
     }
 }

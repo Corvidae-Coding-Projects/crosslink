@@ -1,10 +1,178 @@
 #![allow(dead_code)]
 
+use std::cell::Cell;
 use std::net::TcpListener;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
+
+const MAX_CONCURRENT_TEST_REPOSITORIES: usize = 2;
+
+thread_local! {
+    static THREAD_TEST_REPOSITORIES: Cell<usize> = const { Cell::new(0) };
+}
+
+fn test_repository_slots() -> &'static (Mutex<usize>, Condvar) {
+    static SLOTS: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
+    SLOTS.get_or_init(|| (Mutex::new(0), Condvar::new()))
+}
+
+fn acquire_test_repository_slot() {
+    let nested = THREAD_TEST_REPOSITORIES.with(|count| {
+        let current = count.get();
+        count.set(current + 1);
+        current > 0
+    });
+    if nested {
+        return;
+    }
+    let (slots, available) = test_repository_slots();
+    let mut active = slots.lock().unwrap_or_else(|error| error.into_inner());
+    while *active >= MAX_CONCURRENT_TEST_REPOSITORIES {
+        active = available
+            .wait(active)
+            .unwrap_or_else(|error| error.into_inner());
+    }
+    *active += 1;
+}
+
+fn release_test_repository_slot() {
+    let remaining = THREAD_TEST_REPOSITORIES.with(|count| {
+        let current = count.get();
+        assert!(current > 0);
+        count.set(current - 1);
+        current - 1
+    });
+    if remaining > 0 {
+        return;
+    }
+    let (slots, available) = test_repository_slots();
+    let mut active = slots.lock().unwrap_or_else(|error| error.into_inner());
+    *active -= 1;
+    available.notify_one();
+}
+
+struct TestRepositorySlot;
+
+impl TestRepositorySlot {
+    fn acquire() -> Self {
+        acquire_test_repository_slot();
+        Self
+    }
+}
+
+impl Drop for TestRepositorySlot {
+    fn drop(&mut self) {
+        release_test_repository_slot();
+    }
+}
+
+fn wait_output(mut child: Child, timeout: Duration) -> Output {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child
+            .try_wait()
+            .expect("failed to inspect smoke harness process")
+            .is_some()
+        {
+            return child
+                .wait_with_output()
+                .expect("failed to collect smoke harness process output");
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child
+                .wait_with_output()
+                .expect("failed to collect timed-out smoke harness process output");
+            panic!(
+                "smoke harness process exceeded {timeout:?}: stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn run_daemon_command(bin: &Path, directory: &Path, args: &[&str]) -> Output {
+    wait_output(
+        Command::new(bin)
+            .current_dir(directory)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn smoke harness daemon command"),
+        Duration::from_secs(20),
+    )
+}
+
+fn run_cleanup_command(bin: &Path, directory: &Path, args: &[&str]) -> Option<Output> {
+    let mut child = Command::new(bin)
+        .current_dir(directory)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if child.try_wait().ok()?.is_some() {
+            return child.wait_with_output().ok();
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            return child.wait_with_output().ok();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn cleanup_repository_daemon(bin: &Path, directory: &Path) {
+    let _ = run_cleanup_command(bin, directory, &["daemon", "stop"]);
+    let still_running = run_cleanup_command(bin, directory, &["--json", "daemon", "status"])
+        .and_then(|output| {
+            serde_json::from_slice::<crosslink::reconcile::readiness::DaemonResponse>(
+                &output.stdout,
+            )
+            .ok()
+        })
+        .is_some_and(|response| response.running);
+    if still_running {
+        let _ = run_cleanup_command(bin, directory, &["daemon", "stop"]);
+    }
+}
+
+fn ensure_repository_ready(bin: &Path, directory: &Path) {
+    let output = run_daemon_command(
+        bin,
+        directory,
+        &["daemon", "ensure", "--wait-ready", "--json"],
+    );
+    assert!(
+        output.status.success(),
+        "repository readiness failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: crosslink::reconcile::readiness::DaemonResponse =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!(
+                "invalid repository readiness response ({error}): {}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        });
+    assert!(
+        response.ready,
+        "repository did not become ready: {response:?}"
+    );
+    assert!(
+        response.running,
+        "repository daemon is not live: {response:?}"
+    );
+}
 
 #[derive(Debug)]
 pub struct CmdResult {
@@ -36,10 +204,12 @@ pub struct SmokeHarness {
     bare_remote: Option<PathBuf>,
 
     _remote_dir: Option<TempDir>,
+    _repository_slot: Option<TestRepositorySlot>,
 }
 
 impl SmokeHarness {
     pub fn new() -> Self {
+        let repository_slot = TestRepositorySlot::acquire();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let remote_dir = TempDir::new().expect("failed to create remote temp dir");
         let bin = PathBuf::from(env!("CARGO_BIN_EXE_crosslink"));
@@ -111,7 +281,7 @@ impl SmokeHarness {
 
         let bare_remote = Some(remote_dir.path().to_path_buf());
 
-        SmokeHarness {
+        let harness = SmokeHarness {
             temp_dir,
             crosslink_bin: bin,
             server_handle: None,
@@ -120,7 +290,10 @@ impl SmokeHarness {
             agent_id: "smoke-primary".to_string(),
             bare_remote,
             _remote_dir: Some(remote_dir),
-        }
+            _repository_slot: Some(repository_slot),
+        };
+        ensure_repository_ready(&harness.crosslink_bin, harness.temp_dir.path());
+        harness
     }
 
     pub fn new_bare() -> Self {
@@ -135,6 +308,7 @@ impl SmokeHarness {
             agent_id: "smoke-bare".to_string(),
             bare_remote: None,
             _remote_dir: None,
+            _repository_slot: None,
         }
     }
 
@@ -181,7 +355,29 @@ impl SmokeHarness {
         self.crosslink_dir().join("issues.db")
     }
 
+    pub fn stop_daemon(&self) {
+        let output = run_daemon_command(
+            &self.crosslink_bin,
+            self.temp_dir.path(),
+            &["daemon", "stop"],
+        );
+        assert!(
+            output.status.success(),
+            "failed to stop repository daemon: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    pub fn ensure_ready(&mut self) {
+        if self._repository_slot.is_none() {
+            self._repository_slot = Some(TestRepositorySlot::acquire());
+        }
+        ensure_repository_ready(&self.crosslink_bin, self.temp_dir.path());
+    }
+
     pub fn start_server(&mut self) -> u16 {
+        self.ensure_ready();
         let port = {
             let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind to a free port");
             listener
@@ -249,6 +445,7 @@ impl SmokeHarness {
     }
 
     pub fn fork_agent(&self, agent_id: &str) -> SmokeHarness {
+        let repository_slot = TestRepositorySlot::acquire();
         let remote_path = self
             .bare_remote
             .as_ref()
@@ -314,7 +511,7 @@ impl SmokeHarness {
             String::from_utf8_lossy(&out.stderr)
         );
 
-        SmokeHarness {
+        let harness = SmokeHarness {
             temp_dir,
             crosslink_bin: bin,
             server_handle: None,
@@ -323,13 +520,19 @@ impl SmokeHarness {
             agent_id: agent_id.to_string(),
             bare_remote: Some(remote_path.clone()),
             _remote_dir: None,
-        }
+            _repository_slot: Some(repository_slot),
+        };
+        ensure_repository_ready(&harness.crosslink_bin, harness.temp_dir.path());
+        harness
     }
 }
 
 impl Drop for SmokeHarness {
     fn drop(&mut self) {
         self.stop_server();
+        if self.crosslink_dir().join("daemon.pid").is_file() {
+            cleanup_repository_daemon(&self.crosslink_bin, self.temp_dir.path());
+        }
     }
 }
 

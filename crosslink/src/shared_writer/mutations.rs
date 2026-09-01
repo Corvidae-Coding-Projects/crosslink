@@ -107,6 +107,8 @@ impl SharedWriter {
         create: IssueCreate<'_>,
         commit_msg: &str,
     ) -> Result<i64> {
+        crate::db::validate_issue_title(create.title)?;
+        crate::db::validate_issue_description(create.description)?;
         let uuid = Uuid::new_v4();
         let title_owned = create.title.to_string();
         let desc_owned = create.description.map(std::string::ToString::to_string);
@@ -117,6 +119,7 @@ impl SharedWriter {
         let due_at = create.due_at;
 
         self.write_commit_push(
+            db,
             |_writer| {
                 let event = crate::events::Event::IssueCreated {
                     uuid,
@@ -136,8 +139,6 @@ impl SharedWriter {
             },
             commit_msg,
         )?;
-
-        self.hydrate_with_retry(db);
 
         let sqlite_id = db.get_issue_id_by_uuid(&uuid.to_string());
         if let Some(id) = self.v3_assigned_display_id(&uuid) {
@@ -183,6 +184,8 @@ impl SharedWriter {
     ) -> Result<Vec<(Uuid, i64)>> {
         let mut events = Vec::new();
         for spec in specs {
+            crate::db::validate_issue_title(&spec.title)?;
+            crate::db::validate_issue_description(spec.description.as_deref())?;
             let priority: crate::models::Priority = spec.priority.parse()?;
             events.push(crate::events::Event::IssueCreated {
                 uuid: spec.uuid,
@@ -228,6 +231,7 @@ impl SharedWriter {
         }
 
         self.write_commit_push(
+            db,
             |_writer| {
                 Ok(WriteSet {
                     events: events.clone(),
@@ -235,8 +239,6 @@ impl SharedWriter {
             },
             &format!("import {} issues", specs.len()),
         )?;
-
-        self.hydrate_with_retry(db);
 
         let mut assigned = Vec::with_capacity(specs.len());
         for spec in specs {
@@ -284,6 +286,12 @@ impl SharedWriter {
         display_id: i64,
         update: IssueUpdate<'_>,
     ) -> Result<()> {
+        if let Some(title) = update.title {
+            crate::db::validate_issue_title(title)?;
+        }
+        if let DescriptionUpdate::Set(description) = update.description {
+            crate::db::validate_issue_description(Some(description))?;
+        }
         let title_owned = update.title.map(std::string::ToString::to_string);
         let desc_update = update.description;
         let status_parsed = update
@@ -298,6 +306,7 @@ impl SharedWriter {
         let due_at = update.due_at;
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let mut issue = writer.load_issue_by_id(display_id, db)?;
                 if let Some(ref t) = title_owned {
@@ -361,13 +370,12 @@ impl SharedWriter {
             },
             &format!("update issue #{display_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
     pub fn close_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(display_id, db)?;
                 let now = Utc::now();
@@ -382,13 +390,12 @@ impl SharedWriter {
             },
             &format!("close issue #{display_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
     pub fn reopen_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(display_id, db)?;
                 let event = crate::events::Event::StatusChanged {
@@ -402,8 +409,6 @@ impl SharedWriter {
             },
             &format!("reopen issue #{display_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
@@ -412,6 +417,7 @@ impl SharedWriter {
         let uuid = issue.uuid;
 
         let _ = self.write_commit_push(
+            db,
             |_writer| {
                 let event = crate::events::Event::IssueDeleted { uuid };
                 Ok(WriteSet {
@@ -420,8 +426,6 @@ impl SharedWriter {
             },
             &format!("delete issue #{display_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(())
     }
 
@@ -437,6 +441,7 @@ impl SharedWriter {
         let comment_uuid_cell: Cell<Option<Uuid>> = Cell::new(None);
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(display_id, db)?;
 
@@ -466,8 +471,6 @@ impl SharedWriter {
             },
             commit_msg,
         )?;
-
-        self.hydrate_with_retry(db);
 
         if let Some(cuuid) = comment_uuid_cell.get() {
             if let Some(id) = self.v3_assigned_comment_id(display_id, &cuuid) {
@@ -533,6 +536,7 @@ impl SharedWriter {
         }
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(display_id, db)?;
                 let event = crate::events::Event::LabelAdded {
@@ -545,8 +549,6 @@ impl SharedWriter {
             },
             &format!("label issue #{display_id} with {label}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(true)
     }
 
@@ -559,6 +561,7 @@ impl SharedWriter {
         }
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(display_id, db)?;
                 let event = crate::events::Event::LabelRemoved {
@@ -571,8 +574,6 @@ impl SharedWriter {
             },
             &format!("unlabel {label} from issue #{display_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(true)
     }
 
@@ -590,6 +591,7 @@ impl SharedWriter {
         }
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(issue_id, db)?;
 
@@ -603,8 +605,6 @@ impl SharedWriter {
             },
             &format!("block issue #{issue_id} on #{blocking_issue_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(true)
     }
 
@@ -622,6 +622,7 @@ impl SharedWriter {
         }
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::DependencyRemoved {
@@ -634,8 +635,6 @@ impl SharedWriter {
             },
             &format!("unblock issue #{issue_id} from #{blocking_issue_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(true)
     }
 
@@ -648,6 +647,7 @@ impl SharedWriter {
         }
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::RelationAdded {
@@ -660,8 +660,6 @@ impl SharedWriter {
             },
             &format!("relate issue #{issue_id} to #{related_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(true)
     }
 
@@ -674,6 +672,7 @@ impl SharedWriter {
         }
 
         let _ = self.write_commit_push(
+            db,
             |writer| {
                 let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::RelationRemoved {
@@ -686,8 +685,6 @@ impl SharedWriter {
             },
             &format!("unrelate issue #{issue_id} from #{related_id}"),
         )?;
-
-        self.hydrate_with_retry(db);
         Ok(true)
     }
 }

@@ -53,6 +53,20 @@ fn ensure_initialized(km: &KnowledgeManager) -> Result<()> {
     Ok(())
 }
 
+fn prepare_read(km: &KnowledgeManager, refresh: bool) -> Result<()> {
+    if refresh {
+        ensure_initialized(km)?;
+        let outcome = km.sync()?;
+        warn_resolved_conflicts(&outcome);
+        return Ok(());
+    }
+    anyhow::ensure!(
+        km.is_initialized(),
+        "Knowledge cache is unavailable. Run 'crosslink knowledge sync' while the repository is ready."
+    );
+    Ok(())
+}
+
 fn warn_resolved_conflicts(outcome: &SyncOutcome) {
     for slug in &outcome.resolved_conflicts {
         eprintln!(
@@ -156,11 +170,9 @@ pub fn add(
     Ok(())
 }
 
-pub fn show(crosslink_dir: &Path, slug: &str, json: bool) -> Result<()> {
+pub fn show(crosslink_dir: &Path, slug: &str, refresh: bool, json: bool) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
-    ensure_initialized(&km)?;
-    let sync_outcome = km.sync()?;
-    warn_resolved_conflicts(&sync_outcome);
+    prepare_read(&km, refresh)?;
 
     let content = km.read_page(slug)?;
 
@@ -199,12 +211,11 @@ pub fn list(
     tag_filter: Option<&str>,
     contributor_filter: Option<&str>,
     since: Option<&str>,
+    refresh: bool,
     json: bool,
 ) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
-    ensure_initialized(&km)?;
-    let sync_outcome = km.sync()?;
-    warn_resolved_conflicts(&sync_outcome);
+    prepare_read(&km, refresh)?;
 
     let pages = km.list_pages()?;
 
@@ -430,9 +441,13 @@ pub fn import(
     }
 
     let km = KnowledgeManager::new(crosslink_dir)?;
-    ensure_initialized(&km)?;
-    let sync_outcome = km.sync()?;
-    warn_resolved_conflicts(&sync_outcome);
+    if dry_run {
+        prepare_read(&km, false)?;
+    } else {
+        ensure_initialized(&km)?;
+        let sync_outcome = km.sync()?;
+        warn_resolved_conflicts(&sync_outcome);
+    }
 
     let files = collect_md_files(directory)?;
     if files.is_empty() {
@@ -632,6 +647,7 @@ pub fn search(
     query: Option<&str>,
     context: usize,
     source: Option<&str>,
+    refresh: bool,
     json: bool,
     tag: Option<&str>,
     since: Option<&str>,
@@ -642,6 +658,10 @@ pub fn search(
     }
 
     let manager = KnowledgeManager::new(crosslink_dir)?;
+
+    if refresh {
+        prepare_read(&manager, true)?;
+    }
 
     if !manager.is_initialized() {
         if json {
@@ -866,17 +886,89 @@ fn serde_json_string(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::knowledge::edit::{find_section_range, parse_heading};
-    use crate::knowledge::{PageFrontmatter, Source, KNOWLEDGE_CACHE_DIR};
+    use crate::knowledge::{PageFrontmatter, Source};
     use tempfile::tempdir;
 
     fn setup_km() -> (KnowledgeManager, tempfile::TempDir) {
         let dir = tempdir().unwrap();
+        assert!(std::process::Command::new("git")
+            .current_dir(dir.path())
+            .args(["init", "-q"])
+            .status()
+            .unwrap()
+            .success());
+        for (name, value) in [
+            ("user.email", "test@example.invalid"),
+            ("user.name", "Test"),
+        ] {
+            assert!(std::process::Command::new("git")
+                .current_dir(dir.path())
+                .args(["config", name, value])
+                .status()
+                .unwrap()
+                .success());
+        }
         let crosslink_dir = dir.path().join(".crosslink");
-        let cache_dir = crosslink_dir.join(KNOWLEDGE_CACHE_DIR);
-        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
 
         let km = KnowledgeManager::new(&crosslink_dir).unwrap();
+        km.init_cache().unwrap();
+        km.delete_page("index").unwrap();
+        km.commit("prepare empty knowledge fixture").unwrap();
         (km, dir)
+    }
+
+    fn directory_snapshot(path: &Path) -> Vec<(String, Vec<u8>)> {
+        fn collect(root: &Path, path: &Path, entries: &mut Vec<(String, Vec<u8>)>) {
+            let mut children = std::fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            children.sort();
+            for child in children {
+                if child.is_dir() {
+                    collect(root, &child, entries);
+                } else {
+                    entries.push((
+                        child.strip_prefix(root).unwrap().display().to_string(),
+                        std::fs::read(child).unwrap(),
+                    ));
+                }
+            }
+        }
+        let mut entries = Vec::new();
+        collect(path, path, &mut entries);
+        entries
+    }
+
+    #[test]
+    fn local_show_and_list_use_existing_cache_without_writes() {
+        let (km, dir) = setup_km();
+        km.init_cache().unwrap();
+        km.write_page(
+            "existing",
+            "---\ntitle: Existing\ntags: []\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\nbody\n",
+        )
+        .unwrap();
+        km.commit("seed").unwrap();
+        let crosslink = dir.path().join(".crosslink");
+        let before = directory_snapshot(&crosslink);
+        show(&crosslink, "existing", false, true).unwrap();
+        list(&crosslink, None, None, None, false, true).unwrap();
+        assert_eq!(directory_snapshot(&crosslink), before);
+    }
+
+    #[test]
+    fn dry_run_import_uses_existing_cache_without_writes() {
+        let (km, dir) = setup_km();
+        km.init_cache().unwrap();
+        let input = dir.path().join("input");
+        std::fs::create_dir(&input).unwrap();
+        std::fs::write(input.join("page.md"), "# Page\n\nBody\n").unwrap();
+        let crosslink = dir.path().join(".crosslink");
+        let before = directory_snapshot(&crosslink);
+        import(&crosslink, &input, &[], false, true, &[]).unwrap();
+        assert_eq!(directory_snapshot(&crosslink), before);
     }
 
     #[test]

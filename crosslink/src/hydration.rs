@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use rusqlite::OptionalExtension;
 
 use crate::db::{Database, HydratedIssue, HydratedMilestone};
 use crate::issue_file::{
@@ -49,13 +50,23 @@ struct SavedIssue {
     description: Option<String>,
     status: String,
     priority: String,
-    parent_id: Option<i64>,
+    parent_uuid: Option<String>,
     created_by: Option<String>,
     created_at: String,
     updated_at: String,
     closed_at: Option<String>,
     scheduled_at: Option<String>,
     due_at: Option<String>,
+}
+
+struct SavedMilestone {
+    id: i64,
+    uuid: String,
+    name: String,
+    description: Option<String>,
+    status: String,
+    created_at: String,
+    closed_at: Option<String>,
 }
 
 type SavedComment = (
@@ -71,15 +82,25 @@ type SavedComment = (
     Option<String>,
 );
 
-type SavedTimeEntry = (i64, i64, String, Option<String>, Option<i64>);
+type SavedLocalTimeEntry = (i64, String, String, Option<String>, Option<i64>);
+type SavedMilestoneLinks = (Vec<SavedMilestone>, Vec<(String, String)>);
+type ExistingComment = (
+    i64,
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 struct SavedChildren {
     labels: Vec<(i64, String)>,
     comments: Vec<SavedComment>,
-    deps: Vec<(i64, i64)>,
-    relations: Vec<(i64, i64)>,
-    time_entries: Vec<SavedTimeEntry>,
-    milestone_issues: Vec<(i64, i64)>,
+    deps: Vec<(String, String)>,
+    relations: Vec<(String, String)>,
+    milestone_issues: Vec<(String, String)>,
 }
 
 pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationStats> {
@@ -96,9 +117,9 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     let all_rows: Vec<SavedIssue> = db
         .conn
         .prepare(
-            "SELECT id, uuid, title, description, status, priority, parent_id, \
-             created_by, created_at, updated_at, closed_at, scheduled_at, due_at \
-             FROM issues WHERE uuid IS NOT NULL",
+            "SELECT i.id, i.uuid, i.title, i.description, i.status, i.priority, p.uuid, \
+             i.created_by, i.created_at, i.updated_at, i.closed_at, i.scheduled_at, i.due_at \
+             FROM issues i LEFT JOIN issues p ON p.id = i.parent_id WHERE i.uuid IS NOT NULL",
         )?
         .query_map([], |row| {
             Ok(SavedIssue {
@@ -108,7 +129,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 description: row.get(3)?,
                 status: row.get(4)?,
                 priority: row.get(5)?,
-                parent_id: row.get(6)?,
+                parent_uuid: row.get(6)?,
                 created_by: row.get(7)?,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
@@ -213,18 +234,41 @@ pub fn hydrate_from_state(
     state: &crate::checkpoint::CheckpointState,
     db: &Database,
 ) -> Result<HydrationStats> {
-    if state.issues.is_empty() && state.milestones.is_empty() {
-        return Ok(HydrationStats::default());
-    }
+    hydrate_from_state_verified(state, db, |_| Ok(()))
+}
 
+pub fn hydrate_from_state_verified<F>(
+    state: &crate::checkpoint::CheckpointState,
+    db: &Database,
+    verify: F,
+) -> Result<HydrationStats>
+where
+    F: FnOnce(&Database) -> Result<()>,
+{
+    db.set_foreign_keys(false)?;
+    let result = db.transaction(|| hydrate_from_state_verified_in_transaction(state, db, verify));
+    if let Err(error) = db.set_foreign_keys(true) {
+        tracing::warn!("failed to re-enable foreign key constraints: {error}");
+    }
+    result
+}
+
+pub(crate) fn hydrate_from_state_verified_in_transaction<F>(
+    state: &crate::checkpoint::CheckpointState,
+    db: &Database,
+    verify: F,
+) -> Result<HydrationStats>
+where
+    F: FnOnce(&Database) -> Result<()>,
+{
     let state_uuids: std::collections::HashSet<String> =
         state.issues.keys().map(uuid::Uuid::to_string).collect();
     let all_rows: Vec<SavedIssue> = db
         .conn
         .prepare(
-            "SELECT id, uuid, title, description, status, priority, parent_id, \
-             created_by, created_at, updated_at, closed_at, scheduled_at, due_at \
-             FROM issues WHERE uuid IS NOT NULL",
+            "SELECT i.id, i.uuid, i.title, i.description, i.status, i.priority, p.uuid, \
+             i.created_by, i.created_at, i.updated_at, i.closed_at, i.scheduled_at, i.due_at \
+             FROM issues i LEFT JOIN issues p ON p.id = i.parent_id WHERE i.uuid IS NOT NULL",
         )?
         .query_map([], |row| {
             Ok(SavedIssue {
@@ -234,7 +278,7 @@ pub fn hydrate_from_state(
                 description: row.get(3)?,
                 status: row.get(4)?,
                 priority: row.get(5)?,
-                parent_id: row.get(6)?,
+                parent_uuid: row.get(6)?,
                 created_by: row.get(7)?,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
@@ -244,10 +288,15 @@ pub fn hydrate_from_state(
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let sqlite_only_rows: Vec<SavedIssue> = all_rows
-        .into_iter()
-        .filter(|row| !state_uuids.contains(&row.uuid) && row.created_by.is_none())
-        .collect();
+    let mut sqlite_only_rows = Vec::new();
+    for row in all_rows {
+        let uuid = row.uuid.parse().map_err(|error| {
+            anyhow::anyhow!("local issue UUID {} is invalid: {error}", row.uuid)
+        })?;
+        if !state_uuids.contains(&row.uuid) && !state.deleted_issues.contains(&uuid) {
+            sqlite_only_rows.push(row);
+        }
+    }
     if !sqlite_only_rows.is_empty() {
         tracing::info!(
             "hydrate_from_state: preserving {} SQLite-only issue(s) not in reduced state",
@@ -256,6 +305,10 @@ pub fn hydrate_from_state(
     }
     let preserved_ids: Vec<i64> = sqlite_only_rows.iter().map(|r| r.id).collect();
     let saved_children = snapshot_children(db, &preserved_ids)?;
+    let saved_local_time_entries = snapshot_all_time_entries(db)?;
+    let saved_local_milestones = snapshot_local_milestones(db, state)?;
+    let saved_session_links = snapshot_session_issue_links(db)?;
+    let saved_sentinel_links = snapshot_sentinel_issue_links(db)?;
 
     let comment_id_start = saved_children
         .comments
@@ -277,47 +330,290 @@ pub fn hydrate_from_state(
 
     let mut stats = HydrationStats::default();
 
-    db.set_foreign_keys(false)?;
-    let result = db.transaction(|| {
-        db.clear_shared_data()?;
+    db.clear_shared_data()?;
 
-        for m in state.milestones.values() {
-            let Some(ms_id) = m.display_id else {
-                continue;
-            };
-            let created_at = m.created_at.to_rfc3339();
-            let closed_at = m.closed_at.map(|dt| dt.to_rfc3339());
-            db.insert_hydrated_milestone(&HydratedMilestone {
-                id: ms_id,
-                uuid: &m.uuid.to_string(),
-                name: &m.name,
-                description: m.description.as_deref(),
-                status: m.status.as_str(),
-                created_at: &created_at,
-                closed_at: closed_at.as_deref(),
-            })?;
-            stats.milestones += 1;
-        }
-
-        hydrate_state_issues(
-            db,
-            state,
-            &mut uuid_to_id,
-            &milestone_uuid_to_id,
-            comment_id_start,
-            &mut stats,
-        )?;
-        hydrate_state_dependencies(db, state, &uuid_to_id, &mut stats);
-        hydrate_state_relations(db, state, &uuid_to_id, &mut stats);
-
-        restore_sqlite_only_issues(db, &sqlite_only_rows, &saved_children, &mut stats)?;
-        Ok(stats)
-    });
-
-    if let Err(e) = db.set_foreign_keys(true) {
-        tracing::warn!("failed to re-enable foreign key constraints: {}", e);
+    for m in state.milestones.values() {
+        let Some(ms_id) = m.display_id else {
+            continue;
+        };
+        let created_at = m.created_at.to_rfc3339();
+        let closed_at = m.closed_at.map(|dt| dt.to_rfc3339());
+        db.insert_hydrated_milestone(&HydratedMilestone {
+            id: ms_id,
+            uuid: &m.uuid.to_string(),
+            name: &m.name,
+            description: m.description.as_deref(),
+            status: m.status.as_str(),
+            created_at: &created_at,
+            closed_at: closed_at.as_deref(),
+        })?;
+        stats.milestones += 1;
     }
-    result
+
+    hydrate_state_issues(
+        db,
+        state,
+        &mut uuid_to_id,
+        &milestone_uuid_to_id,
+        comment_id_start,
+        &mut stats,
+    )?;
+    hydrate_state_dependencies(db, state, &uuid_to_id, &mut stats)?;
+    hydrate_state_relations(db, state, &uuid_to_id, &mut stats)?;
+
+    restore_sqlite_only_issues(db, &sqlite_only_rows, &saved_children, &mut stats)?;
+    restore_local_milestones(db, &saved_local_milestones)?;
+    restore_missing_time_entries(db, &saved_local_time_entries)?;
+    restore_session_issue_links(db, &saved_session_links)?;
+    restore_sentinel_issue_links(db, &saved_sentinel_links)?;
+    verify(db)?;
+    Ok(stats)
+}
+
+fn snapshot_local_milestones(
+    db: &Database,
+    state: &crate::checkpoint::CheckpointState,
+) -> Result<SavedMilestoneLinks> {
+    let milestones = db
+        .conn
+        .prepare(
+            "SELECT id, uuid, name, description, status, created_at, closed_at \
+             FROM milestones WHERE uuid IS NOT NULL",
+        )?
+        .query_map([], |row| {
+            Ok(SavedMilestone {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                status: row.get(4)?,
+                created_at: row.get(5)?,
+                closed_at: row.get(6)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut local_milestones = Vec::new();
+    for milestone in milestones {
+        let uuid = milestone.uuid.parse().map_err(|error| {
+            anyhow::anyhow!(
+                "local milestone UUID {} is invalid: {error}",
+                milestone.uuid
+            )
+        })?;
+        if !state.milestones.contains_key(&uuid) && !state.deleted_milestones.contains(&uuid) {
+            local_milestones.push(milestone);
+        }
+    }
+    let local_uuids = local_milestones
+        .iter()
+        .map(|milestone| milestone.uuid.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let memberships = db
+        .conn
+        .prepare(
+            "SELECT m.uuid, i.uuid FROM milestone_issues mi \
+             JOIN milestones m ON m.id = mi.milestone_id \
+             JOIN issues i ON i.id = mi.issue_id \
+             WHERE m.uuid IS NOT NULL AND i.uuid IS NOT NULL",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<(String, String)>, _>>()?
+        .into_iter()
+        .filter(|(milestone_uuid, _)| local_uuids.contains(milestone_uuid.as_str()))
+        .collect();
+    Ok((local_milestones, memberships))
+}
+
+fn restore_local_milestones(
+    db: &Database,
+    saved: &(Vec<SavedMilestone>, Vec<(String, String)>),
+) -> Result<()> {
+    let mut occupied = db
+        .conn
+        .prepare("SELECT id FROM milestones")?
+        .query_map([], |row| row.get(0))?
+        .collect::<std::result::Result<std::collections::HashSet<i64>, _>>()?;
+    let mut next_local = occupied
+        .iter()
+        .copied()
+        .chain(saved.0.iter().map(|milestone| milestone.id))
+        .min()
+        .unwrap_or(0)
+        .min(0)
+        - 1;
+    for milestone in &saved.0 {
+        let id = if occupied.insert(milestone.id) {
+            milestone.id
+        } else {
+            while !occupied.insert(next_local) {
+                next_local -= 1;
+            }
+            let value = next_local;
+            next_local -= 1;
+            value
+        };
+        db.insert_hydrated_milestone(&HydratedMilestone {
+            id,
+            uuid: &milestone.uuid,
+            name: &milestone.name,
+            description: milestone.description.as_deref(),
+            status: &milestone.status,
+            created_at: &milestone.created_at,
+            closed_at: milestone.closed_at.as_deref(),
+        })?;
+    }
+    for (milestone_uuid, issue_uuid) in &saved.1 {
+        let ids: Option<(i64, i64)> = db
+            .conn
+            .query_row(
+                "SELECT m.id, i.id FROM milestones m CROSS JOIN issues i \
+                 WHERE m.uuid = ?1 AND i.uuid = ?2",
+                rusqlite::params![milestone_uuid, issue_uuid],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((milestone_id, issue_id)) = ids {
+            db.insert_hydrated_milestone_issue(milestone_id, issue_id)?;
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_session_issue_links(db: &Database) -> Result<Vec<(i64, String)>> {
+    let links = db
+        .conn
+        .prepare(
+            "SELECT s.id, i.uuid FROM sessions s JOIN issues i ON i.id = s.active_issue_id \
+             WHERE i.uuid IS NOT NULL",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(links)
+}
+
+fn restore_session_issue_links(db: &Database, links: &[(i64, String)]) -> Result<()> {
+    db.conn.execute(
+        "UPDATE sessions SET active_issue_id = NULL \
+         WHERE active_issue_id IS NOT NULL AND active_issue_id NOT IN (SELECT id FROM issues)",
+        [],
+    )?;
+    for (session_id, issue_uuid) in links {
+        db.conn.execute(
+            "UPDATE sessions SET active_issue_id = \
+             (SELECT id FROM issues WHERE uuid = ?1) WHERE id = ?2",
+            rusqlite::params![issue_uuid, session_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn snapshot_sentinel_issue_links(db: &Database) -> Result<Vec<(i64, String)>> {
+    let links = db
+        .conn
+        .prepare(
+            "SELECT d.id, i.uuid FROM sentinel_dispatches d \
+             JOIN issues i ON i.id = d.crosslink_issue_id WHERE i.uuid IS NOT NULL",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(links)
+}
+
+fn restore_sentinel_issue_links(db: &Database, links: &[(i64, String)]) -> Result<()> {
+    db.conn.execute(
+        "UPDATE sentinel_dispatches SET crosslink_issue_id = NULL \
+         WHERE crosslink_issue_id IS NOT NULL \
+         AND crosslink_issue_id NOT IN (SELECT id FROM issues)",
+        [],
+    )?;
+    for (dispatch_id, issue_uuid) in links {
+        db.conn.execute(
+            "UPDATE sentinel_dispatches SET crosslink_issue_id = \
+             (SELECT id FROM issues WHERE uuid = ?1) WHERE id = ?2",
+            rusqlite::params![issue_uuid, dispatch_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn snapshot_all_time_entries(db: &Database) -> Result<Vec<SavedLocalTimeEntry>> {
+    let entries = db
+        .conn
+        .prepare(
+            "SELECT t.id, i.uuid, t.started_at, t.ended_at, t.duration_seconds \
+             FROM time_entries t JOIN issues i ON i.id = t.issue_id \
+             WHERE i.uuid IS NOT NULL",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(entries)
+}
+
+fn restore_missing_time_entries(db: &Database, saved: &[SavedLocalTimeEntry]) -> Result<()> {
+    let mut occupied = db
+        .conn
+        .prepare("SELECT id FROM time_entries")?
+        .query_map([], |row| row.get(0))?
+        .collect::<std::result::Result<std::collections::HashSet<i64>, _>>()?;
+    let mut next_local = occupied.iter().copied().min().unwrap_or(0).min(0) - 1;
+    for (id, issue_uuid, started_at, ended_at, duration_seconds) in saved {
+        let issue_id: Option<i64> = db
+            .conn
+            .query_row(
+                "SELECT id FROM issues WHERE uuid = ?1",
+                [issue_uuid],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(issue_id) = issue_id else {
+            continue;
+        };
+        let existing: Option<(i64, String, Option<String>, Option<i64>)> = db
+            .conn
+            .query_row(
+                "SELECT issue_id, started_at, ended_at, duration_seconds \
+                 FROM time_entries WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?;
+        if existing.as_ref()
+            == Some(&(
+                issue_id,
+                started_at.clone(),
+                ended_at.clone(),
+                *duration_seconds,
+            ))
+        {
+            continue;
+        }
+        let restored_id = if existing.is_none() && occupied.insert(*id) {
+            *id
+        } else {
+            while !occupied.insert(next_local) {
+                next_local -= 1;
+            }
+            let value = next_local;
+            next_local -= 1;
+            value
+        };
+        db.insert_hydrated_time_entry(
+            restored_id,
+            issue_id,
+            started_at,
+            ended_at.as_deref(),
+            *duration_seconds,
+        )?;
+    }
+    Ok(())
 }
 
 fn topo_sort_state_issues(
@@ -463,21 +759,19 @@ fn hydrate_state_dependencies(
     state: &crate::checkpoint::CheckpointState,
     uuid_to_id: &HashMap<String, i64>,
     stats: &mut HydrationStats,
-) {
+) -> Result<()> {
     for issue in state.issues.values() {
         let Some(&blocked_id) = uuid_to_id.get(&issue.uuid.to_string()) else {
             continue;
         };
         for blocker_uuid in &issue.blockers {
             if let Some(&blocker_id) = uuid_to_id.get(&blocker_uuid.to_string()) {
-                if let Err(e) = db.insert_dependency_raw(blocker_id, blocked_id) {
-                    tracing::warn!("hydrate_from_state: dependency insert failed: {e}");
-                    continue;
-                }
+                db.insert_dependency_raw(blocker_id, blocked_id)?;
                 stats.dependencies += 1;
             }
         }
     }
+    Ok(())
 }
 
 fn hydrate_state_relations(
@@ -485,21 +779,19 @@ fn hydrate_state_relations(
     state: &crate::checkpoint::CheckpointState,
     uuid_to_id: &HashMap<String, i64>,
     stats: &mut HydrationStats,
-) {
+) -> Result<()> {
     for issue in state.issues.values() {
         let Some(&issue_id) = uuid_to_id.get(&issue.uuid.to_string()) else {
             continue;
         };
         for related_uuid in &issue.related {
             if let Some(&related_id) = uuid_to_id.get(&related_uuid.to_string()) {
-                if let Err(e) = db.insert_relation_raw(issue_id, related_id) {
-                    tracing::warn!("hydrate_from_state: relation insert failed: {e}");
-                    continue;
-                }
+                db.insert_relation_raw(issue_id, related_id)?;
                 stats.relations += 1;
             }
         }
     }
+    Ok(())
 }
 
 fn dedup_and_load_milestones<'a>(
@@ -696,7 +988,6 @@ fn snapshot_children(db: &Database, preserved_ids: &[i64]) -> Result<SavedChildr
             comments: vec![],
             deps: vec![],
             relations: vec![],
-            time_entries: vec![],
             milestone_issues: vec![],
         });
     }
@@ -726,31 +1017,35 @@ fn snapshot_children(db: &Database, preserved_ids: &[i64]) -> Result<SavedChildr
         )))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    let deps = db.conn
+    let deps = db
+        .conn
         .prepare(&format!(
-            "SELECT blocker_id, blocked_id FROM dependencies WHERE blocker_id IN ({id_placeholders}) OR blocked_id IN ({id_placeholders})"
+            "SELECT blocker.uuid, blocked.uuid FROM dependencies d \
+             JOIN issues blocker ON blocker.id = d.blocker_id \
+             JOIN issues blocked ON blocked.id = d.blocked_id \
+             WHERE d.blocker_id IN ({id_placeholders}) OR d.blocked_id IN ({id_placeholders})"
         ))?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    let relations = db.conn
+    let relations = db
+        .conn
         .prepare(&format!(
-            "SELECT issue_id_1, issue_id_2 FROM relations WHERE issue_id_1 IN ({id_placeholders}) OR issue_id_2 IN ({id_placeholders})"
+            "SELECT first.uuid, second.uuid FROM relations r \
+             JOIN issues first ON first.id = r.issue_id_1 \
+             JOIN issues second ON second.id = r.issue_id_2 \
+             WHERE r.issue_id_1 IN ({id_placeholders}) OR r.issue_id_2 IN ({id_placeholders})"
         ))?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    let time_entries = db.conn
-        .prepare(&format!(
-            "SELECT id, issue_id, started_at, ended_at, duration_seconds FROM time_entries WHERE issue_id IN ({id_placeholders})"
-        ))?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     let milestone_issues = db
         .conn
         .prepare(&format!(
-            "SELECT milestone_id, issue_id FROM milestone_issues WHERE issue_id IN ({id_placeholders})"
+            "SELECT m.uuid, i.uuid FROM milestone_issues mi \
+             JOIN milestones m ON m.id = mi.milestone_id \
+             JOIN issues i ON i.id = mi.issue_id \
+             WHERE mi.issue_id IN ({id_placeholders})"
         ))?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -760,7 +1055,6 @@ fn snapshot_children(db: &Database, preserved_ids: &[i64]) -> Result<SavedChildr
         comments,
         deps,
         relations,
-        time_entries,
         milestone_issues,
     })
 }
@@ -781,10 +1075,21 @@ fn restore_sqlite_only_issues(
     stats: &mut HydrationStats,
 ) -> Result<()> {
     let occupied = occupied_issue_ids(db)?;
-    let mut next_local = occupied.iter().copied().min().unwrap_or(0).min(0) - 1;
+    let mut assigned = occupied.clone();
+    let mut next_local = occupied
+        .iter()
+        .copied()
+        .chain(sqlite_only_rows.iter().map(|row| row.id))
+        .min()
+        .unwrap_or(0)
+        .min(0)
+        - 1;
     let mut remap: HashMap<i64, i64> = HashMap::new();
     for row in sqlite_only_rows {
-        if occupied.contains(&row.id) {
+        if !assigned.insert(row.id) {
+            while !assigned.insert(next_local) {
+                next_local -= 1;
+            }
             remap.insert(row.id, next_local);
             next_local -= 1;
         }
@@ -809,7 +1114,7 @@ fn restore_sqlite_only_issues(
             description: row.description.as_deref(),
             status: &row.status,
             priority: &row.priority,
-            parent_id: row.parent_id.map(mapped),
+            parent_id: None,
             created_by: row.created_by.as_deref(),
             created_at: &row.created_at,
             updated_at: &row.updated_at,
@@ -818,6 +1123,13 @@ fn restore_sqlite_only_issues(
             due_at: row.due_at.as_deref(),
         })?;
         stats.issues += 1;
+    }
+    for row in sqlite_only_rows {
+        db.conn.execute(
+            "UPDATE issues SET parent_id = (SELECT id FROM issues WHERE uuid = ?1) \
+             WHERE uuid = ?2",
+            rusqlite::params![row.parent_uuid, row.uuid],
+        )?;
     }
 
     for (issue_id, label) in &saved_children.labels {
@@ -848,7 +1160,41 @@ fn restore_sqlite_only_issues(
     ) in &saved_children.comments
     {
         if let Some(u) = uuid.as_deref() {
-            if comment_uuid_exists(db, u)? {
+            let existing: Option<ExistingComment> = db
+                .conn
+                .query_row(
+                    "SELECT issue_id, author, content, created_at, kind, trigger_type, \
+                     intervention_context, driver_key_fingerprint FROM comments WHERE uuid = ?1",
+                    [u],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            if let Some(existing) = existing {
+                anyhow::ensure!(
+                    existing
+                        == (
+                            mapped(*issue_id),
+                            author.clone(),
+                            content.clone(),
+                            created_at.clone(),
+                            kind.clone(),
+                            trigger_type.clone(),
+                            intervention_context.clone(),
+                            driver_key_fingerprint.clone(),
+                        ),
+                    "local comment UUID {u} conflicts with the authority projection"
+                );
                 continue;
             }
         }
@@ -883,28 +1229,50 @@ fn restore_sqlite_only_issues(
             comment_collisions
         );
     }
-    for (blocker_id, blocked_id) in &saved_children.deps {
-        db.insert_dependency_raw(mapped(*blocker_id), mapped(*blocked_id))?;
-        stats.dependencies += 1;
+    for (blocker_uuid, blocked_uuid) in &saved_children.deps {
+        if let Some((blocker_id, blocked_id)) = issue_ids_by_uuid(db, blocker_uuid, blocked_uuid)? {
+            db.insert_dependency_raw(blocker_id, blocked_id)?;
+            stats.dependencies += 1;
+        }
     }
-    for (id1, id2) in &saved_children.relations {
-        db.insert_relation_raw(mapped(*id1), mapped(*id2))?;
-        stats.relations += 1;
+    for (first_uuid, second_uuid) in &saved_children.relations {
+        if let Some((first_id, second_id)) = issue_ids_by_uuid(db, first_uuid, second_uuid)? {
+            db.insert_relation_raw(first_id, second_id)?;
+            stats.relations += 1;
+        }
     }
-    for (id, issue_id, started_at, ended_at, duration_seconds) in &saved_children.time_entries {
-        db.insert_hydrated_time_entry(
-            *id,
-            mapped(*issue_id),
-            started_at,
-            ended_at.as_deref(),
-            *duration_seconds,
-        )?;
-    }
-    for (milestone_id, issue_id) in &saved_children.milestone_issues {
-        db.insert_hydrated_milestone_issue(*milestone_id, mapped(*issue_id))?;
+    for (milestone_uuid, issue_uuid) in &saved_children.milestone_issues {
+        let ids: Option<(i64, i64)> = db
+            .conn
+            .query_row(
+                "SELECT m.id, i.id FROM milestones m CROSS JOIN issues i \
+                 WHERE m.uuid = ?1 AND i.uuid = ?2",
+                rusqlite::params![milestone_uuid, issue_uuid],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((milestone_id, issue_id)) = ids {
+            db.insert_hydrated_milestone_issue(milestone_id, issue_id)?;
+        }
     }
 
     Ok(())
+}
+
+fn issue_ids_by_uuid(
+    db: &Database,
+    first_uuid: &str,
+    second_uuid: &str,
+) -> Result<Option<(i64, i64)>> {
+    db.conn
+        .query_row(
+            "SELECT first.id, second.id FROM issues first CROSS JOIN issues second \
+             WHERE first.uuid = ?1 AND second.uuid = ?2",
+            rusqlite::params![first_uuid, second_uuid],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 fn occupied_comment_ids(db: &Database) -> Result<std::collections::HashSet<i64>> {
@@ -966,68 +1334,210 @@ fn hydrate_relations(
 }
 
 const LAST_HYDRATED_REF_FILE: &str = ".last-hydrated-ref";
+const HYDRATED_FRONTIER_DIR: &str = "hydrated-frontiers";
+const MAX_HYDRATED_FRONTIERS: usize = 64;
 
-pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
-    let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) else {
-        return Ok(false);
+pub fn hydrate_current_authority_under_operation(
+    crosslink_dir: &Path,
+    db: &Database,
+) -> Result<HydrationStats> {
+    let sync = crate::sync::SyncManager::new(crosslink_dir)?;
+    let stats = if sync.hub_mode().is_v3() {
+        let source = crate::hub_source::RefHubSource::new(sync.cache_path())?;
+        let outcome = crate::compaction::reduce(&source)?;
+        hydrate_from_state(&outcome.state, db)?
+    } else {
+        hydrate_to_sqlite(sync.cache_path(), db)?
     };
+    record_hydrated_ref_durable(crosslink_dir)?;
+    Ok(stats)
+}
 
-    if !sync.is_initialized() {
+pub fn maybe_auto_hydrate_under_operation(crosslink_dir: &Path, db: &Database) -> Result<bool> {
+    if !projection_needs_hydration(crosslink_dir)? {
         return Ok(false);
     }
-
-    let cache_dir = sync.cache_path();
-    let current_ref = hub_head_ref(crosslink_dir);
-    let Some(current_ref) = current_ref else {
-        return Ok(false);
-    };
-
-    let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
-    let last_ref = std::fs::read_to_string(&marker_path)
-        .ok()
-        .map(|s| s.trim().to_string());
-
-    if last_ref.as_deref() == Some(&current_ref) {
-        return Ok(false);
-    }
-
-    tracing::debug!(
-        "hub ref moved ({} -> {}), auto-hydrating",
-        last_ref.as_deref().unwrap_or("none"),
-        &current_ref[..current_ref.len().min(8)]
-    );
-
-    hydrate_to_sqlite(cache_dir, db)?;
-
-    let _ = std::fs::write(&marker_path, &current_ref);
-
+    hydrate_current_authority_under_operation(crosslink_dir, db)?;
     Ok(true)
 }
 
+pub fn projection_needs_hydration(crosslink_dir: &Path) -> Result<bool> {
+    let sync = crate::sync::SyncManager::new(crosslink_dir)?;
+    anyhow::ensure!(
+        sync.is_initialized(),
+        "repository authority cache is missing; run `crosslink daemon ensure --wait-ready --json`"
+    );
+    let current_ref = projection_authority_ref(crosslink_dir)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "repository authority frontier is missing; run `crosslink daemon ensure --wait-ready --json`"
+        )
+    })?;
+    let last_ref = hydrated_frontier(crosslink_dir)?;
+    Ok(last_ref.as_deref() != Some(&current_ref))
+}
+
+#[deprecated(note = "use maybe_auto_hydrate_under_operation when an operation permit is held")]
+pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
+    let _permit = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
+    maybe_auto_hydrate_under_operation(crosslink_dir, db)
+}
+
 pub fn record_hydrated_ref(crosslink_dir: &Path) {
-    if let Some(ref_sha) = hub_head_ref(crosslink_dir) {
-        let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
-        let _ = std::fs::write(&marker_path, &ref_sha);
+    if let Err(error) = record_hydrated_ref_durable(crosslink_dir) {
+        tracing::warn!("failed to record hydrated projection frontier: {error}");
     }
 }
 
-fn hub_head_ref(crosslink_dir: &Path) -> Option<String> {
-    let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
-    if !sync.is_initialized() {
-        return None;
+pub fn record_hydrated_ref_durable(crosslink_dir: &Path) -> Result<()> {
+    let frontier = projection_authority_ref(crosslink_dir)?
+        .ok_or_else(|| anyhow::anyhow!("projection authority frontier is unavailable"))?;
+    let directory = crosslink_dir.join(HYDRATED_FRONTIER_DIR);
+    std::fs::create_dir_all(&directory)?;
+    let mut records = std::fs::read_dir(&directory)?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("ref"))
+        .collect::<Vec<_>>();
+    records.sort();
+    if records
+        .last()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .is_some_and(|value| value.trim() == frontier)
+    {
+        crate::reconcile::readiness::refresh_ready_record_after_projection(crosslink_dir)?;
+        return Ok(());
     }
+    let sequence = records
+        .last()
+        .and_then(|path| path.file_stem())
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.split_once('-'))
+        .and_then(|(value, _)| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_add(1);
+    let token = uuid::Uuid::new_v4();
+    let temporary = directory.join(format!(".{sequence:020}-{token}.tmp"));
+    let destination = directory.join(format!("{sequence:020}-{token}.ref"));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)?;
+    use std::io::Write as _;
+    file.write_all(frontier.as_bytes())?;
+    file.sync_all()?;
+    crate::utils::durable_rename(&temporary, &destination, false)?;
+    sync_frontier_directory(&directory)?;
+    records.push(destination);
+    records.sort();
+    let remove_count = records.len().saturating_sub(MAX_HYDRATED_FRONTIERS);
+    for path in records.into_iter().take(remove_count) {
+        std::fs::remove_file(path)?;
+    }
+    if remove_count > 0 {
+        sync_frontier_directory(&directory)?;
+    }
+    crate::reconcile::readiness::refresh_ready_record_after_projection(crosslink_dir)?;
+    Ok(())
+}
 
+pub fn hydrated_frontier(crosslink_dir: &Path) -> Result<Option<String>> {
+    let directory = crosslink_dir.join(HYDRATED_FRONTIER_DIR);
+    let mut records = if directory.is_dir() {
+        std::fs::read_dir(&directory)?
+            .collect::<std::io::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("ref"))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    records.sort();
+    if let Some(path) = records.last() {
+        let value = std::fs::read_to_string(path)?;
+        let value = value.trim().to_string();
+        anyhow::ensure!(!value.is_empty(), "hydrated projection frontier is empty");
+        return Ok(Some(value));
+    }
+    let legacy = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
+    if !legacy.exists() {
+        return Ok(None);
+    }
+    let value = std::fs::read_to_string(legacy)?;
+    let value = value.trim().to_string();
+    anyhow::ensure!(
+        !value.is_empty(),
+        "legacy hydrated projection frontier is empty"
+    );
+    Ok(Some(value))
+}
+
+#[cfg(unix)]
+fn sync_frontier_directory(directory: &Path) -> Result<()> {
+    std::fs::File::open(directory)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn sync_frontier_directory(directory: &Path) -> Result<()> {
+    let _ = directory;
+    Ok(())
+}
+
+pub fn projection_authority_ref(crosslink_dir: &Path) -> Result<Option<String>> {
+    let sync = crate::sync::SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        return Ok(None);
+    }
+    sync.validate_cache_repository()?;
     let output = std::process::Command::new("git")
         .current_dir(sync.cache_path())
-        .args(["rev-parse", "HEAD"])
+        .args([
+            "for-each-ref",
+            "--format=%(refname)%00%(objectname)",
+            "refs/heads/crosslink/checkpoint",
+            "refs/heads/crosslink/meta",
+            "refs/heads/crosslink/agents/",
+        ])
         .output()
-        .ok()?;
-
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        None
+        .context("observing current v3 projection authority")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "observing current v3 projection authority failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let advertised = String::from_utf8(output.stdout.clone())
+        .context("v3 projection authority observation was not UTF-8")?;
+    let names = advertised
+        .lines()
+        .filter_map(|line| line.split_once('\0').map(|(name, _)| name))
+        .collect::<std::collections::HashSet<_>>();
+    if !names.is_empty() {
+        anyhow::ensure!(
+            names.contains(crate::hub_v3::CHECKPOINT_REF)
+                && names.contains(crate::hub_v3::META_REF),
+            "current v3 projection authority is incomplete"
+        );
+        use sha2::Digest as _;
+        return Ok(Some(hex::encode(sha2::Sha256::digest(output.stdout))));
     }
+    let output = std::process::Command::new("git")
+        .current_dir(sync.cache_path())
+        .args(["rev-parse", "--verify", "HEAD"])
+        .output()
+        .context("observing current v2 projection authority")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let value = String::from_utf8(output.stdout)
+        .context("v2 projection authority observation was not UTF-8")?
+        .trim()
+        .to_string();
+    anyhow::ensure!(
+        !value.is_empty(),
+        "current v2 projection authority is empty"
+    );
+    Ok(Some(value))
 }
 
 #[cfg(test)]
@@ -1038,6 +1548,7 @@ mod tests {
         IssueFile, TimeEntry,
     };
     use chrono::Utc;
+    use std::process::Command;
     use tempfile::tempdir;
     use uuid::Uuid;
 
@@ -1872,5 +2383,84 @@ mod tests {
         let loaded_parent = db.get_issue(-1).unwrap();
         let loaded_child = db.get_issue(-2).unwrap();
         assert!(loaded_parent.is_some() || loaded_child.is_some());
+    }
+
+    fn initialized_repository() -> tempfile::TempDir {
+        let root = tempdir().unwrap();
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["init", "-b", "main"])
+            .status()
+            .unwrap()
+            .success());
+        for (key, value) in [
+            ("user.email", "test@example.invalid"),
+            ("user.name", "Test"),
+        ] {
+            assert!(Command::new("git")
+                .current_dir(root.path())
+                .args(["config", key, value])
+                .status()
+                .unwrap()
+                .success());
+        }
+        std::fs::write(root.path().join("README.md"), "test").unwrap();
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["add", "README.md"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["commit", "-m", "initial", "--no-gpg-sign"])
+            .status()
+            .unwrap()
+            .success());
+        let crosslink = root.path().join(".crosslink");
+        std::fs::create_dir(&crosslink).unwrap();
+        std::fs::write(crosslink.join("hook-config.json"), "{}").unwrap();
+        root
+    }
+
+    #[test]
+    fn projection_probe_fails_closed_before_cache_bootstrap() {
+        let root = initialized_repository();
+        let crosslink = root.path().join(".crosslink");
+        let error = projection_needs_hydration(&crosslink).unwrap_err();
+        assert!(error.to_string().contains("authority cache is missing"));
+        assert!(!crosslink.join("issues.db").exists());
+    }
+
+    #[test]
+    fn projection_probe_returns_false_only_for_an_observed_equal_frontier() {
+        let root = initialized_repository();
+        let crosslink = root.path().join(".crosslink");
+        let sync = crate::sync::SyncManager::new(&crosslink).unwrap();
+        assert_eq!(
+            sync.init_cache_for_reconciliation(),
+            crate::sync::ReconciliationCacheOutcome::Ready
+        );
+        assert!(projection_needs_hydration(&crosslink).unwrap());
+        record_hydrated_ref_durable(&crosslink).unwrap();
+        assert!(!projection_needs_hydration(&crosslink).unwrap());
+        assert!(Command::new("git")
+            .current_dir(sync.cache_path())
+            .args(["update-ref", "-d", crate::hub_v3::META_REF])
+            .status()
+            .unwrap()
+            .success());
+        assert!(projection_needs_hydration(&crosslink).is_err());
+    }
+
+    #[test]
+    fn projection_probe_rejects_corrupt_cache_without_creating_database() {
+        let root = initialized_repository();
+        let crosslink = root.path().join(".crosslink");
+        let cache = crosslink.join(crate::sync::HUB_CACHE_DIR);
+        std::fs::create_dir(&cache).unwrap();
+        std::fs::write(cache.join("not-a-repository"), "invalid").unwrap();
+        assert!(projection_needs_hydration(&crosslink).is_err());
+        assert!(!crosslink.join("issues.db").exists());
     }
 }

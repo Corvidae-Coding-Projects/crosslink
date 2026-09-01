@@ -550,6 +550,8 @@ fn test_fresh_v3_hub_create_issue_end_to_end() {
     let sync = SyncManager::new(&crosslink_dir).unwrap();
     sync.init_cache().unwrap();
     assert!(sync.hub_mode().is_v3());
+    crate::reconcile::migration::establish_verified_readiness_for_test(&crosslink_dir, "sync-test")
+        .unwrap();
 
     let db = crate::db::Database::open(&crosslink_dir.join("issues.db")).unwrap();
     let writer = crate::shared_writer::SharedWriter::new(&crosslink_dir)
@@ -579,6 +581,7 @@ fn test_two_machine_v3_join_round_trip() {
     .unwrap();
     let sync1 = SyncManager::new(&cl1).unwrap();
     sync1.init_cache().unwrap();
+    crate::reconcile::migration::establish_verified_readiness_for_test(&cl1, "sync-test").unwrap();
     let db1 = crate::db::Database::open(&cl1.join("issues.db")).unwrap();
     let w1 = crate::shared_writer::SharedWriter::new(&cl1)
         .unwrap()
@@ -617,6 +620,7 @@ fn test_two_machine_v3_join_round_trip() {
     let sync2 = SyncManager::new(&cl2).unwrap();
     sync2.init_cache().unwrap();
     assert!(sync2.hub_mode().is_v3(), "m2 must join the v3 hub");
+    crate::reconcile::migration::establish_verified_readiness_for_test(&cl2, "sync-test").unwrap();
     let db2 = crate::db::Database::open(&cl2.join("issues.db")).unwrap();
     let w2 = crate::shared_writer::SharedWriter::new(&cl2)
         .unwrap()

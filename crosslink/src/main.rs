@@ -38,7 +38,7 @@ mod findings;
 mod git_compat;
 mod hub_source;
 mod hub_v3;
-mod hydration;
+pub mod hydration;
 mod identity;
 mod issue_file;
 mod issue_filing;
@@ -48,20 +48,21 @@ mod locks;
 mod models;
 mod orchestrator;
 mod pipeline;
+pub mod reconcile;
 mod seam;
 mod server;
-mod shared_writer;
+pub mod shared_writer;
 mod signing;
 mod sync;
 mod token_usage;
 mod trust_model;
 mod tui;
-mod utils;
+pub mod utils;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use crosslink::reconcile;
 use std::env;
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use db::Database;
@@ -1029,6 +1030,11 @@ enum CpitdCommands {
 enum DaemonCommands {
     Start,
 
+    Ensure {
+        #[arg(long)]
+        wait_ready: bool,
+    },
+
     Stop,
 
     Status,
@@ -1037,6 +1043,9 @@ enum DaemonCommands {
     Run {
         #[arg(long)]
         dir: PathBuf,
+
+        #[arg(long)]
+        epoch: Option<String>,
     },
 }
 
@@ -1895,6 +1904,327 @@ enum ContextCommands {
     Check,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommandAccess {
+    Diagnostic,
+    Recovery,
+    Mutation,
+}
+
+const fn command_access(command: &Commands) -> CommandAccess {
+    use CommandAccess::{Diagnostic, Mutation, Recovery};
+    match command {
+        Commands::Init { dry_run, .. } => {
+            if *dry_run {
+                Diagnostic
+            } else {
+                Recovery
+            }
+        }
+        Commands::Doctor
+        | Commands::Reconcile { .. }
+        | Commands::Context { .. }
+        | Commands::Workflow { .. }
+        | Commands::Tui
+        | Commands::Mc { .. }
+        | Commands::Serve { .. }
+        | Commands::List { .. }
+        | Commands::Show { .. }
+        | Commands::Issues { .. } => Diagnostic,
+        Commands::Import { .. }
+        | Commands::Heartbeat
+        | Commands::Sync
+        | Commands::Compact { .. }
+        | Commands::Design { .. }
+        | Commands::Create { .. }
+        | Commands::Quick { .. }
+        | Commands::Close { .. }
+        | Commands::New { .. }
+        | Commands::Subissue { .. }
+        | Commands::TimerStart { .. }
+        | Commands::TimerStop => Mutation,
+        Commands::Daemon { .. }
+        | Commands::Migrate { .. }
+        | Commands::MigrateToShared
+        | Commands::MigrateFromShared
+        | Commands::MigrateRenameBranch => Recovery,
+        Commands::Issue { action } => issue_access(action),
+        Commands::Timer { action } => match action {
+            TimerCommands::Show => Diagnostic,
+            TimerCommands::Start { .. } | TimerCommands::Stop => Mutation,
+        },
+        Commands::Export { output, .. } => {
+            if output.is_some() {
+                Mutation
+            } else {
+                Diagnostic
+            }
+        }
+        Commands::Archive { action } => match action {
+            ArchiveCommands::List => Diagnostic,
+            ArchiveCommands::Add { .. }
+            | ArchiveCommands::Remove { .. }
+            | ArchiveCommands::Older { .. } => Mutation,
+        },
+        Commands::Milestone { action } => match action {
+            MilestoneCommands::List { .. } | MilestoneCommands::Show { .. } => Diagnostic,
+            MilestoneCommands::Create { .. }
+            | MilestoneCommands::Add { .. }
+            | MilestoneCommands::Remove { .. }
+            | MilestoneCommands::Close { .. }
+            | MilestoneCommands::Delete { .. } => Mutation,
+        },
+        Commands::Session { action } => match action {
+            SessionCommands::Status | SessionCommands::LastHandoff => Diagnostic,
+            SessionCommands::Start
+            | SessionCommands::End { .. }
+            | SessionCommands::Work { .. }
+            | SessionCommands::Action { .. } => Mutation,
+        },
+        Commands::Cpitd { action } => match action {
+            CpitdCommands::Status => Diagnostic,
+            CpitdCommands::Scan { .. } | CpitdCommands::Clear => Mutation,
+        },
+        Commands::Agent { action } => match action {
+            AgentCommands::Status
+            | AgentCommands::Requests { .. }
+            | AgentCommands::Flags { .. } => Diagnostic,
+            AgentCommands::Init { .. }
+            | AgentCommands::Prompt { .. }
+            | AgentCommands::Bootstrap { .. }
+            | AgentCommands::Request { .. }
+            | AgentCommands::PollRequests => Mutation,
+        },
+        Commands::Trust { action } => match action {
+            TrustCommands::List | TrustCommands::Pending | TrustCommands::Check { .. } => {
+                Diagnostic
+            }
+            TrustCommands::Approve { .. } | TrustCommands::Revoke { .. } => Mutation,
+        },
+        Commands::Locks { action } => match action {
+            LocksCommands::List | LocksCommands::Check { .. } => Diagnostic,
+            LocksCommands::Claim { .. }
+            | LocksCommands::Release { .. }
+            | LocksCommands::Steal { .. } => Mutation,
+        },
+        Commands::Config { command, preset } => {
+            if preset.is_some() {
+                Mutation
+            } else {
+                match command {
+                    Some(
+                        ConfigCommands::Show
+                        | ConfigCommands::Get { .. }
+                        | ConfigCommands::List
+                        | ConfigCommands::Diff,
+                    ) => Diagnostic,
+                    None | Some(ConfigCommands::Set { .. } | ConfigCommands::Reset { .. }) => {
+                        Mutation
+                    }
+                }
+            }
+        }
+        Commands::Style { command } => match command {
+            StyleCommands::Diff | StyleCommands::Show => Diagnostic,
+            StyleCommands::Set { .. } | StyleCommands::Sync { .. } | StyleCommands::Unset => {
+                Mutation
+            }
+        },
+        Commands::Knowledge { command } => knowledge_access(command),
+        Commands::Integrity { action } => match action {
+            None => Diagnostic,
+            Some(
+                IntegrityCommands::Counters { repair }
+                | IntegrityCommands::Locks { repair }
+                | IntegrityCommands::Schema { repair }
+                | IntegrityCommands::Layout { repair }
+                | IntegrityCommands::Hydration { repair, .. },
+            ) => {
+                if *repair {
+                    Mutation
+                } else {
+                    Diagnostic
+                }
+            }
+            Some(IntegrityCommands::SignBackfill { .. }) => Mutation,
+        },
+        Commands::Prune { dry_run, .. } => {
+            if *dry_run {
+                Diagnostic
+            } else {
+                Mutation
+            }
+        }
+        Commands::Kickoff { action } => match action {
+            Some(
+                KickoffCommands::Status { .. }
+                | KickoffCommands::Logs { .. }
+                | KickoffCommands::ShowPlan { .. }
+                | KickoffCommands::Report { .. }
+                | KickoffCommands::List { .. }
+                | KickoffCommands::Graph { .. },
+            ) => Diagnostic,
+            None
+            | Some(
+                KickoffCommands::Run { .. }
+                | KickoffCommands::Stop { .. }
+                | KickoffCommands::Plan { .. }
+                | KickoffCommands::Cleanup { .. }
+                | KickoffCommands::Launch { .. },
+            ) => Mutation,
+        },
+        Commands::Swarm { action } => match action {
+            SwarmCommands::Status
+            | SwarmCommands::ListSwarms
+            | SwarmCommands::Estimate { .. }
+            | SwarmCommands::PlanShow
+            | SwarmCommands::ReviewStatus => Diagnostic,
+            SwarmCommands::Init { .. }
+            | SwarmCommands::SyncStatus
+            | SwarmCommands::Resume
+            | SwarmCommands::Adopt { .. }
+            | SwarmCommands::Archive
+            | SwarmCommands::Reset { .. }
+            | SwarmCommands::Launch { .. }
+            | SwarmCommands::Gate { .. }
+            | SwarmCommands::Checkpoint { .. }
+            | SwarmCommands::Config { .. }
+            | SwarmCommands::Harvest
+            | SwarmCommands::Plan { .. }
+            | SwarmCommands::Review { .. }
+            | SwarmCommands::Fix { .. }
+            | SwarmCommands::Merge { .. }
+            | SwarmCommands::MoveAgent { .. }
+            | SwarmCommands::MergePhases { .. }
+            | SwarmCommands::SplitPhase { .. }
+            | SwarmCommands::RemoveAgent { .. }
+            | SwarmCommands::Reorder { .. }
+            | SwarmCommands::RenamePhase { .. }
+            | SwarmCommands::ReviewContinue
+            | SwarmCommands::Pipeline { .. }
+            | SwarmCommands::TrustInit { .. } => Mutation,
+        },
+        Commands::Sentinel { action } => match action {
+            SentinelCommands::Status
+            | SentinelCommands::History { .. }
+            | SentinelCommands::Metrics { .. }
+            | SentinelCommands::Patterns { .. } => Diagnostic,
+            SentinelCommands::Run { .. }
+            | SentinelCommands::Watch { .. }
+            | SentinelCommands::Stop
+            | SentinelCommands::RunDaemon { .. } => Mutation,
+        },
+        Commands::Dashboard { action } => match action {
+            DashboardCommands::Serve {
+                rotate_token: false,
+                ..
+            }
+            | DashboardCommands::List
+            | DashboardCommands::Discover { track: false, .. } => Diagnostic,
+            DashboardCommands::Serve {
+                rotate_token: true, ..
+            }
+            | DashboardCommands::Track { .. }
+            | DashboardCommands::Untrack { .. }
+            | DashboardCommands::Discover { track: true, .. } => Mutation,
+        },
+        Commands::Container { action } => container_access(action),
+    }
+}
+
+fn holds_outer_mutation_permit(command: &Commands) -> bool {
+    command_access(command) == CommandAccess::Mutation
+        && !matches!(
+            command,
+            Commands::Dashboard {
+                action: DashboardCommands::Serve { .. }
+            } | Commands::Sentinel {
+                action: SentinelCommands::RunDaemon { .. } | SentinelCommands::Watch { .. }
+            } | Commands::Container { .. }
+        )
+}
+
+const fn issue_access(action: &IssueCommands) -> CommandAccess {
+    use CommandAccess::{Diagnostic, Mutation};
+    match action {
+        IssueCommands::List { refresh, .. }
+        | IssueCommands::Search { refresh, .. }
+        | IssueCommands::Show { refresh, .. } => {
+            if *refresh {
+                Mutation
+            } else {
+                Diagnostic
+            }
+        }
+        IssueCommands::Blocked
+        | IssueCommands::Ready
+        | IssueCommands::Related { .. }
+        | IssueCommands::Next
+        | IssueCommands::Tree { .. } => Diagnostic,
+        IssueCommands::Create { .. }
+        | IssueCommands::Quick { .. }
+        | IssueCommands::Update { .. }
+        | IssueCommands::Close { .. }
+        | IssueCommands::CloseAll { .. }
+        | IssueCommands::Reopen { .. }
+        | IssueCommands::Delete { .. }
+        | IssueCommands::Comment { .. }
+        | IssueCommands::Intervene { .. }
+        | IssueCommands::Label { .. }
+        | IssueCommands::Unlabel { .. }
+        | IssueCommands::Block { .. }
+        | IssueCommands::Unblock { .. }
+        | IssueCommands::Relate { .. }
+        | IssueCommands::Unrelate { .. }
+        | IssueCommands::Tested => Mutation,
+    }
+}
+
+const fn knowledge_access(command: &KnowledgeCommands) -> CommandAccess {
+    use CommandAccess::{Diagnostic, Mutation};
+    match command {
+        KnowledgeCommands::Show { refresh, .. }
+        | KnowledgeCommands::List { refresh, .. }
+        | KnowledgeCommands::Search { refresh, .. } => {
+            if *refresh {
+                Mutation
+            } else {
+                Diagnostic
+            }
+        }
+        KnowledgeCommands::Import { dry_run: true, .. } => Diagnostic,
+        KnowledgeCommands::Add { .. }
+        | KnowledgeCommands::Edit { .. }
+        | KnowledgeCommands::Remove { .. }
+        | KnowledgeCommands::Sync { .. }
+        | KnowledgeCommands::Import { dry_run: false, .. } => Mutation,
+    }
+}
+
+const fn container_access(action: &ContainerCommands) -> CommandAccess {
+    use CommandAccess::{Diagnostic, Mutation};
+    match action {
+        ContainerCommands::Ps
+        | ContainerCommands::Logs { .. }
+        | ContainerCommands::Auth {
+            action: ContainerAuthCommands::Status { .. },
+        } => Diagnostic,
+        ContainerCommands::Build { .. }
+        | ContainerCommands::Start { .. }
+        | ContainerCommands::Stop { .. }
+        | ContainerCommands::Rm { .. }
+        | ContainerCommands::Kill { .. }
+        | ContainerCommands::Shell { .. }
+        | ContainerCommands::Snapshot { .. }
+        | ContainerCommands::Auth {
+            action:
+                ContainerAuthCommands::Login { .. }
+                | ContainerAuthCommands::Refresh { .. }
+                | ContainerAuthCommands::Logout { .. },
+        } => Mutation,
+    }
+}
+
 fn init_tracing(log_level: &str, log_format: &str) {
     use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
     let filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("warn"));
@@ -1980,24 +2310,67 @@ fn find_crosslink_dir_from(start: &std::path::Path) -> Result<PathBuf> {
 
 fn get_db() -> Result<Database> {
     let crosslink_dir = find_crosslink_dir()?;
-    let db_path = crosslink_dir.join("issues.db");
-    let db = Database::open(&db_path).context("Failed to open database")?;
-
-    if let Err(e) = hydration::maybe_auto_hydrate(&crosslink_dir, &db) {
-        tracing::debug!("auto-hydration skipped: {}", e);
-    }
-
-    Ok(db)
+    open_command_db(&crosslink_dir)
 }
 
-fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWriter> {
-    match shared_writer::SharedWriter::new(crosslink_dir) {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!("SharedWriter unavailable: {}", e);
-            None
+fn open_command_db(crosslink_dir: &std::path::Path) -> Result<Database> {
+    let db_path = crosslink_dir.join("issues.db");
+    if reconcile::readiness::mutation_operation_is_held(crosslink_dir) {
+        let needs_hydration = hydration::projection_needs_hydration(crosslink_dir)
+            .context("failed to observe repository authority before opening writable database")?;
+        let db = Database::open(&db_path).context("Failed to open database")?;
+        if needs_hydration {
+            hydration::hydrate_current_authority_under_operation(crosslink_dir, &db).context(
+                "failed to hydrate repository authority before opening writable database",
+            )?;
         }
+        return Ok(db);
     }
+    Database::open_read_only(&db_path).context("Failed to open database read-only")
+}
+
+struct ServiceDatabase {
+    database: Database,
+    unavailable: Option<String>,
+}
+
+fn open_service_db(crosslink_dir: &std::path::Path) -> Result<ServiceDatabase> {
+    match reconcile::readiness::try_acquire_mutation_operation_permit(crosslink_dir) {
+        Ok(Some(permit)) => {
+            let result = Database::open(&crosslink_dir.join("issues.db"));
+            drop(permit);
+            match result {
+                Ok(database) => Ok(ServiceDatabase {
+                    database,
+                    unavailable: None,
+                }),
+                Err(error) => Ok(ServiceDatabase {
+                    database: Database::open_ephemeral()?,
+                    unavailable: Some(format!("Failed to open service database: {error:#}")),
+                }),
+            }
+        }
+        Ok(None) | Err(_) => match Database::open_read_only(&crosslink_dir.join("issues.db")) {
+            Ok(database) => Ok(ServiceDatabase {
+                database,
+                unavailable: None,
+            }),
+            Err(error) => Ok(ServiceDatabase {
+                database: Database::open_ephemeral()?,
+                unavailable: Some(format!(
+                    "Failed to open service database read-only: {error:#}"
+                )),
+            }),
+        },
+    }
+}
+
+fn get_service_db() -> Result<ServiceDatabase> {
+    open_service_db(&find_crosslink_dir()?)
+}
+
+fn get_writer(crosslink_dir: &std::path::Path) -> Result<Option<shared_writer::SharedWriter>> {
+    shared_writer::SharedWriter::new(crosslink_dir)
 }
 
 fn parse_issue_id_clap(s: &str) -> std::result::Result<i64, String> {
@@ -2055,7 +2428,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work,
@@ -2107,7 +2480,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work: true,
@@ -2237,7 +2610,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             let update = shared_writer::IssueUpdate {
                 title: title.as_deref(),
                 description: description
@@ -2256,7 +2629,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Close { id, no_changelog } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             if quiet {
                 commands::lifecycle::close_quiet(
                     &db,
@@ -2277,7 +2650,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::lifecycle::close_all(
                 &db,
                 writer.as_ref(),
@@ -2291,21 +2664,21 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Reopen { id } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::lifecycle::reopen(&db, writer.as_ref(), id)
         }
 
         IssueCommands::Delete { id, force } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::delete::run(&db, writer.as_ref(), id, force)
         }
 
         IssueCommands::Comment { id, text, kind } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::comment::run(&db, writer.as_ref(), id, &text, &kind)
         }
 
@@ -2317,7 +2690,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::intervene::run(
                 &db,
                 writer.as_ref(),
@@ -2332,28 +2705,28 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Label { id, label } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::label::add(&db, writer.as_ref(), id, &label)
         }
 
         IssueCommands::Unlabel { id, label } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::label::remove(&db, writer.as_ref(), id, &label)
         }
 
         IssueCommands::Block { id, blocker } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::deps::block(&db, writer.as_ref(), id, blocker)
         }
 
         IssueCommands::Unblock { id, blocker } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::deps::unblock(&db, writer.as_ref(), id, blocker)
         }
 
@@ -2370,14 +2743,14 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Relate { id, related } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::relate::add(&db, writer.as_ref(), id, related)
         }
 
         IssueCommands::Unrelate { id, related } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             commands::relate::remove(&db, writer.as_ref(), id, related)
         }
 
@@ -2405,6 +2778,64 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
 }
 
 const CLI_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+fn emit_readiness(record: &reconcile::readiness::ReadinessRecord, json: bool) -> Result<()> {
+    emit_daemon_response(&daemon::DaemonResponse::from_record(record), json)
+}
+
+fn emit_daemon_response(response: &daemon::DaemonResponse, json: bool) -> Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer(&mut stdout, response).context("serializing daemon response")?;
+        writeln!(stdout).context("writing daemon response")?;
+    } else {
+        let state = response.state.map_or_else(
+            || {
+                if response.running {
+                    "pending"
+                } else if response.reason.is_some() {
+                    "unavailable"
+                } else {
+                    "stopped"
+                }
+            },
+            reconcile::readiness::ReadinessOutcomeState::as_str,
+        );
+        writeln!(
+            stdout,
+            "Daemon readiness: {}{}",
+            state,
+            response
+                .reason
+                .as_deref()
+                .map_or_else(String::new, |reason| format!(": {reason}"))
+        )
+        .context("writing daemon response")?;
+    }
+    stdout.flush().context("flushing daemon response")
+}
+
+fn find_daemon_crosslink_dir(json: bool) -> Result<std::path::PathBuf> {
+    match find_crosslink_dir() {
+        Ok(crosslink_dir) => Ok(crosslink_dir),
+        Err(error) => {
+            emit_daemon_response(&daemon::DaemonResponse::error(format!("{error:#}")), json)?;
+            Err(error)
+        }
+    }
+}
+
+fn exit_for_readiness(state: reconcile::readiness::ReadinessState) {
+    match state {
+        reconcile::readiness::ReadinessState::WaitingForRemote => {
+            std::process::exit(daemon::WAITING_EXIT_CODE);
+        }
+        reconcile::readiness::ReadinessState::BlockedCorrupt => {
+            std::process::exit(daemon::BLOCKED_EXIT_CODE);
+        }
+        _ => {}
+    }
+}
 
 fn main() -> Result<()> {
     let result = std::thread::Builder::new()
@@ -2435,6 +2866,18 @@ fn run_cli() -> Result<()> {
     };
     init_tracing(&cli.log_level, log_format);
 
+    let _mutation_permit = if holds_outer_mutation_permit(&cli.command) {
+        if let Ok(crosslink_dir) = find_crosslink_dir() {
+            Some(reconcile::readiness::acquire_mutation_operation_permit(
+                &crosslink_dir,
+            )?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     match cli.command {
         Commands::Init {
             force,
@@ -2450,6 +2893,10 @@ fn run_cli() -> Result<()> {
             agent_integration,
         } => {
             let cwd = env::current_dir()?;
+            let crosslink_dir = cwd.join(".crosslink");
+            let _transition = (!dry_run && crosslink_dir.join("hook-config.json").is_file())
+                .then(|| reconcile::readiness::acquire_transition_permit(&crosslink_dir))
+                .transpose()?;
             let opts = commands::init::InitOpts {
                 force,
                 update,
@@ -2480,14 +2927,9 @@ fn run_cli() -> Result<()> {
         Commands::Migrate { action } => match action {
             MigrateCommands::ToShared => {
                 let crosslink_dir = find_crosslink_dir()?;
-                let db = get_db()?;
-                commands::migrate::to_shared(&crosslink_dir, &db)
+                commands::migrate::to_shared_repository(&crosslink_dir)
             }
-            MigrateCommands::FromShared => {
-                let crosslink_dir = find_crosslink_dir()?;
-                let db = get_db()?;
-                commands::migrate::from_shared(&crosslink_dir, &db)
-            }
+            MigrateCommands::FromShared => commands::migrate::from_shared_repository(),
             MigrateCommands::RenameBranch => {
                 let crosslink_dir = find_crosslink_dir()?;
                 commands::migrate::rename_branch(&crosslink_dir)
@@ -2739,8 +3181,7 @@ fn run_cli() -> Result<()> {
                 "did you mean 'crosslink migrate to-shared'? Using that.",
             );
             let crosslink_dir = find_crosslink_dir()?;
-            let db = get_db()?;
-            commands::migrate::to_shared(&crosslink_dir, &db)
+            commands::migrate::to_shared_repository(&crosslink_dir)
         }
 
         Commands::MigrateFromShared => {
@@ -2748,9 +3189,7 @@ fn run_cli() -> Result<()> {
                 cli.quiet,
                 "did you mean 'crosslink migrate from-shared'? Using that.",
             );
-            let crosslink_dir = find_crosslink_dir()?;
-            let db = get_db()?;
-            commands::migrate::from_shared(&crosslink_dir, &db)
+            commands::migrate::from_shared_repository()
         }
 
         Commands::MigrateRenameBranch => {
@@ -2776,7 +3215,7 @@ fn run_cli() -> Result<()> {
         Commands::Import { input } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = get_writer(&crosslink_dir)?;
             let path = std::path::Path::new(&input);
             commands::import::run_json(&db, writer.as_ref(), path)
         }
@@ -2800,19 +3239,61 @@ fn run_cli() -> Result<()> {
 
         Commands::Daemon { action } => match action {
             DaemonCommands::Start => {
-                let crosslink_dir = find_crosslink_dir()?;
-                daemon::start(&crosslink_dir)
+                let crosslink_dir = find_daemon_crosslink_dir(cli.json)?;
+                let record = match daemon::start(&crosslink_dir) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        emit_daemon_response(
+                            &daemon::DaemonResponse::error(format!("{error:#}")),
+                            cli.json,
+                        )?;
+                        return Err(error);
+                    }
+                };
+                emit_readiness(&record, cli.json)?;
+                exit_for_readiness(record.state);
+                Ok(())
+            }
+            DaemonCommands::Ensure { wait_ready } => {
+                let crosslink_dir = find_daemon_crosslink_dir(cli.json)?;
+                let record = match daemon::ensure(&crosslink_dir, wait_ready) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        emit_daemon_response(
+                            &daemon::DaemonResponse::error(format!("{error:#}")),
+                            cli.json,
+                        )?;
+                        return Err(error);
+                    }
+                };
+                emit_readiness(&record, cli.json)?;
+                exit_for_readiness(record.state);
+                Ok(())
             }
             DaemonCommands::Stop => {
                 let crosslink_dir = find_crosslink_dir()?;
                 daemon::stop(&crosslink_dir)
             }
             DaemonCommands::Status => {
-                let crosslink_dir = find_crosslink_dir()?;
-                daemon::status(&crosslink_dir);
+                let crosslink_dir = find_daemon_crosslink_dir(cli.json)?;
+                let status = match daemon::status(&crosslink_dir) {
+                    Ok(status) => status,
+                    Err(error) => {
+                        emit_daemon_response(
+                            &daemon::DaemonResponse::error(format!("{error:#}")),
+                            cli.json,
+                        )?;
+                        return Err(error);
+                    }
+                };
+                if let Some(record) = status {
+                    emit_readiness(&record, cli.json)?;
+                } else {
+                    emit_daemon_response(&daemon::DaemonResponse::stopped(), cli.json)?;
+                }
                 Ok(())
             }
-            DaemonCommands::Run { dir } => daemon::run_daemon(&dir),
+            DaemonCommands::Run { dir, epoch } => daemon::run_daemon(&dir, epoch.as_deref()),
         },
 
         Commands::Cpitd { action } => {
@@ -2890,7 +3371,24 @@ fn run_cli() -> Result<()> {
             commands::compact::run(&crosslink_dir, &db, force)
         }
 
-        Commands::Container { action } => commands::container::run(action),
+        Commands::Container { action } => {
+            let shared_permit = if container_access(&action) == CommandAccess::Mutation {
+                find_crosslink_dir()
+                    .ok()
+                    .map(|crosslink_dir| {
+                        reconcile::readiness::acquire_mutation_permit(&crosslink_dir)
+                    })
+                    .transpose()?
+                    .flatten()
+            } else {
+                None
+            };
+            let hold_for_lifetime = matches!(action, ContainerCommands::Shell { .. });
+            if !hold_for_lifetime {
+                drop(shared_permit);
+            }
+            commands::container::run(action)
+        }
 
         Commands::Style { command } => {
             let crosslink_dir = find_crosslink_dir()?;
@@ -2921,7 +3419,6 @@ fn run_cli() -> Result<()> {
         Commands::Kickoff { action } => {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
-            let writer = get_writer(&crosslink_dir);
 
             let action = action.unwrap_or_else(|| KickoffCommands::Launch {
                 doc: None,
@@ -2936,6 +3433,20 @@ fn run_cli() -> Result<()> {
                 skip_permissions: false,
                 permission_mode: None,
             });
+            let diagnostic = matches!(
+                &action,
+                KickoffCommands::Status { .. }
+                    | KickoffCommands::Logs { .. }
+                    | KickoffCommands::ShowPlan { .. }
+                    | KickoffCommands::Report { .. }
+                    | KickoffCommands::List { .. }
+                    | KickoffCommands::Graph { .. }
+            );
+            let writer = if diagnostic {
+                None
+            } else {
+                get_writer(&crosslink_dir)?
+            };
             commands::kickoff::dispatch(
                 action,
                 &crosslink_dir,
@@ -2985,7 +3496,7 @@ fn run_cli() -> Result<()> {
                     retry_failed,
                 } => {
                     let db = get_db()?;
-                    let writer = get_writer(&crosslink_dir);
+                    let writer = get_writer(&crosslink_dir)?;
                     if retry_failed {
                         commands::swarm::launch_retry_failed(
                             &crosslink_dir,
@@ -3126,7 +3637,11 @@ fn run_cli() -> Result<()> {
             }
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
-            let writer = get_writer(&crosslink_dir);
+            let writer = if matches!(&action, SentinelCommands::Run { .. }) {
+                get_writer(&crosslink_dir)?
+            } else {
+                None
+            };
             let sentinel_model = match &action {
                 SentinelCommands::Run { model, .. }
                 | SentinelCommands::Watch { model, .. }
@@ -3144,9 +3659,13 @@ fn run_cli() -> Result<()> {
             )
         }
         Commands::Tui => {
-            let db = get_db()?;
+            let service = get_service_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            commands::tui::run(&db, &crosslink_dir)
+            commands::tui::run(
+                &service.database,
+                &crosslink_dir,
+                service.unavailable.as_deref(),
+            )
         }
         Commands::Mc { layout } => {
             let crosslink_dir = find_crosslink_dir()?;
@@ -3159,11 +3678,13 @@ fn run_cli() -> Result<()> {
                 rotate_token,
             } => {
                 let crosslink_dir = find_crosslink_dir()?;
-                let db = get_db()?;
+                let service = get_service_db()?;
 
                 let dashboard_db_path = dashboard::db::DashboardDb::default_path()?;
                 dashboard::db::DashboardDb::open(&dashboard_db_path)?;
                 if rotate_token {
+                    let _permit =
+                        reconcile::readiness::acquire_mutation_operation_permit(&crosslink_dir)?;
                     let _ = crate::server::state::rotate_auth_token();
                     println!("auth token rotated at ~/.crosslink/.dashboard-token");
                 }
@@ -3171,9 +3692,10 @@ fn run_cli() -> Result<()> {
                 tokio::runtime::Runtime::new()?.block_on(server::run_with_dashboard_db(
                     port,
                     dashboard_dir,
-                    db,
+                    service.database,
                     crosslink_dir,
                     Some(dashboard_db_path),
+                    service.unavailable,
                 ))
             }
             DashboardCommands::Track {
@@ -3254,12 +3776,13 @@ fn run_cli() -> Result<()> {
                  This alias will be removed in a future release."
             );
             let crosslink_dir = find_crosslink_dir()?;
-            let db = get_db()?;
+            let service = get_service_db()?;
             tokio::runtime::Runtime::new()?.block_on(server::run(
                 port,
                 dashboard_dir,
-                db,
+                service.database,
                 crosslink_dir,
+                service.unavailable,
             ))
         }
     }
@@ -3334,5 +3857,244 @@ mod find_crosslink_dir_tests {
 
         let found = find_crosslink_dir_from(&sub).unwrap();
         assert_eq!(found, sub.join(".crosslink"));
+    }
+}
+
+#[cfg(test)]
+mod command_access_tests {
+    use super::*;
+
+    fn parsed(arguments: &[&str]) -> Commands {
+        Cli::try_parse_from(std::iter::once("crosslink").chain(arguments.iter().copied()))
+            .unwrap()
+            .command
+    }
+
+    fn access(arguments: &[&str]) -> CommandAccess {
+        command_access(&parsed(arguments))
+    }
+
+    #[test]
+    fn refresh_and_dry_run_flags_change_access_at_the_action_boundary() {
+        assert_eq!(access(&["issue", "list"]), CommandAccess::Diagnostic);
+        assert_eq!(
+            access(&["issue", "list", "--refresh"]),
+            CommandAccess::Mutation
+        );
+        assert_eq!(
+            access(&["knowledge", "import", "input.md", "--dry-run"]),
+            CommandAccess::Diagnostic
+        );
+        assert_eq!(
+            access(&["knowledge", "import", "input.md"]),
+            CommandAccess::Mutation
+        );
+        assert_eq!(
+            access(&["init", "--update", "--dry-run"]),
+            CommandAccess::Diagnostic
+        );
+        assert_eq!(access(&["init"]), CommandAccess::Recovery);
+        assert_eq!(access(&["init", "--force"]), CommandAccess::Recovery);
+        assert_eq!(access(&["config"]), CommandAccess::Mutation);
+        assert_eq!(access(&["config", "show"]), CommandAccess::Diagnostic);
+        assert_eq!(access(&["export"]), CommandAccess::Diagnostic);
+        assert_eq!(
+            access(&["export", "--output", "report.json"]),
+            CommandAccess::Mutation
+        );
+        assert_eq!(access(&["swarm", "list"]), CommandAccess::Diagnostic);
+        assert_eq!(access(&["swarm", "sync-status"]), CommandAccess::Mutation);
+        assert_eq!(access(&["issue", "tested"]), CommandAccess::Mutation);
+        assert_eq!(access(&["archive", "list"]), CommandAccess::Diagnostic);
+        assert_eq!(access(&["archive", "older", "30"]), CommandAccess::Mutation);
+    }
+
+    #[test]
+    fn long_lived_and_rotating_services_have_scoped_access() {
+        assert_eq!(access(&["dashboard", "serve"]), CommandAccess::Diagnostic);
+        assert_eq!(
+            access(&["dashboard", "serve", "--rotate-token"]),
+            CommandAccess::Mutation
+        );
+        let shell = parsed(&["container", "shell", "test"]);
+        assert_eq!(command_access(&shell), CommandAccess::Mutation);
+        assert!(!holds_outer_mutation_permit(&shell));
+        let watch = parsed(&["sentinel", "watch"]);
+        assert_eq!(command_access(&watch), CommandAccess::Mutation);
+        assert!(!holds_outer_mutation_permit(&watch));
+    }
+
+    #[test]
+    fn diagnostics_recovery_and_legacy_aliases_are_explicit() {
+        for arguments in [
+            &["kickoff", "status"][..],
+            &["kickoff", "logs", "agent"][..],
+            &["kickoff", "show-plan", "agent"][..],
+            &["kickoff", "list"][..],
+            &["locks", "list"][..],
+            &["agent", "requests"][..],
+            &["list"][..],
+            &["show", "1"][..],
+        ] {
+            assert_eq!(
+                access(arguments),
+                CommandAccess::Diagnostic,
+                "{arguments:?}"
+            );
+        }
+        for arguments in [
+            &["migrate", "hub-v3"][..],
+            &["migrate", "hub-branches"][..],
+            &["migrate-to-shared"][..],
+            &["migrate-from-shared"][..],
+            &["daemon", "ensure", "--wait-ready"][..],
+        ] {
+            assert_eq!(access(arguments), CommandAccess::Recovery, "{arguments:?}");
+        }
+        for arguments in [
+            &["issue", "create", "title"][..],
+            &["create", "title"][..],
+            &["close", "1"][..],
+            &["start", "1"][..],
+            &["agent", "request", "target", "message"][..],
+        ] {
+            assert_eq!(access(arguments), CommandAccess::Mutation, "{arguments:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod service_database_tests {
+    use super::*;
+
+    fn ready_repository() -> (tempfile::TempDir, tempfile::TempDir, std::path::PathBuf) {
+        let (work, remote, crosslink, cache) = reconcile::migration::tests::setup_v2_hub();
+        reconcile::migration::hub_v3(&crosslink, false, false, false, false).unwrap();
+        let generation_id = reconcile::publication::generation_id_at_ref(
+            &cache,
+            reconcile::publication::GENERATION_REF,
+        )
+        .unwrap()
+        .unwrap();
+        let identity = reconcile::readiness::DaemonIdentity {
+            schema_version: reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: reconcile::readiness::repository_id(&crosslink).unwrap(),
+            daemon_epoch: "writable-open-test".to_string(),
+            pid: std::process::id(),
+            process_start: reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        reconcile::readiness::write_daemon_identity(&crosslink, &identity).unwrap();
+        reconcile::readiness::write_record(
+            &crosslink,
+            reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "writable-open-attempt",
+                state: reconcile::readiness::ReadinessState::ReadyMigrated,
+                generation_id: Some(&generation_id),
+                reason: None,
+            },
+        )
+        .unwrap();
+        (work, remote, cache)
+    }
+
+    fn blocked_repository(database: Option<&[u8]>) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let crosslink = root.path().join(".crosslink");
+        std::fs::create_dir(&crosslink).unwrap();
+        std::fs::write(crosslink.join("hook-config.json"), "{}").unwrap();
+        std::fs::write(crosslink.join("agent.json"), "{}").unwrap();
+        if let Some(contents) = database {
+            std::fs::write(crosslink.join("issues.db"), contents).unwrap();
+        }
+        let identity = reconcile::readiness::DaemonIdentity {
+            schema_version: reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: reconcile::readiness::repository_id(&crosslink).unwrap(),
+            daemon_epoch: "blocked-service-test".to_string(),
+            pid: std::process::id(),
+            process_start: reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        reconcile::readiness::write_daemon_identity(&crosslink, &identity).unwrap();
+        reconcile::readiness::write_record(
+            &crosslink,
+            reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "blocked-service-attempt",
+                state: reconcile::readiness::ReadinessState::BlockedCorrupt,
+                generation_id: None,
+                reason: Some("projection is unavailable"),
+            },
+        )
+        .unwrap();
+        root
+    }
+
+    #[test]
+    fn corrupt_projection_uses_ephemeral_diagnostic_database_without_source_mutation() {
+        let bytes = b"truncated sqlite projection";
+        let root = blocked_repository(Some(bytes));
+        let crosslink = root.path().join(".crosslink");
+        let service = open_service_db(&crosslink).unwrap();
+        assert!(service.unavailable.is_some());
+        assert!(service
+            .database
+            .list_issues(None, None, None)
+            .unwrap()
+            .is_empty());
+        assert_eq!(std::fs::read(crosslink.join("issues.db")).unwrap(), bytes);
+    }
+
+    #[test]
+    fn missing_projection_uses_ephemeral_diagnostic_database_without_creating_live_file() {
+        let root = blocked_repository(None);
+        let crosslink = root.path().join(".crosslink");
+        let service = open_service_db(&crosslink).unwrap();
+        assert!(service.unavailable.is_some());
+        assert!(service
+            .database
+            .list_issues(None, None, None)
+            .unwrap()
+            .is_empty());
+        assert!(!crosslink.join("issues.db").exists());
+    }
+
+    #[test]
+    fn writable_database_open_propagates_authority_hydration_failure() {
+        let (work, _remote, cache) = ready_repository();
+        let crosslink = work.path().join(".crosslink");
+        let database = crosslink.join("issues.db");
+        assert!(database.is_file());
+        let _permit = reconcile::readiness::acquire_mutation_operation_permit(&crosslink).unwrap();
+        let tip = std::process::Command::new("git")
+            .current_dir(&cache)
+            .args([
+                "for-each-ref",
+                "--format=%(objectname)",
+                "refs/heads/crosslink/agents",
+            ])
+            .output()
+            .unwrap();
+        assert!(tip.status.success());
+        let tip = String::from_utf8(tip.stdout).unwrap();
+        let update = std::process::Command::new("git")
+            .current_dir(&cache)
+            .args([
+                "update-ref",
+                "refs/heads/crosslink/agents/authority-advanced",
+                tip.lines().next().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(update.status.success());
+        let frontiers = crosslink.join("hydrated-frontiers");
+        std::fs::remove_dir_all(&frontiers).unwrap();
+        std::fs::write(&frontiers, b"durability failure").unwrap();
+        let Err(error) = open_command_db(&crosslink) else {
+            panic!("writable database opened after authority hydration failed");
+        };
+        assert!(format!("{error:#}").contains("hydrate repository authority"));
+        assert_eq!(std::fs::read(frontiers).unwrap(), b"durability failure");
     }
 }

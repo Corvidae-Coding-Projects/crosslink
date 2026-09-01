@@ -43,7 +43,7 @@ impl SyncManager {
     }
 
     #[must_use]
-    pub fn hub_mode(&self) -> crate::hub_v3::HubMode {
+    pub const fn hub_mode(&self) -> crate::hub_v3::HubMode {
         self.hub_mode.get()
     }
 
@@ -53,8 +53,51 @@ impl SyncManager {
     }
 
     #[must_use]
+    pub(crate) fn reconciliation_remote(&self) -> &str {
+        if self.remote_exists() {
+            &self.remote
+        } else {
+            "."
+        }
+    }
+
+    #[must_use]
     pub fn is_initialized(&self) -> bool {
         self.cache_dir.exists()
+    }
+
+    pub(crate) fn validate_cache_repository(&self) -> Result<()> {
+        anyhow::ensure!(
+            self.cache_dir.is_dir(),
+            "repository authority cache is missing"
+        );
+        let output = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .context("validating repository authority cache")?;
+        anyhow::ensure!(
+            output.status.success(),
+            "repository authority cache is not a Git worktree: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        let observed = PathBuf::from(
+            String::from_utf8(output.stdout)
+                .context("repository authority cache path was not UTF-8")?
+                .trim(),
+        );
+        let expected = self
+            .cache_dir
+            .canonicalize()
+            .context("canonicalizing repository authority cache")?;
+        let observed = observed
+            .canonicalize()
+            .context("canonicalizing observed authority cache worktree")?;
+        anyhow::ensure!(
+            observed == expected,
+            "repository authority cache resolves to a different Git worktree"
+        );
+        Ok(())
     }
 
     #[must_use]

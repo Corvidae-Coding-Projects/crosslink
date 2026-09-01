@@ -90,19 +90,7 @@ fn process_is_alive(pid: u32) -> bool {
 
 #[cfg(target_os = "windows")]
 fn process_is_alive(pid: u32) -> bool {
-    let filter = format!("PID eq {pid}");
-    std::process::Command::new("tasklist.exe")
-        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .is_some_and(|output| {
-            String::from_utf8_lossy(&output.stdout).lines().any(|line| {
-                line.split(',')
-                    .nth(1)
-                    .is_some_and(|field| field.trim().trim_matches('"') == pid.to_string())
-            })
-        })
+    crate::reconcile::readiness::is_process_running(pid)
 }
 
 #[cfg(not(any(unix, target_os = "windows")))]
@@ -231,27 +219,33 @@ impl SyncManager {
         Ok(())
     }
 
-    pub fn init_cache_for_reconciliation(&self) -> Result<ReconciliationCacheOutcome> {
+    pub fn init_cache_for_reconciliation(&self) -> ReconciliationCacheOutcome {
         match self.init_cache_for_reconciliation_inner() {
-            Ok(()) => Ok(ReconciliationCacheOutcome::Ready),
+            Ok(()) => ReconciliationCacheOutcome::Ready,
             Err(error) => match error.downcast_ref::<ReconciliationRemoteError>() {
                 Some(ReconciliationRemoteError::Unavailable(reason)) => {
-                    Ok(ReconciliationCacheOutcome::WaitingForRemote {
+                    ReconciliationCacheOutcome::WaitingForRemote {
                         reason: reason.clone(),
-                    })
+                    }
                 }
                 Some(ReconciliationRemoteError::Rejected(reason)) => {
-                    Ok(ReconciliationCacheOutcome::BlockedCorrupt {
+                    ReconciliationCacheOutcome::BlockedCorrupt {
                         reason: reason.clone(),
-                    })
+                    }
                 }
-                None => Err(error),
+                None => ReconciliationCacheOutcome::BlockedCorrupt {
+                    reason: format!("repository authority cache observation failed: {error:#}"),
+                },
             },
         }
     }
 
     fn init_cache_for_reconciliation_inner(&self) -> Result<()> {
+        if self.cache_dir.exists() {
+            self.validate_cache_repository()?;
+        }
         let remote_configured = self.remote_exists();
+        let mut fetched_v3 = false;
         let mut candidates = Vec::new();
         for branch in [HUB_BRANCH, super::OLD_BRANCH] {
             let has_remote = if remote_configured {
@@ -367,9 +361,21 @@ impl SyncManager {
             self.hub_mode.set(crate::hub_v3::HubMode::V2);
         } else {
             self.init_v3_host_worktree()?;
+            if remote_configured {
+                self.fetch_v3_refs_for_reconciliation()?;
+                fetched_v3 = true;
+            }
+            if matches!(
+                self.reconciliation_shared_store()?,
+                crate::reconcile::SharedStoreFormat::Absent
+            ) {
+                let agent_id = crate::identity::AgentConfig::load(&self.crosslink_dir)?
+                    .map_or_else(|| "hub-v3-bootstrap".to_string(), |agent| agent.agent_id);
+                crate::hub_v3::bootstrap_v3_hub(&self.cache_dir, &agent_id, None)?;
+            }
             self.hub_mode.set(crate::hub_v3::HubMode::V3);
         }
-        if remote_configured {
+        if remote_configured && !fetched_v3 {
             self.fetch_v3_refs_for_reconciliation()?;
         }
         self.ensure_cache_git_identity()?;
@@ -398,6 +404,37 @@ impl SyncManager {
             )
             .into()
         })
+    }
+
+    fn reconciliation_shared_store(&self) -> Result<crate::reconcile::SharedStoreFormat> {
+        let output = std::process::Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args([
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/crosslink/",
+                "refs/heads/crosslink/",
+            ])
+            .output()
+            .with_context(|| {
+                format!(
+                    "inspecting shared authority in {}",
+                    self.cache_dir.display()
+                )
+            })?;
+        anyhow::ensure!(
+            output.status.success(),
+            "git for-each-ref failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        let refs = String::from_utf8(output.stdout)
+            .context("shared authority refs were not UTF-8")?
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        Ok(crate::reconcile::classify_shared_store(&refs))
     }
 
     fn init_v2_worktree(&self, has_remote_v2: bool, has_local_v2: bool) -> Result<()> {
@@ -652,7 +689,103 @@ fn git_is_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use tempfile::tempdir;
+
+    fn initialize_repository() -> tempfile::TempDir {
+        let root = tempdir().unwrap();
+        let status = Command::new("git")
+            .current_dir(root.path())
+            .args(["init", "-b", "main"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        for (key, value) in [
+            ("user.email", "test@example.invalid"),
+            ("user.name", "Test"),
+        ] {
+            assert!(Command::new("git")
+                .current_dir(root.path())
+                .args(["config", key, value])
+                .status()
+                .unwrap()
+                .success());
+        }
+        std::fs::write(root.path().join("README.md"), "test").unwrap();
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["add", "README.md"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["commit", "-m", "initial", "--no-gpg-sign"])
+            .status()
+            .unwrap()
+            .success());
+        let crosslink = root.path().join(".crosslink");
+        std::fs::create_dir(&crosslink).unwrap();
+        std::fs::write(crosslink.join("hook-config.json"), "{}").unwrap();
+        root
+    }
+
+    #[test]
+    fn fresh_initialized_repository_bootstraps_verified_v3_authority() {
+        let root = initialize_repository();
+        let crosslink = root.path().join(".crosslink");
+        let sync = SyncManager::new(&crosslink).unwrap();
+        assert_eq!(
+            sync.init_cache_for_reconciliation(),
+            ReconciliationCacheOutcome::Ready
+        );
+        for name in [crate::hub_v3::CHECKPOINT_REF, crate::hub_v3::META_REF] {
+            assert!(Command::new("git")
+                .current_dir(sync.cache_path())
+                .args(["rev-parse", "--verify", name])
+                .status()
+                .unwrap()
+                .success());
+        }
+    }
+
+    #[test]
+    fn corrupt_initialized_cache_is_typed_blocked() {
+        let root = initialize_repository();
+        let crosslink = root.path().join(".crosslink");
+        let cache = crosslink.join(super::super::HUB_CACHE_DIR);
+        std::fs::create_dir(&cache).unwrap();
+        std::fs::write(cache.join("not-a-repository"), "invalid").unwrap();
+        let outcome = SyncManager::new(&crosslink)
+            .unwrap()
+            .init_cache_for_reconciliation();
+        assert!(matches!(
+            outcome,
+            ReconciliationCacheOutcome::BlockedCorrupt { .. }
+        ));
+        assert!(!crosslink.join("issues.db").exists());
+    }
+
+    #[test]
+    fn unavailable_remote_is_typed_waiting_without_projection_creation() {
+        let root = initialize_repository();
+        let crosslink = root.path().join(".crosslink");
+        let unavailable = root.path().join("missing-remote.git");
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["remote", "add", "origin", unavailable.to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        let outcome = SyncManager::new(&crosslink)
+            .unwrap()
+            .init_cache_for_reconciliation();
+        assert!(matches!(
+            outcome,
+            ReconciliationCacheOutcome::WaitingForRemote { .. }
+        ));
+        assert!(!crosslink.join("issues.db").exists());
+    }
 
     #[test]
     fn test_acquire_hub_lock_live_holder_bails_without_stealing() {

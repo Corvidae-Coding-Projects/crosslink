@@ -21,6 +21,13 @@ const GITIGNORE_MANAGED_SECTION: &str = "\
 .crosslink/session.json
 .crosslink/daemon.pid
 .crosslink/daemon.log
+.crosslink/daemon.start.lock
+.crosslink/daemon.run.lock
+.crosslink/.daemon-*.tmp
+.crosslink/readiness/
+.crosslink/hydrated-frontiers/
+.crosslink/reconciliation-journal.json
+.crosslink/integrity/
 .crosslink/last_test_run
 .crosslink/.active-issue
 .crosslink/.last-hydrated-ref

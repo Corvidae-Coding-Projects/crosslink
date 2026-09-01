@@ -1,7 +1,7 @@
 use super::harness::{assert_stdout_contains, SmokeHarness};
 
 fn harness_local_only() -> SmokeHarness {
-    let h = SmokeHarness::new_bare();
+    let mut h = SmokeHarness::new_bare();
 
     let out = std::process::Command::new("git")
         .current_dir(h.temp_dir.path())
@@ -36,6 +36,7 @@ fn harness_local_only() -> SmokeHarness {
     assert!(out.status.success(), "initial git commit failed");
 
     h.run_ok(&["init", "--defaults", "--skip-cpitd", "--skip-signing"]);
+    h.ensure_ready();
 
     h
 }

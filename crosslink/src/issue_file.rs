@@ -261,6 +261,7 @@ pub fn read_milestone_file(path: &std::path::Path) -> anyhow::Result<MilestoneEn
         .with_context(|| format!("Failed to parse milestone file: {}", path.display()))
 }
 
+#[cfg(test)]
 pub fn write_milestone_file(path: &std::path::Path, entry: &MilestoneEntry) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

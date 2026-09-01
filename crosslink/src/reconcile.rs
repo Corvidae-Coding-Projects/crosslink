@@ -10,7 +10,9 @@ use sha2::{Digest, Sha256};
 
 use crate::db::SCHEMA_VERSION;
 
+pub mod migration;
 pub mod publication;
+pub mod readiness;
 
 const LEGACY_LOCKS_REF: &str = "refs/heads/crosslink/locks";
 const V2_HUB_REF: &str = "refs/heads/crosslink/hub";
@@ -264,22 +266,18 @@ pub fn compare_semantic_snapshots(
     left: &SemanticSnapshot,
     right: &SemanticSnapshot,
 ) -> SemanticComparison {
-    let mut differing_sections = Vec::new();
-    if left.issues != right.issues {
-        differing_sections.push("issues".to_string());
-    }
-    if left.comments != right.comments {
-        differing_sections.push("comments".to_string());
-    }
-    if left.milestones != right.milestones {
-        differing_sections.push("milestones".to_string());
-    }
-    if left.locks != right.locks {
-        differing_sections.push("locks".to_string());
-    }
-    if left.trust != right.trust {
-        differing_sections.push("trust".to_string());
-    }
+    let sections = [
+        ("issues", left.issues != right.issues),
+        ("comments", left.comments != right.comments),
+        ("milestones", left.milestones != right.milestones),
+        ("locks", left.locks != right.locks),
+        ("trust", left.trust != right.trust),
+    ];
+    let differing_sections = sections
+        .into_iter()
+        .filter(|(_, differs)| *differs)
+        .map(|(name, _)| name.to_string())
+        .collect::<Vec<_>>();
     SemanticComparison {
         equivalent: differing_sections.is_empty(),
         differing_sections,
@@ -507,6 +505,7 @@ pub fn classify_shared_store(refs: &BTreeSet<String>) -> SharedStoreFormat {
 mod tests {
     use super::*;
     use crate::db::Database;
+    use std::collections::BTreeMap;
 
     #[derive(Deserialize)]
     struct FixtureManifest {
@@ -773,9 +772,8 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        let error = match Database::open(&database_path) {
-            Ok(_) => panic!("migration unexpectedly succeeded"),
-            Err(error) => error,
+        let Err(error) = Database::open(&database_path) else {
+            panic!("migration unexpectedly succeeded");
         };
         assert!(error.to_string().contains("migration v18"));
 

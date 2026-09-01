@@ -1144,29 +1144,53 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
     populate_tracker_remote(&config_path, path)?;
 
     let crosslink_gitignore = crosslink_dir.join(".gitignore");
-    if !crosslink_gitignore.exists() || force {
-        fs::write(
-            &crosslink_gitignore,
-            "agent.json\n\
-             repo-id\n\
-             .hub-cache/\n\
-             .knowledge-cache/\n\
-             keys/\n\
-             integrations/\n\
-             runtime/\n\
-             \n\
-             hook-config.local.json\n\
-             rules.local/\n\
-             \n\
-             .active-issue\n\
-             .last-hydrated-ref\n\
-             .promoted-uuids\n\
-             promotion-log.json\n\
-             hub-v3-shadow-stats.json\n\
-             sentinel.log\n",
-        )
-        .context("Failed to write .crosslink/.gitignore")?;
+    let runtime_entries = [
+        "agent.json",
+        "repo-id",
+        ".hub-cache/",
+        ".knowledge-cache/",
+        "keys/",
+        "integrations/",
+        "runtime/",
+        "hook-config.local.json",
+        "rules.local/",
+        ".active-issue",
+        ".last-hydrated-ref",
+        ".promoted-uuids",
+        "promotion-log.json",
+        "hub-v3-shadow-stats.json",
+        "sentinel.log",
+        "daemon.pid",
+        "daemon.log",
+        "daemon.start.lock",
+        "daemon.run.lock",
+        ".daemon-*.tmp",
+        "readiness/",
+        "hydrated-frontiers/",
+        "reconciliation-journal.json",
+        "integrity/",
+    ];
+    let mut crosslink_gitignore_content = if force {
+        String::new()
+    } else {
+        fs::read_to_string(&crosslink_gitignore).unwrap_or_default()
+    };
+    for entry in runtime_entries {
+        if !crosslink_gitignore_content
+            .lines()
+            .any(|line| line == entry)
+        {
+            if !crosslink_gitignore_content.is_empty()
+                && !crosslink_gitignore_content.ends_with('\n')
+            {
+                crosslink_gitignore_content.push('\n');
+            }
+            crosslink_gitignore_content.push_str(entry);
+            crosslink_gitignore_content.push('\n');
+        }
     }
+    fs::write(&crosslink_gitignore, crosslink_gitignore_content)
+        .context("Failed to write .crosslink/.gitignore")?;
 
     ui.step_start("Configuring .gitignore");
     write_root_gitignore(path).context("Failed to update root .gitignore")?;
@@ -2397,6 +2421,13 @@ mod tests {
             "promotion-log.json",
             "hub-v3-shadow-stats.json",
             "sentinel.log",
+            "daemon.start.lock",
+            "daemon.run.lock",
+            ".daemon-*.tmp",
+            "readiness/",
+            "hydrated-frontiers/",
+            "reconciliation-journal.json",
+            "integrity/",
         ] {
             assert!(
                 inner.contains(entry),
@@ -2411,6 +2442,13 @@ mod tests {
             ".crosslink/promotion-log.json",
             ".crosslink/hub-v3-shadow-stats.json",
             ".crosslink/sentinel.log",
+            ".crosslink/daemon.start.lock",
+            ".crosslink/daemon.run.lock",
+            ".crosslink/.daemon-*.tmp",
+            ".crosslink/readiness/",
+            ".crosslink/hydrated-frontiers/",
+            ".crosslink/reconciliation-journal.json",
+            ".crosslink/integrity/",
         ] {
             assert!(
                 root.contains(entry),

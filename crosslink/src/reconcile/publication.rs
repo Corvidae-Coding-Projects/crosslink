@@ -1,5 +1,8 @@
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+#[cfg(unix)]
+use std::fs::File;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -46,30 +49,18 @@ impl RefEvidence {
         &self.oid
     }
 
-    pub fn tree_oid(&self) -> &str {
-        &self.tree_oid
-    }
-
     pub fn remote_oid(&self) -> Option<&str> {
         self.remote_oid.as_deref()
-    }
-
-    pub fn remote_tree_oid(&self) -> Option<&str> {
-        self.remote_tree_oid.as_deref()
     }
 }
 
 impl SourceEvidence {
-    pub fn format(&self) -> &RepositoryFormat {
+    pub const fn format(&self) -> &RepositoryFormat {
         &self.format
     }
 
-    pub fn refs(&self) -> &BTreeMap<String, RefEvidence> {
+    pub const fn refs(&self) -> &BTreeMap<String, RefEvidence> {
         &self.refs
-    }
-
-    pub fn local_fingerprint(&self) -> Option<&str> {
-        self.local_fingerprint.as_deref()
     }
 
     pub fn fingerprint(&self) -> &str {
@@ -114,7 +105,7 @@ impl CanonicalSemantic {
         &self.digest
     }
 
-    pub fn value(&self) -> &Value {
+    pub const fn value(&self) -> &Value {
         &self.value
     }
 }
@@ -126,7 +117,7 @@ pub struct PreparedImport {
 }
 
 impl PreparedImport {
-    pub fn new(targets: BTreeMap<String, String>, semantic: CanonicalSemantic) -> Self {
+    pub const fn new(targets: BTreeMap<String, String>, semantic: CanonicalSemantic) -> Self {
         Self { targets, semantic }
     }
 }
@@ -252,7 +243,7 @@ struct FailureController {
 
 impl FailureController {
     #[cfg(test)]
-    fn new(failpoint: Option<Failpoint>) -> Self {
+    const fn new(failpoint: Option<Failpoint>) -> Self {
         Self {
             failpoint,
             occurrences: BTreeMap::new(),
@@ -308,7 +299,7 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
     }
 
     #[cfg(test)]
-    fn with_atomic_capability(mut self, capability: AtomicCapability) -> Self {
+    const fn with_atomic_capability(mut self, capability: AtomicCapability) -> Self {
         self.atomic_capability = capability;
         self
     }
@@ -319,8 +310,11 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         self
     }
 
-    pub fn reconcile(&mut self, format: RepositoryFormat) -> Result<PublicationOutcome> {
-        match self.reconcile_inner(format) {
+    pub fn reconcile(
+        &mut self,
+        format: impl Borrow<RepositoryFormat>,
+    ) -> Result<PublicationOutcome> {
+        match self.reconcile_inner(format.borrow()) {
             Err(error) => match error.downcast_ref::<RemoteGitError>() {
                 Some(RemoteGitError::Unavailable(reason)) => {
                     Ok(PublicationOutcome::WaitingForRemote {
@@ -336,7 +330,7 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         }
     }
 
-    fn reconcile_inner(&mut self, format: RepositoryFormat) -> Result<PublicationOutcome> {
+    fn reconcile_inner(&mut self, format: &RepositoryFormat) -> Result<PublicationOutcome> {
         if let SharedStoreFormat::Unreadable { reason } = &format.shared_store {
             return Ok(PublicationOutcome::BlockedCorrupt {
                 reason: format!("historical shared store is unreadable: {reason}"),
@@ -373,12 +367,12 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         };
         if let Some(record) = journal_record {
             return match record {
-                JournalRecord::Intent(intent) => self.prepare_from_intent(intent, &format),
-                JournalRecord::Generation(journal) => self.resume(journal, &format),
+                JournalRecord::Intent(intent) => self.prepare_from_intent(intent, format),
+                JournalRecord::Generation(journal) => self.resume(journal, format),
             };
         }
 
-        match self.ready_current(&format) {
+        match self.ready_current(format) {
             Ok(Some(outcome)) => return Ok(outcome),
             Ok(None) => {}
             Err(error) if error.downcast_ref::<RemoteGitError>().is_some() => return Err(error),
@@ -409,7 +403,7 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         };
         materialize_intent_evidence(self.repository, &intent)?;
         self.persist_record(&JournalRecord::Intent(intent.clone()))?;
-        self.prepare_from_intent(intent, &format)
+        self.prepare_from_intent(intent, format)
     }
 
     fn prepare_from_intent(
@@ -508,17 +502,18 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
             SharedStoreFormat::VisibleV3 { .. } | SharedStoreFormat::HiddenV3 { .. } => self
                 .importer
                 .prepare_current_source(self.repository, source),
-            SharedStoreFormat::Mixed { .. }
+            SharedStoreFormat::Mixed { .. } => {
                 if self
                     .importer
-                    .file_source_is_newer(self.repository, source)? =>
-            {
-                self.importer
-                    .prepare_file_source(self.repository, source, generation_id)
+                    .file_source_is_newer(self.repository, source)?
+                {
+                    self.importer
+                        .prepare_file_source(self.repository, source, generation_id)
+                } else {
+                    self.importer
+                        .prepare_current_source(self.repository, source)
+                }
             }
-            SharedStoreFormat::Mixed { .. } => self
-                .importer
-                .prepare_current_source(self.repository, source),
             SharedStoreFormat::V2 { .. } | SharedStoreFormat::LegacyLocks { .. } => self
                 .importer
                 .prepare_file_source(self.repository, source, generation_id),
@@ -666,9 +661,16 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                     return Err(PublicationPointerAdvanced.into());
                 }
             }
-            if !self.can_supersede(winner, &journal.descriptor)? {
-                return self.adopt_winner(journal, winner);
+            if let Some(reason) = self.supersession_blocker(winner, &journal.descriptor)? {
+                return Ok(PublicationOutcome::BlockedCorrupt {
+                    reason: format!("new historical authority cannot supersede the committed generation: {reason}"),
+                });
             }
+            remote_refs = remote_ref_map(
+                self.repository,
+                self.remote,
+                &publication_ref_patterns(&journal.descriptor),
+            )?;
         }
         if let Err(error) = ensure_source_expectations(&journal.descriptor.source, &remote_refs) {
             return Ok(PublicationOutcome::BlockedCorrupt {
@@ -771,23 +773,21 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                 })
             }
             AtomicAttempt::Race => {
-                match remote_ref_oid(self.repository, self.remote, GENERATION_REF)? {
-                    Some(winner) => self.adopt_winner(journal, &winner),
-                    None => Ok(PublicationOutcome::BlockedCorrupt {
+                remote_ref_oid(self.repository, self.remote, GENERATION_REF)?.map_or_else(
+                    || Ok(PublicationOutcome::BlockedCorrupt {
                         reason: "atomic publication lost a source or alias lease without a committed generation; all pinned evidence remains preserved".to_string(),
                     }),
-                }
+                    |winner| self.adopt_winner(journal, &winner),
+                )
             }
             AtomicAttempt::Waiting(reason) => Ok(PublicationOutcome::WaitingForRemote { reason }),
             AtomicAttempt::Rejected(reason) => {
-                if let Some(winner) = remote_ref_oid(self.repository, self.remote, GENERATION_REF)?
-                {
-                    self.adopt_winner(journal, &winner)
-                } else {
-                    Ok(PublicationOutcome::BlockedCorrupt { reason })
-                }
+                remote_ref_oid(self.repository, self.remote, GENERATION_REF)?.map_or_else(
+                    || Ok(PublicationOutcome::BlockedCorrupt { reason }),
+                    |winner| self.adopt_winner(journal, &winner),
+                )
             }
-            AtomicAttempt::Unsupported => self.publish_fallback(journal, remote_refs),
+            AtomicAttempt::Unsupported => self.publish_fallback(journal, &remote_refs),
         }
     }
 
@@ -810,7 +810,7 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
     fn publish_fallback(
         &mut self,
         mut journal: ReconciliationJournal,
-        remote_refs: BTreeMap<String, String>,
+        remote_refs: &BTreeMap<String, String>,
     ) -> Result<PublicationOutcome> {
         for target in journal
             .descriptor
@@ -1020,6 +1020,31 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                 )));
             }
         }
+        for (reference, expected) in retired_local_source_refs(&descriptor.source) {
+            if preserve_advanced_sources {
+                continue;
+            }
+            let Some(actual) = local_ref_oid(self.repository, &reference)? else {
+                continue;
+            };
+            if actual != expected {
+                return Ok(AliasConvergence::Blocked(format!(
+                    "local historical source {reference} advanced from {expected} to {actual} after cutover"
+                )));
+            }
+            move_head_from_retired_source(self.repository, &reference, &expected)?;
+            let output = Command::new("git")
+                .current_dir(self.repository)
+                .args(["update-ref", "-d", &reference, &expected])
+                .output()
+                .with_context(|| format!("retiring local historical ref {reference}"))?;
+            if !output.status.success() {
+                return Ok(AliasConvergence::Blocked(format!(
+                    "retiring local historical source {reference} failed: {}",
+                    output_message(&output)
+                )));
+            }
+        }
         for (canonical, target) in &descriptor.targets {
             self.failure
                 .hit(Transition::Alias, TransitionPosition::Before)?;
@@ -1087,11 +1112,11 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
             !preserve_advanced_sources,
         ) {
             Ok(live) => live,
-            Err(error) if pointer_change_outcome(&error).is_some() => {
-                return Ok(pointer_change_outcome(&error).unwrap());
-            }
             Err(error) if error.downcast_ref::<RemoteGitError>().is_some() => return Err(error),
             Err(error) => {
+                if let Some(outcome) = pointer_change_outcome(&error) {
+                    return Ok(outcome);
+                }
                 return Ok(AliasConvergence::Blocked(format!(
                     "committed generation did not converge: {error:#}"
                 )));
@@ -1194,10 +1219,10 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         &mut self,
         observed_format: &RepositoryFormat,
     ) -> Result<Option<PublicationOutcome>> {
-        let mut descriptor_oid = match remote_ref_oid(self.repository, self.remote, GENERATION_REF)?
-        {
-            Some(oid) => oid,
-            None => return Ok(None),
+        let Some(mut descriptor_oid) =
+            remote_ref_oid(self.repository, self.remote, GENERATION_REF)?
+        else {
+            return Ok(None);
         };
         for _ in 0..8 {
             fetch_oid(self.repository, self.remote, &descriptor_oid)?;
@@ -1237,26 +1262,45 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         }))
     }
 
-    fn can_supersede(&self, winner_oid: &str, proposed: &GenerationDescriptor) -> Result<bool> {
+    fn supersession_blocker(
+        &self,
+        winner_oid: &str,
+        proposed: &GenerationDescriptor,
+    ) -> Result<Option<String>> {
         fetch_oid(self.repository, self.remote, winner_oid)?;
         let winner = read_descriptor(self.repository, winner_oid)?;
         let live = self.verify_remote_targets(&winner, winner_oid, false)?;
         for (canonical, oid) in &live {
-            if local_ref_oid(self.repository, canonical)?.as_deref() != Some(oid) {
-                return Ok(false);
+            let local = local_ref_oid(self.repository, canonical)?;
+            let proposed_target = proposed
+                .targets
+                .get(canonical)
+                .map(|target| target.oid.as_str());
+            if local.as_deref() != Some(oid.as_str()) && local.as_deref() != proposed_target {
+                return Ok(Some(format!(
+                    "local canonical ref {canonical} is neither the verified winner nor the prepared successor"
+                )));
             }
         }
         let winner_semantic = self.importer.read_target_semantic(self.repository, &live)?;
         let proposed_semantic = self
             .importer
             .read_target_semantic(self.repository, &descriptor_target_oids(proposed))?;
-        let source_binds_live = source_binds_live_semantic(&proposed.source, &live);
+        let source_binds_live = source_binds_live_semantic(&proposed.source, &live)
+            || live.iter().all(|(reference, oid)| {
+                proposed
+                    .targets
+                    .get(reference)
+                    .is_some_and(|target| target.oid == *oid)
+            });
         if !semantic_preserves_identities(
             winner_semantic.value(),
             proposed_semantic.value(),
             source_binds_live,
         ) {
-            return Ok(false);
+            return Ok(Some(
+                "the proposed canonical state does not preserve committed identities".to_string(),
+            ));
         }
         let baseline = live.iter().all(|(canonical, oid)| {
             winner
@@ -1265,15 +1309,25 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                 .is_some_and(|target| target.oid == *oid)
         });
         if baseline && winner_semantic.digest() != winner.semantic_digest {
-            return Ok(false);
+            return Ok(Some(
+                "the committed generation semantic digest does not match its live aliases"
+                    .to_string(),
+            ));
         }
         let mut advanced = false;
         for (name, winner_evidence) in &winner.source.refs {
-            if name != "refs/heads/crosslink/hub" && name != "refs/heads/crosslink/locks" {
+            if !is_retired_source_ref(name) {
                 continue;
             }
             let Some(proposed_evidence) = proposed.source.refs.get(name) else {
-                return Ok(false);
+                if local_ref_oid(self.repository, name)?.is_none()
+                    && remote_ref_oid(self.repository, self.remote, name)?.is_none()
+                {
+                    continue;
+                }
+                return Ok(Some(format!(
+                    "historical source {name} remains present but is absent from the successor evidence"
+                )));
             };
             if proposed_evidence.authority_oid != winner_evidence.authority_oid {
                 if !is_ancestor(
@@ -1281,7 +1335,9 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                     &winner_evidence.authority_oid,
                     &proposed_evidence.authority_oid,
                 )? {
-                    return Ok(false);
+                    return Ok(Some(format!(
+                        "historical source {name} has no ancestry from the committed authority"
+                    )));
                 }
                 advanced = true;
             }
@@ -1293,7 +1349,9 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                         &proposed_evidence.oid,
                     )?
                 {
-                    return Ok(false);
+                    return Ok(Some(format!(
+                        "historical source {name} has an unanchored local snapshot"
+                    )));
                 }
                 advanced = true;
             }
@@ -1302,25 +1360,26 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                     if winner_remote != proposed_remote =>
                 {
                     if !is_ancestor(self.repository, winner_remote, proposed_remote)? {
-                        return Ok(false);
+                        return Ok(Some(format!(
+                            "remote historical source {name} has no ancestry from the committed authority"
+                        )));
                     }
                     advanced = true;
                 }
                 (None, Some(_)) => advanced = true,
-                (Some(_), None) => {}
-                (Some(_), Some(_)) | (None, None) => {}
+                _ => {}
             }
         }
         for (name, proposed_evidence) in &proposed.source.refs {
-            if (name == "refs/heads/crosslink/hub" || name == "refs/heads/crosslink/locks")
-                && !winner.source.refs.contains_key(name)
-            {
+            if is_retired_source_ref(name) && !winner.source.refs.contains_key(name) {
                 if !is_ancestor(
                     self.repository,
                     &proposed_evidence.authority_oid,
                     &proposed_evidence.oid,
                 )? {
-                    return Ok(false);
+                    return Ok(Some(format!(
+                        "new historical source {name} has an unanchored local snapshot"
+                    )));
                 }
                 advanced = true;
             }
@@ -1330,7 +1389,13 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         {
             advanced = true;
         }
-        Ok(advanced)
+        if advanced {
+            Ok(None)
+        } else {
+            Ok(Some(
+                "the proposed source contains no verified historical advancement".to_string(),
+            ))
+        }
     }
 
     fn converge_live_aliases(
@@ -1771,14 +1836,16 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
             return Ok(false);
         }
         if !matches!(observed_format.local_database, LocalDatabaseFormat::Missing) {
-            let observed = self.pin_source(observed_format.clone())?;
+            let observed = self.pin_source(observed_format.clone()).with_context(|| {
+                format!("pinning observed repository format {observed_format:?}")
+            })?;
             if observed.refs.contains_key("local/issues.db")
                 && !source.refs.contains_key("local/issues.db")
             {
                 return Ok(false);
             }
         }
-        let retired = retired_source_refs(source);
+        let retired = retired_local_source_refs(source);
         if !retired.is_empty() {
             let mut historical_source_present = false;
             for reference in retired.keys() {
@@ -1847,7 +1914,7 @@ fn has_unrecorded_legacy_source(
 ) -> bool {
     source_ref_names(&observed_format.shared_store)
         .into_iter()
-        .filter(|name| name == "refs/heads/crosslink/hub" || name == "refs/heads/crosslink/locks")
+        .filter(|name| is_retired_source_ref(name))
         .any(|name| !source.refs.contains_key(&name))
 }
 
@@ -1881,6 +1948,13 @@ enum AliasConvergence {
 enum RemoteGitError {
     Unavailable(String),
     Rejected(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GenerationRefreshOutcome {
+    Refreshed,
+    WaitingForRemote(String),
+    BlockedCorrupt(String),
 }
 
 #[derive(Debug)]
@@ -1977,7 +2051,35 @@ fn semantic_preserves_identities(base: &Value, candidate: &Value, source_binds_l
             return false;
         }
     }
-    for collection in ["milestones", "comments", "locks"] {
+    let deleted_milestones = candidate_state
+        .get("deleted_milestones")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<BTreeSet<_>>();
+    let base_milestones = base_state
+        .get("milestones")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let candidate_milestones = candidate_state
+        .get("milestones")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (uuid, milestone) in &base_milestones {
+        let Some(candidate_milestone) = candidate_milestones.get(uuid) else {
+            if deleted_milestones.contains(uuid.as_str()) {
+                continue;
+            }
+            return false;
+        };
+        if !semantic_value_preserved(milestone, candidate_milestone, source_binds_live) {
+            return false;
+        }
+    }
+    for collection in ["comments", "locks"] {
         if !semantic_value_preserved(
             base_state.get(collection).unwrap_or(&Value::Null),
             candidate_state.get(collection).unwrap_or(&Value::Null),
@@ -2515,6 +2617,22 @@ fn read_descriptor(repository: &Path, oid: &str) -> Result<GenerationDescriptor>
     Ok(descriptor)
 }
 
+pub(crate) fn generation_id_at_ref(repository: &Path, reference: &str) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .current_dir(repository)
+        .args(["rev-parse", "--verify", reference])
+        .output()
+        .with_context(|| format!("reading generation reference {reference}"))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let oid = String::from_utf8(output.stdout)
+        .context("generation reference was not UTF-8")?
+        .trim()
+        .to_string();
+    Ok(Some(read_descriptor(repository, &oid)?.generation_id))
+}
+
 fn write_journal(path: &Path, record: &JournalRecord) -> Result<()> {
     let parent = path
         .parent()
@@ -2546,7 +2664,7 @@ fn write_journal(path: &Path, record: &JournalRecord) -> Result<()> {
         .with_context(|| format!("writing temporary journal {}", temp.display()))?;
     file.sync_all()
         .with_context(|| format!("syncing temporary journal {}", temp.display()))?;
-    fs::rename(&temp, &destination).with_context(|| {
+    crate::utils::durable_rename(&temp, &destination, false).with_context(|| {
         format!(
             "atomically appending reconciliation journal {}",
             destination.display()
@@ -2657,15 +2775,8 @@ fn sync_directory(path: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn sync_directory(path: &Path) -> Result<()> {
-    use std::os::windows::fs::OpenOptionsExt as _;
-
-    OpenOptions::new()
-        .read(true)
-        .custom_flags(0x0200_0000 | 0x8000_0000)
-        .open(path)
-        .with_context(|| format!("opening directory {} for journal sync", path.display()))?
-        .sync_all()
-        .with_context(|| format!("syncing journal directory {}", path.display()))
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -2814,14 +2925,7 @@ fn retired_source_refs(source: &SourceEvidence) -> BTreeMap<String, String> {
         .refs
         .iter()
         .filter_map(|(name, evidence)| {
-            let retired = matches!(
-                name.as_str(),
-                "refs/heads/crosslink/hub"
-                    | "refs/heads/crosslink/locks"
-                    | crate::hub_v3::OLD_CHECKPOINT_REF
-                    | crate::hub_v3::OLD_META_REF
-            ) || name.starts_with(crate::hub_v3::OLD_AGENT_REF_PREFIX);
-            retired
+            is_retired_source_ref(name)
                 .then(|| {
                     evidence
                         .remote_oid
@@ -2833,6 +2937,54 @@ fn retired_source_refs(source: &SourceEvidence) -> BTreeMap<String, String> {
         .collect()
 }
 
+fn retired_local_source_refs(source: &SourceEvidence) -> BTreeMap<String, String> {
+    source
+        .refs
+        .iter()
+        .filter(|(name, _)| is_retired_source_ref(name))
+        .map(|(name, evidence)| (name.clone(), evidence.authority_oid.clone()))
+        .collect()
+}
+
+fn is_retired_source_ref(name: &str) -> bool {
+    matches!(
+        name,
+        "refs/heads/crosslink/hub"
+            | "refs/heads/crosslink/locks"
+            | crate::hub_v3::OLD_CHECKPOINT_REF
+            | crate::hub_v3::OLD_META_REF
+    ) || name.starts_with(crate::hub_v3::OLD_AGENT_REF_PREFIX)
+}
+
+fn move_head_from_retired_source(repository: &Path, source: &str, expected: &str) -> Result<()> {
+    let output = Command::new("git")
+        .current_dir(repository)
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .output()
+        .context("reading reconciliation worktree HEAD")?;
+    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != source {
+        return Ok(());
+    }
+    let host = "refs/heads/crosslink/hub-v3-host";
+    if local_ref_oid(repository, host)?.is_none() {
+        anyhow::ensure!(
+            update_ref_cas(repository, host, expected, None)?,
+            "reconciliation worktree host changed while retiring {source}"
+        );
+    }
+    let output = Command::new("git")
+        .current_dir(repository)
+        .args(["symbolic-ref", "HEAD", host])
+        .output()
+        .context("moving reconciliation worktree from retired authority")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "moving reconciliation worktree from retired authority failed: {}",
+        output_message(&output)
+    );
+    Ok(())
+}
+
 fn ensure_source_expectations(
     source: &SourceEvidence,
     remote_refs: &BTreeMap<String, String>,
@@ -2840,7 +2992,8 @@ fn ensure_source_expectations(
     for (reference, expected) in retired_source_refs(source) {
         anyhow::ensure!(
             remote_refs.get(&reference) == Some(&expected),
-            "remote historical source {reference} changed after it was pinned"
+            "remote historical source {reference} changed after it was pinned from {expected} to {:?}",
+            remote_refs.get(&reference)
         );
     }
     Ok(())
@@ -2975,7 +3128,7 @@ fn classify_atomic_push(output: &Output) -> AtomicAttempt {
     } else if is_lease_rejection(&message) {
         AtomicAttempt::Race
     } else {
-        match classify_remote_error("git push --atomic", message) {
+        match classify_remote_error("git push --atomic", &message) {
             RemoteGitError::Unavailable(reason) => AtomicAttempt::Waiting(reason),
             RemoteGitError::Rejected(reason) => AtomicAttempt::Rejected(reason),
         }
@@ -3027,7 +3180,7 @@ fn push_oid_with_lease(
     if is_lease_rejection(&message) {
         Ok(SinglePush::Race(message))
     } else {
-        match classify_remote_error("git push", message) {
+        match classify_remote_error("git push", &message) {
             RemoteGitError::Unavailable(reason) => Ok(SinglePush::Waiting(reason)),
             RemoteGitError::Rejected(reason) => Ok(SinglePush::Rejected(reason)),
         }
@@ -3063,7 +3216,7 @@ fn delete_ref_with_lease(
     if is_lease_rejection(&message) {
         Ok(SinglePush::Race(message))
     } else {
-        match classify_remote_error("git push retirement", message) {
+        match classify_remote_error("git push retirement", &message) {
             RemoteGitError::Unavailable(reason) => Ok(SinglePush::Waiting(reason)),
             RemoteGitError::Rejected(reason) => Ok(SinglePush::Rejected(reason)),
         }
@@ -3086,11 +3239,16 @@ fn ensure_generation_pointer(repository: &Path, remote: &str, expected: &str) ->
 fn pointer_change_outcome(error: &anyhow::Error) -> Option<AliasConvergence> {
     error
         .downcast_ref::<GenerationPointerChanged>()
-        .map(|changed| match &changed.actual {
-            Some(actual) => AliasConvergence::PointerChanged(actual.clone()),
-            None => AliasConvergence::Blocked(
-                "committed generation pointer disappeared during reconciliation".to_string(),
-            ),
+        .map(|changed| {
+            changed.actual.as_ref().map_or_else(
+                || {
+                    AliasConvergence::Blocked(
+                        "committed generation pointer disappeared during reconciliation"
+                            .to_string(),
+                    )
+                },
+                |actual| AliasConvergence::PointerChanged(actual.clone()),
+            )
         })
 }
 
@@ -3108,7 +3266,7 @@ fn remote_ref_map(
     if !output.status.success() {
         return Err(classify_remote_error(
             &format!("git ls-remote {remote}"),
-            output_message(&output),
+            &output_message(&output),
         )
         .into());
     }
@@ -3275,7 +3433,7 @@ fn fetch_oid(repository: &Path, remote: &str, oid: &str) -> Result<()> {
     if output.status.success() {
         Ok(())
     } else {
-        Err(classify_remote_error("git fetch generation object", output_message(&output)).into())
+        Err(classify_remote_error("git fetch generation object", &output_message(&output)).into())
     }
 }
 
@@ -3290,9 +3448,54 @@ fn fetch_ref(repository: &Path, remote: &str, reference: &str) -> Result<()> {
     } else {
         Err(classify_remote_error(
             "git fetch immutable reconciliation ref",
-            output_message(&output),
+            &output_message(&output),
         )
         .into())
+    }
+}
+
+pub(crate) fn refresh_generation_ref(
+    repository: &Path,
+    remote: &str,
+    expected_generation_id: &str,
+) -> GenerationRefreshOutcome {
+    let refspec = format!("+{GENERATION_REF}:{GENERATION_REF}");
+    let output = match Command::new("git")
+        .current_dir(repository)
+        .args(["fetch", "--no-tags", remote, &refspec])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) => {
+            return GenerationRefreshOutcome::BlockedCorrupt(format!(
+                "spawning reconciliation generation fetch failed: {error}"
+            ));
+        }
+    };
+    if !output.status.success() {
+        return match classify_remote_error(
+            "git fetch reconciliation generation",
+            &output_message(&output),
+        ) {
+            RemoteGitError::Unavailable(reason) => {
+                GenerationRefreshOutcome::WaitingForRemote(reason)
+            }
+            RemoteGitError::Rejected(reason) => GenerationRefreshOutcome::BlockedCorrupt(reason),
+        };
+    }
+    match generation_id_at_ref(repository, GENERATION_REF) {
+        Ok(Some(generation_id)) if generation_id == expected_generation_id => {
+            GenerationRefreshOutcome::Refreshed
+        }
+        Ok(Some(generation_id)) => GenerationRefreshOutcome::BlockedCorrupt(format!(
+            "fetched reconciliation generation {generation_id} does not match published generation {expected_generation_id}"
+        )),
+        Ok(None) => GenerationRefreshOutcome::BlockedCorrupt(
+            "fetched reconciliation generation reference is missing".to_string(),
+        ),
+        Err(error) => GenerationRefreshOutcome::BlockedCorrupt(format!(
+            "fetched reconciliation generation is invalid: {error:#}"
+        )),
     }
 }
 
@@ -3348,9 +3551,9 @@ fn is_remote_unavailable_message(message: &str) -> bool {
         || lower.contains("does not appear to be a git repository")
 }
 
-fn classify_remote_error(operation: &str, message: String) -> RemoteGitError {
+fn classify_remote_error(operation: &str, message: &str) -> RemoteGitError {
     let reason = format!("{operation} failed: {message}");
-    if is_remote_unavailable_message(&message) {
+    if is_remote_unavailable_message(message) {
         RemoteGitError::Unavailable(reason)
     } else {
         RemoteGitError::Rejected(reason)
@@ -3581,7 +3784,7 @@ mod tests {
     }
 
     struct Fixture {
-        _remote: TempDir,
+        remote: TempDir,
         repository: TempDir,
         journal: PathBuf,
         format: RepositoryFormat,
@@ -3695,7 +3898,7 @@ mod tests {
         }
         let journal = repository.path().join("reconciliation-journal.json");
         Fixture {
-            _remote: remote,
+            remote,
             repository,
             journal,
             format: RepositoryFormat {
@@ -3720,7 +3923,7 @@ mod tests {
                 "remote",
                 "add",
                 "origin",
-                first._remote.path().to_str().unwrap(),
+                first.remote.path().to_str().unwrap(),
             ],
         );
         git(
@@ -3728,7 +3931,7 @@ mod tests {
             &["fetch", "origin", &format!("+{V2}:{V2}")],
         );
         Fixture {
-            _remote: tempfile::tempdir().unwrap(),
+            remote: tempfile::tempdir().unwrap(),
             journal: repository.path().join("reconciliation-journal.json"),
             repository,
             format: first.format.clone(),
@@ -3746,6 +3949,55 @@ mod tests {
             importer,
         )
         .reconcile(fixture.format.clone())
+    }
+
+    #[test]
+    fn generation_refresh_classifies_remote_and_descriptor_failures() {
+        let fixture = v2_fixture();
+        let outcome = reconcile_fixture(&fixture, &ObjectImporter::new("typed-refresh")).unwrap();
+        let generation_id = match outcome {
+            PublicationOutcome::Published { generation_id, .. } => generation_id,
+            other => panic!("expected published outcome, got {other:?}"),
+        };
+        git(
+            fixture.repository.path(),
+            &["update-ref", "-d", GENERATION_REF],
+        );
+        assert_eq!(
+            refresh_generation_ref(fixture.repository.path(), "origin", &generation_id),
+            GenerationRefreshOutcome::Refreshed
+        );
+
+        let corrupt = state_commit(
+            fixture.repository.path(),
+            &serde_json::json!({"not": "a generation descriptor"}),
+            "invalid generation descriptor",
+        )
+        .unwrap();
+        git(
+            fixture.repository.path(),
+            &[
+                "push",
+                "--force",
+                "origin",
+                &format!("{corrupt}:{GENERATION_REF}"),
+            ],
+        );
+        assert!(matches!(
+            refresh_generation_ref(fixture.repository.path(), "origin", &generation_id),
+            GenerationRefreshOutcome::BlockedCorrupt(reason)
+                if reason.contains("generation") && reason.contains("invalid")
+        ));
+
+        git(
+            fixture.repository.path(),
+            &["remote", "set-url", "origin", "/missing/crosslink-remote"],
+        );
+        assert!(matches!(
+            refresh_generation_ref(fixture.repository.path(), "origin", &generation_id),
+            GenerationRefreshOutcome::WaitingForRemote(reason)
+                if reason.contains("fetch")
+        ));
     }
 
     fn remote_oid(fixture: &Fixture, reference: &str) -> Option<String> {
@@ -3925,7 +4177,7 @@ mod tests {
         let fixture = v2_fixture();
         let importer = ObjectImporter::new("fallback");
         git(
-            fixture._remote.path(),
+            fixture.remote.path(),
             &["config", "receive.advertiseAtomic", "false"],
         );
         let outcome = RepositoryReconciler::new(
@@ -3978,10 +4230,7 @@ mod tests {
         let outcome = reconcile_fixture(&fixture, &importer).unwrap();
         assert!(matches!(outcome, PublicationOutcome::BlockedCorrupt { .. }));
         assert_eq!(remote_oid(&fixture, GENERATION_REF), Some(descriptor_oid));
-        assert_eq!(
-            local_ref_oid(fixture.repository.path(), V2).unwrap(),
-            Some(descriptor.source.refs[V2].authority_oid.clone())
-        );
+        assert_eq!(local_ref_oid(fixture.repository.path(), V2).unwrap(), None);
     }
 
     #[test]
@@ -4064,9 +4313,10 @@ mod tests {
             PublicationOutcome::Published { generation_id, .. } => generation_id,
             outcome => panic!("unexpected first outcome: {outcome:?}"),
         };
-        let old_tip = local_ref_oid(fixture.repository.path(), V2)
-            .unwrap()
-            .unwrap();
+        let first_descriptor_oid = remote_oid(&fixture, GENERATION_REF).unwrap();
+        let first_descriptor =
+            read_descriptor(fixture.repository.path(), &first_descriptor_oid).unwrap();
+        let old_tip = first_descriptor.source.refs[V2].authority_oid.clone();
         let new_tip = child_state_commit(
             fixture.repository.path(),
             &old_tip,
@@ -4102,9 +4352,8 @@ mod tests {
         assert!(matches!(first, PublicationOutcome::Published { .. }));
         let winner = remote_oid(&fixture, GENERATION_REF).unwrap();
         let checkpoint = remote_oid(&fixture, CHECKPOINT).unwrap();
-        let old_tip = local_ref_oid(fixture.repository.path(), V2)
-            .unwrap()
-            .unwrap();
+        let first_descriptor = read_descriptor(fixture.repository.path(), &winner).unwrap();
+        let old_tip = first_descriptor.source.refs[V2].authority_oid.clone();
         let new_tip = child_state_commit(
             fixture.repository.path(),
             &old_tip,
@@ -4222,7 +4471,8 @@ mod tests {
         });
         let mut published_generation = None;
         let mut adopted_generation = None;
-        for outcome in [first_outcome, second_outcome] {
+        let outcomes: [PublicationOutcome; 2] = (first_outcome, second_outcome).into();
+        for outcome in outcomes {
             match outcome {
                 PublicationOutcome::Published { generation_id, .. } => {
                     assert!(published_generation.replace(generation_id).is_none());
@@ -4547,7 +4797,7 @@ mod tests {
                     "remote",
                     "add",
                     "origin",
-                    first._remote.path().to_str().unwrap(),
+                    first.remote.path().to_str().unwrap(),
                 ],
             );
             git(
@@ -4555,7 +4805,7 @@ mod tests {
                 &["fetch", "origin", &format!("+{V2}:{V2}")],
             );
             let second = Fixture {
-                _remote: tempfile::tempdir().unwrap(),
+                remote: tempfile::tempdir().unwrap(),
                 journal: second_repository.path().join("reconciliation-journal.json"),
                 repository: second_repository,
                 format: first.format.clone(),
@@ -4792,7 +5042,7 @@ mod tests {
     fn fallback_two_clone_race_has_one_publisher_and_one_verified_adopter() {
         let first = v2_fixture();
         git(
-            first._remote.path(),
+            first.remote.path(),
             &["config", "receive.advertiseAtomic", "false"],
         );
         let second_repository = tempfile::tempdir().unwrap();
@@ -4803,7 +5053,7 @@ mod tests {
                 "remote",
                 "add",
                 "origin",
-                first._remote.path().to_str().unwrap(),
+                first.remote.path().to_str().unwrap(),
             ],
         );
         git(
@@ -4811,7 +5061,7 @@ mod tests {
             &["fetch", "origin", &format!("+{V2}:{V2}")],
         );
         let second = Fixture {
-            _remote: tempfile::tempdir().unwrap(),
+            remote: tempfile::tempdir().unwrap(),
             journal: second_repository.path().join("reconciliation-journal.json"),
             repository: second_repository,
             format: first.format.clone(),
@@ -4835,7 +5085,8 @@ mod tests {
         });
         let mut published = None;
         let mut adopted = None;
-        for outcome in [first_outcome, second_outcome] {
+        let outcomes: [PublicationOutcome; 2] = (first_outcome, second_outcome).into();
+        for outcome in outcomes {
             match outcome {
                 PublicationOutcome::Published {
                     generation_id,
@@ -5146,7 +5397,7 @@ mod tests {
 
         let fixture = v2_fixture();
         let importer = ObjectImporter::new("unsupported-prose");
-        let hook = fixture._remote.path().join("hooks/pre-receive");
+        let hook = fixture.remote.path().join("hooks/pre-receive");
         fs::write(
             &hook,
             "#!/bin/sh\necho 'fatal: the receiving end does not support --atomic push' >&2\nexit 1\n",
@@ -5174,7 +5425,7 @@ mod tests {
 
         let fixture = v2_fixture();
         let importer = ObjectImporter::new("reject");
-        let hook = fixture._remote.path().join("hooks/pre-receive");
+        let hook = fixture.remote.path().join("hooks/pre-receive");
         fs::write(&hook, "#!/bin/sh\necho policy-denied >&2\nexit 1\n").unwrap();
         let mut permissions = fs::metadata(&hook).unwrap().permissions();
         permissions.set_mode(0o755);

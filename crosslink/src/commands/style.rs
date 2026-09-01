@@ -449,8 +449,6 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
         bail!("Style cache not found. Run 'crosslink style sync' to fetch the house style first.");
     }
 
-    fetch_style_repo(crosslink_dir, &hs.url, &hs.ref_name)?;
-
     let mut drift_count = 0u32;
 
     for (component, src_subdir, target_rel) in COMPONENT_DIRS {
@@ -583,6 +581,29 @@ pub fn unset(crosslink_dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    fn directory_snapshot(path: &Path) -> Vec<(String, Vec<u8>)> {
+        fn collect(root: &Path, path: &Path, entries: &mut Vec<(String, Vec<u8>)>) {
+            let mut children = fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            children.sort();
+            for child in children {
+                if child.is_dir() {
+                    collect(root, &child, entries);
+                } else {
+                    entries.push((
+                        child.strip_prefix(root).unwrap().display().to_string(),
+                        fs::read(child).unwrap(),
+                    ));
+                }
+            }
+        }
+        let mut entries = Vec::new();
+        collect(path, path, &mut entries);
+        entries
+    }
 
     fn setup_crosslink_dir() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempdir().unwrap();
@@ -825,6 +846,21 @@ mod tests {
     fn test_show_no_config() {
         let (_dir, crosslink_dir) = setup_crosslink_dir();
         show(&crosslink_dir).unwrap();
+    }
+
+    #[test]
+    fn diff_reads_existing_style_cache_without_fetching_or_writing() {
+        let dir = tempdir().unwrap();
+        let crosslink = dir.path().join(".crosslink");
+        fs::create_dir_all(crosslink.join(".style-cache/.git")).unwrap();
+        fs::write(
+            crosslink.join("hook-config.json"),
+            r#"{"house_style":{"url":"unreachable","ref":"main","components":[]}}"#,
+        )
+        .unwrap();
+        let before = directory_snapshot(dir.path());
+        diff(&crosslink).unwrap();
+        assert_eq!(directory_snapshot(dir.path()), before);
     }
 
     #[test]

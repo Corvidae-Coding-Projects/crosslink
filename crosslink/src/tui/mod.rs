@@ -26,7 +26,6 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::db::Database;
-use crate::hydration::hydrate_to_sqlite;
 use crate::sync::SyncManager;
 
 pub const HIGHLIGHT_BG: Color = Color::Indexed(236);
@@ -237,7 +236,6 @@ pub fn copy_to_clipboard(text: &str) -> bool {
 }
 
 struct SyncResult {
-    cache_path: PathBuf,
     error: Option<String>,
 }
 
@@ -255,8 +253,6 @@ pub struct App {
     tab_bar_area: Rect,
 
     crosslink_dir: PathBuf,
-
-    db_path: PathBuf,
 
     last_sync: Instant,
 
@@ -293,7 +289,6 @@ impl App {
             flash_message: None,
             tab_bar_area: Rect::default(),
             crosslink_dir: crosslink_dir.to_path_buf(),
-            db_path,
             last_sync: Instant::now(),
             sync_rx: None,
             syncing: false,
@@ -454,6 +449,11 @@ impl App {
         if self.syncing {
             return;
         }
+        if let Err(error) = crate::reconcile::readiness::require_mutation_ready(&self.crosslink_dir)
+        {
+            self.flash_message = Some(format!("Sync blocked: {error}"));
+            return;
+        }
         self.syncing = true;
         self.flash_message = Some("Syncing...".to_string());
         let (tx, rx) = mpsc::channel();
@@ -461,22 +461,30 @@ impl App {
         let crosslink_dir = self.crosslink_dir.clone();
 
         std::thread::spawn(move || {
+            let permit =
+                crate::reconcile::readiness::acquire_mutation_operation_permit(&crosslink_dir);
             let result = match SyncManager::new(&crosslink_dir) {
-                Ok(sync_mgr) => {
+                Ok(sync_mgr) if permit.is_ok() => {
+                    let _permit = permit.ok();
                     let _ = sync_mgr.init_cache();
-                    match sync_mgr.fetch() {
-                        Ok(()) => SyncResult {
-                            cache_path: sync_mgr.cache_path().to_path_buf(),
-                            error: None,
-                        },
+                    match sync_mgr.fetch().and_then(|()| {
+                        let db = Database::open(&crosslink_dir.join("issues.db"))?;
+                        crate::hydration::hydrate_current_authority_under_operation(
+                            &crosslink_dir,
+                            &db,
+                        )?;
+                        Ok(())
+                    }) {
+                        Ok(()) => SyncResult { error: None },
                         Err(e) => SyncResult {
-                            cache_path: sync_mgr.cache_path().to_path_buf(),
                             error: Some(e.to_string()),
                         },
                     }
                 }
+                Ok(_) => SyncResult {
+                    error: permit.err().map(|error| error.to_string()),
+                },
                 Err(e) => SyncResult {
-                    cache_path: PathBuf::new(),
                     error: Some(e.to_string()),
                 },
             };
@@ -495,10 +503,6 @@ impl App {
             if let Some(err) = result.error {
                 self.flash_message = Some(format!("Sync error: {err}"));
             } else {
-                if let Ok(db) = Database::open(&self.db_path) {
-                    let _ = hydrate_to_sqlite(&result.cache_path, &db);
-                }
-
                 self.tabs[self.active_tab].force_refresh();
                 self.flash_message = Some("Synced".to_string());
             }
@@ -777,14 +781,39 @@ impl Drop for TerminalGuard {
 
 const PERIODIC_SYNC_INTERVAL: Duration = Duration::from_secs(30);
 
-pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
+fn sync_projection_at_startup(crosslink_dir: &Path) -> anyhow::Result<bool> {
+    let Ok(_permit) = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)
+    else {
+        return Ok(false);
+    };
+    let sync_mgr = SyncManager::new(crosslink_dir)?;
+    sync_mgr.init_cache()?;
+    sync_mgr.fetch()?;
+    let writable = Database::open(&crosslink_dir.join("issues.db"))?;
+    crate::hydration::hydrate_current_authority_under_operation(crosslink_dir, &writable)?;
+    Ok(true)
+}
+
+pub fn run(
+    db: &Database,
+    crosslink_dir: &Path,
+    database_unavailable: Option<&str>,
+) -> anyhow::Result<()> {
     eprint!("Syncing...");
-    if let Ok(sync_mgr) = SyncManager::new(crosslink_dir) {
-        let _ = sync_mgr.init_cache();
-        let _ = sync_mgr.fetch();
-        let _ = hydrate_to_sqlite(sync_mgr.cache_path(), db);
-    }
-    eprintln!(" done.");
+    let synchronized = match sync_projection_at_startup(crosslink_dir) {
+        Ok(true) => {
+            eprintln!(" done.");
+            true
+        }
+        Ok(false) => {
+            eprintln!(" unavailable while repository reconciliation is pending.");
+            false
+        }
+        Err(error) => {
+            eprintln!(" failed: {error:#}");
+            return Err(error);
+        }
+    };
 
     let _guard = TerminalGuard::new();
 
@@ -795,7 +824,14 @@ pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
     let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let mut app = App::new(db, crosslink_dir)?;
+    let refreshed = (synchronized && database_unavailable.is_some())
+        .then(|| Database::open_read_only(&crosslink_dir.join("issues.db")))
+        .transpose()?;
+    let mut app = app_with_database_status(
+        refreshed.as_ref().unwrap_or(db),
+        crosslink_dir,
+        (!synchronized).then_some(database_unavailable).flatten(),
+    )?;
 
     loop {
         terminal.draw(|frame| app.render(frame))?;
@@ -829,6 +865,18 @@ pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn app_with_database_status(
+    db: &Database,
+    crosslink_dir: &Path,
+    database_unavailable: Option<&str>,
+) -> anyhow::Result<App> {
+    let mut app = App::new(db, crosslink_dir)?;
+    if let Some(reason) = database_unavailable {
+        app.flash_message = Some(format!("Database unavailable: {reason}"));
+    }
+    Ok(app)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
@@ -981,6 +1029,93 @@ mod tests {
         let backend = ratatui::backend::TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal.draw(|frame| app.render(frame)).unwrap();
+    }
+
+    #[test]
+    fn unavailable_projection_builds_renderable_diagnostic_shell_without_mutation() {
+        let dir = tempdir().unwrap();
+        let crosslink = dir.path().join(".crosslink");
+        std::fs::create_dir(&crosslink).unwrap();
+        let source = b"truncated sqlite projection";
+        std::fs::write(crosslink.join("issues.db"), source).unwrap();
+        let db = Database::open_ephemeral().unwrap();
+        let mut app =
+            app_with_database_status(&db, &crosslink, Some("projection is corrupt")).unwrap();
+        assert_eq!(
+            app.flash_message.as_deref(),
+            Some("Database unavailable: projection is corrupt")
+        );
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        assert_eq!(std::fs::read(crosslink.join("issues.db")).unwrap(), source);
+    }
+
+    #[test]
+    fn startup_sync_hydrates_advanced_authority_and_refreshes_readiness() {
+        let (_work, _remote, crosslink, cache) = crate::reconcile::migration::tests::setup_v2_hub();
+        crate::reconcile::migration::hub_v3(&crosslink, false, false, false, false).unwrap();
+        let identity = crate::reconcile::readiness::DaemonIdentity {
+            schema_version: crate::reconcile::readiness::READINESS_SCHEMA_VERSION,
+            repository_id: crate::reconcile::readiness::repository_id(&crosslink).unwrap(),
+            daemon_epoch: "tui-startup-sync".to_string(),
+            pid: std::process::id(),
+            process_start: crate::reconcile::readiness::current_process_start_token().unwrap(),
+        };
+        crate::reconcile::readiness::write_daemon_identity(&crosslink, &identity).unwrap();
+        let generation = crate::reconcile::publication::generation_id_at_ref(
+            &cache,
+            crate::reconcile::publication::GENERATION_REF,
+        )
+        .unwrap()
+        .unwrap();
+        crate::reconcile::readiness::write_record(
+            &crosslink,
+            crate::reconcile::readiness::ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "tui-startup-sync",
+                state: crate::reconcile::readiness::ReadinessState::ReadyCurrent,
+                generation_id: Some(&generation),
+                reason: None,
+            },
+        )
+        .unwrap();
+        let heartbeat_tip = crate::hub_v3::write_heartbeat_to_ref(
+            &cache,
+            "tui-startup-agent",
+            &crate::locks::Heartbeat {
+                agent_id: "tui-startup-agent".to_string(),
+                last_heartbeat: chrono::Utc::now(),
+                active_issue_id: None,
+                machine_id: "test-machine".to_string(),
+            },
+        )
+        .unwrap();
+        let heartbeat_ref = crate::hub_v3::agent_ref_name("tui-startup-agent").unwrap();
+        assert!(std::process::Command::new("git")
+            .current_dir(&cache)
+            .args([
+                "push",
+                "origin",
+                &format!("{heartbeat_tip}:{heartbeat_ref}"),
+            ])
+            .status()
+            .unwrap()
+            .success());
+        assert!(std::process::Command::new("git")
+            .current_dir(&cache)
+            .args(["update-ref", "-d", &heartbeat_ref])
+            .status()
+            .unwrap()
+            .success());
+        assert!(crate::reconcile::readiness::projection_is_current(&crosslink).unwrap());
+        assert!(sync_projection_at_startup(&crosslink).unwrap());
+        assert!(crate::reconcile::readiness::projection_is_current(&crosslink).unwrap());
+        let record = crate::reconcile::readiness::read_record(&crosslink)
+            .unwrap()
+            .unwrap();
+        crate::reconcile::readiness::validate_record(&crosslink, &record).unwrap();
     }
 
     #[test]

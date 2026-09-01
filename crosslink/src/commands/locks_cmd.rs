@@ -21,8 +21,10 @@ pub fn run(command: LocksCommands, crosslink_dir: &Path, db: &Database, json: bo
 
 pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
-    sync.init_cache()?;
-    sync.fetch()?;
+    anyhow::ensure!(
+        sync.is_initialized(),
+        "Hub cache is unavailable. Retry after repository readiness is restored."
+    );
 
     let locks_file = sync.read_locks_auto()?;
 
@@ -69,8 +71,10 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
 
 pub fn check(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
-    sync.init_cache()?;
-    sync.fetch()?;
+    anyhow::ensure!(
+        sync.is_initialized(),
+        "Hub cache is unavailable. Retry after repository readiness is restored."
+    );
 
     let locks_file = sync.read_locks_auto()?;
 
@@ -236,7 +240,7 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     let source = crate::hub_source::RefHubSource::new(sync.cache_path())?;
     let outcome = crate::compaction::reduce(&source)?;
     let stats = crate::hydration::hydrate_from_state(&outcome.state, db)?;
-    crate::hydration::record_hydrated_ref(crosslink_dir);
+    crate::hydration::record_hydrated_ref_durable(crosslink_dir)?;
     if stats.issues > 0 {
         println!(
             "Hydrated {} issue(s), {} comment(s), {} dep(s), {} relation(s), {} milestone(s).",
@@ -269,7 +273,7 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
 
 fn sync_v2_readonly(crosslink_dir: &Path, db: &Database, sync: &SyncManager) -> Result<()> {
     let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
-    crate::hydration::record_hydrated_ref(crosslink_dir);
+    crate::hydration::record_hydrated_ref_durable(crosslink_dir)?;
     if stats.issues > 0 {
         println!(
             "Hydrated {} issue(s), {} comment(s), {} dep(s), {} relation(s), {} milestone(s) \

@@ -464,9 +464,7 @@ fn apply_issue_event(
             });
         }
         Event::IssueDeleted { uuid } => {
-            state.issues.remove(uuid);
-            state.deleted_issues.insert(*uuid);
-            changed_issues.insert(*uuid);
+            apply_issue_deleted(state, *uuid, changed_issues);
         }
         Event::CommentAdded {
             issue_uuid,
@@ -546,7 +544,7 @@ fn apply_milestone_created(
     description: Option<&String>,
     created_at: chrono::DateTime<Utc>,
 ) {
-    if state.milestones.contains_key(&uuid) {
+    if state.milestones.contains_key(&uuid) || state.deleted_milestones.contains(&uuid) {
         return;
     }
     let display_id = adopt_milestone_id(state, carried_display_id);
@@ -570,11 +568,32 @@ fn apply_milestone_deleted(
     changed_issues: &mut HashSet<Uuid>,
 ) {
     state.milestones.remove(&uuid);
+    state.deleted_milestones.insert(uuid);
     for (issue_uuid, issue) in &mut state.issues {
         if issue.milestone_uuid == Some(uuid) {
             issue.milestone_uuid = None;
             changed_issues.insert(*issue_uuid);
         }
+    }
+}
+
+fn apply_issue_deleted(
+    state: &mut CheckpointState,
+    uuid: Uuid,
+    changed_issues: &mut HashSet<Uuid>,
+) {
+    let mut pending = vec![uuid];
+    while let Some(deleted) = pending.pop() {
+        pending.extend(
+            state
+                .issues
+                .values()
+                .filter(|issue| issue.parent_uuid == Some(deleted))
+                .map(|issue| issue.uuid),
+        );
+        state.issues.remove(&deleted);
+        state.deleted_issues.insert(deleted);
+        changed_issues.insert(deleted);
     }
 }
 
@@ -920,13 +939,7 @@ mod tests {
 
     #[cfg(windows)]
     fn is_pid_alive(pid: u32) -> bool {
-        std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-            .is_ok_and(|output| {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout.contains(&pid.to_string())
-            })
+        crate::reconcile::readiness::is_process_running(pid)
     }
 
     #[cfg(not(windows))]
@@ -3990,17 +4003,26 @@ mod tests {
         let mut ci = HashSet::new();
         let mut cl = HashSet::new();
         let uuid = Uuid::new_v4();
+        let child_uuid = Uuid::new_v4();
 
         let e_create = make_envelope("agent-1", 1, issue_created(uuid, "Doomed"));
         apply(&mut state, &e_create, &mut ci, &mut cl);
-        let e_del = make_envelope("agent-1", 2, Event::IssueDeleted { uuid });
+        let mut child_created = issue_created(child_uuid, "Child");
+        if let Event::IssueCreated { parent_uuid, .. } = &mut child_created {
+            *parent_uuid = Some(uuid);
+        }
+        let e_child = make_envelope("agent-1", 2, child_created);
+        apply(&mut state, &e_child, &mut ci, &mut cl);
+        let e_del = make_envelope("agent-1", 3, Event::IssueDeleted { uuid });
         apply(&mut state, &e_del, &mut ci, &mut cl);
         assert!(!state.issues.contains_key(&uuid));
         assert!(state.deleted_issues.contains(&uuid));
+        assert!(!state.issues.contains_key(&child_uuid));
+        assert!(state.deleted_issues.contains(&child_uuid));
 
         let e_label = make_envelope(
             "agent-1",
-            3,
+            4,
             Event::LabelAdded {
                 issue_uuid: uuid,
                 label: "ghost".to_string(),
@@ -4009,7 +4031,7 @@ mod tests {
         apply(&mut state, &e_label, &mut ci, &mut cl);
         let e_update = make_envelope(
             "agent-1",
-            4,
+            5,
             Event::IssueUpdated {
                 uuid,
                 title: Some("Zombie".to_string()),
@@ -4019,7 +4041,7 @@ mod tests {
         );
         apply(&mut state, &e_update, &mut ci, &mut cl);
 
-        let e_recreate = make_envelope("agent-1", 5, issue_created(uuid, "Resurrected"));
+        let e_recreate = make_envelope("agent-1", 6, issue_created(uuid, "Resurrected"));
         apply(&mut state, &e_recreate, &mut ci, &mut cl);
 
         assert!(
@@ -4215,6 +4237,7 @@ mod tests {
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(!state.milestones.contains_key(&ms), "milestone removed");
+        assert!(state.deleted_milestones.contains(&ms));
         assert_eq!(
             state.issues[&issue].milestone_uuid, None,
             "delete cleared issue linkage"

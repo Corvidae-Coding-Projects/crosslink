@@ -14,6 +14,8 @@ import os
 import io
 import sqlite3
 import re
+import shlex
+import subprocess
 
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -28,7 +30,7 @@ from crosslink_config import (
     normalize_git_command,
     run_crosslink,
 )
-from hook_protocol import claim_event, emit_warning, normalize_input
+from hook_protocol import claim_event, emit_warning, normalize_input, validate_readiness_envelope
 
 
 DEFAULT_BLOCKED_GIT = [
@@ -59,7 +61,7 @@ DEFAULT_GATED_GIT = [
 
 DEFAULT_ALLOWED_BASH = [
     "crosslink ",
-    "git status", "git diff", "git log", "git branch", "git show",
+    "git status", "git diff", "git log", "git branch", "git show", "git merge-base",
     "jj log", "jj diff", "jj status", "jj show", "jj bookmark list",
     "cargo test", "cargo build", "cargo check", "cargo clippy", "cargo fmt",
     "npm test", "npm run", "npx ",
@@ -142,17 +144,16 @@ def _matches_command_list(command, cmd_list):
 
     normalized = normalize_git_command(command)
     for entry in cmd_list:
-        if normalized.startswith(entry):
+        if normalized == entry or normalized.startswith(entry + " "):
             return True
 
-    for sep in (" && ", " ; ", " | "):
-        for part in command.split(sep):
-            part = part.strip()
-            if part:
-                norm_part = normalize_git_command(part)
-                for entry in cmd_list:
-                    if norm_part.startswith(entry):
-                        return True
+    for part in re.split(r"&&|\|\||[;|\n\r]", command):
+        part = part.strip()
+        if part:
+            norm_part = normalize_git_command(part)
+            for entry in cmd_list:
+                if norm_part == entry or norm_part.startswith(entry + " "):
+                    return True
     return False
 
 
@@ -187,17 +188,21 @@ def is_allowed_bash(input_data, allowed_list):
     if not command:
         return False
 
+    if any(token in command for token in ("<", ">", "$(")) or chr(96) in command:
+        return False
 
-    parts = [command]
-    for sep in (" && ", " ; ", " | "):
-        expanded = []
-        for part in parts:
-            expanded.extend(part.split(sep))
-        parts = expanded
+
+    parts = re.split(r"&&|\|\||[;|\n\r]", command)
 
 
     for part in parts:
         part = part.strip()
+        try:
+            tokens = shlex.split(part)
+        except ValueError:
+            return False
+        if tokens and tokens[0] == "find" and "-delete" in tokens[1:]:
+            return False
         if part and not _is_single_command_allowed(part, allowed_list):
             return False
     return True
@@ -239,7 +244,7 @@ def get_active_issue_id(crosslink_dir):
         if working_on and working_on.get("id"):
             return int(working_on["id"])
     except (json.JSONDecodeError, ValueError, TypeError):
-        pass
+        return None
     return None
 
 
@@ -293,7 +298,6 @@ def check_control_flags(crosslink_dir):
 
     if not crosslink_dir:
         return
-    import subprocess
     try:
         proc = subprocess.run(
             [find_crosslink_binary(crosslink_dir), "agent", "flags", "--strict"],
@@ -347,6 +351,167 @@ def check_control_flags(crosslink_dir):
         sys.exit(2)
 
 
+def is_readiness_diagnostic(command):
+    normalized = command.strip()
+    if not normalized or any(token in normalized for token in ("\n", "\r", ";", "&", "|", "<", ">", "`", "$(")):
+        return False
+    try:
+        tokens = shlex.split(normalized)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    if tokens[0] == "crosslink":
+        args = [token for token in tokens[1:] if token not in ("-q", "-Q", "--json")]
+        if not args:
+            return False
+        if args[0] == "daemon":
+            return len(args) >= 2 and args[1] in ("ensure", "start", "status", "stop")
+        if args[0] == "doctor":
+            return True
+        if args[0] == "export":
+            return not any(
+                token in ("-o", "--output") or token.startswith("--output=")
+                for token in args[1:]
+            )
+        if args[0] in ("context", "workflow", "tui", "mc", "serve"):
+            return True
+        if args[0] == "reconcile":
+            return "--check" in args[1:]
+        if args[0] == "init":
+            return True
+        if args[0] in (
+            "migrate-to-shared",
+            "migrate-from-shared",
+            "migrate-rename-branch",
+        ):
+            return True
+        if args[0] == "migrate":
+            return len(args) >= 2 and args[1] in (
+                "to-shared",
+                "from-shared",
+                "rename-branch",
+                "hub-v3",
+                "hub-branches",
+            )
+        diagnostics = {
+            "issue": {"list", "search", "show", "blocked", "ready", "related", "next", "tree"},
+            "session": {"status", "last-handoff"},
+            "locks": {"list", "check"},
+            "agent": {"status", "requests", "flags"},
+            "trust": {"list", "pending", "check"},
+            "knowledge": {"show", "list", "search"},
+            "config": {"show", "get", "list", "diff"},
+            "style": {"diff", "show"},
+            "kickoff": {"status", "logs", "show-plan", "report", "list", "graph"},
+            "sentinel": {"status", "history", "metrics", "patterns"},
+            "timer": {"show"},
+            "archive": {"list"},
+            "milestone": {"list", "show"},
+            "cpitd": {"status"},
+        }
+        if args[0] in ("list", "show", "issues"):
+            return "--refresh" not in args
+        if args[0] == "knowledge" and len(args) >= 2 and args[1] == "import":
+            return "--dry-run" in args
+        if len(args) >= 2 and args[1] in diagnostics.get(args[0], set()):
+            return "--refresh" not in args and "--repair" not in args
+        if args[0] == "dashboard" and len(args) >= 2:
+            return (
+                args[1] == "list"
+                or (args[1] == "discover" and "--track" not in args)
+                or (args[1] == "serve" and "--rotate-token" not in args)
+            )
+        if args[0] == "integrity":
+            if len(args) == 1:
+                return True
+            return args[1] in ("counters", "locks", "schema", "layout", "hydration") and "--repair" not in args
+        if args[0] == "prune":
+            return "--dry-run" in args
+        if args[0] == "container" and len(args) >= 2:
+            return args[1] in ("ps", "logs") or (
+                args[1] == "auth" and len(args) >= 3 and args[2] == "status"
+            )
+        if args[0] == "swarm" and len(args) >= 2:
+            return args[1] in (
+                "status",
+                "list",
+                "list-swarms",
+                "estimate",
+                "plan-show",
+                "review-status",
+            )
+        return False
+    if tokens[0] == "git" and len(tokens) >= 2:
+        if tokens[1] in ("status", "log", "merge-base"):
+            return True
+        if tokens[1] in ("diff", "show"):
+            return not any(
+                token == "--ext-diff" or token.startswith("--output")
+                for token in tokens[2:]
+            )
+        if tokens[1] == "branch":
+            return len(tokens) == 2 or all(
+                token == "--show-current"
+                or token == "--list"
+                or token.startswith("--format=")
+                for token in tokens[2:]
+            )
+    return tokens[0] in (
+        "pwd",
+        "ls",
+        "dir",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "grep",
+        "stat",
+        "file",
+        "realpath",
+        "basename",
+        "dirname",
+    ) or (
+        tokens[0] == "rg"
+        and not any(token == "--pre" or token.startswith("--pre=") for token in tokens[1:])
+    )
+
+
+def require_repository_ready(crosslink_dir, command):
+    if not crosslink_dir or is_readiness_diagnostic(command):
+        return
+    try:
+        proc = subprocess.run(
+            [find_crosslink_binary(crosslink_dir), "daemon", "status", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=crosslink_dir,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as error:
+        print(f"repository readiness check failed: {error}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        response = json.loads(proc.stdout.strip())
+    except (json.JSONDecodeError, TypeError, ValueError):
+        print("repository readiness check returned malformed JSON", file=sys.stderr)
+        sys.exit(2)
+    valid, validation_error = validate_readiness_envelope(response)
+    if not valid:
+        print(validation_error, file=sys.stderr)
+        sys.exit(2)
+    state = response["state"]
+    if proc.returncode == 0 and response["ready"]:
+        return
+    reason = response["reason"]
+    print(
+        f"repository work blocked while readiness is {state or 'unknown'}: "
+        f"{reason or 'run crosslink daemon ensure --wait-ready --json'}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
 def main():
     try:
         input_data = json.load(sys.stdin)
@@ -360,8 +525,6 @@ def main():
 
     if event.tool_kind not in ("edit", "shell"):
         sys.exit(0)
-    if not claim_event("crosslink-work-check", event):
-        sys.exit(0)
 
 
     tool_name = "Bash" if event.tool_kind == "shell" else "Edit"
@@ -372,7 +535,8 @@ def main():
 
 
 
-    check_control_flags(find_crosslink_dir())
+    crosslink_dir = find_crosslink_dir()
+    check_control_flags(crosslink_dir)
 
 
 
@@ -380,10 +544,15 @@ def main():
     if tool_name == "Edit" and is_provider_memory_path(event.affected_paths):
         sys.exit(0)
 
+    readiness_diagnostic = tool_name == "Bash" and is_readiness_diagnostic(event.command)
+    require_repository_ready(crosslink_dir, event.command if tool_name == "Bash" else "")
+
+    if not readiness_diagnostic and not claim_event("crosslink-work-check", event):
+        sys.exit(0)
+
     if is_kickoff_status_edit(event):
         sys.exit(0)
 
-    crosslink_dir = find_crosslink_dir()
     tracking_mode, blocked_git, gated_git, allowed_bash, is_agent, comment_discipline = load_config(crosslink_dir)
 
 
@@ -465,7 +634,7 @@ def main():
                     try:
                         issue_id = json.loads(show_output).get("id")
                     except (json.JSONDecodeError, TypeError):
-                        pass
+                        issue_id = None
 
             if issue_id and not issue_has_comment_kind(crosslink_dir, issue_id, "result"):
                 msg = (
@@ -502,7 +671,7 @@ def main():
             if content:
                 sys.exit(0)
         except OSError:
-            pass
+            content = ""
 
 
     status = run_crosslink(["session", "status"], crosslink_dir)

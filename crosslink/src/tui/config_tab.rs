@@ -147,7 +147,7 @@ impl ConfigTab {
     }
 
     fn open_db(&self) -> Option<Database> {
-        Database::open(&self.db_path).ok()
+        Database::open_read_only(&self.db_path).ok()
     }
 
     fn start_background_sync(&mut self) {
@@ -316,6 +316,17 @@ impl ConfigTab {
     }
 
     fn apply_pending_change(&mut self) {
+        let _permit = match crate::reconcile::readiness::acquire_mutation_operation_permit(
+            &self.crosslink_dir,
+        ) {
+            Ok(permit) => permit,
+            Err(error) => {
+                self.error_msg = Some(format!("Configuration change blocked: {error}"));
+                self.pending_change = None;
+                self.view_mode = ConfigViewMode::Main;
+                return;
+            }
+        };
         if let Some(ref change) = self.pending_change {
             let entry = config::find_registry_key(&change.key);
             if let Some(reg) = entry {
@@ -962,6 +973,15 @@ impl ConfigTab {
     }
 
     fn save_array_items(&mut self) {
+        let _permit = match crate::reconcile::readiness::acquire_mutation_operation_permit(
+            &self.crosslink_dir,
+        ) {
+            Ok(permit) => permit,
+            Err(error) => {
+                self.error_msg = Some(format!("Configuration change blocked: {error}"));
+                return;
+            }
+        };
         let items: Vec<serde_json::Value> = self
             .array_items
             .iter()

@@ -23,8 +23,8 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/work-check.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=claude __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\work-check.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='claude'; py -3 $hook}\"",
-            "timeout": 3
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\work-check.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='claude'; py -3 $hook; exit $LASTEXITCODE}\"",
+            "timeout": 7
           }
         ]
       }
@@ -71,8 +71,8 @@
           {
             "type": "command",
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.crosslink/integrations/hooks/session-start.py\"; if [ -f \"$HOOK\" ]; then CROSSLINK_HOOK_PROVIDER=claude __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
-            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\session-start.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='claude'; py -3 $hook}\"",
-            "timeout": 10
+            "commandWindows": "powershell -NoProfile -Command \"$root=(git rev-parse --show-toplevel 2>$null); if($LASTEXITCODE -ne 0){exit 0}; $hook=Join-Path $root '.crosslink\\integrations\\hooks\\session-start.py'; if(Test-Path $hook){$env:CROSSLINK_HOOK_PROVIDER='claude'; py -3 $hook; exit $LASTEXITCODE}\"",
+            "timeout": 131
           }
         ]
       }

@@ -232,7 +232,7 @@ serve` for new work.
 
 ## Installation
 
-Requires **Rust 1.87+** ([install rustup](https://rustup.rs/)).
+Requires **Rust 1.88+** ([install rustup](https://rustup.rs/)).
 
 ```bash
 # From crates.io

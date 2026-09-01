@@ -58,6 +58,41 @@ jobs:
       - name: Clippy (strict)
         run: cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used
 
+      - name: Run doctests
+        run: cargo test --doc --locked --all-features
+
+      - name: Build release binary
+        run: cargo build --release --locked --all-features
+
+  vscode:
+    needs: lint
+    name: VS Code Extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run readiness unit tests
+        run: npx mocha --ui tdd out/test/daemon.test.js
+
 
 
 
@@ -104,6 +139,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -131,6 +171,7 @@ jobs:
 
       - name: Run platform and provider unit tests (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
           $filters = @(
             "agents::",
@@ -148,12 +189,27 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Run bounded Windows reconciliation durability manifest
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cargo test --bin crosslink --verbose reconcile::readiness::tests::windows_atomic_readiness_manifest -- --exact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --bin crosslink --verbose reconcile::migration::tests::windows_projection_and_wal_manifest -- --exact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run integration tests
         run: cargo test --test cli_integration --verbose
+
+      - name: Run bounded repository readiness integration tests
+        run: cargo test --test daemon_readiness --verbose -- --test-threads=1
 
       - name: Run provider hook fixture tests
         if: matrix.os != 'windows-latest'
         run: cargo test --test provider_hooks --verbose
+
+      - name: Run cross-platform provider readiness and Windows wrapper tests
+        run: cargo test --test provider_readiness_wire --verbose
 
 
 

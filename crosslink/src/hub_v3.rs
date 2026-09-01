@@ -100,6 +100,73 @@ pub fn append_event_to_ref(
     append_inner(repo_dir, agent_id, envelope)
 }
 
+pub(crate) fn append_events_to_ref(
+    repo_dir: &Path,
+    agent_id: &str,
+    envelopes: &[EventEnvelope],
+) -> Result<RefAppendOutcome> {
+    let Some(first_envelope) = envelopes.first() else {
+        anyhow::bail!("event batch cannot be empty");
+    };
+    validate_agent_id(agent_id)?;
+    let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
+    let old_commit = git_rev_parse_optional(repo_dir, &ref_name)?;
+    let mut bytes = match &old_commit {
+        None => Vec::new(),
+        Some(sha) => {
+            let spec = format!("{sha}:events.log");
+            git_cat_file_blob_optional(repo_dir, &spec)?.unwrap_or_default()
+        }
+    };
+    let existing_events = read_events_from_bytes(&bytes)
+        .with_context(|| format!("corrupt events.log on ref '{ref_name}'; refusing to extend"))?;
+    let mut previous_sequence = existing_events
+        .iter()
+        .map(|event| event.agent_seq)
+        .max()
+        .unwrap_or(0);
+    for envelope in envelopes {
+        anyhow::ensure!(
+            envelope.agent_id == agent_id,
+            "event batch contains agent '{}' for ref owner '{agent_id}'",
+            envelope.agent_id
+        );
+        anyhow::ensure!(
+            envelope.agent_seq > previous_sequence,
+            "event batch sequence {} does not advance past {}",
+            envelope.agent_seq,
+            previous_sequence
+        );
+        previous_sequence = envelope.agent_seq;
+        let line = serde_json::to_string(envelope).context("failed to serialise event envelope")?;
+        bytes.extend_from_slice(line.as_bytes());
+        bytes.push(b'\n');
+    }
+    let events_in_log = existing_events.len() + envelopes.len();
+    read_events_from_bytes(&bytes)
+        .with_context(|| format!("event batch produced an invalid log for ref '{ref_name}'"))?;
+    let first_sequence = first_envelope.agent_seq;
+    let message =
+        format!("crosslink events: agent {agent_id} seq {first_sequence}-{previous_sequence}");
+    let expected = old_commit
+        .as_deref()
+        .map_or(CasExpectation::MustNotExist, CasExpectation::MustMatch);
+    let new_commit = commit_single_file_tree(
+        repo_dir,
+        &ref_name,
+        "events.log",
+        &bytes,
+        &message,
+        agent_id,
+        expected,
+    )?;
+    Ok(RefAppendOutcome {
+        new_commit,
+        old_commit,
+        events_in_log,
+    })
+}
+
 #[cfg(test)]
 fn append_inner(
     repo_dir: &Path,

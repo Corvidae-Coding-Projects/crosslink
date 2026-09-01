@@ -41,7 +41,8 @@ def hook_config() -> bytes:
                 hook["commandWindows"] = (
                     "powershell -NoProfile -Command \""
                     "$env:CROSSLINK_HOOK_PROVIDER='codex'; "
-                    f"py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\{script}')\""
+                    f"py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\{script}'); "
+                    "exit $LASTEXITCODE\""
                 )
     return (json.dumps(source, indent=2) + "\n").encode()
 

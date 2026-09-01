@@ -4,12 +4,12 @@
     "hooks/.gitignore": "7df69b0a8df4de51aa5750f952790b19a5c95b400a7ed5a2b03553467bebff52",
     "hooks/crosslink_config.py": "97e6fccee645cba7c3cd3085c49cae21f67309b1f5fd7ce89358c76de150f72c",
     "hooks/heartbeat.py": "9599104dc324192985899b64d902d9d8102ffa618d20ca76c7a565c442d0868c",
-    "hooks/hook_protocol.py": "4dbcb66fff85a227662385f9e4089f3efd0427441e44a3409ff6b5d5dd94c679",
+    "hooks/hook_protocol.py": "7f8ae714da8d098e59bd7e268eb146f208d424228d30f045d01338f00cdcc266",
     "hooks/post-edit-check.py": "f646e488e9483111835c155b412c63df52ce105af255333b8af4489446df0862",
     "hooks/pre-web-check.py": "be18c9632e5dfe18441d79813eedac5ad24a81065bd71bdc807e21b2184d47ec",
     "hooks/prompt-guard.py": "6a316d2c204dadc99792731acf6b6eca3312f36264d0b3faf1f7ae2383a70c8e",
-    "hooks/session-start.py": "d1ac69a3ab45651f9a70b7465136ef3c59d70f9daf652cd1a03aa1a182dfaf1e",
-    "hooks/work-check.py": "055d76a872776171b760a36d73afc7684f3f209b1a33d491fdc8bb67c6205515",
+    "hooks/session-start.py": "457a8748dc54fe441924eccbf5a8e5985bedfd9ad8b60242f0d2dddf0d5fe833",
+    "hooks/work-check.py": "2287ab6f0744c1c516fb380d2fb3430f2a73cc5132d143644dd3b4d4f23bc9a2",
     "mcp/.gitignore": "7df69b0a8df4de51aa5750f952790b19a5c95b400a7ed5a2b03553467bebff52",
     "mcp/agent-prompt-server.py": "a913daa667df2c46d442557399580497d1166c7de6f5a6ae034bd5a4e2046558",
     "mcp/knowledge-server.py": "5a05404d28941559ac756158daf4dfa1bbaf6a817ab5b04e065fea7db526ae0b",
@@ -34,7 +34,7 @@
     "skills/rust-gpu-discipline/verification-script.md": "5085581f5b08dddb754cac79032aea3ef83755d6364aa438b407ec1e8fadd240",
     "skills/rust-quality/SKILL.md": "811fef2e62deae3bcdb8a8807fca073947536c37d5e40417551cf2910c60d4f4",
     "skills/workflow/SKILL.md": "01926ba2eea764f839ad78ad4eb0aa54221e8d4d28cfc645d1ca80fc6acf3111",
-    "providers/codex/hooks.json": "bc03144dbf5d140bf31d7e8a111757d3f2eb6f3f3abd868ef10ecbd827c99dea",
+    "providers/codex/hooks.json": "ef17e6111cfbb703863518b02929e89a0766b7cac5c35f02a3ec267704c0f476",
     "mcp.json": "c161857af7cd7fc994bc59b6a954e5f6401ae0ed113f4b3b5ee0fb96f206a5ca"
   }
 }

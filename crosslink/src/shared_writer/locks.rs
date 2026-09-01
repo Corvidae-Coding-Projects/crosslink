@@ -17,6 +17,15 @@ impl SharedWriter {
         issue_display_id: i64,
         branch: Option<&str>,
     ) -> Result<LockClaimResult> {
+        let _permit = self.acquire_mutation_operation_permit()?;
+        self.claim_lock_v2_inner(issue_display_id, branch)
+    }
+
+    fn claim_lock_v2_inner(
+        &self,
+        issue_display_id: i64,
+        branch: Option<&str>,
+    ) -> Result<LockClaimResult> {
         if let Some(lock) = self.read_lock_v2(issue_display_id)? {
             if lock.agent_id == self.agent.agent_id {
                 return Ok(LockClaimResult::AlreadyHeld);
@@ -28,7 +37,7 @@ impl SharedWriter {
             branch: branch.map(std::string::ToString::to_string),
         };
         let start = std::time::Instant::now();
-        self.emit_compact_push(event, &format!("claim lock on #{issue_display_id}"))?;
+        self.emit_compact_push_inner(event, &format!("claim lock on #{issue_display_id}"))?;
         let elapsed = start.elapsed();
         if elapsed > std::time::Duration::from_secs(LOCK_CONFIRM_TIMEOUT_SECS) {
             bail!(
@@ -48,7 +57,7 @@ impl SharedWriter {
             Some(lock) => {
                 let release = crate::events::Event::LockReleased { issue_display_id };
 
-                if let Err(e) = self.emit_compact_push(
+                if let Err(e) = self.emit_compact_push_inner(
                     release,
                     &format!("release lock on #{issue_display_id} (contention cleanup)"),
                 ) {
@@ -63,10 +72,14 @@ impl SharedWriter {
     }
 
     pub fn release_lock_v2(&self, issue_display_id: i64) -> Result<bool> {
+        let _permit = self.acquire_mutation_operation_permit()?;
         match self.read_lock_v2(issue_display_id)? {
             Some(lock) if lock.agent_id == self.agent.agent_id => {
                 let event = crate::events::Event::LockReleased { issue_display_id };
-                self.emit_compact_push(event, &format!("release lock on #{issue_display_id}"))?;
+                self.emit_compact_push_inner(
+                    event,
+                    &format!("release lock on #{issue_display_id}"),
+                )?;
                 Ok(true)
             }
             Some(_) | None => Ok(false),
@@ -97,8 +110,9 @@ impl SharedWriter {
         stale_agent_id: &str,
         branch: Option<&str>,
     ) -> Result<LockClaimResult> {
+        let _permit = self.acquire_mutation_operation_permit()?;
         self.clear_stale_lock_state(issue_display_id, stale_agent_id)?;
-        self.claim_lock_v2(issue_display_id, branch)
+        self.claim_lock_v2_inner(issue_display_id, branch)
     }
 
     pub fn force_release_lock_v2(
@@ -106,10 +120,11 @@ impl SharedWriter {
         issue_display_id: i64,
         stale_agent_id: &str,
     ) -> Result<bool> {
+        let _permit = self.acquire_mutation_operation_permit()?;
         self.clear_stale_lock_state(issue_display_id, stale_agent_id)?;
 
         let event = crate::events::Event::LockReleased { issue_display_id };
-        self.emit_compact_push(
+        self.emit_compact_push_inner(
             event,
             &format!("force-release stale lock on #{issue_display_id}"),
         )?;

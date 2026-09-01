@@ -282,8 +282,15 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
 
     if !opts.knowledge_only {
         let sync = SyncManager::new(crosslink_dir)?;
-        sync.init_cache()?;
-        sync.fetch()?;
+        if opts.dry_run {
+            anyhow::ensure!(
+                sync.is_initialized(),
+                "Hub cache is unavailable. Retry after repository readiness is restored."
+            );
+        } else {
+            sync.init_cache()?;
+            sync.fetch()?;
+        }
 
         let cache_dir = sync.cache_path();
 
@@ -314,8 +321,10 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
     if !opts.hub_only {
         let km = KnowledgeManager::new(crosslink_dir)?;
         if km.is_initialized() {
-            km.init_cache()?;
-            km.sync()?;
+            if !opts.dry_run {
+                km.init_cache()?;
+                km.sync()?;
+            }
 
             let cache_dir = km.cache_path();
             let remote = crate::sync::read_tracker_remote(km.crosslink_dir());

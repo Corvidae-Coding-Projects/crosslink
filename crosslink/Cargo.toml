@@ -2,7 +2,7 @@
 name = "crosslink"
 version = "0.9.0-beta.1"
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 authors = ["Dollspace", "Maxine Levesque <hello@maxine.science>", "Crosslink contributors"]
 description = "A synced issue tracker CLI for multi-agent AI development"
 documentation = "https://docs.rs/crosslink"
