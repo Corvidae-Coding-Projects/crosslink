@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1212,
+  "next_comment_id": 1213,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16115,7 +16115,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T18:59:44.425139976Z",
+      "updated_at": "2026-09-01T19:16:59.710204622Z",
       "labels": [
         "feature"
       ],
@@ -16188,6 +16188,15 @@
           "content": "Implementation started after operator directed the architect to proceed without ceremonial re-approval. Applying the recorded preflight as the exact contract: shared readiness service, daemon ensure protocol, full mutation barriers, provider/VS Code integration, and required behavioral evidence.",
           "created_at": "2026-09-01T03:51:24.557419661Z",
           "kind": "progress"
+        },
+        "4a4bff35-2526-4e25-bef6-ec9dc1f3507f": {
+          "display_id": 1212,
+          "author": "sQl8",
+          "content": "Fixed the remaining CI timeout at its test-architecture cause. The CLI integration harness now establishes verified v3 readiness in-process and leaves detached process lifecycle coverage to daemon_readiness, removing the two-repository throttle and roughly 200 daemon start/stop cycles. The 203-test suite fell from 135.58s locally and 1118.30s on macOS CI to 23.51s locally. Verified exact strict Clippy, 3060 binary tests, 203 CLI tests, 6 daemon readiness tests, reconciliation fixtures, provider hooks, readiness wire tests, doctests, generated assets, formatting, and Windows all-target/all-feature compilation.",
+          "created_at": "2026-09-01T19:16:59.707123892Z",
+          "kind": "result",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9kcHwqV2fvsv7+Oho/NMaHsWO2HVudC74yF3o4205BmJWpEHmOL4TozGV2G2VOnApHOAGUKOp4mArfAJaC0LAA=="
         },
         "4e6f4310-525a-4daf-ba50-07f8ba90a456": {
           "display_id": 1183,
@@ -25960,11 +25969,16 @@
       "agent_id": "w4c5",
       "agent_seq": 22,
       "timestamp": "2026-09-01T18:59:44.425139976Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 1,
+      "timestamp": "2026-09-01T19:16:59.710204622Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T18:59:44.425139976Z",
-    "agent_id": "w4c5",
-    "agent_seq": 22
+    "timestamp": "2026-09-01T19:16:59.710204622Z",
+    "agent_id": "sQl8",
+    "agent_seq": 1
   }
 }
