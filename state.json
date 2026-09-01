@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1188,
+  "next_comment_id": 1189,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -21437,7 +21437,7 @@
       "priority": "high",
       "created_by": "w4c5",
       "created_at": "2026-08-31T21:46:48.530831062Z",
-      "updated_at": "2026-09-01T03:44:24.079818041Z",
+      "updated_at": "2026-09-01T04:20:52.289699723Z",
       "closed_at": "2026-09-01T03:39:57.919256668Z",
       "labels": [
         "refactor"
@@ -21493,6 +21493,15 @@
           "content": "Corrective audit expanded with production no-loss cases: remove the legacy reset --hard after reconciliation cache init so tracked dirty v2 edits survive; allow a fresh post-cutover clone to verify/adopt without the retired local v2 ref while still detecting dormant late legacy work; bind verification to the current generation pointer; recognize remote-only legacy resurrection when local source is dirty; and merge late v2 changes with already-committed v3 progress instead of replacing current-generation state. Deterministic regressions are required for each boundary.",
           "created_at": "2026-09-01T01:56:05.947628864Z",
           "kind": "observation"
+        },
+        "6dea67e8-ef1b-49ff-ba87-c1f9ff4c5ff0": {
+          "display_id": 1188,
+          "author": "w4c5",
+          "content": "Session auto-ended (stale after 379 minutes). No handoff notes provided.",
+          "created_at": "2026-09-01T04:20:52.287140025Z",
+          "kind": "handoff",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+x0xQZeoh8IrO/utMBqQD/hefZlf0Lm75v5AQbjNWwlVKLLjHykRuCMmE4AElmo5EyFIf3YsiYjMI4yElu6xCw=="
         },
         "75968c0b-1f1f-472c-9d0d-d54ae98326ff": {
           "display_id": 1177,
@@ -25648,11 +25657,16 @@
       "agent_id": "anon-62b057cf",
       "agent_seq": 17,
       "timestamp": "2026-09-01T03:51:24.557425292Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 16,
+      "timestamp": "2026-09-01T04:20:52.289699723Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T03:51:24.557425292Z",
-    "agent_id": "anon-62b057cf",
-    "agent_seq": 17
+    "timestamp": "2026-09-01T04:20:52.289699723Z",
+    "agent_id": "w4c5",
+    "agent_seq": 16
   }
 }
