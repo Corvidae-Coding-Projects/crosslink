@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1204,
+  "next_comment_id": 1205,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16115,7 +16115,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T17:39:16.013955619Z",
+      "updated_at": "2026-09-01T17:39:22.168623625Z",
       "labels": [
         "feature"
       ],
@@ -16253,6 +16253,13 @@
           "content": "Tool guard blocked the planned git push to the isolated local bare smoke remote. The installed crosslink binary lacks the requested intervene subcommand, so this observation records the attempt. The empty local bare origin remains sufficient for Crosslink bootstrap publication testing; no retry or bypass was attempted.",
           "created_at": "2026-09-01T11:48:00.485470128Z",
           "kind": "observation"
+        },
+        "ea8f889b-c643-44c0-9d3a-27d0127de47b": {
+          "display_id": 1204,
+          "author": "anon-62b057cf",
+          "content": "[action] Completed CI failure remediation and full local verification; preparing scoped commit for issue #794",
+          "created_at": "2026-09-01T17:39:22.168617208Z",
+          "kind": "note"
         },
         "ee010f3e-416b-4273-90dc-a2631a93b817": {
           "display_id": 1185,
@@ -25860,10 +25867,15 @@
       "agent_id": "anon-62b057cf",
       "agent_seq": 30,
       "timestamp": "2026-09-01T17:39:16.013955619Z"
+    },
+    {
+      "agent_id": "anon-62b057cf",
+      "agent_seq": 30,
+      "timestamp": "2026-09-01T17:39:22.168623625Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T17:39:16.013955619Z",
+    "timestamp": "2026-09-01T17:39:22.168623625Z",
     "agent_id": "anon-62b057cf",
     "agent_seq": 30
   }
