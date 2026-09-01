@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1195,
+  "next_comment_id": 1196,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16119,7 +16119,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T06:47:29.189618328Z",
+      "updated_at": "2026-09-01T07:09:15.401279455Z",
       "labels": [
         "feature"
       ],
@@ -16188,6 +16188,15 @@
           "content": "[action] Readiness implementation is continuing without approval pauses; priority review found dynamic-ref readiness invalidation, old-schema pre-backup mutation, Windows process-probe latency, and long-lived operation ownership; implementation agent is correcting these before independent audit.",
           "created_at": "2026-09-01T05:22:09.644253023Z",
           "kind": "note"
+        },
+        "dfd41afe-2be7-4e96-a8cb-6caf57666d60": {
+          "display_id": 1195,
+          "author": "anon-62b057cf",
+          "content": "Attempted a chained read-only branch/log/merge-base/rev-list inspection; the hook falsely classified it as forbidden Git mutation. No Git mutation ran. The hook-provided top-level intervene syntax is unavailable in the installed binary.",
+          "created_at": "2026-09-01T07:09:15.401274354Z",
+          "kind": "intervention",
+          "trigger_type": "tool_blocked",
+          "intervention_context": "Verifying branch ancestry and existing commits before final review."
         },
         "ee010f3e-416b-4273-90dc-a2631a93b817": {
           "display_id": 1185,
@@ -25745,11 +25754,16 @@
       "agent_id": "anon-62b057cf",
       "agent_seq": 23,
       "timestamp": "2026-09-01T06:47:29.189618328Z"
+    },
+    {
+      "agent_id": "anon-62b057cf",
+      "agent_seq": 24,
+      "timestamp": "2026-09-01T07:09:15.401279455Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T06:47:29.189618328Z",
+    "timestamp": "2026-09-01T07:09:15.401279455Z",
     "agent_id": "anon-62b057cf",
-    "agent_seq": 23
+    "agent_seq": 24
   }
 }
