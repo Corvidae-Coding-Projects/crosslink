@@ -17,7 +17,7 @@ pub(super) struct WriteSet {
     pub events: Vec<crate::events::Event>,
 }
 
-pub(super) const V2_WRITE_REFUSAL: &str = "this hub uses the legacy v2 layout; run `crosslink migrate hub-v3` to migrate (the v2 branch is kept as an escape hatch until --finalize)";
+pub(super) const V2_WRITE_REFUSAL: &str = "this hub uses the legacy v2 layout; run `crosslink migrate hub-v3` to reconcile it into verified v3 authority";
 
 pub(super) const LOCK_CONFIRM_TIMEOUT_SECS: u64 = 30;
 

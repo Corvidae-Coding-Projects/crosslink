@@ -10,6 +10,8 @@ use sha2::{Digest, Sha256};
 
 use crate::db::SCHEMA_VERSION;
 
+pub mod publication;
+
 const LEGACY_LOCKS_REF: &str = "refs/heads/crosslink/locks";
 const V2_HUB_REF: &str = "refs/heads/crosslink/hub";
 const HIDDEN_META_REF: &str = "refs/crosslink/meta";
@@ -20,6 +22,7 @@ const VISIBLE_CHECKPOINT_REF: &str = "refs/heads/crosslink/checkpoint";
 const VISIBLE_AGENT_PREFIX: &str = "refs/heads/crosslink/agents/";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LocalDatabaseFormat {
     Missing,
@@ -50,6 +53,7 @@ pub enum SharedStoreFamily {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SharedStoreFormat {
     Absent,
@@ -75,6 +79,7 @@ pub enum SharedStoreFormat {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RepositoryFormat {
     pub local_database: LocalDatabaseFormat,
     pub shared_store: SharedStoreFormat,

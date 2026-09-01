@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::process::Command;
 
@@ -297,18 +298,6 @@ pub fn push_ref_with_lease(
     Ok(classify_push_output(&output))
 }
 
-pub fn push_ref_force(repo_dir: &Path, remote: &str, ref_name: &str) -> Result<PushOutcome> {
-    let refspec = format!("+{ref_name}:{ref_name}");
-
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["push", "--force", remote, &refspec])
-        .output()
-        .with_context(|| format!("failed to run git push --force for ref '{ref_name}'"))?;
-
-    Ok(classify_push_output(&output))
-}
-
 fn classify_push_output(output: &std::process::Output) -> PushOutcome {
     if output.status.success() {
         return PushOutcome::Pushed;
@@ -360,7 +349,12 @@ pub fn detect_hub_version(repo_dir: &Path) -> Result<HubVersion> {
 pub fn detect_remote_hub_version(repo_dir: &Path, remote: &str) -> Result<HubVersion> {
     let output = Command::new("git")
         .current_dir(repo_dir)
-        .args(["ls-remote", remote, "refs/heads/crosslink/*"])
+        .args([
+            "ls-remote",
+            remote,
+            "refs/heads/crosslink/*",
+            "refs/crosslink/*",
+        ])
         .output()
         .with_context(|| format!("failed to run git ls-remote for remote '{remote}'"))?;
 
@@ -384,8 +378,8 @@ pub fn detect_remote_hub_version(repo_dir: &Path, remote: &str) -> Result<HubVer
         };
         let refname = refname.trim();
         match refname {
-            META_REF => meta = true,
-            CHECKPOINT_REF => checkpoint = true,
+            META_REF | OLD_META_REF => meta = true,
+            CHECKPOINT_REF | OLD_CHECKPOINT_REF => checkpoint = true,
             V2_HUB_BRANCH => v2 = true,
             _ => {}
         }
@@ -1294,15 +1288,68 @@ fn push_bootstrap_refs(
 }
 
 pub fn fetch_v3_refs_for_join(repo_dir: &Path, remote: &str) -> Result<()> {
-    let output = Command::new("git")
+    let listed = Command::new("git")
         .current_dir(repo_dir)
         .args([
-            "fetch",
+            "ls-remote",
             remote,
-            "+refs/heads/crosslink/meta:refs/heads/crosslink/meta",
-            "+refs/heads/crosslink/checkpoint:refs/heads/crosslink/checkpoint",
-            "+refs/heads/crosslink/agents/*:refs/heads/crosslink/agents/*",
+            META_REF,
+            CHECKPOINT_REF,
+            "refs/heads/crosslink/agents/*",
+            OLD_META_REF,
+            OLD_CHECKPOINT_REF,
+            "refs/crosslink/agents/*",
         ])
+        .output()
+        .with_context(|| format!("failed to discover v3 refs from remote '{remote}'"))?;
+    if !listed.status.success() {
+        anyhow::bail!(
+            "discovering v3 refs from remote '{remote}' failed: {}",
+            String::from_utf8_lossy(&listed.stderr).trim()
+        );
+    }
+    let mut refs = Vec::new();
+    for line in String::from_utf8_lossy(&listed.stdout).lines() {
+        let Some((oid, reference)) = line.split_once('\t') else {
+            anyhow::bail!("remote '{remote}' returned a malformed v3 ref advertisement");
+        };
+        let oid = oid.trim();
+        let reference = reference.trim();
+        anyhow::ensure!(
+            matches!(oid.len(), 40 | 64)
+                && oid
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "remote '{remote}' advertised an invalid v3 object id"
+        );
+        anyhow::ensure!(
+            reference == META_REF
+                || reference == CHECKPOINT_REF
+                || reference == OLD_META_REF
+                || reference == OLD_CHECKPOINT_REF
+                || reference
+                    .strip_prefix(AGENT_REF_PREFIX)
+                    .is_some_and(|agent| agent_ref_name(agent).is_ok())
+                || reference
+                    .strip_prefix(OLD_AGENT_REF_PREFIX)
+                    .is_some_and(|agent| agent_ref_name(agent).is_ok()),
+            "remote '{remote}' advertised an invalid v3 ref '{reference}'"
+        );
+        refs.push((reference.to_string(), oid.to_string()));
+    }
+    refs.sort();
+    refs.dedup();
+    if refs.is_empty() {
+        return Ok(());
+    }
+    let mut args = vec!["fetch".to_string(), remote.to_string()];
+    args.extend(refs.iter().map(|(reference, _)| {
+        let digest = hex::encode(Sha256::digest(reference.as_bytes()));
+        format!("+{reference}:refs/crosslink/reconciliation/observed/{digest}")
+    }));
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(&args)
         .output()
         .with_context(|| format!("failed to fetch v3 refs from remote '{remote}'"))?;
     if !output.status.success() {
@@ -1310,6 +1357,34 @@ pub fn fetch_v3_refs_for_join(repo_dir: &Path, remote: &str) -> Result<()> {
             "fetching v3 refs from remote '{remote}' failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
+    }
+    for (reference, oid) in refs {
+        let current = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["rev-parse", "--verify", &reference])
+            .output()
+            .with_context(|| format!("checking local v3 ref '{reference}'"))?;
+        if current.status.success() {
+            continue;
+        }
+        let absent = "0".repeat(oid.len());
+        let created = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["update-ref", &reference, &oid, &absent])
+            .output()
+            .with_context(|| format!("creating discovered v3 ref '{reference}'"))?;
+        if !created.status.success() {
+            let raced = Command::new("git")
+                .current_dir(repo_dir)
+                .args(["rev-parse", "--verify", &reference])
+                .output()
+                .with_context(|| format!("rechecking raced v3 ref '{reference}'"))?;
+            anyhow::ensure!(
+                raced.status.success(),
+                "creating discovered v3 ref '{reference}' failed: {}",
+                String::from_utf8_lossy(&created.stderr).trim()
+            );
+        }
     }
     Ok(())
 }

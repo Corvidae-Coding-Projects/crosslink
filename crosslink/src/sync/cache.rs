@@ -1,9 +1,52 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::core::SyncManager;
 use super::HUB_BRANCH;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReconciliationCacheOutcome {
+    Ready,
+    WaitingForRemote { reason: String },
+    BlockedCorrupt { reason: String },
+}
+
+#[derive(Debug)]
+enum ReconciliationRemoteError {
+    Unavailable(String),
+    Rejected(String),
+}
+
+impl std::fmt::Display for ReconciliationRemoteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable(reason) | Self::Rejected(reason) => formatter.write_str(reason),
+        }
+    }
+}
+
+impl std::error::Error for ReconciliationRemoteError {}
+
+fn classify_reconciliation_remote_error(
+    operation: &str,
+    message: &str,
+) -> ReconciliationRemoteError {
+    let reason = format!("{operation} failed: {message}");
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("could not resolve host")
+        || lower.contains("could not read from remote repository")
+        || lower.contains("connection timed out")
+        || lower.contains("connection refused")
+        || lower.contains("network is unreachable")
+        || lower.contains("no such file or directory")
+        || lower.contains("does not appear to be a git repository")
+    {
+        ReconciliationRemoteError::Unavailable(reason)
+    } else {
+        ReconciliationRemoteError::Rejected(reason)
+    }
+}
 
 pub struct HubWriteLock {
     path: PathBuf,
@@ -186,6 +229,175 @@ impl SyncManager {
         self.propagate_agent_hooks()?;
 
         Ok(())
+    }
+
+    pub fn init_cache_for_reconciliation(&self) -> Result<ReconciliationCacheOutcome> {
+        match self.init_cache_for_reconciliation_inner() {
+            Ok(()) => Ok(ReconciliationCacheOutcome::Ready),
+            Err(error) => match error.downcast_ref::<ReconciliationRemoteError>() {
+                Some(ReconciliationRemoteError::Unavailable(reason)) => {
+                    Ok(ReconciliationCacheOutcome::WaitingForRemote {
+                        reason: reason.clone(),
+                    })
+                }
+                Some(ReconciliationRemoteError::Rejected(reason)) => {
+                    Ok(ReconciliationCacheOutcome::BlockedCorrupt {
+                        reason: reason.clone(),
+                    })
+                }
+                None => Err(error),
+            },
+        }
+    }
+
+    fn init_cache_for_reconciliation_inner(&self) -> Result<()> {
+        let remote_configured = self.remote_exists();
+        let mut candidates = Vec::new();
+        for branch in [HUB_BRANCH, super::OLD_BRANCH] {
+            let has_remote = if remote_configured {
+                let output = self.reconciliation_remote_git(&[
+                    "ls-remote",
+                    "--heads",
+                    &self.remote,
+                    branch,
+                ])?;
+                !String::from_utf8_lossy(&output.stdout).trim().is_empty()
+            } else {
+                false
+            };
+            let has_local = self.git_in_repo(&["rev-parse", "--verify", branch]).is_ok();
+            candidates.push((branch, has_remote, has_local));
+        }
+        if self.cache_dir.exists() {
+            for (branch, has_remote, has_local) in &candidates {
+                if !has_remote {
+                    continue;
+                }
+                self.reconciliation_remote_git(&["fetch", &self.remote, branch])?;
+                let remote_ref = format!("{}/{}", self.remote, branch);
+                if !has_local {
+                    self.git_in_repo(&["branch", branch, &remote_ref])?;
+                    continue;
+                }
+                let local_tip = self.git_in_repo(&["rev-parse", branch])?;
+                let local_tip = String::from_utf8_lossy(&local_tip.stdout)
+                    .trim()
+                    .to_string();
+                let remote_tip = self.git_in_repo(&["rev-parse", &remote_ref])?;
+                let remote_tip = String::from_utf8_lossy(&remote_tip.stdout)
+                    .trim()
+                    .to_string();
+                if local_tip == remote_tip
+                    || !git_is_ancestor(&self.repo_root, &local_tip, &remote_tip)?
+                {
+                    continue;
+                }
+                let checked_ref = std::process::Command::new("git")
+                    .current_dir(&self.cache_dir)
+                    .args(["symbolic-ref", "-q", "HEAD"])
+                    .output()?;
+                let checked_ref = String::from_utf8_lossy(&checked_ref.stdout)
+                    .trim()
+                    .to_string();
+                let source_ref = format!("refs/heads/{branch}");
+                if checked_ref == source_ref {
+                    let status = std::process::Command::new("git")
+                        .current_dir(&self.cache_dir)
+                        .args([
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                            "--",
+                            "issues",
+                            "meta",
+                            "locks",
+                            "trust",
+                            "agents",
+                            "checkpoint",
+                            "locks.json",
+                        ])
+                        .output()?;
+                    if status.status.success() && status.stdout.is_empty() {
+                        self.git_in_repo(&[
+                            "-C",
+                            &self.cache_path_str(),
+                            "reset",
+                            "--hard",
+                            &remote_ref,
+                        ])?;
+                    }
+                } else {
+                    self.git_in_repo(&["update-ref", &source_ref, &remote_tip, &local_tip])?;
+                }
+            }
+            if remote_configured {
+                self.fetch_v3_refs_for_reconciliation()?;
+            }
+            return Ok(());
+        }
+        for (branch, has_remote, _) in &candidates {
+            if *has_remote {
+                self.reconciliation_remote_git(&["fetch", &self.remote, branch])?;
+            }
+        }
+        let selected = candidates
+            .iter()
+            .copied()
+            .find(|(_, has_remote, has_local)| *has_remote || *has_local);
+        if let Some((branch, _, has_local)) = selected {
+            if has_local {
+                self.git_in_repo(&["worktree", "add", &self.cache_path_str(), branch])?;
+            } else {
+                let remote_ref = format!("{}/{}", self.remote, branch);
+                self.git_in_repo(&[
+                    "worktree",
+                    "add",
+                    "-b",
+                    branch,
+                    &self.cache_path_str(),
+                    &remote_ref,
+                ])?;
+            }
+            for (other, other_remote, other_local) in &candidates {
+                if *other != branch && *other_remote && !other_local {
+                    let remote_ref = format!("{}/{}", self.remote, other);
+                    self.git_in_repo(&["branch", other, &remote_ref])?;
+                }
+            }
+            self.hub_mode.set(crate::hub_v3::HubMode::V2);
+        } else {
+            self.init_v3_host_worktree()?;
+            self.hub_mode.set(crate::hub_v3::HubMode::V3);
+        }
+        if remote_configured {
+            self.fetch_v3_refs_for_reconciliation()?;
+        }
+        self.ensure_cache_git_identity()?;
+        self.propagate_agent_hooks()?;
+        Ok(())
+    }
+
+    fn reconciliation_remote_git(&self, args: &[&str]) -> Result<std::process::Output> {
+        let output = std::process::Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(args)
+            .output()
+            .with_context(|| format!("running reconciliation remote git {args:?}"))?;
+        if output.status.success() {
+            return Ok(output);
+        }
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(classify_reconciliation_remote_error(&format!("git {args:?}"), &message).into())
+    }
+
+    fn fetch_v3_refs_for_reconciliation(&self) -> Result<()> {
+        crate::hub_v3::fetch_v3_refs_for_join(&self.cache_dir, &self.remote).map_err(|error| {
+            classify_reconciliation_remote_error(
+                "v3 reconciliation discovery",
+                &format!("{error:#}"),
+            )
+            .into()
+        })
     }
 
     fn init_v2_worktree(&self, has_remote_v2: bool, has_local_v2: bool) -> Result<()> {
@@ -419,6 +631,21 @@ impl SyncManager {
         ) {
             tracing::warn!("v3 fetch: local checkpoint refresh failed (non-fatal): {e}");
         }
+    }
+}
+
+fn git_is_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
+    let output = std::process::Command::new("git")
+        .current_dir(repository)
+        .args(["merge-base", "--is-ancestor", ancestor, descendant])
+        .output()?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => bail!(
+            "git merge-base --is-ancestor failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
     }
 }
 
