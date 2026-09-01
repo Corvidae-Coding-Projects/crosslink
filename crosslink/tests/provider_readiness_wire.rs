@@ -114,6 +114,7 @@ fn both_managed_hooks_use_the_shared_validator() {
 #[cfg(windows)]
 mod windows {
     use super::*;
+    use base64::Engine;
     use std::io::Write;
     use std::process::{Child, Output, Stdio};
     use std::time::{Duration, Instant};
@@ -150,6 +151,21 @@ mod windows {
         }
     }
 
+    fn windows_script(command: &str) -> String {
+        let encoded = command
+            .strip_prefix("powershell -NoProfile -EncodedCommand ")
+            .unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        let units = bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        assert_eq!(units.len() * 2, bytes.len());
+        String::from_utf16(&units).unwrap()
+    }
+
     fn wrapper(provider: &str, script: &str) -> String {
         let path = root().join(match provider {
             "claude" => "resources/providers/claude/settings.json",
@@ -166,7 +182,7 @@ mod windows {
             .find(|hook| {
                 hook["commandWindows"]
                     .as_str()
-                    .is_some_and(|command| command.contains(script))
+                    .is_some_and(|command| windows_script(command).contains(script))
             })
             .and_then(|hook| hook["commandWindows"].as_str())
             .unwrap()
@@ -241,7 +257,7 @@ mod windows {
         for provider in ["claude", "codex"] {
             for script in ["work-check.py", "session-start.py"] {
                 let command = wrapper(provider, script);
-                assert!(command.contains("exit $LASTEXITCODE"));
+                assert!(windows_script(&command).contains("exit $LASTEXITCODE"));
                 for (response, exit_code) in &cases {
                     let payload = if script == "work-check.py" {
                         json!({"tool_name":"Bash","tool_input":{"command":"git commit -m test"}})

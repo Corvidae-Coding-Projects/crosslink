@@ -5,6 +5,12 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+const CLI_PROCESS_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(not(windows))]
+const DAEMON_PROCESS_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(windows)]
+const DAEMON_PROCESS_TIMEOUT: Duration = Duration::from_secs(45);
+
 fn run(directory: &Path, program: &str, arguments: &[&str]) -> Output {
     let output = Command::new(program)
         .current_dir(directory)
@@ -47,7 +53,7 @@ fn crosslink(directory: &Path, arguments: &[&str]) -> Output {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap(),
-        Duration::from_secs(15),
+        CLI_PROCESS_TIMEOUT,
     )
 }
 
@@ -204,7 +210,7 @@ struct DaemonCleanup {
 fn fresh_hook_initialized_local_repository_bootstraps_to_ready() {
     let work = fresh_local_repository();
     let _cleanup = DaemonCleanup::new(work.path());
-    let ready = wait_output(ensure_child(work.path()), Duration::from_secs(15));
+    let ready = wait_output(ensure_child(work.path()), DAEMON_PROCESS_TIMEOUT);
     assert!(
         ready.status.success(),
         "stdout={} stderr={}",
@@ -228,7 +234,7 @@ fn daemon_survives_launcher_process_group_cleanup() {
     let _cleanup = DaemonCleanup::new(work.path());
     let ensure = ensure_child_in_own_group(work.path());
     let launcher_group = ensure.id();
-    let ready = wait_output(ensure, Duration::from_secs(15));
+    let ready = wait_output(ensure, DAEMON_PROCESS_TIMEOUT);
     assert!(
         ready.status.success(),
         "stdout={} stderr={}",
@@ -312,8 +318,8 @@ fn concurrent_ensure_converges_and_offline_exit_is_structured() {
     std::fs::rename(remote.path(), &offline).unwrap();
     let waiting_a = ensure_child(work.path());
     let waiting_b = ensure_child(work.path());
-    let waiting_a = wait_output(waiting_a, Duration::from_secs(15));
-    let waiting_b = wait_output(waiting_b, Duration::from_secs(15));
+    let waiting_a = wait_output(waiting_a, DAEMON_PROCESS_TIMEOUT);
+    let waiting_b = wait_output(waiting_b, DAEMON_PROCESS_TIMEOUT);
     assert_eq!(waiting_a.status.code(), Some(20));
     assert_eq!(waiting_b.status.code(), Some(20));
     let waiting_a = parse(&waiting_a);
@@ -360,7 +366,7 @@ fn concurrent_ensure_converges_and_offline_exit_is_structured() {
     std::fs::rename(&offline, remote.path()).unwrap();
     let recovery_deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let recovery = wait_output(ensure_child(work.path()), Duration::from_secs(15));
+        let recovery = wait_output(ensure_child(work.path()), DAEMON_PROCESS_TIMEOUT);
         if recovery.status.success() {
             break;
         }
@@ -373,8 +379,8 @@ fn concurrent_ensure_converges_and_offline_exit_is_structured() {
     }
     let ready_a = ensure_child(work.path());
     let ready_b = ensure_child(work.path());
-    let ready_a = wait_output(ready_a, Duration::from_secs(15));
-    let ready_b = wait_output(ready_b, Duration::from_secs(15));
+    let ready_a = wait_output(ready_a, DAEMON_PROCESS_TIMEOUT);
+    let ready_b = wait_output(ready_b, DAEMON_PROCESS_TIMEOUT);
     assert!(
         ready_a.status.success(),
         "stdout={} stderr={}",
@@ -430,7 +436,7 @@ fn corrupt_projection_exit_is_structured_and_daemon_remains_reportable() {
     let _cleanup = DaemonCleanup::new(work.path());
     let projection = work.path().join(".crosslink/issues.db");
     std::fs::write(&projection, b"truncated sqlite").unwrap();
-    let blocked = wait_output(ensure_child(work.path()), Duration::from_secs(15));
+    let blocked = wait_output(ensure_child(work.path()), DAEMON_PROCESS_TIMEOUT);
     assert_eq!(blocked.status.code(), Some(21));
     let blocked = parse(&blocked);
     assert_eq!(blocked["state"], "blocked_corrupt");

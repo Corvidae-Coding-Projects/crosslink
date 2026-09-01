@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
@@ -25,6 +26,11 @@ def digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def powershell_encoded(script: str) -> str:
+    payload = base64.b64encode(script.encode("utf-16le")).decode()
+    return f"powershell -NoProfile -EncodedCommand {payload}"
+
+
 def hook_config() -> bytes:
     source = json.loads((ROOT / "resources/providers/codex/hooks.json").read_text())
     pattern = re.compile(r"/\.crosslink/integrations/hooks/([a-z0-9_-]+\.py)")
@@ -38,11 +44,10 @@ def hook_config() -> bytes:
                 hook["command"] = (
                     f'CROSSLINK_HOOK_PROVIDER=codex python3 "$PLUGIN_ROOT/hooks/{script}"'
                 )
-                hook["commandWindows"] = (
-                    "powershell -NoProfile -Command \""
+                hook["commandWindows"] = powershell_encoded(
                     "$env:CROSSLINK_HOOK_PROVIDER='codex'; "
                     f"py -3 (Join-Path $env:PLUGIN_ROOT 'hooks\\{script}'); "
-                    "exit $LASTEXITCODE\""
+                    "exit $LASTEXITCODE"
                 )
     return (json.dumps(source, indent=2) + "\n").encode()
 
