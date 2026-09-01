@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1194,
+  "next_comment_id": 1195,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16119,11 +16119,18 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T06:15:23.256823921Z",
+      "updated_at": "2026-09-01T06:47:29.189618328Z",
       "labels": [
         "feature"
       ],
       "comments": {
+        "24052e48-1d19-4f10-a27d-fc5c206048ba": {
+          "display_id": 1194,
+          "author": "anon-62b057cf",
+          "content": "[action] Continuing issue #794 without ceremonial approval: implementation, adversarial audit, full local gates, commit, then push handoff",
+          "created_at": "2026-09-01T06:47:29.189612795Z",
+          "kind": "note"
+        },
         "2a0865f9-c84c-4097-9805-24f6804c2d39": {
           "display_id": 1193,
           "author": "anon-62b057cf",
@@ -25733,11 +25740,16 @@
       "agent_id": "anon-62b057cf",
       "agent_seq": 22,
       "timestamp": "2026-09-01T06:15:23.256823921Z"
+    },
+    {
+      "agent_id": "anon-62b057cf",
+      "agent_seq": 23,
+      "timestamp": "2026-09-01T06:47:29.189618328Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T06:15:23.256823921Z",
+    "timestamp": "2026-09-01T06:47:29.189618328Z",
     "agent_id": "anon-62b057cf",
-    "agent_seq": 22
+    "agent_seq": 23
   }
 }
