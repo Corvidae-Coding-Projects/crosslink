@@ -26040,11 +26040,16 @@
       "agent_id": "w4c5",
       "agent_seq": 25,
       "timestamp": "2026-09-01T20:00:26.650044693Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 26,
+      "timestamp": "2026-09-01T20:00:32.052327345Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T20:00:26.650044693Z",
+    "timestamp": "2026-09-01T20:00:32.052327345Z",
     "agent_id": "w4c5",
-    "agent_seq": 25
+    "agent_seq": 26
   }
 }
