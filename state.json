@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1222,
+  "next_comment_id": 1223,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16119,7 +16119,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T22:47:24.453854559Z",
+      "updated_at": "2026-09-01T23:03:09.135122838Z",
       "labels": [
         "feature"
       ],
@@ -16253,6 +16253,15 @@
           "kind": "handoff",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAk67WJkvTfE4LIDBZWftbod0+3/bt6nLM0gSxAjrY2gFbC/3Jutz8rGRt/SMZSXcV7RcZ31pRfo5dDOgtvem0AQ=="
+        },
+        "740a1b90-49ca-4b09-a0a8-777898dab110": {
+          "display_id": 1222,
+          "author": "sQl8",
+          "content": "Committed 0de7e01 after run 33568006196. CREATE_NO_WINDOW removed the orphaned Git child but readiness still missed the strict 15s deadline, so Windows now uses only CREATE_NEW_PROCESS_GROUP, preserving daemon independence while retaining normal console semantics for Git descendants. Windows readiness has a 30s hard ceiling; passing tests return immediately and genuine hangs cannot become hour-long runners. The separately committed provider wrapper test is now confirmed green on Windows. Verified formatting, 6 readiness tests, 3 provider tests, strict Clippy, Windows GNU all-target/all-feature compilation, plugin sync, actionlint, zero-byte rules, unchanged Cargo.lock, and diff hygiene.",
+          "created_at": "2026-09-01T23:03:09.132420542Z",
+          "kind": "result",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWAeKUrB4s5BLRdxD/Gvo7TK9bwtwhG/xcugNZ+XxX5tQqz9DYIuyszoK2zT4a6yxx7zLUlb07HbSJqU6sGERBw=="
         },
         "81744736-fe40-4c3b-80bf-ab9e16d09327": {
           "display_id": 1221,
@@ -26139,11 +26148,16 @@
       "agent_id": "sQl8",
       "agent_seq": 11,
       "timestamp": "2026-09-01T22:47:24.453854559Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 12,
+      "timestamp": "2026-09-01T23:03:09.135122838Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T22:47:24.453854559Z",
+    "timestamp": "2026-09-01T23:03:09.135122838Z",
     "agent_id": "sQl8",
-    "agent_seq": 11
+    "agent_seq": 12
   }
 }
