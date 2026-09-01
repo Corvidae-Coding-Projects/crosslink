@@ -199,6 +199,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run integration tests
+        if: matrix.os != 'windows-latest'
         run: cargo test --test cli_integration --verbose
 
       - name: Run bounded repository readiness integration tests
@@ -212,10 +213,69 @@ jobs:
         run: cargo test --test provider_readiness_wire --verbose
 
 
+  windows-cli:
+    needs: lint
+    name: Windows CLI (${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: crosslink
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: a-f
+            prefixes: test_a test_b test_c test_d test_e test_f
+          - shard: g-l
+            prefixes: test_g test_h test_i test_j test_k test_l
+          - shard: m-r
+            prefixes: test_m test_n test_o test_p test_q test_r
+          - shard: s-z
+            prefixes: test_s test_t test_u test_v test_w test_x test_y test_z
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Verify complete shard partition
+        shell: pwsh
+        run: |
+          $listed = cargo test --test cli_integration -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tests = @($listed | Where-Object { $_ -match ': test$' } | ForEach-Object { ($_ -split ':')[0] })
+          $uncovered = @($tests | Where-Object { $_ -notmatch '^test_[a-z]' })
+          if ($tests.Count -eq 0 -or $uncovered.Count -ne 0) {
+            Write-Error "CLI test partition is incomplete: $($uncovered -join ', ')"
+            exit 1
+          }
+
+      - name: Run CLI shard
+        shell: pwsh
+        run: |
+          $prefixes = "${{ matrix.prefixes }}" -split ' '
+          foreach ($prefix in $prefixes) {
+            cargo test --test cli_integration --verbose $prefix
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+
 
 
   proptest:
-    needs: test
+    needs: [test, windows-cli]
     name: Property Tests
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
@@ -248,7 +308,7 @@ jobs:
 
 
   fuzz:
-    needs: test
+    needs: [test, windows-cli]
     name: Fuzz Tests
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')

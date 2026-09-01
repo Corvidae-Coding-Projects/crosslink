@@ -1,5 +1,34 @@
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use tempfile::{tempdir, TempDir};
+
+struct ReadinessWitness {
+    _child: Mutex<Child>,
+    pid: u32,
+    process_start: String,
+}
+
+fn readiness_witness() -> &'static ReadinessWitness {
+    static WITNESS: OnceLock<ReadinessWitness> = OnceLock::new();
+    WITNESS.get_or_init(|| {
+        let child = Command::new("git")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args(["cat-file", "--batch"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("Failed to start readiness witness");
+        let pid = child.id();
+        let process_start = crosslink::reconcile::readiness::process_start_token_for(pid)
+            .expect("Failed to identify readiness witness");
+        ReadinessWitness {
+            _child: Mutex::new(child),
+            pid,
+            process_start,
+        }
+    })
+}
 
 fn run_crosslink(dir: &std::path::Path, args: &[&str]) -> (bool, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
@@ -65,12 +94,13 @@ fn contains_issue_ref(text: &str, id: u32) -> bool {
 fn init_crosslink(dir: &std::path::Path) {
     init_crosslink_unready(dir);
     let crosslink_dir = dir.join(".crosslink");
+    let witness = readiness_witness();
     let identity = crosslink::reconcile::readiness::DaemonIdentity {
         schema_version: crosslink::reconcile::readiness::READINESS_SCHEMA_VERSION,
         repository_id: crosslink::reconcile::readiness::repository_id(&crosslink_dir).unwrap(),
         daemon_epoch: uuid::Uuid::new_v4().to_string(),
-        pid: std::process::id(),
-        process_start: crosslink::reconcile::readiness::current_process_start_token().unwrap(),
+        pid: witness.pid,
+        process_start: witness.process_start.clone(),
     };
     crosslink::reconcile::readiness::write_daemon_identity(&crosslink_dir, &identity).unwrap();
     let transition =
@@ -146,6 +176,22 @@ fn test_init_twice_warns() {
 
     assert!(success);
     assert!(stdout.contains("Already") || stdout.contains("already") || stdout.contains("exists"));
+}
+
+#[test]
+fn test_initialized_readiness_is_visible_across_processes() {
+    let dir = test_dir();
+    init_crosslink(dir.path());
+
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["--json", "daemon", "status"]);
+
+    assert!(
+        success,
+        "readiness status failed: stdout={stdout} stderr={stderr}"
+    );
+    let response: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(response["ready"], true);
+    assert_eq!(response["running"], true);
 }
 
 #[test]
