@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1220,
+  "next_comment_id": 1221,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16119,7 +16119,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T20:59:31.531867250Z",
+      "updated_at": "2026-09-01T21:36:09.541110353Z",
       "labels": [
         "feature"
       ],
@@ -16235,6 +16235,15 @@
           "kind": "result",
           "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4Ya1tCgvswEsyoEBo57cSJqrLz1x4Z08j7ee0H6Yz0tON8u8/qKDaPAw1Ds45Iy2ayjHnt8Uq0G2pBS23k3WBQ=="
+        },
+        "613def2a-b5cf-4a25-b839-219e2cd42d21": {
+          "display_id": 1220,
+          "author": "sQl8",
+          "content": "Committed 192ed23: raised the Windows daemon-readiness guard from 15s to 45s while retaining the 15s ordinary CLI guard, and replaced cmd-sensitive PowerShell -Command wrappers with UTF-16LE EncodedCommand generation for Claude/Codex hooks. Verified cargo fmt, targeted daemon/provider tests, strict Clippy, Windows GNU all-target/all-feature check, provider asset sync, JSON, actionlint, diff hygiene, zero-byte rules, and unchanged Cargo.lock.",
+          "created_at": "2026-09-01T21:36:09.538111535Z",
+          "kind": "result",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAhBhvEnBiix12GcWEBDg1TpbMQJjD3l9vFqrTcCbp8aNw6eLk3F76+nvbFrdQ6Sb2mEz/shqlAXoTmm2tjxD2AA=="
         },
         "72530efe-7a54-4d0c-9284-7dcaffddb03b": {
           "display_id": 1207,
@@ -26111,11 +26120,16 @@
       "agent_id": "sQl8",
       "agent_seq": 9,
       "timestamp": "2026-09-01T20:59:31.531867250Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 10,
+      "timestamp": "2026-09-01T21:36:09.541110353Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T20:59:31.531867250Z",
+    "timestamp": "2026-09-01T21:36:09.541110353Z",
     "agent_id": "sQl8",
-    "agent_seq": 9
+    "agent_seq": 10
   }
 }
