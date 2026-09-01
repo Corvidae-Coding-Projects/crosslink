@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1221,
+  "next_comment_id": 1222,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16119,7 +16119,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T21:36:09.541110353Z",
+      "updated_at": "2026-09-01T22:47:24.453854559Z",
       "labels": [
         "feature"
       ],
@@ -16253,6 +16253,15 @@
           "kind": "handoff",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAk67WJkvTfE4LIDBZWftbod0+3/bt6nLM0gSxAjrY2gFbC/3Jutz8rGRt/SMZSXcV7RcZ31pRfo5dDOgtvem0AQ=="
+        },
+        "81744736-fe40-4c3b-80bf-ab9e16d09327": {
+          "display_id": 1221,
+          "author": "sQl8",
+          "content": "Committed d84021b after CI run 33566626103: Windows readiness was not merely slow; detached daemon Git/conhost descendants remained alive past 45s. Replaced DETACHED_PROCESS with CREATE_NO_WINDOW plus a new process group and restored the readiness guard to 15s. The encoded provider wrapper reached the expected hook error but cold PowerShell module initialization exhausted its 8s test cap, so that isolated cap is now 20s. Verified formatting, 6 readiness tests, 3 provider-wire tests, strict Clippy, Windows GNU all-target/all-feature compilation, plugin sync, actionlint, zero-byte rules, unchanged Cargo.lock, and diff hygiene.",
+          "created_at": "2026-09-01T22:47:24.450663892Z",
+          "kind": "result",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABASvsDUqxyv9Wm/2g5da8spWmiCb/Q0k1UU7/1h9jmSnnCaONZe3o2/bbt3UrV/uc9tdNWEpOLxhAB2OpvIASgDw=="
         },
         "928690a8-10e1-498a-85cd-58824f2d7b92": {
           "display_id": 1206,
@@ -26125,11 +26134,16 @@
       "agent_id": "sQl8",
       "agent_seq": 10,
       "timestamp": "2026-09-01T21:36:09.541110353Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 11,
+      "timestamp": "2026-09-01T22:47:24.453854559Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T21:36:09.541110353Z",
+    "timestamp": "2026-09-01T22:47:24.453854559Z",
     "agent_id": "sQl8",
-    "agent_seq": 10
+    "agent_seq": 11
   }
 }
