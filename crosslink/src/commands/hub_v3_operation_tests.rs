@@ -972,7 +972,10 @@ fn hub_branches_rename_round_trip() {
                 .success()
     };
 
-    assert!(rev(&hub.cache_dir, "refs/heads/crosslink/meta").as_deref() == Some(old_meta.as_str()));
+    assert_eq!(
+        rev(&hub.cache_dir, "refs/heads/crosslink/meta").as_deref(),
+        Some(old_meta.as_str())
+    );
 
     let new_alpha = rev(&hub.cache_dir, "refs/heads/crosslink/agents/alpha").unwrap();
     assert!(

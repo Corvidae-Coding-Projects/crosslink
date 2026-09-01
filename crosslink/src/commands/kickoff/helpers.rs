@@ -237,7 +237,7 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
                 repo_root.join(sub)
             };
             dir.is_dir()
-                && std::fs::read_dir(&dir).ok().is_some_and(|entries| {
+                && std::fs::read_dir(&dir).is_ok_and(|entries| {
                     entries.filter_map(std::result::Result::ok).any(|e| {
                         let n = e.file_name().to_string_lossy().to_string();
                         std::path::Path::new(&n).extension().is_some_and(|ext| {

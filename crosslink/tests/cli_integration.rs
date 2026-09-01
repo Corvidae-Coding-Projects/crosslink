@@ -2185,8 +2185,8 @@ fn test_stress_many_issues() {
 
     for i in 0..100 {
         let title = format!("Issue number {i}");
-        let (success, _, _) = run_crosslink(dir.path(), &["create", &title]);
-        assert!(success, "Failed to create issue {i}");
+        let (success, _, stderr) = run_crosslink(dir.path(), &["create", &title]);
+        assert!(success, "Failed to create issue {i}: {stderr}");
     }
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
@@ -2365,12 +2365,18 @@ fn test_stress_rapid_operations() {
 
     for i in 0..20 {
         let title = format!("Rapid issue {i}");
-        run_crosslink(dir.path(), &["create", &title]);
+        let (success, _, stderr) = run_crosslink(dir.path(), &["create", &title]);
+        assert!(success, "Failed to create rapid issue {i}: {stderr}");
         let id = (i + 1).to_string();
-        run_crosslink(dir.path(), &["close", &id]);
-        run_crosslink(dir.path(), &["issue", "reopen", &id]);
-        run_crosslink(dir.path(), &["issue", "comment", &id, "Rapid comment"]);
-        run_crosslink(dir.path(), &["issue", "label", &id, "rapid"]);
+        let (success, _, stderr) = run_crosslink(dir.path(), &["close", &id]);
+        assert!(success, "Failed to close rapid issue {i}: {stderr}");
+        let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "reopen", &id]);
+        assert!(success, "Failed to reopen rapid issue {i}: {stderr}");
+        let (success, _, stderr) =
+            run_crosslink(dir.path(), &["issue", "comment", &id, "Rapid comment"]);
+        assert!(success, "Failed to comment on rapid issue {i}: {stderr}");
+        let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "label", &id, "rapid"]);
+        assert!(success, "Failed to label rapid issue {i}: {stderr}");
     }
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);

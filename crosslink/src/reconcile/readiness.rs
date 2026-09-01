@@ -28,6 +28,7 @@ const MUTATION_PERMITS_DIR: &str = "mutation-permits";
 const MAX_READINESS_RECORDS: usize = 64;
 const MAX_RECORD_AGE_SECONDS: i64 = 90;
 const PERMIT_POLL_MILLIS: u64 = 25;
+const MUTATION_TRANSITION_WAIT_SECS: u64 = 5;
 const LIVENESS_SWEEP_POLLS: u8 = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -845,7 +846,6 @@ pub fn acquire_mutation_permit(crosslink_dir: &Path) -> Result<Option<MutationPe
     if !requires_readiness(crosslink_dir) {
         return Ok(None);
     }
-    require_mutation_ready(crosslink_dir)?;
     let permit = acquire_raw_mutation_permit(crosslink_dir)?;
     if let Err(error) = require_mutation_ready(crosslink_dir) {
         drop(permit);
@@ -855,9 +855,6 @@ pub fn acquire_mutation_permit(crosslink_dir: &Path) -> Result<Option<MutationPe
 }
 
 pub fn acquire_mutation_operation_permit(crosslink_dir: &Path) -> Result<MutationOperationPermit> {
-    if requires_readiness(crosslink_dir) {
-        require_mutation_ready(crosslink_dir)?;
-    }
     let directory = crosslink_dir.join(READINESS_DIR);
     fs::create_dir_all(&directory)
         .with_context(|| format!("creating readiness directory {}", directory.display()))?;
@@ -1620,19 +1617,36 @@ fn acquire_raw_mutation_permit(crosslink_dir: &Path) -> Result<MutationPermit> {
     let directory = readiness_dir.join(MUTATION_PERMITS_DIR);
     fs::create_dir_all(&directory)
         .with_context(|| format!("creating mutation permit directory {}", directory.display()))?;
-    if transition_is_live(&readiness_dir)? {
-        bail!("repository reconciliation transition is active");
-    }
     let owner = PermitOwner::current()?;
     let contents = serde_json::to_vec(&owner).context("serializing mutation permit owner")?;
     let path = directory.join(format!("{}.permit", owner.token));
-    create_owned_file(&path, &contents).context("acquiring mutation permit")?;
-    let permit = MutationPermit { path, contents };
-    if transition_is_live(&readiness_dir)? {
+    let deadline = Instant::now() + Duration::from_secs(MUTATION_TRANSITION_WAIT_SECS);
+    loop {
+        if transition_is_live(&readiness_dir)? {
+            if Instant::now() >= deadline {
+                bail!(
+                    "timed out waiting {MUTATION_TRANSITION_WAIT_SECS} seconds for repository reconciliation transition"
+                );
+            }
+            thread::sleep(Duration::from_millis(PERMIT_POLL_MILLIS));
+            continue;
+        }
+        create_owned_file(&path, &contents).context("acquiring mutation permit")?;
+        let permit = MutationPermit {
+            path: path.clone(),
+            contents: contents.clone(),
+        };
+        if !transition_is_live(&readiness_dir)? {
+            return Ok(permit);
+        }
         drop(permit);
-        bail!("repository reconciliation transition began before mutation authority was acquired");
+        if Instant::now() >= deadline {
+            bail!(
+                "timed out waiting {MUTATION_TRANSITION_WAIT_SECS} seconds for repository reconciliation transition"
+            );
+        }
+        thread::sleep(Duration::from_millis(PERMIT_POLL_MILLIS));
     }
-    Ok(permit)
 }
 
 fn wait_for_mutation_permits(
@@ -2350,7 +2364,7 @@ mod tests {
     }
 
     #[test]
-    fn transition_drains_existing_mutation_and_blocks_new_mutations() {
+    fn transition_drains_existing_mutation_and_queues_new_mutations() {
         let root = initialized();
         let crosslink = root.path().join(".crosslink");
         let mutation = acquire_raw_mutation_permit(&crosslink).unwrap();
@@ -2368,11 +2382,25 @@ mod tests {
             )
         });
         observed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        let denied = acquire_raw_mutation_permit(&crosslink).unwrap_err();
-        assert!(denied.to_string().contains("transition"));
+        let (mutation_tx, mutation_rx) = mpsc::sync_channel(1);
+        let mutation_dir = crosslink.clone();
+        let queued = thread::spawn(move || {
+            mutation_tx
+                .send(acquire_raw_mutation_permit(&mutation_dir))
+                .unwrap();
+        });
+        assert!(mutation_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
         drop(mutation);
         let transition = transition.join().unwrap().unwrap();
+        assert!(mutation_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
         drop(transition);
+        let queued_mutation = mutation_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        drop(queued_mutation.unwrap());
+        queued.join().unwrap();
         assert!(!crosslink.join(READINESS_DIR).join(TRANSITION_FILE).exists());
     }
 
