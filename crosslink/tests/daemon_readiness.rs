@@ -6,10 +6,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 const CLI_PROCESS_TIMEOUT: Duration = Duration::from_secs(15);
-#[cfg(not(windows))]
 const DAEMON_PROCESS_TIMEOUT: Duration = Duration::from_secs(15);
-#[cfg(windows)]
-const DAEMON_PROCESS_TIMEOUT: Duration = Duration::from_secs(45);
 
 fn run(directory: &Path, program: &str, arguments: &[&str]) -> Output {
     let output = Command::new(program)

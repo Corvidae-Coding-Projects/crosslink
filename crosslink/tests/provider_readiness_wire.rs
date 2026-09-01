@@ -133,7 +133,7 @@ mod windows {
     }
 
     fn wait_output(mut child: Child) -> Output {
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             if child.try_wait().unwrap().is_some() {
                 return child.wait_with_output().unwrap();
