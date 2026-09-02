@@ -1,8 +1,8 @@
 use anyhow::Result;
 use serde::Serialize;
 
+use crate::application::LocalStateService;
 use crate::db::sentinel::{SentinelDispatch, SentinelRun};
-use crate::db::Database;
 
 #[derive(Serialize)]
 struct RunWithDispatches {
@@ -11,7 +11,12 @@ struct RunWithDispatches {
     dispatches: Vec<SentinelDispatch>,
 }
 
-pub fn show_history(db: &Database, limit: usize, detail: bool, json: bool) -> Result<()> {
+pub fn show_history(
+    db: &impl LocalStateService,
+    limit: usize,
+    detail: bool,
+    json: bool,
+) -> Result<()> {
     let runs = db.list_sentinel_runs(limit)?;
 
     if runs.is_empty() {

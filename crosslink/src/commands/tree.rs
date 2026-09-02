@@ -2,6 +2,9 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
 use crate::models::Issue;
 use crate::utils::format_issue_id;
@@ -29,7 +32,7 @@ fn print_issue(issue: &Issue, indent: usize) {
 }
 
 fn print_tree_recursive(
-    db: &Database,
+    db: &impl QueryService,
     parent_id: i64,
     indent: usize,
     status_filter: Option<&str>,
@@ -60,7 +63,11 @@ struct TreeNode {
     children: Vec<TreeNode>,
 }
 
-fn build_tree_node(db: &Database, issue: &Issue, status_filter: Option<&str>) -> Result<TreeNode> {
+fn build_tree_node(
+    db: &impl QueryService,
+    issue: &Issue,
+    status_filter: Option<&str>,
+) -> Result<TreeNode> {
     let subissues = db.get_subissues(issue.id)?;
     let children: Vec<TreeNode> = subissues
         .iter()
@@ -81,7 +88,7 @@ fn build_tree_node(db: &Database, issue: &Issue, status_filter: Option<&str>) ->
     })
 }
 
-pub fn run(db: &Database, status_filter: Option<&str>, json: bool) -> Result<()> {
+pub fn run(db: &impl QueryService, status_filter: Option<&str>, json: bool) -> Result<()> {
     let all_issues = db.list_issues(status_filter, None, None)?;
     let top_level: Vec<_> = all_issues
         .into_iter()

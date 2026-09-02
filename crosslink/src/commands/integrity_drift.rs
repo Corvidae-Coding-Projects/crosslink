@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
+use crate::application::CommandService;
 use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 
@@ -235,25 +236,24 @@ impl ReEmitStats {
 
 pub fn re_emit(
     drift: &HydrationDriftReport,
-    writer: &crate::shared_writer::SharedWriter,
-    db: &Database,
+    commands: &impl CommandService,
 ) -> Result<ReEmitStats> {
     let mut stats = ReEmitStats::default();
 
     for (issue_id, label) in &drift.sqlite_only_labels {
-        if writer.add_label(db, *issue_id, label)? {
+        if commands.add_label(*issue_id, label)? {
             stats.labels += 1;
         }
     }
 
     for (blocker_id, blocked_id) in &drift.sqlite_only_dependencies {
-        if writer.add_blocker(db, *blocked_id, *blocker_id)? {
+        if commands.add_dependency(*blocked_id, *blocker_id)? {
             stats.dependencies += 1;
         }
     }
 
     for (a, b) in &drift.sqlite_only_relations {
-        if writer.add_relation(db, *a, *b)? {
+        if commands.add_relation(*a, *b)? {
             stats.relations += 1;
         }
     }
@@ -265,7 +265,7 @@ pub fn re_emit(
             by_milestone.entry(*m_id).or_default().push(*i_id);
         }
         for (m_id, issue_ids) in by_milestone {
-            writer.set_milestone_on_issues(db, m_id, &issue_ids)?;
+            commands.assign_milestone(m_id, &issue_ids)?;
             stats.milestone_issues += issue_ids.len();
         }
     }

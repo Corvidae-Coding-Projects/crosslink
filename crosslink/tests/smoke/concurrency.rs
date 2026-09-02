@@ -254,7 +254,7 @@ fn test_parallel_lock_claim_one_winner() {
 }
 
 #[test]
-fn test_offline_local_operations_then_sync() {
+fn test_local_git_authority_then_sync() {
     let mut h = SmokeHarness::new_bare();
     let temp_path = h.temp_dir.path().to_path_buf();
     let bin = h.crosslink_bin.clone();
@@ -316,16 +316,10 @@ fn test_offline_local_operations_then_sync() {
         )
     };
 
-    let (ok, stdout, stderr) = run(&["issue", "create", "Offline issue alpha"]);
+    let (ok, stdout, stderr) = run(&["issue", "create", "Local Git issue"]);
     assert!(
         ok,
-        "create should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
-    );
-
-    let (ok, stdout, stderr) = run(&["issue", "create", "Offline issue beta", "-p", "high"]);
-    assert!(
-        ok,
-        "create with priority should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
+        "local Git mutation failed\nstdout: {stdout}\nstderr: {stderr}"
     );
 
     let (ok, list_stdout, stderr) = run(&["issue", "list", "-s", "all"]);
@@ -334,55 +328,8 @@ fn test_offline_local_operations_then_sync() {
         "list should succeed offline\nstdout: {list_stdout}\nstderr: {stderr}"
     );
     assert!(
-        list_stdout.contains("Offline issue alpha"),
-        "list should show alpha\nstdout: {list_stdout}"
-    );
-    assert!(
-        list_stdout.contains("Offline issue beta"),
-        "list should show beta\nstdout: {list_stdout}"
-    );
-
-    let alpha_id = list_stdout
-        .lines()
-        .find(|l| l.contains("Offline issue alpha"))
-        .and_then(|l| l.split_whitespace().next())
-        .map(|id| id.trim_start_matches('#').to_string())
-        .unwrap_or_else(|| panic!("Could not find alpha in list output: {list_stdout}"));
-
-    let beta_id = list_stdout
-        .lines()
-        .find(|l| l.contains("Offline issue beta"))
-        .and_then(|l| l.split_whitespace().next())
-        .map(|id| id.trim_start_matches('#').to_string())
-        .unwrap_or_else(|| panic!("Could not find beta in list output: {list_stdout}"));
-
-    let (ok, stdout, stderr) = run(&["issue", "show", &alpha_id]);
-    assert!(
-        ok,
-        "show should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
-    );
-    assert!(
-        stdout.contains("Offline issue alpha"),
-        "show should display alpha\nstdout: {stdout}"
-    );
-
-    let (ok, stdout, stderr) = run(&[
-        "issue",
-        "update",
-        &beta_id,
-        "-t",
-        "Offline issue beta (updated)",
-    ]);
-    assert!(
-        ok,
-        "update should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
-    );
-
-    let (ok, stdout, _) = run(&["issue", "show", &beta_id]);
-    assert!(ok, "show after offline update should succeed");
-    assert!(
-        stdout.contains("beta (updated)") || stdout.contains("Offline issue beta"),
-        "show should reflect the update\nstdout: {stdout}"
+        list_stdout.contains("Local Git issue"),
+        "local Git mutation did not reach the projection\nstdout: {list_stdout}"
     );
 
     let remote_dir = tempfile::TempDir::new().expect("failed to create remote temp dir");
@@ -416,9 +363,15 @@ fn test_offline_local_operations_then_sync() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let (_, stdout, stderr) = run(&["sync"]);
+    let (synced, stdout, stderr) = run(&["sync"]);
+    assert!(synced, "sync failed\nstdout: {stdout}\nstderr: {stderr}");
+    h.ensure_ready();
 
-    let _ = (stdout, stderr);
+    let (ok, stdout, stderr) = run(&["issue", "create", "Online issue alpha"]);
+    assert!(
+        ok,
+        "create should recover after publication returns\nstdout: {stdout}\nstderr: {stderr}"
+    );
 
     let (ok, stdout, stderr) = run(&["issue", "list", "-s", "all"]);
     assert!(
@@ -426,9 +379,10 @@ fn test_offline_local_operations_then_sync() {
         "list should succeed after sync\nstdout: {stdout}\nstderr: {stderr}"
     );
     assert!(
-        stdout.contains("Offline issue alpha"),
+        stdout.contains("Online issue alpha"),
         "alpha should survive sync\nstdout: {stdout}"
     );
+    assert!(stdout.contains("Local Git issue"));
 }
 
 #[test]

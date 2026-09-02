@@ -1484,6 +1484,28 @@ pub(crate) fn git_rev_parse_optional(repo_dir: &Path, ref_name: &str) -> Result<
     }
 }
 
+pub(crate) fn restore_ref_after_failed_publication(
+    repo_dir: &Path,
+    ref_name: &str,
+    failed_tip: &str,
+    previous_tip: Option<&str>,
+) -> Result<()> {
+    if let Some(previous_tip) = previous_tip {
+        return git_update_ref_cas(repo_dir, ref_name, previous_tip, Some(failed_tip));
+    }
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["update-ref", "-d", ref_name, failed_tip])
+        .output()
+        .with_context(|| format!("failed to delete unpublished ref '{ref_name}'"))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "failed to delete unpublished ref '{ref_name}': {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    Ok(())
+}
+
 pub(crate) fn git_cat_file_blob_optional(
     repo_dir: &Path,
     blob_spec: &str,

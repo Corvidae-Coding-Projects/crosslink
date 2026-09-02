@@ -13,6 +13,8 @@ pub struct HubSnapshot {
 
     pub issues: Vec<crate::issue_file::IssueFile>,
 
+    pub milestones: Vec<crate::issue_file::MilestoneEntry>,
+
     pub agents: Vec<crate::locks::Heartbeat>,
 
     pub locks: Vec<LockRecord>,
@@ -97,6 +99,15 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
     } else {
         Vec::new()
     };
+    let mut milestones =
+        crate::issue_file::read_all_milestone_files(&hub_root.join("meta").join("milestones"))
+            .unwrap_or_default();
+    if milestones.is_empty() {
+        milestones =
+            crate::issue_file::read_milestones_file(&hub_root.join("meta").join("milestones.json"))
+                .map(|file| file.milestones.into_values().collect())
+                .unwrap_or_default();
+    }
 
     let agents = read_agent_heartbeats(&hub_root);
     let locks = read_locks(&hub_root);
@@ -108,6 +119,7 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
         hub_sha,
         layout_version,
         issues,
+        milestones,
         agents,
         locks,
         agent_requests,
@@ -126,6 +138,21 @@ fn read_snapshot_v3(
 
     let issues: Vec<crate::issue_file::IssueFile> =
         state.issues.values().map(compact_issue_to_file).collect();
+    let milestones = state
+        .milestones
+        .values()
+        .filter_map(|milestone| {
+            Some(crate::issue_file::MilestoneEntry {
+                uuid: milestone.uuid,
+                display_id: milestone.display_id?,
+                name: milestone.name.clone(),
+                description: milestone.description.clone(),
+                status: milestone.status,
+                created_at: milestone.created_at,
+                closed_at: milestone.closed_at,
+            })
+        })
+        .collect();
 
     let locks: Vec<LockRecord> = state
         .locks
@@ -161,6 +188,7 @@ fn read_snapshot_v3(
 
         layout_version: 3,
         issues,
+        milestones,
         agents,
         locks,
         agent_requests,
@@ -438,6 +466,414 @@ fn git_last_commit_at(clone_path: &Path, revision: &str) -> Option<DateTime<Utc>
         .map(|dt| dt.with_timezone(&Utc))
 }
 
+impl HubSnapshot {
+    fn issue_file(&self, id: i64) -> Option<&crate::issue_file::IssueFile> {
+        self.issues
+            .iter()
+            .find(|issue| issue.display_id == Some(id))
+    }
+
+    fn issue_id(&self, uuid: uuid::Uuid) -> Option<i64> {
+        self.issues
+            .iter()
+            .find(|issue| issue.uuid == uuid)
+            .and_then(|issue| issue.display_id)
+    }
+
+    fn issue_model(&self, issue: &crate::issue_file::IssueFile) -> Option<crate::models::Issue> {
+        Some(crate::models::Issue {
+            id: issue.display_id?,
+            title: issue.title.clone(),
+            description: issue.description.clone(),
+            status: issue.status,
+            priority: issue.priority,
+            parent_id: issue.parent_uuid.and_then(|uuid| self.issue_id(uuid)),
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+            closed_at: issue.closed_at,
+            scheduled_at: issue.scheduled_at,
+            due_at: issue.due_at,
+        })
+    }
+
+    fn milestone_model(milestone: &crate::issue_file::MilestoneEntry) -> crate::models::Milestone {
+        crate::models::Milestone {
+            id: milestone.display_id,
+            name: milestone.name.clone(),
+            description: milestone.description.clone(),
+            status: milestone.status,
+            created_at: milestone.created_at,
+            closed_at: milestone.closed_at,
+        }
+    }
+}
+
+impl crate::application::QueryService for HubSnapshot {
+    fn list_issue_records(&self) -> Result<Vec<crate::issue_file::IssueFile>> {
+        Ok(self.issues.clone())
+    }
+
+    fn get_issue(&self, id: i64) -> Result<Option<crate::models::Issue>> {
+        Ok(self
+            .issue_file(id)
+            .and_then(|issue| self.issue_model(issue)))
+    }
+
+    fn require_issue(&self, id: i64) -> Result<crate::models::Issue> {
+        self.get_issue(id)?
+            .ok_or_else(|| anyhow::anyhow!("issue #{id} not found"))
+    }
+
+    fn list_issues(
+        &self,
+        status: Option<&str>,
+        label: Option<&str>,
+        priority: Option<&str>,
+    ) -> Result<Vec<crate::models::Issue>> {
+        let status = status
+            .filter(|value| *value != "all")
+            .map(str::parse::<crate::models::IssueStatus>)
+            .transpose()?;
+        let priority = priority
+            .map(str::parse::<crate::models::Priority>)
+            .transpose()?;
+        let mut issues = self
+            .issues
+            .iter()
+            .filter(|issue| status.is_none_or(|value| issue.status == value))
+            .filter(|issue| label.is_none_or(|value| issue.labels.iter().any(|item| item == value)))
+            .filter(|issue| priority.is_none_or(|value| issue.priority == value))
+            .filter_map(|issue| self.issue_model(issue))
+            .collect::<Vec<_>>();
+        issues.sort_by_key(|issue| std::cmp::Reverse(issue.id));
+        Ok(issues)
+    }
+
+    fn search_issues(&self, query: &str) -> Result<Vec<crate::models::Issue>> {
+        let query = query.to_lowercase();
+        let mut issues = self
+            .issues
+            .iter()
+            .filter(|issue| {
+                issue.title.to_lowercase().contains(&query)
+                    || issue
+                        .description
+                        .as_deref()
+                        .is_some_and(|description| description.to_lowercase().contains(&query))
+            })
+            .filter_map(|issue| self.issue_model(issue))
+            .collect::<Vec<_>>();
+        issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
+        Ok(issues)
+    }
+
+    fn get_subissues(&self, parent_id: i64) -> Result<Vec<crate::models::Issue>> {
+        let parent = self.require_issue(parent_id)?;
+        let parent_uuid: uuid::Uuid = self.get_issue_uuid_by_id(parent.id)?.parse()?;
+        let mut issues = self
+            .issues
+            .iter()
+            .filter(|issue| issue.parent_uuid == Some(parent_uuid))
+            .filter_map(|issue| self.issue_model(issue))
+            .collect::<Vec<_>>();
+        issues.sort_by_key(|issue| issue.id);
+        Ok(issues)
+    }
+
+    fn get_labels(&self, issue_id: i64) -> Result<Vec<String>> {
+        Ok(self
+            .issue_file(issue_id)
+            .map_or_else(Vec::new, |issue| issue.labels.clone()))
+    }
+
+    fn get_labels_batch(
+        &self,
+        issue_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<String>>> {
+        Ok(issue_ids
+            .iter()
+            .map(|id| (*id, self.get_labels(*id).unwrap_or_default()))
+            .collect())
+    }
+
+    fn get_comments(&self, issue_id: i64) -> Result<Vec<crate::models::Comment>> {
+        Ok(self.issue_file(issue_id).map_or_else(Vec::new, |issue| {
+            issue
+                .comments
+                .iter()
+                .map(|comment| crate::models::Comment {
+                    id: comment.id,
+                    issue_id,
+                    content: comment.content.clone(),
+                    created_at: comment.created_at,
+                    kind: comment.kind.clone(),
+                    trigger_type: comment.trigger_type.clone(),
+                    intervention_context: comment.intervention_context.clone(),
+                    driver_key_fingerprint: comment.driver_key_fingerprint.clone(),
+                })
+                .collect()
+        }))
+    }
+
+    fn search_comments(&self, query: &str) -> Result<Vec<(crate::models::Comment, i64, String)>> {
+        let query = query.to_lowercase();
+        let mut rows = Vec::new();
+        for issue in &self.issues {
+            let Some(issue_id) = issue.display_id else {
+                continue;
+            };
+            rows.extend(
+                self.get_comments(issue_id)?
+                    .into_iter()
+                    .filter(|comment| comment.content.to_lowercase().contains(&query))
+                    .map(|comment| (comment, issue_id, issue.title.clone())),
+            );
+        }
+        rows.sort_by_key(|(comment, _, _)| std::cmp::Reverse(comment.created_at));
+        Ok(rows)
+    }
+
+    fn get_blockers(&self, issue_id: i64) -> Result<Vec<i64>> {
+        Ok(self.issue_file(issue_id).map_or_else(Vec::new, |issue| {
+            issue
+                .blockers
+                .iter()
+                .filter_map(|uuid| self.issue_id(*uuid))
+                .collect()
+        }))
+    }
+
+    fn get_blocking(&self, issue_id: i64) -> Result<Vec<i64>> {
+        let uuid: uuid::Uuid = self.get_issue_uuid_by_id(issue_id)?.parse()?;
+        Ok(self
+            .issues
+            .iter()
+            .filter(|issue| issue.blockers.contains(&uuid))
+            .filter_map(|issue| issue.display_id)
+            .collect())
+    }
+
+    fn get_blocker_counts_batch(
+        &self,
+        issue_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, usize>> {
+        issue_ids
+            .iter()
+            .map(|id| Ok((*id, self.get_blockers(*id)?.len())))
+            .collect()
+    }
+
+    fn list_blocked_issues(&self) -> Result<Vec<crate::models::Issue>> {
+        let open = self
+            .issues
+            .iter()
+            .filter(|issue| issue.status == crate::models::IssueStatus::Open)
+            .map(|issue| issue.uuid)
+            .collect::<std::collections::HashSet<_>>();
+        let mut issues = self
+            .issues
+            .iter()
+            .filter(|issue| issue.status == crate::models::IssueStatus::Open)
+            .filter(|issue| issue.blockers.iter().any(|uuid| open.contains(uuid)))
+            .filter_map(|issue| self.issue_model(issue))
+            .collect::<Vec<_>>();
+        issues.sort_by_key(|issue| issue.id);
+        Ok(issues)
+    }
+
+    fn list_ready_issues(&self) -> Result<Vec<crate::models::Issue>> {
+        let blocked = self
+            .list_blocked_issues()?
+            .into_iter()
+            .map(|issue| issue.id)
+            .collect::<std::collections::HashSet<_>>();
+        let mut issues = self
+            .issues
+            .iter()
+            .filter(|issue| issue.status == crate::models::IssueStatus::Open)
+            .filter_map(|issue| self.issue_model(issue))
+            .filter(|issue| !blocked.contains(&issue.id))
+            .collect::<Vec<_>>();
+        issues.sort_by_key(|issue| issue.id);
+        Ok(issues)
+    }
+
+    fn list_archived_issues(&self) -> Result<Vec<crate::models::Issue>> {
+        Ok(self
+            .issues
+            .iter()
+            .filter(|issue| issue.status == crate::models::IssueStatus::Archived)
+            .filter_map(|issue| self.issue_model(issue))
+            .collect())
+    }
+
+    fn get_related_issues(&self, issue_id: i64) -> Result<Vec<crate::models::Issue>> {
+        Ok(self
+            .get_related_issue_ids(issue_id)?
+            .into_iter()
+            .filter_map(|id| self.get_issue(id).ok().flatten())
+            .collect())
+    }
+
+    fn get_related_issue_ids(&self, issue_id: i64) -> Result<Vec<i64>> {
+        Ok(self.issue_file(issue_id).map_or_else(Vec::new, |issue| {
+            issue
+                .related
+                .iter()
+                .filter_map(|uuid| self.issue_id(*uuid))
+                .collect()
+        }))
+    }
+
+    fn get_milestone(&self, id: i64) -> Result<Option<crate::models::Milestone>> {
+        Ok(self
+            .milestones
+            .iter()
+            .find(|milestone| milestone.display_id == id)
+            .map(Self::milestone_model))
+    }
+
+    fn list_milestones(&self, status: Option<&str>) -> Result<Vec<crate::models::Milestone>> {
+        let status = status
+            .filter(|value| *value != "all")
+            .map(str::parse::<crate::models::IssueStatus>)
+            .transpose()?;
+        let mut milestones = self
+            .milestones
+            .iter()
+            .filter(|milestone| status.is_none_or(|value| milestone.status == value))
+            .map(Self::milestone_model)
+            .collect::<Vec<_>>();
+        milestones.sort_by_key(|milestone| std::cmp::Reverse(milestone.id));
+        Ok(milestones)
+    }
+
+    fn get_milestone_issues(&self, milestone_id: i64) -> Result<Vec<crate::models::Issue>> {
+        let Some(milestone) = self
+            .milestones
+            .iter()
+            .find(|milestone| milestone.display_id == milestone_id)
+        else {
+            return Ok(Vec::new());
+        };
+        let mut issues = self
+            .issues
+            .iter()
+            .filter(|issue| issue.milestone_uuid == Some(milestone.uuid))
+            .filter_map(|issue| self.issue_model(issue))
+            .collect::<Vec<_>>();
+        issues.sort_by_key(|issue| issue.id);
+        Ok(issues)
+    }
+
+    fn get_issue_milestone(&self, issue_id: i64) -> Result<Option<crate::models::Milestone>> {
+        let Some(uuid) = self
+            .issue_file(issue_id)
+            .and_then(|issue| issue.milestone_uuid)
+        else {
+            return Ok(None);
+        };
+        Ok(self
+            .milestones
+            .iter()
+            .find(|milestone| milestone.uuid == uuid)
+            .map(Self::milestone_model))
+    }
+
+    fn get_milestone_uuid_for_issue(&self, issue_id: i64) -> Result<Option<String>> {
+        Ok(self
+            .issue_file(issue_id)
+            .and_then(|issue| issue.milestone_uuid)
+            .map(|uuid| uuid.to_string()))
+    }
+
+    fn count_issues_since(&self, since: &str) -> Result<i64> {
+        let since = DateTime::parse_from_rfc3339(since)?.with_timezone(&Utc);
+        Ok(self
+            .issues
+            .iter()
+            .filter(|issue| issue.created_at >= since)
+            .count() as i64)
+    }
+
+    fn count_comments_since(&self, since: &str) -> Result<i64> {
+        let since = DateTime::parse_from_rfc3339(since)?.with_timezone(&Utc);
+        Ok(self
+            .issues
+            .iter()
+            .flat_map(|issue| &issue.comments)
+            .filter(|comment| comment.created_at >= since)
+            .count() as i64)
+    }
+
+    fn get_issue_count(&self) -> Result<i64> {
+        Ok(self
+            .issues
+            .iter()
+            .filter(|issue| issue.display_id.is_some())
+            .count() as i64)
+    }
+
+    fn get_milestone_count(&self) -> Result<i64> {
+        Ok(self.milestones.len() as i64)
+    }
+
+    fn get_issue_uuid_by_id(&self, id: i64) -> Result<String> {
+        self.issue_file(id)
+            .map(|issue| issue.uuid.to_string())
+            .ok_or_else(|| anyhow::anyhow!("issue #{id} not found"))
+    }
+
+    fn get_issue_export_metadata(&self, id: i64) -> Result<(Option<String>, Option<String>)> {
+        let issue = self
+            .issue_file(id)
+            .ok_or_else(|| anyhow::anyhow!("issue #{id} not found"))?;
+        Ok((Some(issue.uuid.to_string()), Some(issue.created_by.clone())))
+    }
+
+    fn get_comments_with_author(&self, issue_id: i64) -> Result<Vec<crate::db::CommentAuthorRow>> {
+        Ok(self.issue_file(issue_id).map_or_else(Vec::new, |issue| {
+            issue
+                .comments
+                .iter()
+                .map(|comment| {
+                    (
+                        comment.id,
+                        Some(comment.author.clone()),
+                        comment.content.clone(),
+                        comment.created_at,
+                        comment.kind.clone(),
+                        comment.trigger_type.clone(),
+                        comment.intervention_context.clone(),
+                        comment.driver_key_fingerprint.clone(),
+                    )
+                })
+                .collect()
+        }))
+    }
+
+    fn get_time_entries_for_issue(&self, issue_id: i64) -> Result<Vec<crate::db::TimeEntryRow>> {
+        Ok(self.issue_file(issue_id).map_or_else(Vec::new, |issue| {
+            issue
+                .time_entries
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.id,
+                        entry.started_at,
+                        entry.ended_at,
+                        entry.duration_seconds,
+                    )
+                })
+                .collect()
+        }))
+    }
+
+    fn authority_mode(&self) -> crate::application::AuthorityMode {
+        crate::application::AuthorityMode::Shared
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProjectCounters {
     pub open_issues: i64,
@@ -458,8 +894,9 @@ impl HubSnapshot {
     ) -> ProjectCounters {
         use std::collections::HashSet;
 
-        let open: Vec<&crate::issue_file::IssueFile> = self
-            .issues
+        let records = crate::application::QueryService::list_issue_records(self)
+            .unwrap_or_else(|_| Vec::new());
+        let open: Vec<&crate::issue_file::IssueFile> = records
             .iter()
             .filter(|i| matches!(i.status, crate::models::IssueStatus::Open))
             .collect();
@@ -593,6 +1030,57 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_query_service_preserves_issue_records() {
+        let mut issue = make_issue(
+            Uuid::new_v4(),
+            42,
+            crate::models::IssueStatus::Open,
+            None,
+            vec![],
+        );
+        issue.labels.push("dashboard".to_string());
+        issue.comments.push(crate::issue_file::CommentEntry {
+            id: 7,
+            author: "agent".to_string(),
+            content: "query parity".to_string(),
+            created_at: now_fixed(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        });
+        let snap = HubSnapshot {
+            hub_sha: None,
+            layout_version: 3,
+            issues: vec![issue.clone()],
+            milestones: vec![],
+            agents: vec![],
+            locks: vec![],
+            agent_requests: vec![],
+            ci_status: None,
+            signature_state: SignatureState::Unknown,
+            last_commit_at: None,
+        };
+
+        assert_eq!(
+            crate::application::QueryService::list_issue_records(&snap).unwrap(),
+            vec![issue]
+        );
+        assert_eq!(
+            crate::application::QueryService::get_labels(&snap, 42).unwrap(),
+            vec!["dashboard"]
+        );
+        assert_eq!(
+            crate::application::QueryService::get_comments(&snap, 42)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn test_read_snapshot_parses_heartbeats() {
         let dir = tempdir().unwrap();
         let agents_dir = dir.path().join("agents").join("jus4");
@@ -680,6 +1168,7 @@ mod tests {
                     vec![],
                 ),
             ],
+            milestones: vec![],
             agents: vec![],
             locks: vec![],
             agent_requests: vec![],
@@ -725,6 +1214,7 @@ mod tests {
                     vec![],
                 ),
             ],
+            milestones: vec![],
             agents: vec![],
             locks: vec![],
             agent_requests: vec![],
@@ -775,6 +1265,7 @@ mod tests {
                     vec![blocker_closed],
                 ),
             ],
+            milestones: vec![],
             agents: vec![],
             locks: vec![],
             agent_requests: vec![],
@@ -806,6 +1297,7 @@ mod tests {
             hub_sha: None,
             layout_version: 2,
             issues: vec![],
+            milestones: vec![],
             agents: vec![fresh, stale],
             locks: vec![],
             agent_requests: vec![],
@@ -842,6 +1334,7 @@ mod tests {
             hub_sha: None,
             layout_version: 2,
             issues: vec![],
+            milestones: vec![],
             agents: vec![],
             locks: vec![fresh, stale],
             agent_requests: vec![],

@@ -25,6 +25,9 @@
 mod agent_flags;
 mod agent_requests;
 mod agents;
+mod application;
+#[cfg(test)]
+mod application_boundary_tests;
 mod checkpoint;
 mod clock_skew;
 mod commands;
@@ -2369,8 +2372,11 @@ fn get_service_db() -> Result<ServiceDatabase> {
     open_service_db(&find_crosslink_dir()?)
 }
 
-fn get_writer(crosslink_dir: &std::path::Path) -> Result<Option<shared_writer::SharedWriter>> {
-    shared_writer::SharedWriter::new(crosslink_dir)
+fn get_repository_service<'a>(
+    database: &'a db::Database,
+    crosslink_dir: &std::path::Path,
+) -> Result<application::RepositoryService<'a>> {
+    application::RepositoryService::new(database, crosslink_dir)
 }
 
 fn parse_issue_id_clap(s: &str) -> std::result::Result<i64, String> {
@@ -2428,7 +2434,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work,
@@ -2443,8 +2449,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                     anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
                 }
                 commands::create::run_subissue(
-                    &db,
-                    writer.as_ref(),
+                    &service,
                     parent_id,
                     &title,
                     description.as_deref(),
@@ -2454,8 +2459,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 )
             } else {
                 commands::create::run(
-                    &db,
-                    writer.as_ref(),
+                    &service,
                     &title,
                     description.as_deref(),
                     &priority,
@@ -2480,7 +2484,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work: true,
@@ -2494,8 +2498,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                     anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
                 }
                 commands::create::run_subissue(
-                    &db,
-                    writer.as_ref(),
+                    &service,
                     parent_id,
                     &title,
                     description.as_deref(),
@@ -2505,8 +2508,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 )
             } else {
                 commands::create::run(
-                    &db,
-                    writer.as_ref(),
+                    &service,
                     &title,
                     description.as_deref(),
                     &priority,
@@ -2610,7 +2612,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             let update = shared_writer::IssueUpdate {
                 title: title.as_deref(),
                 description: description
@@ -2623,23 +2625,17 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 scheduled_at: scheduled_update(scheduled, no_scheduled),
                 due_at: scheduled_update(due, no_due),
             };
-            commands::update::run(&db, writer.as_ref(), id, update)
+            commands::update::run(&service, id, update)
         }
 
         IssueCommands::Close { id, no_changelog } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             if quiet {
-                commands::lifecycle::close_quiet(
-                    &db,
-                    writer.as_ref(),
-                    id,
-                    !no_changelog,
-                    &crosslink_dir,
-                )
+                commands::lifecycle::close_quiet(&service, id, !no_changelog, &crosslink_dir)
             } else {
-                commands::lifecycle::close(&db, writer.as_ref(), id, !no_changelog, &crosslink_dir)
+                commands::lifecycle::close(&service, id, !no_changelog, &crosslink_dir)
             }
         }
 
@@ -2650,10 +2646,9 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             commands::lifecycle::close_all(
-                &db,
-                writer.as_ref(),
+                &service,
                 label.as_deref(),
                 priority.as_deref(),
                 !no_changelog,
@@ -2664,22 +2659,22 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Reopen { id } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::lifecycle::reopen(&db, writer.as_ref(), id)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::lifecycle::reopen(&service, id)
         }
 
         IssueCommands::Delete { id, force } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::delete::run(&db, writer.as_ref(), id, force)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::delete::run(&service, id, force)
         }
 
         IssueCommands::Comment { id, text, kind } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::comment::run(&db, writer.as_ref(), id, &text, &kind)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::comment::run(&service, id, &text, &kind)
         }
 
         IssueCommands::Intervene {
@@ -2690,10 +2685,9 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             commands::intervene::run(
-                &db,
-                writer.as_ref(),
+                &service,
                 id,
                 &description,
                 &trigger,
@@ -2705,58 +2699,61 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Label { id, label } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::label::add(&db, writer.as_ref(), id, &label)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::label::add(&service, id, &label)
         }
 
         IssueCommands::Unlabel { id, label } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::label::remove(&db, writer.as_ref(), id, &label)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::label::remove(&service, id, &label)
         }
 
         IssueCommands::Block { id, blocker } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::deps::block(&db, writer.as_ref(), id, blocker)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::deps::block(&service, id, blocker)
         }
 
         IssueCommands::Unblock { id, blocker } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::deps::unblock(&db, writer.as_ref(), id, blocker)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::deps::unblock(&service, id, blocker)
         }
 
         IssueCommands::Blocked => {
             let db = get_db()?;
-            commands::deps::list_blocked(&db, json)
+            let queries = application::RepositoryService::projection(&db);
+            commands::deps::list_blocked(&queries, json)
         }
 
         IssueCommands::Ready => {
             let db = get_db()?;
-            commands::deps::list_ready(&db, json)
+            let queries = application::RepositoryService::projection(&db);
+            commands::deps::list_ready(&queries, json)
         }
 
         IssueCommands::Relate { id, related } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::relate::add(&db, writer.as_ref(), id, related)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::relate::add(&service, id, related)
         }
 
         IssueCommands::Unrelate { id, related } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
-            commands::relate::remove(&db, writer.as_ref(), id, related)
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::relate::remove(&service, id, related)
         }
 
         IssueCommands::Related { id } => {
             let db = get_db()?;
-            commands::relate::list(&db, id)
+            let queries = application::RepositoryService::projection(&db);
+            commands::relate::list(&queries, id)
         }
 
         IssueCommands::Next => {
@@ -2917,10 +2914,11 @@ fn run_cli() -> Result<()> {
 
         Commands::Timer { action } => {
             let db = get_db()?;
+            let service = application::RepositoryService::projection(&db);
             match action {
-                TimerCommands::Start { id } => commands::timer::start(&db, id),
-                TimerCommands::Stop => commands::timer::stop(&db),
-                TimerCommands::Show => commands::timer::status(&db),
+                TimerCommands::Start { id } => commands::timer::start(&service, id),
+                TimerCommands::Stop => commands::timer::stop(&service),
+                TimerCommands::Show => commands::timer::status(&service),
             }
         }
 
@@ -3163,7 +3161,8 @@ fn run_cli() -> Result<()> {
                 "did you mean 'crosslink timer start'? Using that.",
             );
             let db = get_db()?;
-            commands::timer::start(&db, id)
+            let service = application::RepositoryService::projection(&db);
+            commands::timer::start(&service, id)
         }
 
         Commands::TimerStop => {
@@ -3172,7 +3171,8 @@ fn run_cli() -> Result<()> {
                 "did you mean 'crosslink timer stop'? Using that.",
             );
             let db = get_db()?;
-            commands::timer::stop(&db)
+            let service = application::RepositoryService::projection(&db);
+            commands::timer::stop(&service)
         }
 
         Commands::MigrateToShared => {
@@ -3215,20 +3215,43 @@ fn run_cli() -> Result<()> {
         Commands::Import { input } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            let writer = get_writer(&crosslink_dir)?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
             let path = std::path::Path::new(&input);
-            commands::import::run_json(&db, writer.as_ref(), path)
+            commands::import::run_json(&service, path)
         }
 
         Commands::Archive { action } => {
             let db = get_db()?;
-            commands::archive::run(action, &db)
+            match action {
+                ArchiveCommands::List => {
+                    let service = application::RepositoryService::projection(&db);
+                    commands::archive::run(ArchiveCommands::List, &service)
+                }
+                mutation => {
+                    let crosslink_dir = find_crosslink_dir()?;
+                    let service = get_repository_service(&db, &crosslink_dir)?;
+                    commands::archive::run(mutation, &service)
+                }
+            }
         }
 
         Commands::Milestone { action } => {
             let db = get_db()?;
-            let crosslink_dir = find_crosslink_dir()?;
-            commands::milestone::run(action, &db, &crosslink_dir)
+            match action {
+                MilestoneCommands::List { status } => {
+                    let service = application::RepositoryService::projection(&db);
+                    commands::milestone::run(MilestoneCommands::List { status }, &service)
+                }
+                MilestoneCommands::Show { id } => {
+                    let service = application::RepositoryService::projection(&db);
+                    commands::milestone::run(MilestoneCommands::Show { id }, &service)
+                }
+                mutation => {
+                    let crosslink_dir = find_crosslink_dir()?;
+                    let service = get_repository_service(&db, &crosslink_dir)?;
+                    commands::milestone::run(mutation, &service)
+                }
+            }
         }
 
         Commands::Session { action } => {
@@ -3298,12 +3321,21 @@ fn run_cli() -> Result<()> {
 
         Commands::Cpitd { action } => {
             let db = get_db()?;
-            commands::cpitd::run(action, &db, cli.quiet)
+            let crosslink_dir = find_crosslink_dir()?;
+            let service = get_repository_service(&db, &crosslink_dir)?;
+            commands::cpitd::run(action, &service, cli.quiet)
         }
 
         Commands::Agent { action } => {
             let crosslink_dir = find_crosslink_dir()?;
-            commands::agent::run(action, &crosslink_dir)
+            match action {
+                mutation @ (AgentCommands::Request { .. } | AgentCommands::PollRequests) => {
+                    let db = get_db()?;
+                    let service = get_repository_service(&db, &crosslink_dir)?;
+                    commands::agent::run(mutation, &crosslink_dir, Some(&service))
+                }
+                local => commands::agent::run(local, &crosslink_dir, None),
+            }
         }
 
         Commands::Trust { action } => {
@@ -3325,8 +3357,11 @@ fn run_cli() -> Result<()> {
                     let sync = crate::sync::SyncManager::new(&crosslink_dir)?;
                     let _ = sync.init_cache();
                     let db = get_db()?;
-                    let active_issue = db
-                        .get_current_session_for_agent(None)?
+                    let service = application::RepositoryService::projection(&db);
+                    let active_issue =
+                        application::LocalStateService::get_current_session_for_agent(
+                            &service, None,
+                        )?
                         .and_then(|s| s.active_issue_id);
                     sync.push_heartbeat(&agent, active_issue)?;
                     Ok(())
@@ -3433,28 +3468,7 @@ fn run_cli() -> Result<()> {
                 skip_permissions: false,
                 permission_mode: None,
             });
-            let diagnostic = matches!(
-                &action,
-                KickoffCommands::Status { .. }
-                    | KickoffCommands::Logs { .. }
-                    | KickoffCommands::ShowPlan { .. }
-                    | KickoffCommands::Report { .. }
-                    | KickoffCommands::List { .. }
-                    | KickoffCommands::Graph { .. }
-            );
-            let writer = if diagnostic {
-                None
-            } else {
-                get_writer(&crosslink_dir)?
-            };
-            commands::kickoff::dispatch(
-                action,
-                &crosslink_dir,
-                &db,
-                writer.as_ref(),
-                cli.quiet,
-                cli.json,
-            )
+            commands::kickoff::dispatch(action, &crosslink_dir, &db, cli.quiet, cli.json)
         }
         Commands::Doctor => {
             let crosslink_dir = find_crosslink_dir()?;
@@ -3496,31 +3510,12 @@ fn run_cli() -> Result<()> {
                     retry_failed,
                 } => {
                     let db = get_db()?;
-                    let writer = get_writer(&crosslink_dir)?;
                     if retry_failed {
-                        commands::swarm::launch_retry_failed(
-                            &crosslink_dir,
-                            &db,
-                            writer.as_ref(),
-                            &phase,
-                            cli.quiet,
-                        )
+                        commands::swarm::launch_retry_failed(&crosslink_dir, &db, &phase, cli.quiet)
                     } else if budget_aware {
-                        commands::swarm::launch_budget_aware(
-                            &crosslink_dir,
-                            &db,
-                            writer.as_ref(),
-                            &phase,
-                            cli.quiet,
-                        )
+                        commands::swarm::launch_budget_aware(&crosslink_dir, &db, &phase, cli.quiet)
                     } else {
-                        commands::swarm::launch(
-                            &crosslink_dir,
-                            &db,
-                            writer.as_ref(),
-                            &phase,
-                            cli.quiet,
-                        )
+                        commands::swarm::launch(&crosslink_dir, &db, &phase, cli.quiet)
                     }
                 }
                 SwarmCommands::Gate { phase } => commands::swarm::gate(&crosslink_dir, &phase),
@@ -3637,11 +3632,6 @@ fn run_cli() -> Result<()> {
             }
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
-            let writer = if matches!(&action, SentinelCommands::Run { .. }) {
-                get_writer(&crosslink_dir)?
-            } else {
-                None
-            };
             let sentinel_model = match &action {
                 SentinelCommands::Run { model, .. }
                 | SentinelCommands::Watch { model, .. }
@@ -3652,7 +3642,6 @@ fn run_cli() -> Result<()> {
                 action,
                 &crosslink_dir,
                 &db,
-                writer.as_ref(),
                 cli.quiet,
                 cli.json,
                 sentinel_model,

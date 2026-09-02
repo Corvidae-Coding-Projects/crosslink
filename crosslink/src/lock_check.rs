@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
-use crate::db::Database;
+use crate::application::{CommandService, QueryService};
 use crate::identity::AgentConfig;
 use crate::sync::SyncManager;
 
@@ -69,7 +69,7 @@ fn auto_steal_if_configured(
     crosslink_dir: &Path,
     issue_id: i64,
     stale_agent_id: &str,
-    db: &Database,
+    service: &(impl CommandService + QueryService),
 ) -> Result<bool> {
     let Some(multiplier) = read_auto_steal_config(crosslink_dir) else {
         return Ok(false);
@@ -102,16 +102,14 @@ fn auto_steal_if_configured(
     }
 
     if sync.hub_mode().is_v3() {
-        if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
-            writer.steal_lock_v2(issue_id, stale_agent_id, None)?;
+        {
+            service.steal_lock(issue_id, stale_agent_id, None)?;
             let comment = format!(
                 "[auto-steal] Lock auto-stolen from agent '{stale_agent_id}' (stale for {stale_minutes} min, threshold: {auto_steal_threshold} min)"
             );
-            if let Err(e) = writer.add_comment(db, issue_id, &comment, "system") {
+            if let Err(e) = service.add_comment(issue_id, &comment, "system") {
                 tracing::warn!("could not add audit comment for lock steal: {e}");
             }
-        } else {
-            return Ok(false);
         }
     } else {
         return Ok(false);
@@ -120,13 +118,17 @@ fn auto_steal_if_configured(
     Ok(true)
 }
 
-pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Result<()> {
+pub fn enforce_lock(
+    crosslink_dir: &Path,
+    issue_id: i64,
+    service: &(impl CommandService + QueryService),
+) -> Result<()> {
     let _operation = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
     match check_lock(crosslink_dir, issue_id)? {
         LockStatus::NotConfigured | LockStatus::Available | LockStatus::LockedBySelf => Ok(()),
         LockStatus::LockedByOther { agent_id, stale } => {
             if stale {
-                match auto_steal_if_configured(crosslink_dir, issue_id, &agent_id, db) {
+                match auto_steal_if_configured(crosslink_dir, issue_id, &agent_id, service) {
                     Ok(true) => {
                         tracing::info!(
                             "Auto-stole stale lock on issue #{} from '{}'.",
@@ -165,24 +167,13 @@ pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Resul
     }
 }
 
-pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
-    let Ok(Some(_agent)) = AgentConfig::load(crosslink_dir) else {
-        return;
-    };
-    let Ok(sync) = SyncManager::new(crosslink_dir) else {
-        return;
-    };
-    if !sync.is_initialized() || !sync.hub_mode().is_v3() {
-        return;
-    }
-    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
-        if let Err(e) = writer.release_lock_v2(issue_id) {
-            tracing::warn!(
-                "Could not release lock on {}: {}",
-                crate::utils::format_issue_id(issue_id),
-                e
-            );
-        }
+pub fn release_lock_best_effort(service: &impl CommandService, issue_id: i64) {
+    if let Err(e) = service.release_lock(issue_id) {
+        tracing::warn!(
+            "Could not release lock on {}: {}",
+            crate::utils::format_issue_id(issue_id),
+            e
+        );
     }
 }
 
@@ -198,56 +189,34 @@ pub enum ClaimResult {
 }
 
 pub fn try_claim_lock(
-    crosslink_dir: &Path,
+    service: &impl CommandService,
     issue_id: i64,
     branch: Option<&str>,
 ) -> Result<ClaimResult> {
-    let Some(_agent) = AgentConfig::load(crosslink_dir)? else {
-        return Ok(ClaimResult::NotConfigured);
-    };
-    let sync = match SyncManager::new(crosslink_dir) {
-        Ok(s) if s.is_initialized() => s,
-        _ => return Ok(ClaimResult::NotConfigured),
-    };
-
-    if sync.hub_mode().is_v3() {
-        let Some(writer) = crate::shared_writer::SharedWriter::new(crosslink_dir)? else {
-            return Ok(ClaimResult::NotConfigured);
-        };
-        match writer.claim_lock_v2(issue_id, branch)? {
+    match service.claim_lock(issue_id, branch) {
+        Ok(result) => match result {
             crate::shared_writer::LockClaimResult::Claimed => Ok(ClaimResult::Claimed),
             crate::shared_writer::LockClaimResult::AlreadyHeld => Ok(ClaimResult::AlreadyHeld),
             crate::shared_writer::LockClaimResult::Contended { winner_agent_id } => {
                 Ok(ClaimResult::Contended { winner_agent_id })
             }
+        },
+        Err(error) if error.to_string().contains("locks require configured") => {
+            Ok(ClaimResult::NotConfigured)
         }
-    } else {
-        Ok(ClaimResult::NotConfigured)
+        Err(error) => Err(error),
     }
 }
 
-pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
-    let Some(_agent) = AgentConfig::load(crosslink_dir)? else {
-        return Ok(false);
-    };
-    let sync = match SyncManager::new(crosslink_dir) {
-        Ok(s) if s.is_initialized() => s,
-        _ => return Ok(false),
-    };
-
-    if sync.hub_mode().is_v3() {
-        let Some(writer) = crate::shared_writer::SharedWriter::new(crosslink_dir)? else {
-            return Ok(false);
-        };
-        writer.release_lock_v2(issue_id)
-    } else {
-        Ok(false)
-    }
+pub fn try_release_lock(service: &impl CommandService, issue_id: i64) -> Result<bool> {
+    service.release_lock(issue_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::RepositoryService;
+    use crate::db::Database;
     use tempfile::tempdir;
 
     fn temp_db() -> Database {
@@ -288,6 +257,24 @@ mod tests {
                 .args(["config", cfg[0], cfg[1]])
                 .current_dir(repo_root)
                 .status();
+        }
+        let authority = repo_root.join("authority.git");
+        std::fs::create_dir(&authority).ok()?;
+        let remote_ready = std::process::Command::new("git")
+            .args(["init", "--bare", "-q"])
+            .current_dir(&authority)
+            .status()
+            .is_ok_and(|status| status.success());
+        if !remote_ready {
+            return None;
+        }
+        let remote_added = std::process::Command::new("git")
+            .args(["remote", "add", "origin", authority.to_str()?])
+            .current_dir(repo_root)
+            .status()
+            .is_ok_and(|status| status.success());
+        if !remote_added {
+            return None;
         }
 
         let crosslink_dir = repo_root.join(".crosslink");
@@ -924,7 +911,8 @@ mod tests {
         .unwrap();
 
         let db = temp_db();
-        let result = auto_steal_if_configured(&crosslink_dir, 55, "other-agent", &db);
+        let service = RepositoryService::new(&db, &crosslink_dir).unwrap();
+        let result = auto_steal_if_configured(&crosslink_dir, 55, "other-agent", &service);
 
         assert!(matches!(result, Ok(true)), "expected steal, got {result:?}");
     }

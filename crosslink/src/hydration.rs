@@ -230,6 +230,10 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     result
 }
 
+pub fn clear_shared_projection(db: &Database) -> Result<()> {
+    db.clear_shared_data()
+}
+
 pub fn hydrate_from_state(
     state: &crate::checkpoint::CheckpointState,
     db: &Database,

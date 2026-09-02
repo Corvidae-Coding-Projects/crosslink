@@ -4,6 +4,7 @@ use axum::{
     response::Json,
 };
 
+use crate::application::{CommandService, LocalStateService, QueryService, RepositoryService};
 use crate::server::{
     errors::{bad_request, internal_error, not_found},
     state::AppState,
@@ -13,6 +14,14 @@ use crate::server::{
     },
 };
 
+pub(crate) fn execute_set_session_issue_command(
+    service: &impl CommandService,
+    session_id: i64,
+    issue_id: i64,
+) -> anyhow::Result<bool> {
+    service.set_session_issue(session_id, issue_id)
+}
+
 pub async fn get_current_session(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<
@@ -21,8 +30,9 @@ pub async fn get_current_session(
 ) -> Result<Json<SessionResponse>, (StatusCode, Json<ApiError>)> {
     let agent_id = params.get("agent_id").map(std::string::String::as_str);
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
-    let session = db
+    let session = service
         .get_current_session_for_agent(agent_id)
         .map_err(|e| internal_error("Failed to query current session", e))?
         .ok_or_else(|| not_found("No active session found"))?;
@@ -36,13 +46,14 @@ pub async fn start_session(
     Json(body): Json<StartSessionRequest>,
 ) -> Result<Json<SessionResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
     let agent_id_ref = body.agent_id.as_deref();
-    let session_id = db
-        .start_session_with_agent(agent_id_ref)
+    let session_id = service
+        .start_session(agent_id_ref)
         .map_err(|e| internal_error("Failed to start session", e))?;
 
-    let session = db
+    let session = service
         .get_current_session_for_agent(agent_id_ref)
         .map_err(|e| internal_error("Failed to fetch new session", e))?
         .ok_or_else(|| {
@@ -62,13 +73,14 @@ pub async fn end_session(
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let agent_id = params.get("agent_id").map(std::string::String::as_str);
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
-    let session = db
+    let session = service
         .get_current_session_for_agent(agent_id)
         .map_err(|e| internal_error("Failed to query current session", e))?
         .ok_or_else(|| not_found("No active session to end"))?;
 
-    let ended = db
+    let ended = service
         .end_session(session.id, body.notes.as_deref())
         .map_err(|e| internal_error("Failed to end session", e))?;
 
@@ -90,8 +102,9 @@ pub async fn work_on_issue(
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let agent_id = params.agent_id.as_deref();
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
-    let issue_exists = db
+    let issue_exists = service
         .get_issue(issue_id)
         .map_err(|e| internal_error("Failed to look up issue", e))?
         .is_some();
@@ -100,13 +113,12 @@ pub async fn work_on_issue(
         return Err(not_found(format!("Issue {issue_id} not found")));
     }
 
-    let session = db
+    let session = service
         .get_current_session_for_agent(agent_id)
         .map_err(|e| internal_error("Failed to query current session", e))?
         .ok_or_else(|| not_found("No active session — call POST /sessions/start first"))?;
 
-    let updated = db
-        .set_session_issue(session.id, issue_id)
+    let updated = execute_set_session_issue_command(&service, session.id, issue_id)
         .map_err(|e| internal_error("Failed to update session issue", e))?;
 
     drop(db);

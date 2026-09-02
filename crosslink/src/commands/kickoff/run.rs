@@ -1,20 +1,37 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
+use crate::application::{CommandService, QueryService, RepositoryService};
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
 
 use super::helpers::*;
 use super::launch::*;
 use super::prompt::*;
 use super::types::*;
 
-pub fn run(
-    crosslink_dir: &Path,
-    db: &Database,
-    writer: Option<&SharedWriter>,
-    opts: &KickoffOpts,
-) -> Result<String> {
+pub(crate) fn resolve_kickoff_issue(
+    service: &(impl CommandService + QueryService),
+    requested_issue: Option<i64>,
+    description: &str,
+) -> Result<i64> {
+    if let Some(id) = requested_issue {
+        if service.get_issue(id)?.is_none() {
+            bail!("Issue {} not found", crate::utils::format_issue_id(id));
+        }
+        Ok(id)
+    } else {
+        service.create_issue_with_labels(
+            description,
+            Some("Created by crosslink kickoff"),
+            "medium",
+            &["feature".to_string()],
+            None,
+            None,
+        )
+    }
+}
+
+pub fn run(crosslink_dir: &Path, db: &Database, opts: &KickoffOpts) -> Result<String> {
     let preflight = if opts.dry_run {
         None
     } else {
@@ -51,47 +68,27 @@ pub fn run(
     let compact_name = crate::utils::compose_compact_name(&repo_id, &agent_compact, &slug);
     crate::utils::validate_compact_name(&compact_name)?;
 
-    let local_writer = if writer.is_none() && !opts.dry_run {
-        prepare_local_kickoff_writer(crosslink_dir, db)?
+    let service = if opts.dry_run {
+        RepositoryService::projection(db)
     } else {
-        None
+        RepositoryService::for_kickoff(db, crosslink_dir)?
     };
-    let writer = writer.or(local_writer.as_ref());
 
-    let issue_id = if let Some(id) = opts.issue {
-        if db.get_issue(id)?.is_none() {
-            bail!("Issue {} not found", crate::utils::format_issue_id(id));
-        }
-        id
-    } else {
-        let id = if let Some(w) = writer {
-            w.create_issue(
-                db,
-                opts.description,
-                Some("Created by crosslink kickoff"),
-                "medium",
-                None,
-                None,
-            )?
+    let issue_id = if opts.dry_run {
+        if let Some(id) = opts.issue {
+            if service.get_issue(id)?.is_none() {
+                bail!("Issue {} not found", crate::utils::format_issue_id(id));
+            }
+            id
         } else {
-            db.create_issue(
-                opts.description,
-                Some("Created by crosslink kickoff"),
-                "medium",
-            )?
-        };
-        let label_err = writer.map_or_else(
-            || db.add_label(id, "feature").err(),
-            |w| w.add_label(db, id, "feature").err(),
-        );
-        if let Some(e) = label_err {
-            tracing::warn!("could not label issue #{id} with 'feature': {e}");
+            0
         }
-        if !opts.quiet {
-            println!("Created issue #{id}");
-        }
-        id
+    } else {
+        resolve_kickoff_issue(&service, opts.issue, opts.description)?
     };
+    if !opts.dry_run && opts.issue.is_none() && !opts.quiet {
+        println!("Created issue #{issue_id}");
+    }
 
     let (wt_slug, branch_name) = opts.branch.map_or_else(
         || (compact_name.clone(), format!("feature/{compact_name}")),
@@ -289,42 +286,6 @@ pub fn run(
     Ok(compact_name)
 }
 
-fn prepare_local_kickoff_writer(
-    crosslink_dir: &Path,
-    _db: &Database,
-) -> Result<Option<SharedWriter>> {
-    if crate::identity::AgentConfig::load(crosslink_dir)?.is_none() {
-        return Ok(None);
-    }
-
-    let sync = crate::sync::SyncManager::new(crosslink_dir)?;
-    if sync.remote_exists() {
-        return Ok(None);
-    }
-    if !sync.is_initialized() {
-        sync.init_cache()
-            .context("Failed to initialize the local coordination hub for kickoff")?;
-    }
-    if !sync.hub_mode().is_v3() {
-        bail!("Local-only kickoff requires a v3 coordination hub");
-    }
-
-    match crate::reconcile::migration::activate_repository(crosslink_dir)
-        .context("Failed to reconcile local issues before kickoff")?
-    {
-        crate::reconcile::migration::RepositoryActivation::ReadyCurrent { .. }
-        | crate::reconcile::migration::RepositoryActivation::ReadyMigrated { .. }
-        | crate::reconcile::migration::RepositoryActivation::ReadyAdopted { .. } => {}
-        crate::reconcile::migration::RepositoryActivation::WaitingForRemote { reason } => {
-            bail!("Local kickoff reconciliation is waiting for remote: {reason}")
-        }
-        crate::reconcile::migration::RepositoryActivation::BlockedCorrupt { reason } => {
-            bail!("Local kickoff reconciliation is blocked: {reason}")
-        }
-    }
-    SharedWriter::new(crosslink_dir)
-}
-
 fn resolve_worktree_relative_doc(doc_path: Option<&str>, repo_root: &Path) -> Option<PathBuf> {
     let raw = doc_path?;
     let candidate = Path::new(raw);
@@ -403,9 +364,7 @@ mod local_kickoff_tests {
             .create_issue("existing local issue", None, "medium")
             .unwrap();
 
-        let writer = prepare_local_kickoff_writer(&crosslink_dir, &db)
-            .unwrap()
-            .expect("local kickoff writer");
+        let service = RepositoryService::for_kickoff(&db, &crosslink_dir).unwrap();
         assert!(crate::sync::SyncManager::new(&crosslink_dir)
             .unwrap()
             .hub_mode()
@@ -415,8 +374,8 @@ mod local_kickoff_tests {
             "existing local issue"
         );
 
-        let created = writer
-            .create_issue(&db, "kickoff issue", None, "medium", None, None)
+        let created = service
+            .create_issue("kickoff issue", None, "medium", None, None)
             .unwrap();
         assert_eq!(
             db.get_issue(created).unwrap().unwrap().title,

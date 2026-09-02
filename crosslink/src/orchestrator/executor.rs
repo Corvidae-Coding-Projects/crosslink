@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::db::Database;
+use crate::application::CommandService;
 use crate::orchestrator::dag::{Dag, DagNode};
 use crate::orchestrator::models::{OrchestratorPlan, OrchestratorStage};
 use crate::server::types::{
@@ -59,7 +59,11 @@ impl OrchestratorExecutor {
         Self::state_dir(crosslink_dir).join(PLAN_FILE)
     }
 
-    pub fn init(crosslink_dir: &Path, db: &Database, plan: &OrchestratorPlan) -> Result<Self> {
+    pub fn init(
+        crosslink_dir: &Path,
+        commands: &impl CommandService,
+        plan: &OrchestratorPlan,
+    ) -> Result<Self> {
         let state_dir = Self::state_dir(crosslink_dir);
         std::fs::create_dir_all(&state_dir)
             .context("Failed to create orchestrator state directory")?;
@@ -88,7 +92,7 @@ impl OrchestratorExecutor {
         let mut phase_issues = HashMap::new();
 
         for phase in &plan.phases {
-            let milestone_id = db
+            let milestone_id = commands
                 .create_milestone(
                     &format!("[Orchestrator] {}", phase.title),
                     Some(&phase.description),
@@ -96,24 +100,27 @@ impl OrchestratorExecutor {
                 .context("Failed to create phase milestone")?;
             phase_milestones.insert(phase.id.clone(), milestone_id);
 
-            let phase_issue_id = db
-                .create_issue(
+            let phase_issue_id = commands
+                .create_issue_with_labels(
                     &format!("[Phase] {}", phase.title),
                     Some(&phase.description),
                     "high",
+                    &["orchestrator".to_string(), "phase".to_string()],
+                    None,
+                    None,
                 )
                 .context("Failed to create phase parent issue")?;
-            if let Err(e) = db.add_label(phase_issue_id, "orchestrator") {
-                tracing::warn!("could not label phase issue #{phase_issue_id}: {e}");
-            }
-            if let Err(e) = db.add_label(phase_issue_id, "phase") {
-                tracing::warn!("could not label phase issue #{phase_issue_id}: {e}");
-            }
             phase_issues.insert(phase.id.clone(), phase_issue_id);
         }
 
         let mut dag = dag;
-        Self::create_stage_issues_and_deps(db, plan, &phase_issues, &phase_milestones, &mut dag)?;
+        Self::create_stage_issues_and_deps(
+            commands,
+            plan,
+            &phase_issues,
+            &phase_milestones,
+            &mut dag,
+        )?;
 
         let snapshot = ExecutionSnapshot {
             plan_id: plan.id.clone(),
@@ -136,7 +143,7 @@ impl OrchestratorExecutor {
     }
 
     fn create_stage_issues_and_deps(
-        db: &Database,
+        commands: &impl CommandService,
         plan: &OrchestratorPlan,
         phase_issues: &HashMap<String, i64>,
         phase_milestones: &HashMap<String, i64>,
@@ -149,24 +156,18 @@ impl OrchestratorExecutor {
 
             for stage in &phase.stages {
                 let description = build_stage_description(stage);
-                let issue_id = db
-                    .create_subissue(
+                let issue_id = commands
+                    .create_subissue_with_labels(
                         phase_issue_id,
                         &format!("[Stage] {}", stage.title),
                         Some(&description),
                         "high",
+                        &["orchestrator".to_string(), "stage".to_string()],
                     )
                     .context("Failed to create stage subissue")?;
 
-                if let Err(e) = db.add_label(issue_id, "orchestrator") {
-                    tracing::warn!("could not label stage issue #{issue_id}: {e}");
-                }
-                if let Err(e) = db.add_label(issue_id, "stage") {
-                    tracing::warn!("could not label stage issue #{issue_id}: {e}");
-                }
-
                 let milestone_id = phase_milestones[&phase.id];
-                if let Err(e) = db.add_issue_to_milestone(milestone_id, issue_id) {
+                if let Err(e) = commands.assign_milestone(milestone_id, &[issue_id]) {
                     tracing::warn!(
                         "could not add stage issue #{issue_id} to milestone #{milestone_id}: {e}"
                     );
@@ -182,7 +183,7 @@ impl OrchestratorExecutor {
                 let blocked_id = stage_issue_map[&stage.id];
                 for dep_id in &stage.depends_on {
                     if let Some(&blocker_id) = stage_issue_map.get(dep_id) {
-                        if let Err(e) = db.add_dependency(blocked_id, blocker_id) {
+                        if let Err(e) = commands.add_dependency(blocked_id, blocker_id) {
                             tracing::warn!(
                                 "could not set dependency #{blocker_id} -> #{blocked_id}: {e}"
                             );
@@ -350,7 +351,7 @@ impl OrchestratorExecutor {
     pub fn mark_stage_done(
         &mut self,
         stage_id: &str,
-        db: &Database,
+        commands: &impl CommandService,
     ) -> Result<(Vec<String>, WsExecutionProgressEvent, bool)> {
         self.require_running_state("mark stage done")?;
         let phase_id = self
@@ -361,7 +362,7 @@ impl OrchestratorExecutor {
             .unwrap_or_default();
 
         if let Some(issue_id) = self.snapshot.dag.get(stage_id).and_then(|n| n.issue_id) {
-            if let Err(e) = db.close_issue(issue_id) {
+            if let Err(e) = commands.close_issue(issue_id) {
                 tracing::warn!("could not close stage issue #{issue_id}: {e}");
             }
         }
@@ -371,12 +372,12 @@ impl OrchestratorExecutor {
         let phase_complete = self.check_phase_complete(&phase_id);
         if phase_complete {
             if let Some(&milestone_id) = self.snapshot.phase_milestones.get(&phase_id) {
-                if let Err(e) = db.close_milestone(milestone_id) {
+                if let Err(e) = commands.close_milestone(milestone_id) {
                     tracing::warn!("could not close phase milestone #{milestone_id}: {e}");
                 }
             }
             if let Some(&phase_issue_id) = self.snapshot.phase_issues.get(&phase_id) {
-                if let Err(e) = db.close_issue(phase_issue_id) {
+                if let Err(e) = commands.close_issue(phase_issue_id) {
                     tracing::warn!("could not close phase issue #{phase_issue_id}: {e}");
                 }
             }
@@ -557,6 +558,7 @@ fn build_stage_description(stage: &OrchestratorStage) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::Database;
     use crate::orchestrator::models::{OrchestratorPhase, OrchestratorStage, OrchestratorTask};
     use tempfile::TempDir;
 

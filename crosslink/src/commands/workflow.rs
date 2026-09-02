@@ -3,6 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use super::init;
+use crate::application::{QueryService, RepositoryService};
 use crate::db::Database;
 use crate::utils::format_issue_id;
 use crate::WorkflowCommands;
@@ -24,7 +25,8 @@ pub fn run(
         }
         WorkflowCommands::Trail { id, kind, json } => {
             let db = get_db()?;
-            trail(&db, id, kind.as_deref(), json)
+            let service = RepositoryService::projection(&db);
+            trail(&service, id, kind.as_deref(), json)
         }
     }
 }
@@ -227,7 +229,7 @@ pub fn diff(crosslink_dir: &Path, integrations_dir: &Path, section: Option<&str>
     }
 }
 
-pub fn trail(db: &Database, id: i64, kind_filter: Option<&str>, json: bool) -> Result<()> {
+pub fn trail(db: &impl QueryService, id: i64, kind_filter: Option<&str>, json: bool) -> Result<()> {
     db.require_issue(id)?;
 
     let comments = db.get_comments(id)?;

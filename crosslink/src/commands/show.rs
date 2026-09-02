@@ -2,6 +2,9 @@ use anyhow::{bail, Result};
 use serde::Serialize;
 use serde_json;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
 use crate::utils::format_issue_id;
 
@@ -18,7 +21,7 @@ struct IssueDetail {
     related: Vec<crate::models::Issue>,
 }
 
-pub fn run_json(db: &Database, id: i64) -> Result<()> {
+pub fn run_json(db: &impl QueryService, id: i64) -> Result<()> {
     let Some(issue) = db.get_issue(id)? else {
         bail!("Issue {} not found", format_issue_id(id));
     };
@@ -38,7 +41,7 @@ pub fn run_json(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn run(db: &Database, id: i64) -> Result<()> {
+pub fn run(db: &impl QueryService, id: i64) -> Result<()> {
     let Some(issue) = db.get_issue(id)? else {
         bail!("Issue {} not found", format_issue_id(id));
     };
@@ -75,7 +78,7 @@ fn print_header(issue: &crate::models::Issue) {
     }
 }
 
-fn print_labels(db: &Database, id: i64) -> Result<()> {
+fn print_labels(db: &impl QueryService, id: i64) -> Result<()> {
     let labels = db.get_labels(id)?;
     if !labels.is_empty() {
         println!("Labels: {}", labels.join(", "));
@@ -83,7 +86,7 @@ fn print_labels(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-fn print_milestone(db: &Database, id: i64) -> Result<()> {
+fn print_milestone(db: &impl QueryService, id: i64) -> Result<()> {
     if let Some(milestone) = db.get_issue_milestone(id)? {
         println!("Milestone: #{} {}", milestone.id, milestone.name);
     }
@@ -101,7 +104,7 @@ fn print_description(issue: &crate::models::Issue) {
     }
 }
 
-fn print_comments(db: &Database, id: i64) -> Result<()> {
+fn print_comments(db: &impl QueryService, id: i64) -> Result<()> {
     let comments = db.get_comments(id)?;
     if !comments.is_empty() {
         println!("\nComments:");
@@ -128,7 +131,7 @@ fn print_comments(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-fn print_dependencies(db: &Database, id: i64) -> Result<()> {
+fn print_dependencies(db: &impl QueryService, id: i64) -> Result<()> {
     let blockers = db.get_blockers(id)?;
     let blocking = db.get_blocking(id)?;
 
@@ -149,7 +152,7 @@ fn print_dependencies(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-fn print_subissues(db: &Database, id: i64) -> Result<()> {
+fn print_subissues(db: &impl QueryService, id: i64) -> Result<()> {
     let subissues = db.get_subissues(id)?;
     if !subissues.is_empty() {
         println!("\nSubissues:");
@@ -166,7 +169,7 @@ fn print_subissues(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-fn print_related(db: &Database, id: i64) -> Result<()> {
+fn print_related(db: &impl QueryService, id: i64) -> Result<()> {
     let related = db.get_related_issues(id)?;
     if !related.is_empty() {
         println!("\nRelated:");

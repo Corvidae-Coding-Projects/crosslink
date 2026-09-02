@@ -24,6 +24,7 @@ pub(super) fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, ag
     let Ok(db) = crate::db::Database::open(&crosslink_dir.join("issues.db")) else {
         return;
     };
+    let service = crate::application::RepositoryService::local_state(&db, crosslink_dir);
     let pricing = crate::token_usage::load_pricing_config(crosslink_dir);
     let metadata = std::fs::read_to_string(worktree_dir.join(".kickoff-metadata.json"))
         .ok()
@@ -62,22 +63,24 @@ pub(super) fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, ag
             &pricing,
             Some(&provider_metadata),
         );
-        if db
-            .create_token_usage_for_provider(
-                &parsed.agent_id,
-                parsed.session_id,
-                parsed.provider.as_str(),
-                parsed.input_tokens,
-                parsed.output_tokens,
-                parsed.cached_input_tokens,
-                parsed.reasoning_output_tokens,
-                parsed.cache_read_tokens,
-                parsed.cache_creation_tokens,
-                &parsed.model,
-                parsed.cost_estimate,
-                parsed.provider_metadata_json.as_deref(),
-            )
-            .is_ok()
+        if crate::application::LocalStateService::record_token_usage(
+            &service,
+            &crate::application::LocalTokenUsage {
+                agent_id: parsed.agent_id,
+                session_id: parsed.session_id,
+                provider: parsed.provider.as_str().to_string(),
+                input_tokens: parsed.input_tokens,
+                output_tokens: parsed.output_tokens,
+                cached_input_tokens: parsed.cached_input_tokens,
+                reasoning_output_tokens: parsed.reasoning_output_tokens,
+                cache_read_tokens: parsed.cache_read_tokens,
+                cache_creation_tokens: parsed.cache_creation_tokens,
+                model: parsed.model,
+                cost_estimate: parsed.cost_estimate,
+                provider_metadata_json: parsed.provider_metadata_json,
+            },
+        )
+        .is_ok()
         {
             recorded.insert(hash);
             changed = true;

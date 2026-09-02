@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::{bail, Context};
 use std::path::PathBuf;
 
+use crate::application::QueryService;
 use crate::checkpoint::CheckpointState;
 use crate::db::{Database, SCHEMA_VERSION};
 use crate::hydration::{hydrate_from_state, hydrate_to_sqlite};
@@ -295,11 +296,11 @@ fn check_hydration(
         });
     }
 
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?;
+    let service = crate::application::RepositoryService::new(db, crosslink_dir)?;
     let mut re_emit_summary: Option<String> = None;
     if !drift.is_empty() {
-        if let Some(w) = writer.as_ref() {
-            let stats = super::integrity_drift::re_emit(&drift, w, db)?;
+        if service.authority_mode() == crate::application::AuthorityMode::Shared {
+            let stats = super::integrity_drift::re_emit(&drift, &service)?;
             if stats.total() > 0 {
                 re_emit_summary = Some(format!(
                     "re-emitted {} label(s), {} dep(s), {} relation(s), \
@@ -320,7 +321,7 @@ fn check_hydration(
         }
     }
 
-    db.clear_shared_data()?;
+    crate::hydration::clear_shared_projection(db)?;
     let stats = hydrate_to_sqlite(&cache_dir, db)?;
 
     let mut parts: Vec<String> = vec![format!(
@@ -459,9 +460,15 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
 
     let mut released = 0;
     if sync.hub_mode().is_v3() {
-        if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
+        let database = Database::open(&crosslink_dir.join("issues.db"))?;
+        let service = crate::application::RepositoryService::new(&database, crosslink_dir)?;
+        {
             for (id, stale_agent_id) in &stale {
-                match writer.force_release_lock_v2(*id, stale_agent_id) {
+                match crate::application::CommandService::force_release_lock(
+                    &service,
+                    *id,
+                    stale_agent_id,
+                ) {
                     Ok(_) => released += 1,
                     Err(e) => tracing::warn!("Could not release stale lock #{}: {}", id, e),
                 }

@@ -1,20 +1,24 @@
 use anyhow::{bail, Result};
+use chrono::Utc;
 
-use crate::db::Database;
+use crate::application::{CommandService, QueryService};
 use crate::utils::format_issue_id;
 use crate::ArchiveCommands;
 
-pub fn run(command: ArchiveCommands, db: &Database) -> Result<()> {
+#[cfg(test)]
+use crate::db::Database;
+
+pub fn run(command: ArchiveCommands, service: &(impl CommandService + QueryService)) -> Result<()> {
     match command {
-        ArchiveCommands::Add { id } => archive(db, id),
-        ArchiveCommands::Remove { id } => unarchive(db, id),
-        ArchiveCommands::List => list(db),
-        ArchiveCommands::Older { days } => archive_older(db, days),
+        ArchiveCommands::Add { id } => archive(service, id),
+        ArchiveCommands::Remove { id } => unarchive(service, id),
+        ArchiveCommands::List => list(service),
+        ArchiveCommands::Older { days } => archive_older(service, days),
     }
 }
 
-pub fn archive(db: &Database, id: i64) -> Result<()> {
-    let Some(issue) = db.get_issue(id)? else {
+pub fn archive(service: &(impl CommandService + QueryService), id: i64) -> Result<()> {
+    let Some(issue) = service.get_issue(id)? else {
         bail!("Issue {} not found", format_issue_id(id));
     };
 
@@ -26,26 +30,20 @@ pub fn archive(db: &Database, id: i64) -> Result<()> {
         );
     }
 
-    if db.archive_issue(id)? {
-        println!("Archived issue {}", format_issue_id(id));
-    } else {
-        println!("Issue {} could not be archived", format_issue_id(id));
-    }
+    service.archive_issue(id)?;
+    println!("Archived issue {}", format_issue_id(id));
 
     Ok(())
 }
 
-pub fn unarchive(db: &Database, id: i64) -> Result<()> {
-    if db.unarchive_issue(id)? {
-        println!("Unarchived issue {} (now closed)", format_issue_id(id));
-    } else {
-        bail!("Issue {} not found or not archived", format_issue_id(id));
-    }
+pub fn unarchive(service: &impl CommandService, id: i64) -> Result<()> {
+    service.unarchive_issue(id)?;
+    println!("Unarchived issue {} (now closed)", format_issue_id(id));
 
     Ok(())
 }
 
-pub fn list(db: &Database) -> Result<()> {
+pub fn list(db: &impl QueryService) -> Result<()> {
     let issues = db.list_archived_issues()?;
 
     if issues.is_empty() {
@@ -71,8 +69,17 @@ pub fn list(db: &Database) -> Result<()> {
     Ok(())
 }
 
-pub fn archive_older(db: &Database, days: i64) -> Result<()> {
-    let count = db.archive_older_than(days)?;
+pub fn archive_older(service: &(impl CommandService + QueryService), days: i64) -> Result<()> {
+    let cutoff = Utc::now() - chrono::Duration::days(days);
+    let eligible = service
+        .list_issues(Some("closed"), None, None)?
+        .into_iter()
+        .filter(|issue| issue.closed_at.is_some_and(|closed| closed < cutoff))
+        .collect::<Vec<_>>();
+    for issue in &eligible {
+        service.archive_issue(issue.id)?;
+    }
+    let count = eligible.len();
     if count > 0 {
         println!("Archived {count} issue(s) closed more than {days} days ago");
     } else {

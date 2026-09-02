@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use chrono::Utc;
 use std::path::Path;
 
+use crate::application::{CommandService, LocalStateService, QueryService, RepositoryService};
 use crate::db::Database;
 use crate::lock_check::{release_lock_best_effort, try_claim_lock, try_release_lock, ClaimResult};
 use crate::utils::format_issue_id;
@@ -13,13 +14,14 @@ pub fn run(
     crosslink_dir: &Path,
     json: bool,
 ) -> Result<()> {
+    let service = RepositoryService::new(db, crosslink_dir)?;
     match command {
-        SessionCommands::Start => start(db, crosslink_dir),
-        SessionCommands::End { notes } => end(db, notes.as_deref(), crosslink_dir),
-        SessionCommands::Status => status(db, crosslink_dir, json),
-        SessionCommands::Work { id } => work(db, id, crosslink_dir),
-        SessionCommands::LastHandoff => last_handoff(db, crosslink_dir),
-        SessionCommands::Action { text } => action(db, &text, crosslink_dir),
+        SessionCommands::Start => start(&service, crosslink_dir),
+        SessionCommands::End { notes } => end(&service, notes.as_deref(), crosslink_dir),
+        SessionCommands::Status => status(&service, crosslink_dir, json),
+        SessionCommands::Work { id } => work(&service, id, crosslink_dir),
+        SessionCommands::LastHandoff => last_handoff(&service, crosslink_dir),
+        SessionCommands::Action { text } => action(&service, &text, crosslink_dir),
     }
 }
 
@@ -42,10 +44,13 @@ fn load_agent_id(crosslink_dir: &std::path::Path) -> Option<String> {
         .map(|a| a.agent_id)
 }
 
-pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn start(
+    service: &(impl LocalStateService + QueryService),
+    crosslink_dir: &std::path::Path,
+) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
 
-    if let Some(current) = db.get_current_session_for_agent(agent_id.as_deref())? {
+    if let Some(current) = service.get_current_session_for_agent(agent_id.as_deref())? {
         println!(
             "Session #{} is already active (started {})",
             current.id,
@@ -54,7 +59,7 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         return Ok(());
     }
 
-    if let Some(last) = db.get_last_session_for_agent(agent_id.as_deref())? {
+    if let Some(last) = service.get_last_session_for_agent(agent_id.as_deref())? {
         if let Some(ended) = last.ended_at {
             println!("Previous session ended: {}", ended.format("%Y-%m-%d %H:%M"));
         }
@@ -69,19 +74,23 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         }
     }
 
-    let id = db.start_session_with_agent(agent_id.as_deref())?;
+    let id = service.start_session(agent_id.as_deref())?;
     println!("Session #{id} started.");
     Ok(())
 }
 
-pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn end(
+    service: &(impl CommandService + LocalStateService + QueryService),
+    notes: Option<&str>,
+    crosslink_dir: &std::path::Path,
+) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+    let Some(session) = service.get_current_session_for_agent(agent_id.as_deref())? else {
         bail!("No active session");
     };
 
     if let Some(issue_id) = session.active_issue_id {
-        match try_release_lock(crosslink_dir, issue_id) {
+        match try_release_lock(service, issue_id) {
             Ok(true) => println!("Released lock on issue {}", format_issue_id(issue_id)),
             Ok(false) => {}
             Err(e) => tracing::warn!("Could not release lock: {}", e),
@@ -89,25 +98,10 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
     }
 
     if let (Some(notes_text), Some(issue_id)) = (notes, session.active_issue_id) {
-        let saved = match crate::shared_writer::SharedWriter::new(crosslink_dir) {
-            Ok(Some(w)) => match w.add_comment(db, issue_id, notes_text, "handoff") {
-                Ok(_) => true,
-                Err(e) => {
-                    tracing::warn!(
-                        "Handoff notes could not be synced to hub: {}, saving locally",
-                        e
-                    );
-                    false
-                }
-            },
-            _ => false,
-        };
-        if !saved {
-            db.add_comment(issue_id, notes_text, "handoff")?;
-        }
+        service.add_comment(issue_id, notes_text, "handoff")?;
     }
 
-    db.end_session(session.id, notes)?;
+    service.end_session(session.id, notes)?;
 
     clear_active_issue_sentinel(crosslink_dir);
 
@@ -119,7 +113,11 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
     Ok(())
 }
 
-pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Result<()> {
+pub fn status(
+    db: &(impl LocalStateService + QueryService),
+    crosslink_dir: &std::path::Path,
+    json: bool,
+) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
     let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
         if json {
@@ -213,19 +211,23 @@ pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Res
     Ok(())
 }
 
-pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn work(
+    service: &(impl CommandService + LocalStateService + QueryService),
+    issue_id: i64,
+    crosslink_dir: &std::path::Path,
+) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+    let Some(session) = service.get_current_session_for_agent(agent_id.as_deref())? else {
         bail!("No active session. Use 'crosslink session start' first.");
     };
 
-    let Some(issue) = db.get_issue(issue_id)? else {
+    let Some(issue) = service.get_issue(issue_id)? else {
         bail!("Issue {} not found", format_issue_id(issue_id));
     };
 
-    crate::lock_check::enforce_lock(crosslink_dir, issue_id, db)?;
+    crate::lock_check::enforce_lock(crosslink_dir, issue_id, service)?;
 
-    let freshly_claimed = match try_claim_lock(crosslink_dir, issue_id, None)? {
+    let freshly_claimed = match try_claim_lock(service, issue_id, None)? {
         ClaimResult::Claimed => {
             println!("Claimed lock on issue {}", format_issue_id(issue_id));
             true
@@ -242,9 +244,9 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
         }
     };
 
-    if let Err(e) = db.set_session_issue(session.id, issue_id) {
+    if let Err(e) = service.set_session_issue(session.id, issue_id) {
         if freshly_claimed {
-            release_lock_best_effort(crosslink_dir, issue_id);
+            release_lock_best_effort(service, issue_id);
         }
         return Err(e);
     }
@@ -259,34 +261,28 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
     Ok(())
 }
 
-pub fn action(db: &Database, text: &str, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn action(
+    service: &(impl CommandService + LocalStateService + QueryService),
+    text: &str,
+    crosslink_dir: &std::path::Path,
+) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+    let Some(session) = service.get_current_session_for_agent(agent_id.as_deref())? else {
         bail!("No active session. Use 'crosslink session start' first.");
     };
 
-    db.set_session_action(session.id, text)?;
+    service.set_session_action(session.id, text)?;
     println!("Action recorded: {text}");
 
     if let Some(issue_id) = session.active_issue_id {
         let comment_text = format!("[action] {text}");
-        match crate::shared_writer::SharedWriter::new(crosslink_dir) {
-            Ok(Some(w)) => {
-                if let Err(e) = w.add_comment(db, issue_id, &comment_text, "note") {
-                    tracing::warn!("action comment sync failed, saving locally: {}", e);
-                    db.add_comment(issue_id, &comment_text, "note")?;
-                }
-            }
-            _ => {
-                db.add_comment(issue_id, &comment_text, "note")?;
-            }
-        }
+        service.add_comment(issue_id, &comment_text, "note")?;
     }
 
     Ok(())
 }
 
-pub fn last_handoff(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn last_handoff(db: &impl LocalStateService, crosslink_dir: &std::path::Path) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
     match db.get_last_session_for_agent(agent_id.as_deref())? {
         Some(session) => {

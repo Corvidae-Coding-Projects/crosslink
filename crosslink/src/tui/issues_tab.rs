@@ -10,6 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use crate::application::QueryService;
 use crate::db::Database;
 use crate::models::{Comment, Issue};
 
@@ -96,7 +97,7 @@ pub struct IssuesTab {
 }
 
 impl IssuesTab {
-    pub fn new(db: &Database, db_path: &std::path::Path) -> anyhow::Result<Self> {
+    pub fn new(db: &impl QueryService, db_path: &std::path::Path) -> anyhow::Result<Self> {
         let mut tab = IssuesTab {
             db_path: db_path.to_path_buf(),
             issues: Vec::new(),
@@ -126,7 +127,7 @@ impl IssuesTab {
         Database::open_read_only(&self.db_path)
     }
 
-    pub fn refresh(&mut self, db: &Database) -> anyhow::Result<()> {
+    pub fn refresh(&mut self, db: &(impl QueryService + ?Sized)) -> anyhow::Result<()> {
         let all_issues = db.list_issues(Some("all"), None, None)?;
         self.open_count = all_issues
             .iter()
@@ -184,7 +185,7 @@ impl IssuesTab {
         Ok(())
     }
 
-    fn load_detail(&mut self, db: &Database) -> anyhow::Result<()> {
+    fn load_detail(&mut self, db: &(impl QueryService + ?Sized)) -> anyhow::Result<()> {
         if let Some(issue) = self.issues.get(self.selected) {
             let id = issue.id;
             let detail = IssueDetail {
@@ -205,7 +206,7 @@ impl IssuesTab {
         Ok(())
     }
 
-    fn handle_list_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
+    fn handle_list_key(&mut self, key: KeyEvent, db: Option<&dyn QueryService>) -> TabAction {
         if self.searching {
             match key.code {
                 KeyCode::Esc => {
@@ -372,7 +373,7 @@ impl IssuesTab {
         TabAction::Consumed
     }
 
-    fn build_tree(&mut self, db: &Database) -> anyhow::Result<()> {
+    fn build_tree(&mut self, db: &(impl QueryService + ?Sized)) -> anyhow::Result<()> {
         let status_arg = match self.status_filter {
             StatusFilter::Open => Some("open"),
             StatusFilter::Closed => Some("closed"),
@@ -398,7 +399,7 @@ impl IssuesTab {
 
     fn build_tree_recursive(
         &mut self,
-        db: &Database,
+        db: &(impl QueryService + ?Sized),
         issue: Issue,
         depth: usize,
     ) -> anyhow::Result<()> {
@@ -427,7 +428,7 @@ impl IssuesTab {
         Ok(())
     }
 
-    fn handle_tree_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
+    fn handle_tree_key(&mut self, key: KeyEvent, db: Option<&dyn QueryService>) -> TabAction {
         match key.code {
             KeyCode::Esc => {
                 self.view_mode = IssueViewMode::List;
@@ -1005,12 +1006,14 @@ impl super::Tab for IssuesTab {
         match self.view_mode {
             IssueViewMode::List => {
                 let db = self.open_db().ok();
-                self.handle_list_key(key, db.as_ref())
+                let query = db.as_ref().map(|value| value as &dyn QueryService);
+                self.handle_list_key(key, query)
             }
             IssueViewMode::Detail => self.handle_detail_key(key),
             IssueViewMode::Tree => {
                 let db = self.open_db().ok();
-                self.handle_tree_key(key, db.as_ref())
+                let query = db.as_ref().map(|value| value as &dyn QueryService);
+                self.handle_tree_key(key, query)
             }
         }
     }

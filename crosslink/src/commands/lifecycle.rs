@@ -3,9 +3,11 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
-use crate::db::Database;
-use crate::shared_writer::SharedWriter;
+use crate::application::{AuthorityMode, CommandService, LocalStateService, QueryService};
 use crate::utils::format_issue_id;
+
+#[cfg(test)]
+use crate::db::Database;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -15,15 +17,13 @@ pub enum OutputMode {
 }
 
 pub fn close(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     id: i64,
     update_changelog: bool,
     crosslink_dir: &Path,
 ) -> Result<()> {
     close_inner(
-        db,
-        writer,
+        service,
         id,
         update_changelog,
         crosslink_dir,
@@ -32,15 +32,13 @@ pub fn close(
 }
 
 pub fn close_quiet(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     id: i64,
     update_changelog: bool,
     crosslink_dir: &Path,
 ) -> Result<()> {
     close_inner(
-        db,
-        writer,
+        service,
         id,
         update_changelog,
         crosslink_dir,
@@ -49,8 +47,7 @@ pub fn close_quiet(
 }
 
 fn close_inner(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     id: i64,
     update_changelog: bool,
     crosslink_dir: &Path,
@@ -58,36 +55,33 @@ fn close_inner(
 ) -> Result<()> {
     let quiet = output == OutputMode::Quiet;
 
-    let issue = db.get_issue(id)?;
+    let issue = service.get_issue(id)?;
     let Some(issue) = issue else {
         bail!("Issue {} not found", format_issue_id(id));
     };
-    let labels = db.get_labels(id)?;
+    let labels = service.get_labels(id)?;
 
-    if let Some(w) = writer {
-        w.close_issue(db, id)?;
-        if !quiet {
-            println!("Closed issue {}", format_issue_id(id));
-        }
-    } else if db.close_issue(id)? {
-        if !quiet {
-            println!("Closed issue {}", format_issue_id(id));
-        }
-    } else {
-        bail!("Issue {} not found", format_issue_id(id));
+    service.close_issue(id)?;
+    if !quiet {
+        println!("Closed issue {}", format_issue_id(id));
     }
 
     let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
         .ok()
         .flatten()
         .map(|a| a.agent_id);
-    if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
+    if let Ok(Some(session)) = service.get_current_session_for_agent(agent_id.as_deref()) {
         if session.active_issue_id == Some(id) {
-            let _ = db.clear_session_issue(session.id);
+            let _ = service.clear_session_issue(session.id);
         }
     }
 
-    match crate::lock_check::try_release_lock(crosslink_dir, id) {
+    let release = if service.authority_mode() == AuthorityMode::Shared {
+        service.release_lock(id)
+    } else {
+        Ok(false)
+    };
+    match release {
         Ok(true) if !quiet => {
             println!("Released lock on issue {}", format_issue_id(id));
         }
@@ -206,14 +200,13 @@ fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
 }
 
 pub fn close_all(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     label_filter: Option<&str>,
     priority_filter: Option<&str>,
     update_changelog: bool,
     crosslink_dir: &Path,
 ) -> Result<()> {
-    let issues = db.list_issues(Some("open"), label_filter, priority_filter)?;
+    let issues = service.list_issues(Some("open"), label_filter, priority_filter)?;
 
     if issues.is_empty() {
         println!("No matching open issues found.");
@@ -222,7 +215,7 @@ pub fn close_all(
 
     let mut closed_count = 0;
     for issue in &issues {
-        match close(db, writer, issue.id, update_changelog, crosslink_dir) {
+        match close(service, issue.id, update_changelog, crosslink_dir) {
             Ok(()) => closed_count += 1,
             Err(e) => tracing::warn!("Failed to close {}: {}", format_issue_id(issue.id), e),
         }
@@ -232,15 +225,9 @@ pub fn close_all(
     Ok(())
 }
 
-pub fn reopen(db: &Database, writer: Option<&SharedWriter>, id: i64) -> Result<()> {
-    if let Some(w) = writer {
-        w.reopen_issue(db, id)?;
-        println!("Reopened issue {}", format_issue_id(id));
-    } else if db.reopen_issue(id)? {
-        println!("Reopened issue {}", format_issue_id(id));
-    } else {
-        bail!("Issue {} not found", format_issue_id(id));
-    }
+pub fn reopen(service: &impl CommandService, id: i64) -> Result<()> {
+    service.reopen_issue(id)?;
+    println!("Reopened issue {}", format_issue_id(id));
     Ok(())
 }
 
@@ -264,7 +251,7 @@ mod tests {
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        let result = close(&db, None, issue_id, false, &crosslink_dir);
+        let result = close(&db, issue_id, false, &crosslink_dir);
         assert!(result.is_ok());
 
         let issue = db.get_issue(issue_id).unwrap().unwrap();
@@ -278,7 +265,7 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        let result = close(&db, None, 99999, false, &crosslink_dir);
+        let result = close(&db, 99999, false, &crosslink_dir);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -292,7 +279,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
         db.close_issue(issue_id).unwrap();
 
-        let result = close(&db, None, issue_id, false, &crosslink_dir);
+        let result = close(&db, issue_id, false, &crosslink_dir);
         assert!(result.is_ok());
     }
 
@@ -303,7 +290,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
         db.close_issue(issue_id).unwrap();
 
-        let result = reopen(&db, None, issue_id);
+        let result = reopen(&db, issue_id);
         assert!(result.is_ok());
 
         let issue = db.get_issue(issue_id).unwrap().unwrap();
@@ -315,7 +302,7 @@ mod tests {
     fn test_reopen_nonexistent_issue() {
         let (db, _dir) = setup_test_db();
 
-        let result = reopen(&db, None, 99999);
+        let result = reopen(&db, 99999);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -326,7 +313,7 @@ mod tests {
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        let result = reopen(&db, None, issue_id);
+        let result = reopen(&db, issue_id);
         assert!(result.is_ok());
 
         let issue = db.get_issue(issue_id).unwrap().unwrap();
@@ -417,15 +404,15 @@ mod tests {
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        close(&db, None, issue_id, false, &crosslink_dir).unwrap();
+        close(&db, issue_id, false, &crosslink_dir).unwrap();
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "closed");
 
-        reopen(&db, None, issue_id).unwrap();
+        reopen(&db, issue_id).unwrap();
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "open");
 
-        close(&db, None, issue_id, false, &crosslink_dir).unwrap();
+        close(&db, issue_id, false, &crosslink_dir).unwrap();
         let issue = db.get_issue(issue_id).unwrap().unwrap();
         assert_eq!(issue.status, "closed");
     }
@@ -438,7 +425,7 @@ mod tests {
             std::fs::create_dir_all(&crosslink_dir).unwrap();
 
             let issue_id = db.create_issue(&title, None, "medium").unwrap();
-            close(&db, None, issue_id, false, &crosslink_dir).unwrap();
+            close(&db, issue_id, false, &crosslink_dir).unwrap();
 
             let issue = db.get_issue(issue_id).unwrap().unwrap();
             prop_assert_eq!(issue.status, "closed");
@@ -451,7 +438,7 @@ mod tests {
             let issue_id = db.create_issue(&title, None, "medium").unwrap();
             db.close_issue(issue_id).unwrap();
 
-            reopen(&db, None, issue_id).unwrap();
+            reopen(&db, issue_id).unwrap();
 
             let issue = db.get_issue(issue_id).unwrap().unwrap();
             prop_assert_eq!(issue.status, "open");
@@ -463,7 +450,7 @@ mod tests {
             let crosslink_dir = dir.path().join(".crosslink");
             std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-            let result = close(&db, None, issue_id, false, &crosslink_dir);
+            let result = close(&db, issue_id, false, &crosslink_dir);
             prop_assert!(result.is_err());
         }
 
@@ -471,7 +458,7 @@ mod tests {
         fn prop_nonexistent_issue_reopen_fails(issue_id in 1000i64..10000) {
             let (db, _dir) = setup_test_db();
 
-            let result = reopen(&db, None, issue_id);
+            let result = reopen(&db, issue_id);
             prop_assert!(result.is_err());
         }
 

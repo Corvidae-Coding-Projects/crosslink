@@ -2,8 +2,11 @@ use anyhow::Result;
 use std::path::Path;
 use uuid::Uuid;
 
+use crate::application::{
+    CommandService, DateTimeChange, DescriptionChange, LocalStateService, OwnedIssueUpdate,
+    QueryService,
+};
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
 
 use super::collect;
 use super::config::SentinelConfig;
@@ -30,7 +33,7 @@ pub(super) struct CycleOptions<'a> {
 pub(super) fn run_oneshot(
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     config: &SentinelConfig,
     dry_run: bool,
     label_filter: Option<&str>,
@@ -52,7 +55,7 @@ pub(super) fn run_oneshot(
     process_signal_batch(
         crosslink_dir,
         db,
-        writer,
+        service,
         config,
         &all_signals,
         "oneshot",
@@ -123,19 +126,19 @@ fn poll_all_sources(
 pub(super) fn process_signal_batch(
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     config: &SentinelConfig,
     all_signals: &[Signal],
     mode: &str,
     options: CycleOptions<'_>,
 ) -> Result<CycleStats> {
     let run_id = Uuid::new_v4().to_string();
-    db.insert_sentinel_run(&run_id, mode)?;
+    service.insert_sentinel_run(&run_id, mode)?;
 
-    let seen = SeenSet::load(db)?;
+    let seen = SeenSet::load(service)?;
 
     let tuning = if config.escalation.enabled {
-        super::tuning::TuningOverride::from_history(db, config).unwrap_or_else(|e| {
+        super::tuning::TuningOverride::from_history(service, config).unwrap_or_else(|e| {
             tracing::warn!("self-tuning load failed: {e}");
             super::tuning::TuningOverride::none()
         })
@@ -165,7 +168,7 @@ pub(super) fn process_signal_batch(
         let label_suffix = super::seen_set::parse_signal_label_suffix(&signal.reference);
         if let (Some(num), Some(label)) = (gh_number, label_suffix) {
             let full_label = format!("agent-todo: {label}");
-            let db_decision = db_dedup_check(db, num, &full_label, config)?;
+            let db_decision = db_dedup_check(service, num, &full_label, config)?;
             if let SignalDecision::Skip(reason) = &db_decision {
                 if !options.quiet {
                     println!("  skip: {} ({})", signal.reference, reason);
@@ -184,7 +187,7 @@ pub(super) fn process_signal_batch(
         );
 
         if matches!(disposition, super::dispatch::Disposition::Dispatch { .. }) {
-            let in_flight = db.count_pending_dispatches()?;
+            let in_flight = service.count_pending_dispatches()?;
             if in_flight >= config.max_concurrent_agents as i64 {
                 disposition = super::dispatch::Disposition::Defer {
                     reason: format!(
@@ -212,7 +215,7 @@ pub(super) fn process_signal_batch(
                     );
                 }
 
-                let issue_id = create_sentinel_issue(db, writer, signal)?;
+                let issue_id = create_sentinel_issue(service, signal)?;
 
                 let source_str = format!("{:?}", signal.source);
                 let label_str = signal
@@ -221,9 +224,9 @@ pub(super) fn process_signal_batch(
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
 
-                match spawn_agent(crosslink_dir, db, writer, &description, issue_id, &scope) {
+                match spawn_agent(crosslink_dir, db, &description, issue_id, &scope) {
                     Ok(agent_id) => {
-                        db.insert_sentinel_dispatch(&crate::db::sentinel::NewDispatch {
+                        service.insert_sentinel_dispatch(&crate::db::sentinel::NewDispatch {
                             run_id: &run_id,
                             signal_ref: &signal.reference,
                             signal_title: &signal.title,
@@ -240,8 +243,8 @@ pub(super) fn process_signal_batch(
                     }
                     Err(e) => {
                         tracing::error!("agent spawn failed for {}: {e}", signal.reference);
-                        let dispatch_id =
-                            db.insert_sentinel_dispatch(&crate::db::sentinel::NewDispatch {
+                        let dispatch_id = service.insert_sentinel_dispatch(
+                            &crate::db::sentinel::NewDispatch {
                                 run_id: &run_id,
                                 signal_ref: &signal.reference,
                                 signal_title: &signal.title,
@@ -253,8 +256,9 @@ pub(super) fn process_signal_batch(
                                 label: label_str,
                                 attempt_number: attempt as i32,
                                 model_used: Some(&scope.model),
-                            })?;
-                        db.update_dispatch_outcome(
+                            },
+                        )?;
+                        service.update_dispatch_outcome(
                             dispatch_id,
                             "failure",
                             &format!("spawn failed: {e}"),
@@ -275,14 +279,20 @@ pub(super) fn process_signal_batch(
                 stats.deferred += 1;
             }
             super::dispatch::Disposition::Triage { priority, labels } => {
-                let issue_id = create_sentinel_issue(db, writer, signal)?;
-                let _ = db.update_issue(issue_id, None, None, Some(&priority));
+                let issue_id = create_sentinel_issue(service, signal)?;
+                let _ = service.update_issue(
+                    issue_id,
+                    OwnedIssueUpdate {
+                        title: None,
+                        description: DescriptionChange::Unchanged,
+                        status: None,
+                        priority: Some(priority.clone()),
+                        scheduled_at: DateTimeChange::Unchanged,
+                        due_at: DateTimeChange::Unchanged,
+                    },
+                );
                 for l in &labels {
-                    if let Some(w) = writer {
-                        let _ = w.add_label(db, issue_id, l);
-                    } else {
-                        let _ = db.add_label(issue_id, l);
-                    }
+                    let _ = service.add_label(issue_id, l);
                 }
                 if !options.quiet {
                     println!(
@@ -297,12 +307,12 @@ pub(super) fn process_signal_batch(
         }
     }
 
-    match collect::collect_completed(db, crosslink_dir, Some(config), writer) {
+    match collect::collect_completed(service, crosslink_dir, Some(config)) {
         Ok(collect_stats) => stats.collected = collect_stats.collected,
         Err(e) => tracing::warn!("result collection failed: {e}"),
     }
 
-    db.complete_sentinel_run(
+    service.complete_sentinel_run(
         &run_id,
         &crate::db::sentinel::RunCounters {
             signals_found: i64::from(stats.signals_found),
@@ -343,19 +353,14 @@ fn run_dry(config: &SentinelConfig, quiet: bool) -> CycleStats {
     CycleStats::default()
 }
 
-fn create_sentinel_issue(
-    db: &Database,
-    writer: Option<&SharedWriter>,
-    signal: &Signal,
-) -> Result<i64> {
+fn create_sentinel_issue(service: &impl CommandService, signal: &Signal) -> Result<i64> {
     let description = format!(
         "Sentinel signal: {}\n\n{}",
         signal.reference,
         &signal.body[..signal.body.len().min(2000)]
     );
     create_triage_issue(
-        db,
-        writer,
+        service,
         &signal.reference,
         &signal.title,
         &description,
@@ -365,26 +370,25 @@ fn create_sentinel_issue(
 }
 
 pub fn create_triage_issue(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &impl CommandService,
     reference: &str,
     title: &str,
     description: &str,
     priority: &str,
     labels: &[&str],
 ) -> Result<i64> {
-    let issue_id = if let Some(w) = writer {
-        w.create_issue(db, title, Some(description), priority, None, None)?
-    } else {
-        db.create_issue(title, Some(description), priority)?
-    };
-    for label in labels {
-        if let Some(w) = writer {
-            w.add_label(db, issue_id, label)?;
-        } else {
-            db.add_label(issue_id, label)?;
-        }
-    }
+    let labels = labels
+        .iter()
+        .map(|label| (*label).to_string())
+        .collect::<Vec<_>>();
+    let issue_id = service.create_issue_with_labels(
+        title,
+        Some(description),
+        priority,
+        &labels,
+        None,
+        None,
+    )?;
     let _ = reference;
     Ok(issue_id)
 }
@@ -392,7 +396,6 @@ pub fn create_triage_issue(
 fn spawn_agent(
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
     description: &str,
     issue_id: i64,
     scope: &super::dispatch::AgentScope,
@@ -460,7 +463,7 @@ fn spawn_agent(
         template: None,
     };
 
-    run(crosslink_dir, db, writer, &opts)
+    run(crosslink_dir, db, &opts)
 }
 
 fn resolve_repo_root(crosslink_dir: &Path) -> Result<std::path::PathBuf> {

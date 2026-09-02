@@ -6,7 +6,6 @@ use super::lifecycle::launch;
 use super::types::*;
 use crate::commands::kickoff;
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
 
 pub fn config_budget(
@@ -216,7 +215,6 @@ pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
 pub fn launch_budget_aware(
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
     phase_slug: &str,
     quiet: bool,
 ) -> Result<()> {
@@ -264,7 +262,7 @@ pub fn launch_budget_aware(
         BudgetRecommendation::Proceed => {}
     }
 
-    launch(crosslink_dir, db, writer, phase_slug, quiet)
+    launch(crosslink_dir, db, phase_slug, quiet)
 }
 
 pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {

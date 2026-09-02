@@ -5,6 +5,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
+use crate::application::{CommandService, QueryService, RepositoryService};
 use crate::server::{
     errors::{bad_request, internal_error, not_found},
     state::AppState,
@@ -24,14 +25,154 @@ fn broadcast_issue_updated(state: &AppState, issue_id: i64, field: &str) {
     }));
 }
 
+pub(crate) fn execute_create_issue_command(
+    service: &impl CommandService,
+    body: &CreateIssueRequest,
+) -> anyhow::Result<i64> {
+    let priority = body.priority.to_string();
+    body.parent_id.map_or_else(
+        || {
+            service.create_issue(
+                &body.title,
+                body.description.as_deref(),
+                &priority,
+                None,
+                None,
+            )
+        },
+        |parent_id| {
+            service.create_subissue(
+                parent_id,
+                &body.title,
+                body.description.as_deref(),
+                &priority,
+            )
+        },
+    )
+}
+
+pub(crate) fn execute_update_issue_command(
+    service: &impl CommandService,
+    id: i64,
+    body: UpdateIssueRequest,
+) -> anyhow::Result<()> {
+    let priority = body.priority.as_ref().map(std::string::ToString::to_string);
+    service.update_issue(
+        id,
+        crate::application::OwnedIssueUpdate {
+            title: body.title,
+            description: body.description.map_or(
+                crate::application::DescriptionChange::Unchanged,
+                crate::application::DescriptionChange::Set,
+            ),
+            status: None,
+            priority,
+            scheduled_at: crate::application::DateTimeChange::Unchanged,
+            due_at: crate::application::DateTimeChange::Unchanged,
+        },
+    )
+}
+
+pub(crate) fn execute_create_subissue_command(
+    service: &impl CommandService,
+    parent_id: i64,
+    body: &CreateSubissueRequest,
+) -> anyhow::Result<i64> {
+    service.create_subissue(
+        parent_id,
+        &body.title,
+        body.description.as_deref(),
+        &body.priority.to_string(),
+    )
+}
+
+pub(crate) fn execute_delete_issue_command(
+    service: &impl CommandService,
+    id: i64,
+) -> anyhow::Result<()> {
+    service.delete_issue(id)
+}
+
+pub(crate) fn execute_close_issue_command(
+    service: &impl CommandService,
+    id: i64,
+) -> anyhow::Result<()> {
+    service.close_issue(id)
+}
+
+pub(crate) fn execute_reopen_issue_command(
+    service: &impl CommandService,
+    id: i64,
+) -> anyhow::Result<()> {
+    service.reopen_issue(id)
+}
+
+pub(crate) fn execute_add_comment_command(
+    service: &impl CommandService,
+    id: i64,
+    body: &CreateCommentRequest,
+) -> anyhow::Result<i64> {
+    if body.kind == crate::server::types::CommentKind::Intervention {
+        let trigger = body
+            .trigger_type
+            .as_deref()
+            .filter(|trigger| !trigger.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!("trigger_type is required when comment kind is 'intervention'")
+            })?;
+        service.add_intervention(
+            id,
+            &body.content,
+            trigger,
+            body.intervention_context.as_deref(),
+            None,
+        )
+    } else {
+        service.add_comment(id, &body.content, &body.kind.to_string())
+    }
+}
+
+pub(crate) fn execute_add_label_command(
+    service: &impl CommandService,
+    id: i64,
+    label: &str,
+) -> anyhow::Result<bool> {
+    service.add_label(id, label)
+}
+
+pub(crate) fn execute_remove_label_command(
+    service: &impl CommandService,
+    id: i64,
+    label: &str,
+) -> anyhow::Result<bool> {
+    service.remove_label(id, label)
+}
+
+pub(crate) fn execute_add_blocker_command(
+    service: &impl CommandService,
+    id: i64,
+    blocker_id: i64,
+) -> anyhow::Result<bool> {
+    service.add_dependency(id, blocker_id)
+}
+
+pub(crate) fn execute_remove_blocker_command(
+    service: &impl CommandService,
+    id: i64,
+    blocker_id: i64,
+) -> anyhow::Result<bool> {
+    service.remove_dependency(id, blocker_id)
+}
+
 pub async fn list_issues(
     State(state): State<AppState>,
     Query(params): Query<IssueListQuery>,
 ) -> Result<Json<IssueListResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
     let issues = if let Some(ref search) = params.search {
-        let mut results = db
+        let mut results = service
             .search_issues(search)
             .map_err(|e| internal_error("Failed to search issues", e))?;
 
@@ -46,7 +187,8 @@ pub async fn list_issues(
             let ids_with_label: Vec<i64> = results
                 .iter()
                 .filter_map(|i| {
-                    db.get_labels(i.id)
+                    service
+                        .get_labels(i.id)
                         .ok()
                         .filter(|labels| labels.contains(label))
                         .map(|_| i.id)
@@ -64,7 +206,7 @@ pub async fn list_issues(
         }
         results
     } else {
-        let mut results = db
+        let mut results = service
             .list_issues(
                 params.status.as_deref(),
                 params.label.as_deref(),
@@ -79,8 +221,10 @@ pub async fn list_issues(
     };
 
     let issue_ids: Vec<i64> = issues.iter().map(|i| i.id).collect();
-    let labels_map = db.get_labels_batch(&issue_ids).unwrap_or_default();
-    let blocker_counts = db.get_blocker_counts_batch(&issue_ids).unwrap_or_default();
+    let labels_map = service.get_labels_batch(&issue_ids).unwrap_or_default();
+    let blocker_counts = service
+        .get_blocker_counts_batch(&issue_ids)
+        .unwrap_or_default();
     drop(db);
 
     let mut items: Vec<IssueSummary> = Vec::with_capacity(issues.len());
@@ -103,22 +247,13 @@ pub async fn create_issue(
     Json(body): Json<CreateIssueRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    let priority_str = body.priority.to_string();
-    let id = if let Some(parent_id) = body.parent_id {
-        db.create_subissue(
-            parent_id,
-            &body.title,
-            body.description.as_deref(),
-            &priority_str,
-        )
-        .map_err(|e| bad_request(e.to_string()))?
-    } else {
-        db.create_issue(&body.title, body.description.as_deref(), &priority_str)
-            .map_err(|e| bad_request(e.to_string()))?
-    };
+    let id =
+        execute_create_issue_command(&service, &body).map_err(|e| bad_request(e.to_string()))?;
 
-    let issue = db
+    let issue = service
         .get_issue(id)
         .map_err(|e| internal_error("Failed to retrieve created issue", e))?
         .ok_or_else(|| internal_error("Issue was created but not found", "unexpected state"))?;
@@ -132,8 +267,9 @@ pub async fn list_blocked(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
-    let issues = db
+    let issues = service
         .list_blocked_issues()
         .map_err(|e| internal_error("Failed to list blocked issues", e))?;
     drop(db);
@@ -146,8 +282,9 @@ pub async fn list_ready(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
-    let issues = db
+    let issues = service
         .list_ready_issues()
         .map_err(|e| internal_error("Failed to list ready issues", e))?;
     drop(db);
@@ -161,37 +298,36 @@ pub async fn get_issue(
     Path(id): Path<i64>,
 ) -> Result<Json<IssueDetail>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
-    let issue = db
+    let issue = service
         .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let labels = db
+    let labels = service
         .get_labels(id)
         .map_err(|e| internal_error("Failed to fetch labels", e))?;
-    let comments = db
+    let comments = service
         .get_comments(id)
         .map_err(|e| internal_error("Failed to fetch comments", e))?;
-    let blockers = db
+    let blockers = service
         .get_blockers(id)
         .map_err(|e| internal_error("Failed to fetch blockers", e))?;
-    let blocking = db
+    let blocking = service
         .get_blocking(id)
         .map_err(|e| internal_error("Failed to fetch blocking", e))?;
-    let subissues = db
+    let subissues = service
         .get_subissues(id)
         .map_err(|e| internal_error("Failed to fetch subissues", e))?;
 
-    let milestone =
-        db.get_issue_milestone(id)
-            .ok()
-            .flatten()
-            .map(|m| crate::server::types::MilestoneSummary {
-                id: m.id,
-                name: m.name,
-                status: m.status,
-            });
+    let milestone = service.get_issue_milestone(id).ok().flatten().map(|m| {
+        crate::server::types::MilestoneSummary {
+            id: m.id,
+            name: m.name,
+            status: m.status,
+        }
+    });
     drop(db);
 
     Ok(Json(IssueDetail {
@@ -211,26 +347,17 @@ pub async fn update_issue(
     Json(body): Json<UpdateIssueRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let priority_str = body.priority.as_ref().map(std::string::ToString::to_string);
-    let updated = db
-        .update_issue(
-            id,
-            body.title.as_deref(),
-            body.description.as_deref(),
-            priority_str.as_deref(),
-        )
-        .map_err(|e| bad_request(e.to_string()))?;
+    execute_update_issue_command(&service, id, body).map_err(|e| bad_request(e.to_string()))?;
 
-    if !updated {
-        return Err(not_found(format!("Issue #{id} not found")));
-    }
-
-    let issue = db
+    let issue = service
         .get_issue(id)
         .map_err(|e| internal_error("Failed to refetch updated issue", e))?
         .ok_or_else(|| internal_error("Issue disappeared after update", "unexpected state"))?;
@@ -245,15 +372,17 @@ pub async fn delete_issue(
     Path(id): Path<i64>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    let deleted = db
-        .delete_issue(id)
+    service
+        .get_issue(id)
+        .map_err(|e| internal_error("Failed to fetch issue", e))?
+        .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
+
+    execute_delete_issue_command(&service, id)
         .map_err(|e| internal_error("Failed to delete issue", e))?;
     drop(db);
-
-    if !deleted {
-        return Err(not_found(format!("Issue #{id} not found")));
-    }
 
     broadcast_issue_updated(&state, id, "deleted");
     Ok(Json(OkResponse { ok: true }))
@@ -264,16 +393,18 @@ pub async fn close_issue(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    let closed = db
-        .close_issue(id)
+    service
+        .get_issue(id)
+        .map_err(|e| internal_error("Failed to fetch issue", e))?
+        .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
+
+    execute_close_issue_command(&service, id)
         .map_err(|e| internal_error("Failed to close issue", e))?;
 
-    if !closed {
-        return Err(not_found(format!("Issue #{id} not found")));
-    }
-
-    let issue = db
+    let issue = service
         .get_issue(id)
         .map_err(|e| internal_error("Failed to refetch closed issue", e))?
         .ok_or_else(|| internal_error("Issue disappeared after close", "unexpected state"))?;
@@ -288,16 +419,18 @@ pub async fn reopen_issue(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    let reopened = db
-        .reopen_issue(id)
+    service
+        .get_issue(id)
+        .map_err(|e| internal_error("Failed to fetch issue", e))?
+        .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
+
+    execute_reopen_issue_command(&service, id)
         .map_err(|e| internal_error("Failed to reopen issue", e))?;
 
-    if !reopened {
-        return Err(not_found(format!("Issue #{id} not found")));
-    }
-
-    let issue = db
+    let issue = service
         .get_issue(id)
         .map_err(|e| internal_error("Failed to refetch reopened issue", e))?
         .ok_or_else(|| internal_error("Issue disappeared after reopen", "unexpected state"))?;
@@ -313,22 +446,18 @@ pub async fn create_subissue(
     Json(body): Json<CreateSubissueRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(parent_id)
+    service
+        .get_issue(parent_id)
         .map_err(|e| internal_error("Failed to fetch parent issue", e))?
         .ok_or_else(|| not_found(format!("Parent issue #{parent_id} not found")))?;
 
-    let priority_str = body.priority.to_string();
-    let child_id = db
-        .create_subissue(
-            parent_id,
-            &body.title,
-            body.description.as_deref(),
-            &priority_str,
-        )
+    let child_id = execute_create_subissue_command(&service, parent_id, &body)
         .map_err(|e| bad_request(e.to_string()))?;
 
-    let child = db
+    let child = service
         .get_issue(child_id)
         .map_err(|e| internal_error("Failed to retrieve created subissue", e))?
         .ok_or_else(|| internal_error("Subissue was created but not found", "unexpected state"))?;
@@ -344,12 +473,14 @@ pub async fn list_comments(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let comments = db
+    let comments = service
         .get_comments(id)
         .map_err(|e| internal_error("Failed to fetch comments", e))?;
     drop(db);
@@ -364,35 +495,18 @@ pub async fn add_comment(
     Json(body): Json<CreateCommentRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let comment_id = if body.kind == crate::server::types::CommentKind::Intervention {
-        let trigger = match body.trigger_type.as_deref() {
-            Some(t) if !t.is_empty() => t,
-            _ => {
-                return Err(bad_request(
-                    "trigger_type is required when comment kind is 'intervention'",
-                ));
-            }
-        };
-        db.add_intervention_comment(
-            id,
-            &body.content,
-            trigger,
-            body.intervention_context.as_deref(),
-            None,
-        )
-        .map_err(|e| bad_request(e.to_string()))?
-    } else {
-        let kind_str = body.kind.to_string();
-        db.add_comment(id, &body.content, &kind_str)
-            .map_err(|e| bad_request(e.to_string()))?
-    };
+    let comment_id =
+        execute_add_comment_command(&service, id, &body).map_err(|e| bad_request(e.to_string()))?;
 
-    let comments = db
+    let comments = service
         .get_comments(id)
         .map_err(|e| internal_error("Failed to fetch comments after add", e))?;
 
@@ -412,13 +526,15 @@ pub async fn add_label(
     Json(body): Json<AddLabelRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    db.add_label(id, &body.label)
-        .map_err(|e| bad_request(e.to_string()))?;
+    execute_add_label_command(&service, id, &body.label).map_err(|e| bad_request(e.to_string()))?;
     drop(db);
 
     broadcast_issue_updated(&state, id, "labels");
@@ -430,13 +546,15 @@ pub async fn remove_label(
     Path((id, label)): Path<(i64, String)>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let removed = db
-        .remove_label(id, &label)
+    let removed = execute_remove_label_command(&service, id, &label)
         .map_err(|e| internal_error("Failed to remove label", e))?;
     drop(db);
 
@@ -456,16 +574,20 @@ pub async fn add_blocker(
     Json(body): Json<AddBlockerRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    db.get_issue(body.blocker_id)
+    service
+        .get_issue(body.blocker_id)
         .map_err(|e| internal_error("Failed to fetch blocker issue", e))?
         .ok_or_else(|| not_found(format!("Blocker issue #{} not found", body.blocker_id)))?;
 
-    db.add_dependency(id, body.blocker_id)
+    execute_add_blocker_command(&service, id, body.blocker_id)
         .map_err(|e| bad_request(e.to_string()))?;
     drop(db);
 
@@ -478,13 +600,15 @@ pub async fn remove_blocker(
     Path((id, blocker_id)): Path<(i64, i64)>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_issue(id)
+    service
+        .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let removed = db
-        .remove_dependency(id, blocker_id)
+    let removed = execute_remove_blocker_command(&service, id, blocker_id)
         .map_err(|e| internal_error("Failed to remove dependency", e))?;
     drop(db);
 

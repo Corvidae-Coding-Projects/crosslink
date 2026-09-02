@@ -1,11 +1,14 @@
 use anyhow::Result;
 use serde_json;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
 use crate::utils::{format_issue_id, truncate};
 
 pub fn run_json(
-    db: &Database,
+    db: &impl QueryService,
     status: Option<&str>,
     label: Option<&str>,
     priority: Option<&str>,
@@ -16,7 +19,7 @@ pub fn run_json(
 }
 
 pub fn run(
-    db: &Database,
+    db: &impl QueryService,
     status: Option<&str>,
     label: Option<&str>,
     priority: Option<&str>,

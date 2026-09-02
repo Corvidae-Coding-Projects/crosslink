@@ -110,7 +110,7 @@ pub(crate) async fn readiness_middleware(
     }
     let permit_dir = state.crosslink_dir.clone();
     let permit = tokio::task::spawn_blocking(move || {
-        crate::reconcile::readiness::acquire_mutation_operation_permit(&permit_dir)
+        crate::reconcile::readiness::acquire_mutation_permit(&permit_dir)
     })
     .await;
     match permit {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 
-use crate::db::Database;
+use crate::application::LocalStateService;
 
 use super::config::SentinelConfig;
 use super::sources::SignalDecision;
@@ -19,7 +19,7 @@ pub struct SeenSet {
 }
 
 impl SeenSet {
-    pub fn load(db: &Database) -> Result<Self> {
+    pub fn load(db: &impl LocalStateService) -> Result<Self> {
         let dispatches = db.load_dispatch_seen_set()?;
         let mut seen = HashMap::with_capacity(dispatches.len());
 
@@ -76,7 +76,7 @@ impl SeenSet {
 }
 
 pub fn db_dedup_check(
-    db: &Database,
+    db: &impl LocalStateService,
     gh_issue_number: i64,
     label: &str,
     config: &SentinelConfig,

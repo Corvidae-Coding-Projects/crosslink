@@ -1,55 +1,35 @@
-use anyhow::{bail, Result};
-use std::path::Path;
-
-use crate::db::Database;
-use crate::shared_writer::SharedWriter;
+use crate::application::{CommandService, QueryService};
 use crate::utils::format_issue_id;
 use crate::MilestoneCommands;
+use anyhow::{bail, Result};
 
-pub fn run(command: MilestoneCommands, db: &Database, crosslink_dir: &Path) -> Result<()> {
+#[cfg(test)]
+use crate::db::Database;
+
+pub fn run(
+    command: MilestoneCommands,
+    service: &(impl CommandService + QueryService),
+) -> Result<()> {
     match command {
-        MilestoneCommands::List { status } => list(db, Some(&status)),
-        MilestoneCommands::Show { id } => show(db, id),
+        MilestoneCommands::List { status } => list(service, Some(&status)),
+        MilestoneCommands::Show { id } => show(service, id),
         MilestoneCommands::Create { name, description } => {
-            let shared = SharedWriter::new(crosslink_dir)?;
-            create(db, shared.as_ref(), &name, description.as_deref())
+            create(service, &name, description.as_deref())
         }
-        MilestoneCommands::Add { id, issues } => {
-            let shared = SharedWriter::new(crosslink_dir)?;
-            add(db, shared.as_ref(), id, &issues)
-        }
-        MilestoneCommands::Remove { id, issue } => {
-            let shared = SharedWriter::new(crosslink_dir)?;
-            remove(db, shared.as_ref(), id, issue)
-        }
-        MilestoneCommands::Close { id } => {
-            let shared = SharedWriter::new(crosslink_dir)?;
-            close(db, shared.as_ref(), id)
-        }
-        MilestoneCommands::Delete { id } => {
-            let shared = SharedWriter::new(crosslink_dir)?;
-            delete(db, shared.as_ref(), id)
-        }
+        MilestoneCommands::Add { id, issues } => add(service, id, &issues),
+        MilestoneCommands::Remove { id, issue } => remove(service, id, issue),
+        MilestoneCommands::Close { id } => close(service, id),
+        MilestoneCommands::Delete { id } => delete(service, id),
     }
 }
 
-pub fn create(
-    db: &Database,
-    shared: Option<&SharedWriter>,
-    name: &str,
-    description: Option<&str>,
-) -> Result<()> {
-    if let Some(sw) = shared {
-        let id = sw.create_milestone(db, name, description)?;
-        println!("Created milestone #{id}: {name}");
-    } else {
-        let id = db.create_milestone(name, description)?;
-        println!("Created milestone #{id}: {name}");
-    }
+pub fn create(service: &impl CommandService, name: &str, description: Option<&str>) -> Result<()> {
+    let id = service.create_milestone(name, description)?;
+    println!("Created milestone #{id}: {name}");
     Ok(())
 }
 
-pub fn list(db: &Database, status: Option<&str>) -> Result<()> {
+pub fn list(db: &impl QueryService, status: Option<&str>) -> Result<()> {
     let milestones = db.list_milestones(status)?;
 
     if milestones.is_empty() {
@@ -81,7 +61,7 @@ pub fn list(db: &Database, status: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub fn show(db: &Database, id: i64) -> Result<()> {
+pub fn show(db: &impl QueryService, id: i64) -> Result<()> {
     let Some(m) = db.get_milestone(id)? else {
         bail!("Milestone #{id} not found");
     };
@@ -133,19 +113,18 @@ pub fn show(db: &Database, id: i64) -> Result<()> {
 }
 
 pub fn add(
-    db: &Database,
-    shared: Option<&SharedWriter>,
+    service: &(impl CommandService + QueryService),
     milestone_id: i64,
     issue_ids: &[i64],
 ) -> Result<()> {
-    let milestone = db.get_milestone(milestone_id)?;
+    let milestone = service.get_milestone(milestone_id)?;
     if milestone.is_none() {
         bail!("Milestone #{milestone_id} not found");
     }
 
     let mut valid_ids = Vec::new();
     for &issue_id in issue_ids {
-        if db.get_issue(issue_id)?.is_none() {
+        if service.get_issue(issue_id)?.is_none() {
             println!(
                 "Warning: Issue {} not found, skipping",
                 format_issue_id(issue_id)
@@ -155,50 +134,20 @@ pub fn add(
         valid_ids.push(issue_id);
     }
 
-    if let Some(sw) = shared {
-        sw.set_milestone_on_issues(db, milestone_id, &valid_ids)?;
-        for &issue_id in &valid_ids {
-            println!(
-                "Added {} to milestone #{}",
-                format_issue_id(issue_id),
-                milestone_id
-            );
-        }
-    } else {
-        for &issue_id in &valid_ids {
-            if db.add_issue_to_milestone(milestone_id, issue_id)? {
-                println!(
-                    "Added {} to milestone #{}",
-                    format_issue_id(issue_id),
-                    milestone_id
-                );
-            } else {
-                println!(
-                    "Issue {} already in milestone #{}",
-                    format_issue_id(issue_id),
-                    milestone_id
-                );
-            }
-        }
+    service.assign_milestone(milestone_id, &valid_ids)?;
+    for &issue_id in &valid_ids {
+        println!(
+            "Added {} to milestone #{}",
+            format_issue_id(issue_id),
+            milestone_id
+        );
     }
 
     Ok(())
 }
 
-pub fn remove(
-    db: &Database,
-    shared: Option<&SharedWriter>,
-    milestone_id: i64,
-    issue_id: i64,
-) -> Result<()> {
-    if let Some(sw) = shared {
-        sw.clear_milestone_on_issue(db, issue_id)?;
-        println!(
-            "Removed {} from milestone #{}",
-            format_issue_id(issue_id),
-            milestone_id
-        );
-    } else if db.remove_issue_from_milestone(milestone_id, issue_id)? {
+pub fn remove(service: &impl CommandService, milestone_id: i64, issue_id: i64) -> Result<()> {
+    if service.clear_milestone(milestone_id, issue_id)? {
         println!(
             "Removed {} from milestone #{}",
             format_issue_id(issue_id),
@@ -215,32 +164,18 @@ pub fn remove(
     Ok(())
 }
 
-pub fn close(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
-    if let Some(sw) = shared {
-        sw.close_milestone(db, id)?;
-        println!("Closed milestone #{id}");
-    } else if db.close_milestone(id)? {
-        println!("Closed milestone #{id}");
-    } else {
-        println!("Milestone #{id} not found");
-    }
+pub fn close(service: &impl CommandService, id: i64) -> Result<()> {
+    service.close_milestone(id)?;
+    println!("Closed milestone #{id}");
 
     Ok(())
 }
 
-pub fn delete(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
-    if let Some(sw) = shared {
-        if db.get_milestone(id)?.is_none() {
-            println!("Milestone #{id} not found");
-            return Ok(());
-        }
-        sw.delete_milestone(db, id)?;
-        println!("Deleted milestone #{id}");
-    } else if db.delete_milestone(id)? {
-        println!("Deleted milestone #{id}");
-    } else {
-        println!("Milestone #{id} not found");
+pub fn delete(service: &(impl CommandService + QueryService), id: i64) -> Result<()> {
+    if service.get_milestone(id)?.is_some() {
+        service.delete_milestone(id)?;
     }
+    println!("Deleted milestone #{id}");
 
     Ok(())
 }
@@ -260,7 +195,7 @@ mod tests {
     #[test]
     fn test_create_milestone() {
         let (db, _dir) = setup_test_db();
-        create(&db, None, "v1.0", None).unwrap();
+        create(&db, "v1.0", None).unwrap();
         let milestones = db.list_milestones(None).unwrap();
         assert_eq!(milestones.len(), 1);
         assert_eq!(milestones[0].name, "v1.0");
@@ -269,7 +204,7 @@ mod tests {
     #[test]
     fn test_create_milestone_with_description() {
         let (db, _dir) = setup_test_db();
-        create(&db, None, "v1.0", Some("First release")).unwrap();
+        create(&db, "v1.0", Some("First release")).unwrap();
         let milestones = db.list_milestones(None).unwrap();
         assert_eq!(milestones[0].description, Some("First release".to_string()));
     }
@@ -315,7 +250,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let milestone_id = db.create_milestone("v1.0", None).unwrap();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
-        add(&db, None, milestone_id, &[issue_id]).unwrap();
+        add(&db, milestone_id, &[issue_id]).unwrap();
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].id, issue_id);
@@ -325,7 +260,7 @@ mod tests {
     fn test_add_to_nonexistent_milestone() {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
-        let result = add(&db, None, 99999, &[issue_id]);
+        let result = add(&db, 99999, &[issue_id]);
         assert!(result.is_err());
     }
 
@@ -335,7 +270,7 @@ mod tests {
         let milestone_id = db.create_milestone("v1.0", None).unwrap();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
         db.add_issue_to_milestone(milestone_id, issue_id).unwrap();
-        remove(&db, None, milestone_id, issue_id).unwrap();
+        remove(&db, milestone_id, issue_id).unwrap();
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert!(issues.is_empty(), "Issue should be removed from milestone");
     }
@@ -344,7 +279,7 @@ mod tests {
     fn test_close_milestone() {
         let (db, _dir) = setup_test_db();
         let id = db.create_milestone("v1.0", None).unwrap();
-        close(&db, None, id).unwrap();
+        close(&db, id).unwrap();
         let m = db.get_milestone(id).unwrap().unwrap();
         assert_eq!(m.status, "closed");
         assert!(m.closed_at.is_some());
@@ -354,7 +289,7 @@ mod tests {
     fn test_delete_milestone() {
         let (db, _dir) = setup_test_db();
         let id = db.create_milestone("v1.0", None).unwrap();
-        delete(&db, None, id).unwrap();
+        delete(&db, id).unwrap();
         let m = db.get_milestone(id).unwrap();
         assert!(m.is_none(), "Milestone should be deleted");
     }
@@ -382,7 +317,7 @@ mod tests {
         #[test]
         fn prop_create_milestone_persists(name in "[a-zA-Z0-9 ]{1,30}") {
             let (db, _dir) = setup_test_db();
-            create(&db, None, &name, None).unwrap();
+            create(&db, &name, None).unwrap();
             let milestones = db.list_milestones(None).unwrap();
             prop_assert_eq!(milestones.len(), 1);
             prop_assert_eq!(&milestones[0].name, &name);

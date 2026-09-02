@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use super::{Tab, TabAction};
+use crate::application::{LocalStateService, QueryService, RepositoryService};
 use crate::commands::config::{self, ConfigGroup, ConfigType, Source, WriteScope, REGISTRY};
 use crate::db::Database;
 use crate::events;
@@ -106,7 +107,11 @@ pub struct ConfigTab {
 }
 
 impl ConfigTab {
-    pub fn new(db: &Database, db_path: &Path, crosslink_dir: &Path) -> Self {
+    pub fn new(
+        db: &(impl LocalStateService + QueryService),
+        db_path: &Path,
+        crosslink_dir: &Path,
+    ) -> Self {
         let mut tab = ConfigTab {
             crosslink_dir: crosslink_dir.to_path_buf(),
             db_path: db_path.to_path_buf(),
@@ -193,7 +198,7 @@ impl ConfigTab {
         }
     }
 
-    fn load_db_info(&mut self, db: &Database) {
+    fn load_db_info(&mut self, db: &(impl LocalStateService + QueryService)) {
         self.schema_version = db.get_schema_version().unwrap_or(0);
         self.issue_count = db.get_issue_count().unwrap_or(0);
         self.milestone_count = db.get_milestone_count().unwrap_or(0);
@@ -253,8 +258,9 @@ impl ConfigTab {
     fn refresh(&mut self) {
         self.error_msg = None;
         if let Some(db) = self.open_db() {
+            let service = RepositoryService::projection(&db);
             self.load_identity();
-            self.load_db_info(&db);
+            self.load_db_info(&service);
             self.load_config();
             self.load_alias_status();
         }

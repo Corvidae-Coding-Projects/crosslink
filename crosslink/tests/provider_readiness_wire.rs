@@ -132,8 +132,8 @@ mod windows {
         }
     }
 
-    fn wait_output(mut child: Child) -> Output {
-        let deadline = Instant::now() + Duration::from_secs(20);
+    fn wait_output(mut child: Child, timeout: Duration, context: &str) -> Output {
+        let deadline = Instant::now() + timeout;
         loop {
             if child.try_wait().unwrap().is_some() {
                 return child.wait_with_output().unwrap();
@@ -142,13 +142,36 @@ mod windows {
                 let _ = child.kill();
                 let output = child.wait_with_output().unwrap();
                 panic!(
-                    "provider wrapper timed out: stdout={} stderr={}",
+                    "{context} timed out: stdout={} stderr={}",
                     String::from_utf8_lossy(&output.stdout),
                     String::from_utf8_lossy(&output.stderr)
                 );
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    fn warm_powershell() {
+        let child = Command::new("powershell")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "exit 0",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let output = wait_output(child, Duration::from_secs(60), "PowerShell warmup");
+        assert!(
+            output.status.success(),
+            "PowerShell warmup failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     fn windows_script(command: &str) -> String {
@@ -220,6 +243,7 @@ mod windows {
         response: &str,
         exit_code: i32,
         payload: &Value,
+        context: &str,
     ) -> Output {
         let mut child = Command::new("cmd")
             .current_dir(directory)
@@ -237,19 +261,22 @@ mod windows {
             .unwrap()
             .write_all(payload.to_string().as_bytes())
             .unwrap();
-        wait_output(child)
+        wait_output(child, Duration::from_secs(20), context)
     }
 
     #[test]
     fn claude_and_codex_windows_wrappers_propagate_nonready_hook_exits() {
+        warm_powershell();
         let directory = fixture();
         let cases = [
-            ("{".to_string(), 1),
+            ("malformed", "{".to_string(), 1),
             (
+                "waiting",
                 envelope(Some("waiting_for_remote"), false, true).to_string(),
                 20,
             ),
             (
+                "blocked",
                 envelope(Some("blocked_corrupt"), false, true).to_string(),
                 21,
             ),
@@ -258,14 +285,21 @@ mod windows {
             for script in ["work-check.py", "session-start.py"] {
                 let command = wrapper(provider, script);
                 assert!(windows_script(&command).contains("exit $LASTEXITCODE"));
-                for (response, exit_code) in &cases {
+                for (case, response, exit_code) in &cases {
                     let payload = if script == "work-check.py" {
                         json!({"tool_name":"Bash","tool_input":{"command":"git commit -m test"}})
                     } else {
                         json!({"source":"startup"})
                     };
-                    let output =
-                        execute(directory.path(), &command, response, *exit_code, &payload);
+                    let context = format!("provider wrapper {provider} {script} {case}");
+                    let output = execute(
+                        directory.path(),
+                        &command,
+                        response,
+                        *exit_code,
+                        &payload,
+                        &context,
+                    );
                     assert_eq!(
                         output.status.code(),
                         Some(2),

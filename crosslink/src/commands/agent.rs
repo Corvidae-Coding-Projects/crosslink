@@ -2,13 +2,18 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
+use crate::application::CommandService;
 use crate::identity::{AgentConfig, AgentRole};
 use crate::signing;
 use crate::sync;
 use crate::utils::format_issue_id;
 use crate::AgentCommands;
 
-pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
+pub fn run(
+    command: AgentCommands,
+    crosslink_dir: &Path,
+    commands: Option<&dyn CommandService>,
+) -> Result<()> {
     match command {
         AgentCommands::Init {
             agent_id,
@@ -63,6 +68,7 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
             subject_issue,
             reason,
         } => request(
+            commands.ok_or_else(|| anyhow::anyhow!("agent request command service is missing"))?,
             crosslink_dir,
             &target,
             &kind,
@@ -72,7 +78,10 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
         AgentCommands::Requests { target, pending } => {
             list_requests(crosslink_dir, target.as_deref(), pending)
         }
-        AgentCommands::PollRequests => poll_requests(crosslink_dir),
+        AgentCommands::PollRequests => poll_requests(
+            commands.ok_or_else(|| anyhow::anyhow!("agent poll command service is missing"))?,
+            crosslink_dir,
+        ),
         AgentCommands::Flags { strict } => {
             show_flags(crosslink_dir, strict);
             Ok(())
@@ -102,17 +111,12 @@ fn show_flags(crosslink_dir: &Path, strict: bool) {
     }
 }
 
-fn poll_requests(crosslink_dir: &Path) -> Result<()> {
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?.ok_or_else(|| {
-        anyhow::anyhow!(
-            "agent poll-requests requires shared-writer mode (run `crosslink agent init` first)"
-        )
-    })?;
+fn poll_requests(commands: &dyn CommandService, crosslink_dir: &Path) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?
         .ok_or_else(|| anyhow::anyhow!("no agent config; run `crosslink agent init`"))?;
 
     let result =
-        crate::agent_requests::poll::process_pending(&writer, crosslink_dir, &agent.agent_id)?;
+        crate::agent_requests::poll::process_pending(commands, crosslink_dir, &agent.agent_id)?;
 
     if result.acted.is_empty() && result.skipped_existing_ack == 0 {
         println!("No pending requests for {}.", agent.agent_id);
@@ -134,6 +138,7 @@ fn poll_requests(crosslink_dir: &Path) -> Result<()> {
 }
 
 fn request(
+    commands: &dyn CommandService,
     crosslink_dir: &Path,
     target: &str,
     kind_str: &str,
@@ -141,12 +146,6 @@ fn request(
     reason: Option<&str>,
 ) -> Result<()> {
     let kind = crate::agent_requests::RequestKind::parse(kind_str)?;
-
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?.ok_or_else(|| {
-        anyhow::anyhow!(
-            "agent request requires hub access — run `crosslink sync` to initialize, or `crosslink agent init` for a full agent identity"
-        )
-    })?;
 
     let requested_by = if let Some(driver) = AgentConfig::load(crosslink_dir)? {
         driver
@@ -169,7 +168,7 @@ fn request(
         reason: reason.map(str::to_string),
     };
 
-    let outcome = writer.write_agent_request(target, &req)?;
+    let outcome = commands.write_agent_request(target, &req)?;
     match outcome {
         crate::shared_writer::PushOutcome::Pushed => {
             println!(

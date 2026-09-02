@@ -655,11 +655,17 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
         let mut active_issue_id = None;
         match Database::open_read_only(&db_path) {
             Ok(db) => {
+                let service = crate::application::RepositoryService::projection(&db);
                 let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
                     .ok()
                     .flatten()
                     .map(|agent| agent.agent_id);
-                if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
+                if let Ok(Some(session)) =
+                    crate::application::LocalStateService::get_current_session_for_agent(
+                        &service,
+                        agent_id.as_deref(),
+                    )
+                {
                     active_issue_id = session.active_issue_id;
                     let data = serde_json::json!({
                         "session_id": session.id,

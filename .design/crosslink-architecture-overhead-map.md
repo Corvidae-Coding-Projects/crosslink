@@ -370,7 +370,7 @@ The existing `docs/ARCHITECTURE.md` is not a reliable current source of truth. I
 | Failure | Current behavior | Risk | Required behavior |
 |---|---|---|---|
 | Shared writer construction fails | Warning, optional writer becomes absent | Silent local-only mutation | Fail shared mutation or enter explicit local/read-only mode |
-| Own ref push fails | `LocalOnly` outcome | User may assume collaboration succeeded | Persist visible pending-push state and report it in command result/status |
+| Own ref push fails | Command fails, the unpublished ref append is rolled back, and SQLite remains unchanged | No projection-only success and no surprise delivery after reconnect | Restore publication, then retry the command |
 | Checkpoint serialize/write/push fails | Warning, mutation continues | Stale readers and unclear durability | Mutation remains durable in owner ref, but result must expose stale checkpoint and retry queue |
 | Late event sorts below watermark | Event is not selected | Permanent omission from materialized state | Per-agent causal frontier and prefix verification |
 | Remote checkpoint has equal/higher sequence from another agent | Remote checkpoint may be adopted | Regression or incomplete state | Compare complete frontier and validate it against pinned refs |
@@ -633,11 +633,14 @@ Exit condition: every supported historical fixture reaches a verified current st
 
 ### Phase 1 — Introduce one application boundary
 
-- Create typed `CommandService` and `QueryService` interfaces inside the existing crate first.
-- Move issue, comment, relation, milestone, lock, and session-to-issue mutations behind commands.
-- Adapt CLI handlers, the newer dashboard, legacy HTTP handlers, TUI actions, sentinel, kickoff, swarm, and orchestrator.
-- Make the Git event store mandatory in shared mode.
-- Keep SQLite writes inside a projector or explicit local-state service.
+- Status: implemented on `feature/authoritative-command-query-boundary`.
+- `application::CommandService` is the exhaustive typed mutation boundary for issues, imports, archive state, comments, interventions, labels, dependencies, relations, milestones, locks, and session-to-issue association.
+- `application::QueryService` owns shared projection reads, including the dashboard's Git-backed `HubSnapshot`. `application::LocalStateService` owns sessions, timers, token usage, and sentinel operational state.
+- CLI handlers and aliases, dashboard CLI actions, legacy HTTP handlers, TUI reads, sentinel, kickoff, swarm delegation, and orchestrator route through these services.
+- `RepositoryService::new` resolves shared authority without converting writer construction failures into local mode. A configured shared repository cannot fall back to SQLite when its writer, cache, readiness state, or remote publication is unavailable.
+- Shared v3 commands append and publish the agent ref before hydration. Failed publication rolls the append back with compare-and-swap and returns an error without changing SQLite.
+- `RepositoryService::projection` can query shared data and use the explicitly local session-to-issue association, but rejects all other domain commands. Projector, hydration, reconciliation, migration, and compaction code remain the only direct shared-domain SQLite writers.
+- Source guards reject direct domain `Database` mutation methods under any receiver name and raw SQL writes to shared tables in production adapters. Recording tests cover every command variant and exercise CLI and alias handlers, cpitd, legacy HTTP, sentinel, kickoff, swarm's kickoff delegation, and orchestrator paths. Query parity covers the SQLite projection and the dashboard snapshot implementation.
 
 Exit condition: production interfaces cannot directly call shared-domain `Database` mutation methods.
 

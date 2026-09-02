@@ -24,14 +24,16 @@ pub struct CpitdSource {
 
 impl CpitdSource {
     pub fn new(crosslink_dir: &Path, interval_hours: u64, min_tokens: u32) -> Self {
+        let service_dir = crosslink_dir.to_path_buf();
         Self {
             interval_hours,
             min_tokens,
             db_path: crosslink_dir.join("issues.db"),
             state_file: crosslink_dir.join(LAST_SCAN_FILE),
             available: Box::new(crate::commands::cpitd::cpitd_available),
-            scan: Box::new(|db, min_tokens| {
-                crate::commands::cpitd::scan_and_file(db, &[], min_tokens, &[])
+            scan: Box::new(move |db, min_tokens| {
+                let service = crate::application::RepositoryService::new(db, &service_dir)?;
+                crate::commands::cpitd::scan_and_file(&service, &[], min_tokens, &[])
             }),
         }
     }

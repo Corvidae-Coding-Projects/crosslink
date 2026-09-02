@@ -4,6 +4,7 @@ use axum::{
     response::Json,
 };
 
+use crate::application::RepositoryService;
 use crate::orchestrator::{decompose, executor::OrchestratorExecutor};
 use crate::server::{
     errors::{bad_request, internal_error, not_found},
@@ -101,7 +102,9 @@ pub async fn execute(
             .map_err(|e| not_found(format!("No plan found: {e}")))?;
 
         let db = state.db().await;
-        let mut executor = OrchestratorExecutor::init(&state.crosslink_dir, &db, &plan)
+        let service = RepositoryService::new(&db, &state.crosslink_dir)
+            .map_err(|e| internal_error("Shared authority is unavailable", e))?;
+        let mut executor = OrchestratorExecutor::init(&state.crosslink_dir, &service, &plan)
             .map_err(|e| internal_error("Failed to initialize execution", e))?;
         drop(db);
 
@@ -282,8 +285,10 @@ pub async fn mark_stage_done_handler(
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|e| internal_error("Shared authority is unavailable", e))?;
     let (newly_ready, event, complete) = executor
-        .mark_stage_done(&stage_id, &db)
+        .mark_stage_done(&stage_id, &service)
         .map_err(|e| bad_request(format!("Cannot mark stage done: {e}")))?;
 
     OrchestratorExecutor::broadcast_event(&state.ws_tx, event);

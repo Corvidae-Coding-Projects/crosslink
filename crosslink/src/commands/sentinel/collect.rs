@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-use crate::db::Database;
-use crate::shared_writer::SharedWriter;
+use crate::application::{CommandService, LocalStateService, QueryService};
 
 use super::config::SentinelConfig;
 use super::engine;
@@ -35,12 +34,11 @@ struct TemplateContext<'a> {
 }
 
 pub fn collect_completed(
-    db: &Database,
+    service: &(impl CommandService + LocalStateService + QueryService),
     crosslink_dir: &Path,
     config: Option<&SentinelConfig>,
-    writer: Option<&SharedWriter>,
 ) -> Result<CollectStats> {
-    let pending = db.get_pending_dispatches()?;
+    let pending = service.get_pending_dispatches()?;
     let mut stats = CollectStats::default();
 
     let root = repo_root(crosslink_dir)?;
@@ -52,7 +50,7 @@ pub fn collect_completed(
 
         let wt_path = root.join(".worktrees").join(agent_id);
         if !wt_path.exists() {
-            db.update_dispatch_outcome(dispatch.id, "orphaned", "worktree removed")?;
+            service.update_dispatch_outcome(dispatch.id, "orphaned", "worktree removed")?;
             stats.orphaned += 1;
             continue;
         }
@@ -70,7 +68,9 @@ pub fn collect_completed(
 
         let findings = dispatch
             .crosslink_issue_id
-            .map_or_else(String::new, |issue_id| read_agent_findings(db, issue_id));
+            .map_or_else(String::new, |issue_id| {
+                read_agent_findings(service, issue_id)
+            });
 
         let duration = format_elapsed(&dispatch.created_at);
 
@@ -115,8 +115,7 @@ pub fn collect_completed(
                 findings,
             );
             if let Err(e) = engine::create_triage_issue(
-                db,
-                writer,
+                service,
                 reference,
                 &title,
                 &description,
@@ -127,7 +126,7 @@ pub fn collect_completed(
             }
         }
 
-        db.update_dispatch_outcome(dispatch.id, outcome, &findings)?;
+        service.update_dispatch_outcome(dispatch.id, outcome, &findings)?;
 
         if let Some(cfg) = config {
             super::notify::notify_dispatch_completed(
@@ -325,7 +324,7 @@ fn classify_status(status_content: &str, attempt_number: i32) -> Option<&'static
     }
 }
 
-fn read_agent_findings(db: &Database, issue_id: i64) -> String {
+fn read_agent_findings(db: &impl QueryService, issue_id: i64) -> String {
     let Ok(comments) = db.get_comments(issue_id) else {
         return String::new();
     };

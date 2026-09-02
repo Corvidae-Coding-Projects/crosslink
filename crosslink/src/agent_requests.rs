@@ -127,7 +127,8 @@ pub fn new_request_id() -> String {
 pub mod poll {
     use super::*;
     use crate::agent_flags;
-    use crate::shared_writer::{PushOutcome, SharedWriter};
+    use crate::application::CommandService;
+    use crate::shared_writer::PushOutcome;
 
     #[derive(Debug, Clone, Default)]
     pub struct PollResult {
@@ -147,16 +148,16 @@ pub mod poll {
     }
 
     pub fn process_pending(
-        writer: &SharedWriter,
+        commands: &(impl CommandService + ?Sized),
         crosslink_dir: &std::path::Path,
         agent_id: &str,
     ) -> Result<PollResult> {
-        if writer.is_v3_public() {
-            return process_pending_v3(writer, crosslink_dir, agent_id);
+        let sync = crate::sync::SyncManager::new(crosslink_dir)?;
+        if sync.hub_mode().is_v3() {
+            return process_pending_v3(commands, crosslink_dir, agent_id, sync.cache_path());
         }
 
-        let cache_dir = crosslink_dir.join("hub-cache");
-        let entries = scan(&cache_dir, agent_id)?;
+        let entries = scan(sync.cache_path(), agent_id)?;
         let mut result = PollResult::default();
 
         for row in entries {
@@ -174,13 +175,7 @@ pub mod poll {
                 result: summary.clone(),
                 notes: None,
             };
-            let push_outcome = writer.write_agent_ack(agent_id, &ack).unwrap_or_else(|e| {
-                tracing::warn!(
-                    "failed to push ack for {}: {e}; treating as LocalOnly",
-                    row.request.request_id
-                );
-                PushOutcome::LocalOnly
-            });
+            let push_outcome = commands.write_agent_ack(agent_id, &ack)?;
 
             result.acted.push(PollAction {
                 request_id: row.request.request_id,
@@ -195,11 +190,11 @@ pub mod poll {
     }
 
     fn process_pending_v3(
-        writer: &SharedWriter,
+        commands: &(impl CommandService + ?Sized),
         crosslink_dir: &std::path::Path,
         agent_id: &str,
+        cache_dir: &std::path::Path,
     ) -> Result<PollResult> {
-        let cache_dir = writer.cache_dir_public();
         let pending = crate::hub_v3::poll_requests_for_agent(cache_dir, agent_id)?;
         let mut result = PollResult::default();
 
@@ -214,13 +209,7 @@ pub mod poll {
                 result: summary.clone(),
                 notes: None,
             };
-            let push_outcome = writer.write_agent_ack(agent_id, &ack).unwrap_or_else(|e| {
-                tracing::warn!(
-                    "failed to push v3 ack for {}: {e}; treating as LocalOnly",
-                    request.request_id
-                );
-                PushOutcome::LocalOnly
-            });
+            let push_outcome = commands.write_agent_ack(agent_id, &ack)?;
 
             result.acted.push(PollAction {
                 request_id: request.request_id,
@@ -285,7 +274,16 @@ pub mod poll {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::application::{Command, CommandResult};
         use tempfile::tempdir;
+
+        struct RejectingCommands;
+
+        impl CommandService for RejectingCommands {
+            fn execute(&self, _command: Command) -> Result<CommandResult> {
+                anyhow::bail!("acknowledgement rejected")
+            }
+        }
 
         fn make_req(kind: RequestKind, issue_id: Option<i64>) -> AgentRequest {
             AgentRequest {
@@ -346,6 +344,27 @@ pub mod poll {
                 .unwrap()
                 .unwrap();
             assert_eq!(hint.issue_id, 7);
+        }
+
+        #[test]
+        fn process_pending_propagates_acknowledgement_failure() {
+            let directory = tempdir().unwrap();
+            let crosslink_dir = directory.path().join(".crosslink");
+            let request_dir = crosslink_dir
+                .join(".hub-cache")
+                .join(requests_dir("agent-x"));
+            std::fs::create_dir_all(&request_dir).unwrap();
+            let request = make_req(RequestKind::Pause, None);
+            std::fs::write(
+                request_dir.join(format!("{}.json", request.request_id)),
+                serde_json::to_vec(&request).unwrap(),
+            )
+            .unwrap();
+
+            let error = process_pending(&RejectingCommands, &crosslink_dir, "agent-x")
+                .expect_err("acknowledgement failure must not become local-only success");
+
+            assert!(error.to_string().contains("acknowledgement rejected"));
         }
     }
 }

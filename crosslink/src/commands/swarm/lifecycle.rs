@@ -6,7 +6,6 @@ use super::status::{probe_agent_status, resolve_agents};
 use super::types::*;
 use crate::commands::kickoff::{self, ContainerMode, KickoffOpts, VerifyLevel};
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
 
 pub fn archive(crosslink_dir: &Path) -> Result<()> {
@@ -244,7 +243,6 @@ pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
 pub fn launch_retry_failed(
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
     phase_slug: &str,
     quiet: bool,
 ) -> Result<()> {
@@ -289,7 +287,7 @@ pub fn launch_retry_failed(
 
     println!("Reset {retry_count} failed agent(s) to planned. Launching...");
 
-    launch(crosslink_dir, db, writer, phase_slug, quiet)
+    launch(crosslink_dir, db, phase_slug, quiet)
 }
 
 pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<()> {
@@ -638,13 +636,7 @@ pub(super) fn resolve_phase_template(crosslink_dir: &Path, phase_slug: &str) -> 
     candidate.is_file().then_some(candidate)
 }
 
-pub fn launch(
-    crosslink_dir: &Path,
-    db: &Database,
-    writer: Option<&SharedWriter>,
-    phase_slug: &str,
-    quiet: bool,
-) -> Result<()> {
+pub fn launch(crosslink_dir: &Path, db: &Database, phase_slug: &str, quiet: bool) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
         bail!("Hub cache not initialized. Run `crosslink sync` first.");
@@ -725,7 +717,7 @@ pub fn launch(
             template: phase_template.as_deref(),
         };
 
-        match kickoff::run(crosslink_dir, db, writer, &opts) {
+        match kickoff::run(crosslink_dir, db, &opts) {
             Ok(compact_name) => {
                 phase.agents[*idx].status = AgentStatus::Running;
                 phase.agents[*idx].started_at = Some(now.clone());

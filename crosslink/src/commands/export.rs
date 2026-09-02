@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use uuid::Uuid;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
-use crate::issue_file::{CommentEntry, IssueFile, TimeEntry};
 use crate::models::Issue;
 use crate::utils::format_issue_id;
 use std::fmt::Write as _;
@@ -39,132 +39,8 @@ pub struct ExportData {
     pub issues: Vec<ExportedIssue>,
 }
 
-fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>> {
-    let mut map = HashMap::new();
-    for issue in issues {
-        let (uuid_str, _) = db.get_issue_export_metadata(issue.id)?;
-        let uuid = uuid_str
-            .and_then(|s| Uuid::parse_str(&s).ok())
-            .unwrap_or_else(Uuid::new_v4);
-        map.insert(issue.id, uuid);
-    }
-    Ok(map)
-}
-
-fn resolve_uuid(db: &Database, uuid_map: &HashMap<i64, Uuid>, id: i64) -> Uuid {
-    if let Some(&uuid) = uuid_map.get(&id) {
-        return uuid;
-    }
-
-    db.get_issue_uuid_by_id(id)
-        .ok()
-        .and_then(|s| Uuid::parse_str(&s).ok())
-        .unwrap_or_else(Uuid::new_v4)
-}
-
-fn build_issue_file(
-    db: &Database,
-    issue: &Issue,
-    uuid_map: &HashMap<i64, Uuid>,
-) -> Result<IssueFile> {
-    let uuid = *uuid_map
-        .get(&issue.id)
-        .ok_or_else(|| anyhow::anyhow!("issue {} missing from uuid_map", issue.id))?;
-
-    let (_, created_by) = db.get_issue_export_metadata(issue.id)?;
-
-    let parent_uuid = issue.parent_id.map(|pid| resolve_uuid(db, uuid_map, pid));
-
-    let labels = db.get_labels(issue.id)?;
-
-    let comments_raw = db.get_comments_with_author(issue.id)?;
-    let comments: Vec<CommentEntry> = comments_raw
-        .into_iter()
-        .map(
-            |(
-                id,
-                author,
-                content,
-                created_at,
-                kind,
-                trigger_type,
-                intervention_context,
-                driver_key_fingerprint,
-            )| {
-                CommentEntry {
-                    id,
-                    author: author.unwrap_or_else(|| "unknown".to_string()),
-                    content,
-                    created_at,
-                    kind,
-                    trigger_type,
-                    intervention_context,
-                    driver_key_fingerprint,
-                    signed_by: None,
-                    signature: None,
-                }
-            },
-        )
-        .collect();
-
-    let blocker_ids = db.get_blockers(issue.id)?;
-    let blockers: Vec<Uuid> = blocker_ids
-        .iter()
-        .map(|&bid| resolve_uuid(db, uuid_map, bid))
-        .collect();
-
-    let related_ids = db.get_related_issue_ids(issue.id)?;
-    let related: Vec<Uuid> = related_ids
-        .iter()
-        .map(|&rid| resolve_uuid(db, uuid_map, rid))
-        .collect();
-
-    let milestone_uuid = db
-        .get_milestone_uuid_for_issue(issue.id)?
-        .and_then(|s| Uuid::parse_str(&s).ok());
-
-    let time_entries_raw = db.get_time_entries_for_issue(issue.id)?;
-    let time_entries: Vec<TimeEntry> = time_entries_raw
-        .into_iter()
-        .map(|(id, started_at, ended_at, duration_seconds)| TimeEntry {
-            id,
-            started_at,
-            ended_at,
-            duration_seconds,
-        })
-        .collect();
-
-    Ok(IssueFile {
-        uuid,
-        display_id: Some(issue.id),
-        title: issue.title.clone(),
-        description: issue.description.clone(),
-        status: issue.status,
-        priority: issue.priority,
-        parent_uuid,
-        created_by: created_by.unwrap_or_else(|| "unknown".to_string()),
-        created_at: issue.created_at,
-        updated_at: issue.updated_at,
-        closed_at: issue.closed_at,
-        scheduled_at: issue.scheduled_at,
-        due_at: issue.due_at,
-        labels,
-        comments,
-        blockers,
-        related,
-        milestone_uuid,
-        time_entries,
-    })
-}
-
-pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
-    let issues = db.list_issues(Some("all"), None, None)?;
-    let uuid_map = build_uuid_map(db, &issues)?;
-
-    let issue_files: Vec<IssueFile> = issues
-        .iter()
-        .map(|i| build_issue_file(db, i, &uuid_map))
-        .collect::<Result<Vec<_>>>()?;
+pub fn run_json(db: &impl QueryService, output_path: Option<&str>) -> Result<()> {
+    let issue_files = db.list_issue_records()?;
 
     let json = serde_json::to_string_pretty(&issue_files)?;
 
@@ -178,7 +54,7 @@ pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
+pub fn run_markdown(db: &impl QueryService, output_path: Option<&str>) -> Result<()> {
     let issues = db.list_issues(Some("all"), None, None)?;
     let mut md = String::new();
 
@@ -233,7 +109,7 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
+fn write_issue_md(md: &mut String, db: &impl QueryService, issue: &Issue) -> Result<()> {
     let checkbox = if issue.status == crate::models::IssueStatus::Closed {
         "[x]"
     } else {

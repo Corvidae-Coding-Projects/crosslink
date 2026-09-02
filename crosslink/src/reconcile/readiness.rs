@@ -30,6 +30,8 @@ const MAX_RECORD_AGE_SECONDS: i64 = 90;
 const PERMIT_POLL_MILLIS: u64 = 25;
 const MUTATION_TRANSITION_WAIT_SECS: u64 = 5;
 const LIVENESS_SWEEP_POLLS: u8 = 40;
+const PROCESS_OBSERVATION_ATTEMPTS: usize = 20;
+const PROCESS_OBSERVATION_RETRY_MILLIS: u64 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1363,7 +1365,7 @@ fn restore_daemon_identity_claim(path: &Path, quarantine: &Path) -> Result<bool>
 
 #[cfg(windows)]
 pub fn is_process_running(pid: u32) -> bool {
-    process_start_token(pid).is_some()
+    observed_process_start_token(pid).is_some()
 }
 
 pub fn daemon_identity_is_live(identity: &DaemonIdentity) -> bool {
@@ -1371,7 +1373,7 @@ pub fn daemon_identity_is_live(identity: &DaemonIdentity) -> bool {
 }
 
 pub fn process_identity_is_live(pid: u32, process_start: &str) -> bool {
-    process_start_token(pid).as_deref() == Some(process_start)
+    observed_process_start_token(pid).as_deref() == Some(process_start)
 }
 
 pub fn current_process_start_token() -> Result<String> {
@@ -1385,13 +1387,30 @@ pub fn current_process_start_token() -> Result<String> {
 }
 
 pub fn process_start_token_for(pid: u32) -> Result<String> {
-    for _ in 0..20 {
-        if let Some(token) = process_start_token(pid) {
-            return Ok(token);
+    observed_process_start_token(pid)
+        .ok_or_else(|| anyhow::anyhow!("unable to determine process start identity for PID {pid}"))
+}
+
+fn observed_process_start_token(pid: u32) -> Option<String> {
+    retry_process_observation(
+        || process_start_token(pid),
+        || thread::sleep(Duration::from_millis(PROCESS_OBSERVATION_RETRY_MILLIS)),
+    )
+}
+
+fn retry_process_observation<T>(
+    mut observe: impl FnMut() -> Option<T>,
+    mut wait: impl FnMut(),
+) -> Option<T> {
+    for attempt in 0..PROCESS_OBSERVATION_ATTEMPTS {
+        if let Some(value) = observe() {
+            return Some(value);
         }
-        thread::sleep(Duration::from_millis(10));
+        if attempt + 1 < PROCESS_OBSERVATION_ATTEMPTS {
+            wait();
+        }
     }
-    bail!("unable to determine process start identity for PID {pid}")
+    None
 }
 
 #[cfg(target_os = "linux")]
@@ -1947,6 +1966,22 @@ mod tests {
         let mut entries = Vec::new();
         collect(path, path, &mut entries);
         entries
+    }
+
+    #[test]
+    fn process_observation_retries_transient_absence() {
+        let mut observations = 0;
+        let mut waits = 0;
+        let observed = retry_process_observation(
+            || {
+                observations += 1;
+                (observations == 3).then_some("live")
+            },
+            || waits += 1,
+        );
+        assert_eq!(observed, Some("live"));
+        assert_eq!(observations, 3);
+        assert_eq!(waits, 2);
     }
 
     #[test]

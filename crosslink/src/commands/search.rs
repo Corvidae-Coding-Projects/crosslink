@@ -1,16 +1,19 @@
 use anyhow::Result;
 use serde_json;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
 use crate::utils::{format_issue_id, truncate};
 
-pub fn run_json(db: &Database, query: &str) -> Result<()> {
+pub fn run_json(db: &impl QueryService, query: &str) -> Result<()> {
     let results = db.search_issues(query)?;
     println!("{}", serde_json::to_string_pretty(&results)?);
     Ok(())
 }
 
-pub fn run(db: &Database, query: &str) -> Result<()> {
+pub fn run(db: &impl QueryService, query: &str) -> Result<()> {
     let results = db.search_issues(query)?;
 
     if results.is_empty() {

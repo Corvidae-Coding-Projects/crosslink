@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::application::QueryService;
 use crate::db::Database;
 
 use super::{StatusFilter, Tab, TabAction, HIGHLIGHT_BG};
@@ -76,7 +77,7 @@ pub struct MilestonesTab {
 }
 
 impl MilestonesTab {
-    pub fn new(db: &Database, db_path: &std::path::Path) -> Self {
+    pub fn new(db: &impl QueryService, db_path: &std::path::Path) -> Self {
         let mut tab = MilestonesTab {
             db_path: db_path.to_path_buf(),
             view_mode: MilestoneViewMode::List,
@@ -98,7 +99,7 @@ impl MilestonesTab {
         Database::open_read_only(&self.db_path).ok()
     }
 
-    fn load_milestones(&mut self, db: &Database) {
+    fn load_milestones(&mut self, db: &impl QueryService) {
         self.error_msg = None;
         match db.list_milestones(status_filter_db_arg(self.status_filter)) {
             Ok(milestones) => {
@@ -146,44 +147,44 @@ impl MilestonesTab {
         if self.milestones.is_empty() {
             return;
         }
-        let row = &self.milestones[self.selected];
-        let milestone_id = row.id;
-
         if let Some(db) = self.open_db() {
-            let issues: Vec<MilestoneIssue> = db
-                .get_milestone_issues(milestone_id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|i| MilestoneIssue {
-                    id: i.id,
-                    title: i.title,
-                    status: i.status.to_string(),
-                    priority: i.priority.to_string(),
-                })
-                .collect();
-
-            let closed_count = issues
-                .iter()
-                .filter(|i| i.status == crate::models::IssueStatus::Closed)
-                .count();
-            let total_count = issues.len();
-            let open_count = total_count - closed_count;
-
-            self.detail = Some(MilestoneDetail {
-                id: row.id,
-                name: row.name.clone(),
-                status: row.status.clone(),
-                description: row.description.clone(),
-                created_at: row.created_at.clone(),
-                closed_at: row.closed_at.clone(),
-                open_count,
-                closed_count,
-                total_count,
-                issues,
-            });
-            self.detail_scroll = 0;
-            self.view_mode = MilestoneViewMode::Detail;
+            self.load_detail(&db);
         }
+    }
+
+    fn load_detail(&mut self, queries: &(impl QueryService + ?Sized)) {
+        let row = &self.milestones[self.selected];
+        let issues: Vec<MilestoneIssue> = queries
+            .get_milestone_issues(row.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|issue| MilestoneIssue {
+                id: issue.id,
+                title: issue.title,
+                status: issue.status.to_string(),
+                priority: issue.priority.to_string(),
+            })
+            .collect();
+        let closed_count = issues
+            .iter()
+            .filter(|issue| issue.status == "closed")
+            .count();
+        let total_count = issues.len();
+
+        self.detail = Some(MilestoneDetail {
+            id: row.id,
+            name: row.name.clone(),
+            status: row.status.clone(),
+            description: row.description.clone(),
+            created_at: row.created_at.clone(),
+            closed_at: row.closed_at.clone(),
+            open_count: total_count - closed_count,
+            closed_count,
+            total_count,
+            issues,
+        });
+        self.detail_scroll = 0;
+        self.view_mode = MilestoneViewMode::Detail;
     }
 
     fn render_list(&self, frame: &mut Frame, area: Rect) {
