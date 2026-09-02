@@ -1112,7 +1112,11 @@ fn v3_import_issues_promotes_batch_to_hub() {
     let assigned = writer.import_issues(&db, &specs).unwrap();
     assert_eq!(assigned.len(), 2);
     assert_eq!(rev_count(&hub.cache_dir, &agent_ref), commits_before + 1);
-    assert!(loose_object_count(&hub.cache_dir) - objects_before <= 12);
+    let objects_after = loose_object_count(&hub.cache_dir);
+    assert!(
+        objects_after <= objects_before.saturating_add(12),
+        "batched import created too many loose objects: before={objects_before}, after={objects_after}"
+    );
     let (parent_id, child_id) = (assigned[0].1, assigned[1].1);
     assert!(parent_id > 0 && child_id > 0, "reduction-assigned ids");
 
