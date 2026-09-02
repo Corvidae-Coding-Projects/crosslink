@@ -5,6 +5,9 @@ use std::fs;
 use std::io::{self, Write};
 use uuid::Uuid;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
 use crate::issue_file::{CommentEntry, IssueFile, TimeEntry};
 use crate::models::Issue;
@@ -39,7 +42,7 @@ pub struct ExportData {
     pub issues: Vec<ExportedIssue>,
 }
 
-fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>> {
+fn build_uuid_map(db: &impl QueryService, issues: &[Issue]) -> Result<HashMap<i64, Uuid>> {
     let mut map = HashMap::new();
     for issue in issues {
         let (uuid_str, _) = db.get_issue_export_metadata(issue.id)?;
@@ -51,7 +54,7 @@ fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>>
     Ok(map)
 }
 
-fn resolve_uuid(db: &Database, uuid_map: &HashMap<i64, Uuid>, id: i64) -> Uuid {
+fn resolve_uuid(db: &impl QueryService, uuid_map: &HashMap<i64, Uuid>, id: i64) -> Uuid {
     if let Some(&uuid) = uuid_map.get(&id) {
         return uuid;
     }
@@ -63,7 +66,7 @@ fn resolve_uuid(db: &Database, uuid_map: &HashMap<i64, Uuid>, id: i64) -> Uuid {
 }
 
 fn build_issue_file(
-    db: &Database,
+    db: &impl QueryService,
     issue: &Issue,
     uuid_map: &HashMap<i64, Uuid>,
 ) -> Result<IssueFile> {
@@ -157,7 +160,7 @@ fn build_issue_file(
     })
 }
 
-pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
+pub fn run_json(db: &impl QueryService, output_path: Option<&str>) -> Result<()> {
     let issues = db.list_issues(Some("all"), None, None)?;
     let uuid_map = build_uuid_map(db, &issues)?;
 
@@ -178,7 +181,7 @@ pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
+pub fn run_markdown(db: &impl QueryService, output_path: Option<&str>) -> Result<()> {
     let issues = db.list_issues(Some("all"), None, None)?;
     let mut md = String::new();
 
@@ -233,7 +236,7 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
+fn write_issue_md(md: &mut String, db: &impl QueryService, issue: &Issue) -> Result<()> {
     let checkbox = if issue.status == crate::models::IssueStatus::Closed {
         "[x]"
     } else {

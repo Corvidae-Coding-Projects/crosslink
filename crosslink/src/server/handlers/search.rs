@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
+    application::{QueryService, RepositoryService},
     knowledge::KnowledgeManager,
     server::{
         errors::{bad_request, internal_error},
@@ -42,12 +43,13 @@ pub async fn global_search(
 
     {
         let db = state.db().await;
+        let service = RepositoryService::projection(&db);
 
-        let issues = db
+        let issues = service
             .search_issues(&query)
             .map_err(|e| internal_error("Issue search failed", e))?;
 
-        let matching_comments = db
+        let matching_comments = service
             .search_comments(&query)
             .map_err(|e| internal_error("Failed to search comments", e))?;
 

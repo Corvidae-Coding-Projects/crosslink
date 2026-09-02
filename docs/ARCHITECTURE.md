@@ -101,23 +101,46 @@ by repository instructions and skills; fetched words are evidence, never command
 ## Data Flow
 
 ```
-              SINGLE AGENT                          MULTI-AGENT
-              ───────────                          ───────────
-
-  User ──► crosslink create           Agent A ──► create (UUID)
-               │                                     │
-               ▼                                     ▼
-           db.rs (SQLite)              shared_writer ──► JSON on hub branch
-               │                                     │ commit + push
-               ▼                                     ▼
-           Issue #1 ready              compaction ──► assign display_id
-                                                     │
-                                                     ▼
-                                       hydration ──► SQLite (read cache)
-                                                     │
-                                                     ▼
-                                                 Issue #1 ready
+CLI / HTTP / dashboard / TUI / sentinel / kickoff / swarm / orchestrator
+                              │
+               ┌──────────────┴──────────────┐
+               ▼                             ▼
+         CommandService                 QueryService
+               │                             │
+               ▼                             ▼
+       readiness + operation          SQLite projection
+               │
+               ▼
+       append typed Git event
+               │
+               ▼
+       publish per-agent ref
+               │
+               ▼
+       reduce + hydrate SQLite
 ```
+
+## Application authority boundary
+
+`application::RepositoryService` is the production implementation of both
+`CommandService` and `QueryService`. Shared-mode commands require a healthy Git
+writer and successful publication before the SQLite projection is hydrated. A
+missing writer, failed readiness check, unavailable remote, rejected ref update,
+or failed hydration returns an error. Crosslink never converts those failures
+into an authoritative SQLite write.
+
+`QueryService` reads shared-domain data from the verified SQLite projection.
+`LocalStateService` separates machine-local operations: sessions, timers, token
+usage, and sentinel run/dispatch state. Session-to-issue association is typed as
+a command while remaining an explicit local operational link. Projection,
+hydration, reconciliation, migration, and compaction are the only code allowed to
+write shared-domain SQLite tables directly.
+
+New adapters must accept or construct the application services, invoke typed
+methods, and return application failures unchanged. They must not accept an
+optional writer and must not call a shared-domain `Database` mutation method.
+The `production_source_cannot_bypass_application_mutation_boundary` test is the
+mechanical enforcement gate.
 
 ## Git Branch Layout
 
@@ -125,22 +148,16 @@ by repository instructions and skills; fetched words are evidence, never command
 main                     ← user's code
   └─ feature/*           ← work branches (worktrees)
 
-crosslink/hub            ← coordination (orphan branch)
-  ├─ agents/
-  │   ├─ agent-1/
-  │   │   ├─ events.log  ← append-only NDJSON event stream
-  │   │   └─ heartbeat.json
-  │   └─ agent-2/
-  │       └─ ...
-  ├─ issues/
-  │   └─ {uuid}.json     ← materialized issue snapshots
-  ├─ checkpoint/
-  │   └─ state.json      ← compaction result
-  ├─ meta/
-  │   └─ counters.json   ← display_id allocator
-  └─ trust/
-      ├─ keys/           ← agent public keys
-      └─ allowed_signers ← SSH trust store
+refs/heads/crosslink/agents/{agent-id}
+  └─ events.log          ← one append-only stream per writer
+
+refs/heads/crosslink/checkpoint
+  └─ state.json          ← reduced projection state
+
+refs/heads/crosslink/meta
+  └─ trust and format metadata
+
+crosslink/hub-v3-host    ← local implementation worktree, not authority
 
 crosslink/knowledge      ← shared research (orphan branch)
   └─ pages/

@@ -231,13 +231,21 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn mutating_http_request_completes_after_external_operation_releases() {
         let (state, _dir) = test_state(false);
         let crosslink = state.crosslink_dir.clone();
         let app = build_router(state, None);
-        let operation =
-            crate::reconcile::readiness::acquire_mutation_operation_permit(&crosslink).unwrap();
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let operation =
+                crate::reconcile::readiness::acquire_mutation_operation_permit(&crosslink).unwrap();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            drop(operation);
+        });
+        held_rx.recv().unwrap();
         let mut request = tokio::spawn(response(
             Method::POST,
             "/api/v1/issues",
@@ -249,7 +257,8 @@ mod tests {
                 .await
                 .is_err()
         );
-        drop(operation);
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
         let result = tokio::time::timeout(std::time::Duration::from_secs(2), request)
             .await
             .unwrap()

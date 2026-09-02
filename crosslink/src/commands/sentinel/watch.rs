@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use crate::application::LocalStateService;
 use crate::db::Database;
 
 use super::config::SentinelConfig;
@@ -82,7 +83,7 @@ pub fn stop(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
+pub fn status(crosslink_dir: &Path, db: &impl LocalStateService) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
 
     let running = read_pid(&pid_file).map_or_else(
@@ -356,12 +357,12 @@ fn run_polling_cycle(
 ) -> Result<()> {
     let _permit = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
     let db = Database::open(&crosslink_dir.join("issues.db"))?;
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?;
+    let service = crate::application::RepositoryService::new(&db, crosslink_dir)?;
 
     let stats = engine::run_oneshot(
         crosslink_dir,
         &db,
-        writer.as_ref(),
+        &service,
         config,
         false,
         None,
@@ -394,13 +395,13 @@ fn run_webhook_cycle(
 ) -> Result<()> {
     let _permit = crate::reconcile::readiness::acquire_mutation_operation_permit(crosslink_dir)?;
     let db = Database::open(&crosslink_dir.join("issues.db"))?;
-    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?;
+    let service = crate::application::RepositoryService::new(&db, crosslink_dir)?;
 
     let signal_ref = signal.reference.clone();
     let stats = engine::process_signal_batch(
         crosslink_dir,
         &db,
-        writer.as_ref(),
+        &service,
         config,
         &[signal],
         "webhook",

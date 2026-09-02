@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::application::QueryService;
 use crate::db::Database;
 
 use super::{StatusFilter, Tab, TabAction, HIGHLIGHT_BG};
@@ -76,7 +77,7 @@ pub struct MilestonesTab {
 }
 
 impl MilestonesTab {
-    pub fn new(db: &Database, db_path: &std::path::Path) -> Self {
+    pub fn new(db: &impl QueryService, db_path: &std::path::Path) -> Self {
         let mut tab = MilestonesTab {
             db_path: db_path.to_path_buf(),
             view_mode: MilestoneViewMode::List,
@@ -98,7 +99,7 @@ impl MilestonesTab {
         Database::open_read_only(&self.db_path).ok()
     }
 
-    fn load_milestones(&mut self, db: &Database) {
+    fn load_milestones(&mut self, db: &impl QueryService) {
         self.error_msg = None;
         match db.list_milestones(status_filter_db_arg(self.status_filter)) {
             Ok(milestones) => {

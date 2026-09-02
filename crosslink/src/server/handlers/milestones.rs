@@ -4,6 +4,7 @@ use axum::{
     response::Json,
 };
 
+use crate::application::{CommandService, QueryService, RepositoryService};
 use crate::server::{
     errors::{internal_error, not_found},
     state::AppState,
@@ -14,7 +15,7 @@ use crate::server::{
 };
 
 fn build_detail(
-    db: &crate::db::Database,
+    db: &impl QueryService,
     milestone: crate::models::Milestone,
 ) -> anyhow::Result<MilestoneDetail> {
     let issues = db.get_milestone_issues(milestone.id)?;
@@ -38,19 +39,42 @@ fn build_detail(
     })
 }
 
+pub(crate) fn execute_create_milestone_command(
+    service: &impl CommandService,
+    body: &CreateMilestoneRequest,
+) -> anyhow::Result<i64> {
+    service.create_milestone(&body.name, body.description.as_deref())
+}
+
+pub(crate) fn execute_assign_milestone_command(
+    service: &impl CommandService,
+    milestone_id: i64,
+    issue_id: i64,
+) -> anyhow::Result<()> {
+    service.assign_milestone(milestone_id, &[issue_id])
+}
+
+pub(crate) fn execute_close_milestone_command(
+    service: &impl CommandService,
+    id: i64,
+) -> anyhow::Result<()> {
+    service.close_milestone(id)
+}
+
 pub async fn list_milestones(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<MilestoneListQuery>,
 ) -> Result<Json<MilestoneListResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
-    let milestones = db
+    let milestones = service
         .list_milestones(query.status.as_deref())
         .map_err(|e| internal_error("Failed to list milestones", e))?;
 
     let items: Vec<MilestoneDetail> = milestones
         .into_iter()
-        .map(|m| build_detail(&db, m))
+        .map(|m| build_detail(&service, m))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| internal_error("Failed to build milestone details", e))?;
 
@@ -64,12 +88,13 @@ pub async fn create_milestone(
     Json(body): Json<CreateMilestoneRequest>,
 ) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    let milestone_id = db
-        .create_milestone(&body.name, body.description.as_deref())
+    let milestone_id = execute_create_milestone_command(&service, &body)
         .map_err(|e| internal_error("Failed to create milestone", e))?;
 
-    let milestone = db
+    let milestone = service
         .get_milestone(milestone_id)
         .map_err(|e| internal_error("Failed to fetch new milestone", e))?
         .ok_or_else(|| {
@@ -79,7 +104,7 @@ pub async fn create_milestone(
             )
         })?;
 
-    let detail = build_detail(&db, milestone)
+    let detail = build_detail(&service, milestone)
         .map_err(|e| internal_error("Failed to build milestone detail", e))?;
 
     drop(db);
@@ -91,13 +116,14 @@ pub async fn get_milestone(
     Path(id): Path<i64>,
 ) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::projection(&db);
 
-    let milestone = db
+    let milestone = service
         .get_milestone(id)
         .map_err(|e| internal_error("Failed to fetch milestone", e))?
         .ok_or_else(|| not_found(format!("Milestone {id} not found")))?;
 
-    let detail = build_detail(&db, milestone)
+    let detail = build_detail(&service, milestone)
         .map_err(|e| internal_error("Failed to build milestone detail", e))?;
 
     drop(db);
@@ -110,16 +136,20 @@ pub async fn assign_milestone(
     Json(body): Json<AssignMilestoneRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_milestone(milestone_id)
+    service
+        .get_milestone(milestone_id)
         .map_err(|e| internal_error("Failed to look up milestone", e))?
         .ok_or_else(|| not_found(format!("Milestone {milestone_id} not found")))?;
 
-    db.get_issue(body.issue_id)
+    service
+        .get_issue(body.issue_id)
         .map_err(|e| internal_error("Failed to look up issue", e))?
         .ok_or_else(|| not_found(format!("Issue {} not found", body.issue_id)))?;
 
-    db.add_issue_to_milestone(milestone_id, body.issue_id)
+    execute_assign_milestone_command(&service, milestone_id, body.issue_id)
         .map_err(|e| internal_error("Failed to assign issue to milestone", e))?;
 
     drop(db);
@@ -131,20 +161,18 @@ pub async fn close_milestone(
     Path(id): Path<i64>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::new(&db, &state.crosslink_dir)
+        .map_err(|error| internal_error("Shared authority is unavailable", error))?;
 
-    db.get_milestone(id)
+    service
+        .get_milestone(id)
         .map_err(|e| internal_error("Failed to look up milestone", e))?
         .ok_or_else(|| not_found(format!("Milestone {id} not found")))?;
 
-    let closed = db
-        .close_milestone(id)
+    execute_close_milestone_command(&service, id)
         .map_err(|e| internal_error("Failed to close milestone", e))?;
 
     drop(db);
-    if !closed {
-        return Err(internal_error("close_milestone returned false", ""));
-    }
-
     Ok(Json(OkResponse { ok: true }))
 }
 

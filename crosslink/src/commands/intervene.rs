@@ -1,11 +1,13 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
-use crate::db::Database;
+use crate::application::{CommandService, QueryService};
 use crate::identity::resolve_driver_fingerprint;
 use crate::issue_file::validate_trigger_type;
-use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
+
+#[cfg(test)]
+use crate::db::Database;
 
 fn is_intervention_tracking_enabled(crosslink_dir: &Path) -> bool {
     let config_path = crosslink_dir.join("hook-config.json");
@@ -22,8 +24,7 @@ fn is_intervention_tracking_enabled(crosslink_dir: &Path) -> bool {
 }
 
 pub fn run(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + QueryService),
     issue_id: i64,
     description: &str,
     trigger_type: &str,
@@ -41,23 +42,12 @@ pub fn run(
         );
     }
 
-    db.require_issue(issue_id)?;
+    service.require_issue(issue_id)?;
 
     let driver_fp = resolve_driver_fingerprint(crosslink_dir);
     let driver_fp_ref = driver_fp.as_deref();
 
-    if let Some(w) = writer {
-        w.add_intervention_comment(
-            db,
-            issue_id,
-            description,
-            trigger_type,
-            context,
-            driver_fp_ref,
-        )?;
-    } else {
-        db.add_intervention_comment(issue_id, description, trigger_type, context, driver_fp_ref)?;
-    }
+    service.add_intervention(issue_id, description, trigger_type, context, driver_fp_ref)?;
 
     if let Some(ref fp) = driver_fp {
         println!(
@@ -96,7 +86,6 @@ mod tests {
         let crosslink_dir = dir.path();
         run(
             &db,
-            None,
             id,
             "Blocked: git push",
             "tool_blocked",
@@ -123,7 +112,6 @@ mod tests {
 
         run(
             &db,
-            None,
             id,
             "Driver redirected approach",
             "redirect",
@@ -143,7 +131,7 @@ mod tests {
         let (db, dir) = setup_db();
         let id = db.create_issue("Test", None, "medium").unwrap();
 
-        let result = run(&db, None, id, "test", "invalid_type", None, dir.path());
+        let result = run(&db, id, "test", "invalid_type", None, dir.path());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -155,7 +143,7 @@ mod tests {
     fn test_intervene_nonexistent_issue() {
         let (db, dir) = setup_db();
 
-        let result = run(&db, None, 99999, "test", "tool_blocked", None, dir.path());
+        let result = run(&db, 99999, "test", "tool_blocked", None, dir.path());
         assert!(result.is_err());
     }
 
@@ -167,7 +155,7 @@ mod tests {
         let config = r#"{"tracking_mode":"strict","intervention_tracking":false}"#;
         std::fs::write(dir.path().join("hook-config.json"), config).unwrap();
 
-        run(&db, None, id, "test", "tool_blocked", None, dir.path()).unwrap();
+        run(&db, id, "test", "tool_blocked", None, dir.path()).unwrap();
 
         let comments = db.get_comments(id).unwrap();
         assert!(comments.is_empty());
@@ -188,7 +176,6 @@ mod tests {
         ] {
             run(
                 &db,
-                None,
                 id,
                 &format!("Test {trigger}"),
                 trigger,

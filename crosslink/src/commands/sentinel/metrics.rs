@@ -1,8 +1,8 @@
 use anyhow::Result;
 
-use crate::db::Database;
+use crate::application::LocalStateService;
 
-pub fn show_metrics(db: &Database, json: bool) -> Result<()> {
+pub fn show_metrics(db: &impl LocalStateService, json: bool) -> Result<()> {
     let metrics = db.get_dispatch_metrics()?;
 
     if metrics.is_empty() {

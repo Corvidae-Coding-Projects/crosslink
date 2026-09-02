@@ -1,12 +1,14 @@
 use anyhow::{bail, Result};
 use std::io::{self, Write};
 
-use crate::db::Database;
-use crate::shared_writer::SharedWriter;
+use crate::application::{CommandService, QueryService};
 use crate::utils::format_issue_id;
 
-pub fn run(db: &Database, writer: Option<&SharedWriter>, id: i64, force: bool) -> Result<()> {
-    let Some(issue) = db.get_issue(id)? else {
+#[cfg(test)]
+use crate::db::Database;
+
+pub fn run(service: &(impl CommandService + QueryService), id: i64, force: bool) -> Result<()> {
+    let Some(issue) = service.get_issue(id)? else {
         bail!("Issue {} not found", format_issue_id(id));
     };
 
@@ -27,21 +29,15 @@ pub fn run(db: &Database, writer: Option<&SharedWriter>, id: i64, force: bool) -
         }
     }
 
-    if let Some(w) = writer {
-        w.delete_issue(db, id)?;
-        println!("Deleted issue {}", format_issue_id(id));
-    } else if db.delete_issue(id)? {
-        println!("Deleted issue {}", format_issue_id(id));
-    } else {
-        bail!("Failed to delete issue {}", format_issue_id(id));
-    }
+    service.delete_issue(id)?;
+    println!("Deleted issue {}", format_issue_id(id));
 
     Ok(())
 }
 
 #[cfg(test)]
-pub fn run_force(db: &Database, id: i64) -> Result<()> {
-    run(db, None, id, true)
+pub fn run_force(service: &(impl CommandService + QueryService), id: i64) -> Result<()> {
+    run(service, id, true)
 }
 
 #[cfg(test)]

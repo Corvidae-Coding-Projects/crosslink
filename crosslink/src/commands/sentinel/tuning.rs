@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
-use crate::db::Database;
+use crate::application::LocalStateService;
 
 use super::config::SentinelConfig;
 
@@ -11,7 +11,7 @@ pub struct TuningOverride {
 }
 
 impl TuningOverride {
-    pub fn from_history(db: &Database, config: &SentinelConfig) -> Result<Self> {
+    pub fn from_history(db: &impl LocalStateService, config: &SentinelConfig) -> Result<Self> {
         let metrics = db.get_dispatch_metrics()?;
         let mut overrides = HashMap::new();
 

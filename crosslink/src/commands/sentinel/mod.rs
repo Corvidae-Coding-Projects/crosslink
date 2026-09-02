@@ -15,8 +15,8 @@ pub mod webhook;
 use anyhow::Result;
 use std::path::Path;
 
+use crate::application::RepositoryService;
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
 use crate::SentinelCommands;
 
 use config::SentinelConfig;
@@ -25,18 +25,19 @@ pub fn dispatch_cmd(
     command: SentinelCommands,
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
     quiet: bool,
     json: bool,
     model: Option<String>,
 ) -> Result<()> {
+    let local_service = RepositoryService::projection(db);
     match command {
         SentinelCommands::Run { dry_run, label, .. } => {
             let config = SentinelConfig::load(crosslink_dir)?;
+            let service = RepositoryService::new(db, crosslink_dir)?;
             engine::run_oneshot(
                 crosslink_dir,
                 db,
-                writer,
+                &service,
                 &config,
                 dry_run,
                 label.as_deref(),
@@ -50,23 +51,23 @@ pub fn dispatch_cmd(
         SentinelCommands::Watch { interval, .. } => {
             watch::start(crosslink_dir, interval, model.as_deref())
         }
-        SentinelCommands::Status => watch::status(crosslink_dir, db),
+        SentinelCommands::Status => watch::status(crosslink_dir, &local_service),
         SentinelCommands::History {
             limit,
             detail,
             json: json_flag,
         } => {
             let use_json = json || json_flag;
-            history::show_history(db, limit, detail, use_json)
+            history::show_history(&local_service, limit, detail, use_json)
         }
         SentinelCommands::Stop => watch::stop(crosslink_dir),
         SentinelCommands::Metrics { json: json_flag } => {
             let use_json = json || json_flag;
-            metrics::show_metrics(db, use_json)
+            metrics::show_metrics(&local_service, use_json)
         }
         SentinelCommands::Patterns { json: json_flag } => {
             let use_json = json || json_flag;
-            patterns::detect_patterns(db, use_json)
+            patterns::detect_patterns(&local_service, use_json)
         }
         SentinelCommands::RunDaemon { dir, interval, .. } => {
             watch::run_watch_loop(&dir, interval, model)

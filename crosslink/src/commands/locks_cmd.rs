@@ -1,25 +1,37 @@
 use anyhow::Result;
 use std::path::Path;
 
+use crate::application::{CommandService, QueryService, RepositoryService};
 use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
-use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
 use crate::utils::{format_issue_id, truncate};
 use crate::LocksCommands;
 
 pub fn run(command: LocksCommands, crosslink_dir: &Path, db: &Database, json: bool) -> Result<()> {
     match command {
-        LocksCommands::List => list(crosslink_dir, db, json),
+        LocksCommands::List => {
+            let queries = RepositoryService::projection(db);
+            list(crosslink_dir, &queries, json)
+        }
         LocksCommands::Check { id } => check(crosslink_dir, id),
-        LocksCommands::Claim { id, branch } => claim(crosslink_dir, id, branch.as_deref()),
-        LocksCommands::Release { id } => release(crosslink_dir, id),
-        LocksCommands::Steal { id } => steal(crosslink_dir, id),
+        LocksCommands::Claim { id, branch } => {
+            let service = RepositoryService::new(db, crosslink_dir)?;
+            claim(&service, crosslink_dir, id, branch.as_deref())
+        }
+        LocksCommands::Release { id } => {
+            let service = RepositoryService::new(db, crosslink_dir)?;
+            release(&service, crosslink_dir, id)
+        }
+        LocksCommands::Steal { id } => {
+            let service = RepositoryService::new(db, crosslink_dir)?;
+            steal(&service, crosslink_dir, id)
+        }
     }
 }
 
-pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()> {
+pub fn list(crosslink_dir: &Path, db: &impl QueryService, json_output: bool) -> Result<()> {
     let sync = SyncManager::new(crosslink_dir)?;
     anyhow::ensure!(
         sync.is_initialized(),
@@ -105,7 +117,12 @@ pub fn check(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Result<()> {
+pub fn claim(
+    commands: &impl CommandService,
+    crosslink_dir: &Path,
+    issue_id: i64,
+    branch: Option<&str>,
+) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
     })?;
@@ -115,10 +132,8 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
     sync.fetch()?;
     let _ = &agent;
 
-    let writer = SharedWriter::new(crosslink_dir)?
-        .ok_or_else(|| anyhow::anyhow!("SharedWriter not available — is agent configured?"))?;
     use crate::shared_writer::LockClaimResult;
-    match writer.claim_lock_v2(issue_id, branch)? {
+    match commands.claim_lock(issue_id, branch)? {
         LockClaimResult::Claimed => {
             println!("Claimed lock on issue {}", format_issue_id(issue_id));
             if let Some(b) = branch {
@@ -142,7 +157,7 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
     Ok(())
 }
 
-pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
+pub fn release(commands: &impl CommandService, crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
     })?;
@@ -152,9 +167,7 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     sync.fetch()?;
     let _ = &agent;
 
-    let writer = SharedWriter::new(crosslink_dir)?
-        .ok_or_else(|| anyhow::anyhow!("SharedWriter not available — is agent configured?"))?;
-    if writer.release_lock_v2(issue_id)? {
+    if commands.release_lock(issue_id)? {
         println!("Released lock on issue {}", format_issue_id(issue_id));
     } else {
         println!("Issue {} was not locked.", format_issue_id(issue_id));
@@ -162,7 +175,7 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
+pub fn steal(commands: &impl CommandService, crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
     })?;
@@ -192,19 +205,15 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
             );
         }
 
-        let writer = SharedWriter::new(crosslink_dir)?
-            .ok_or_else(|| anyhow::anyhow!("SharedWriter not available"))?;
-        writer.steal_lock_v2(issue_id, &existing.agent_id, None)?;
+        commands.steal_lock(issue_id, &existing.agent_id, None)?;
         println!(
             "Stole lock on issue {} from '{}'",
             format_issue_id(issue_id),
             existing.agent_id
         );
     } else {
-        let writer = SharedWriter::new(crosslink_dir)?
-            .ok_or_else(|| anyhow::anyhow!("SharedWriter not available"))?;
         use crate::shared_writer::LockClaimResult;
-        match writer.claim_lock_v2(issue_id, None)? {
+        match commands.claim_lock(issue_id, None)? {
             LockClaimResult::Claimed | LockClaimResult::AlreadyHeld => {}
             LockClaimResult::Contended { winner_agent_id } => {
                 anyhow::bail!("Lock contended — won by '{winner_agent_id}'");
@@ -248,11 +257,11 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         );
     }
 
-    if let (Ok(Some(writer)), Ok(Some(cfg))) = (
-        SharedWriter::new(crosslink_dir),
+    if let (Ok(service), Ok(Some(cfg))) = (
+        RepositoryService::new(db, crosslink_dir),
         crate::identity::AgentConfig::load(crosslink_dir),
     ) {
-        match crate::agent_requests::poll::process_pending(&writer, crosslink_dir, &cfg.agent_id) {
+        match crate::agent_requests::poll::process_pending(&service, crosslink_dir, &cfg.agent_id) {
             Ok(result) if !result.acted.is_empty() => {
                 println!(
                     "Processed {} agent request(s) for {}.",

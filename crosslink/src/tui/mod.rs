@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use crate::application::{LocalStateService, QueryService, RepositoryService};
 use crate::db::Database;
 use crate::sync::SyncManager;
 
@@ -262,7 +263,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(db: &Database, crosslink_dir: &Path) -> anyhow::Result<Self> {
+    pub fn new(
+        db: &(impl LocalStateService + QueryService),
+        crosslink_dir: &Path,
+    ) -> anyhow::Result<Self> {
         let db_path = crosslink_dir.join("issues.db");
         let issues_tab = issues_tab::IssuesTab::new(db, &db_path)?;
         let agents_tab = agents_tab::AgentsTab::new(crosslink_dir);
@@ -872,7 +876,8 @@ fn app_with_database_status(
     crosslink_dir: &Path,
     database_unavailable: Option<&str>,
 ) -> anyhow::Result<App> {
-    let mut app = App::new(db, crosslink_dir)?;
+    let service = RepositoryService::projection(db);
+    let mut app = App::new(&service, crosslink_dir)?;
     if let Some(reason) = database_unavailable {
         app.flash_message = Some(format!("Database unavailable: {reason}"));
     }

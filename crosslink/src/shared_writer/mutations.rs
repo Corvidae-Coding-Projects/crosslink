@@ -7,7 +7,7 @@ use crate::db::Database;
 
 use super::core::{SharedWriter, WriteSet};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedIssueSpec {
     pub uuid: Uuid,
     pub title: String,
@@ -23,7 +23,7 @@ pub struct ImportedIssueSpec {
     pub display_id: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedCommentSpec {
     pub author: String,
     pub content: String,

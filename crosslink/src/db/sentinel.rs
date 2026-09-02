@@ -293,6 +293,43 @@ impl Database {
         Ok(rows)
     }
 
+    pub fn get_repeat_failure_counts(&self) -> Result<Vec<(String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT signal_ref, COUNT(*) as fail_count
+             FROM sentinel_dispatches
+             WHERE outcome IN ('failure', 'exhausted')
+             GROUP BY signal_ref
+             HAVING fail_count >= 2
+             ORDER BY fail_count DESC
+             LIMIT 10",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_escalation_heavy_counts(&self) -> Result<Vec<(String, i64, i64, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT label,
+                    SUM(CASE WHEN attempt_number = 1 AND outcome = 'failure' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN attempt_number = 2 THEN 1 ELSE 0 END),
+                    COUNT(*)
+             FROM sentinel_dispatches
+             WHERE disposition = 'dispatch'
+             GROUP BY label
+             HAVING COUNT(*) >= 4
+                AND SUM(CASE WHEN attempt_number = 1 AND outcome = 'failure' THEN 1 ELSE 0 END)
+                    > SUM(CASE WHEN attempt_number = 2 THEN 1 ELSE 0 END) * 0.8",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     fn map_dispatch_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SentinelDispatch> {
         Ok(SentinelDispatch {
             id: row.get(0)?,

@@ -59,11 +59,11 @@ impl SharedWriter {
                 if !sync.remote_exists() {
                     return Ok(None);
                 }
-                if sync.init_cache().is_err() {
-                    return Ok(None);
-                }
+                sync.init_cache().context(
+                    "shared Git authority exists but its cache could not be initialized",
+                )?;
                 if !sync.is_initialized() {
-                    return Ok(None);
+                    bail!("shared Git authority cache is unavailable after initialization");
                 }
             }
             AgentConfig::anonymous(crosslink_dir)
@@ -71,7 +71,9 @@ impl SharedWriter {
         let sync = SyncManager::new(crosslink_dir)?;
         if !sync.is_initialized() {
             if !sync.remote_exists() {
-                return Ok(None);
+                bail!(
+                    "shared Git authority is configured but its cache and remote are unavailable"
+                );
             }
             bail!("Sync cache not initialized. Run `crosslink sync` first.");
         }
@@ -516,49 +518,56 @@ impl SharedWriter {
         _lock: &crate::sync::HubWriteLock,
     ) -> Result<PushOutcome> {
         let agent_id = self.agent.agent_id.clone();
+        let remote = self.sync.remote();
+        let requires_publication = self.sync.remote_exists();
         let normalized = Self::normalize_events_for_v3(events);
         let envelopes = normalized
             .into_iter()
             .map(|event| self.create_envelope(event))
             .collect::<Vec<_>>();
-        match envelopes.as_slice() {
-            [] => {}
-            [envelope] => {
+        let append = match envelopes.as_slice() {
+            [] => None,
+            [envelope] => Some(
                 crate::hub_v3::append_event_to_ref(&self.cache_dir, &agent_id, envelope)
-                    .context("v3: failed to append event to agent ref")?;
-            }
-            _ => {
+                    .context("v3: failed to append event to agent ref")?,
+            ),
+            _ => Some(
                 crate::hub_v3::append_events_to_ref(&self.cache_dir, &agent_id, &envelopes)
-                    .context("v3: failed to append event batch to agent ref")?;
-            }
-        }
+                    .context("v3: failed to append event batch to agent ref")?,
+            ),
+        };
 
-        let remote = self.sync.remote();
-        let mut outcome = PushOutcome::Pushed;
-        if self.sync.remote_exists() {
-            match crate::hub_v3::push_agent_ref(&self.cache_dir, remote, &agent_id)? {
-                crate::hub_v3::PushOutcome::Pushed => {}
-                crate::hub_v3::PushOutcome::NonFastForward => {
-                    tracing::error!(
-                        "v3 own-ref push for agent '{agent_id}' was rejected as non-fast-forward \
-                         — identity collision or ref tampering (REQ-1); events remain durable \
-                         on the local ref"
-                    );
-                    outcome = PushOutcome::LocalOnly;
-                }
-                crate::hub_v3::PushOutcome::NoRemote => {
-                    outcome = PushOutcome::LocalOnly;
-                }
-                crate::hub_v3::PushOutcome::Failed(detail) => {
-                    tracing::warn!(
-                        "v3 own-ref push for agent '{agent_id}' did not complete ({detail}); \
-                         events saved locally only"
-                    );
-                    outcome = PushOutcome::LocalOnly;
-                }
+        let publication = if requires_publication {
+            match crate::hub_v3::push_agent_ref(&self.cache_dir, remote, &agent_id) {
+                Ok(crate::hub_v3::PushOutcome::Pushed) => Ok(()),
+                Ok(crate::hub_v3::PushOutcome::NonFastForward) => Err(anyhow::anyhow!(
+                    "v3 own-ref publication for agent '{agent_id}' was rejected as non-fast-forward"
+                )),
+                Ok(crate::hub_v3::PushOutcome::NoRemote) => Err(anyhow::anyhow!(
+                    "shared Git authority remote '{remote}' is unavailable"
+                )),
+                Ok(crate::hub_v3::PushOutcome::Failed(detail)) => Err(anyhow::anyhow!(
+                    "v3 own-ref publication for agent '{agent_id}' failed: {detail}"
+                )),
+                Err(error) => Err(error),
             }
         } else {
-            outcome = PushOutcome::LocalOnly;
+            Ok(())
+        };
+        if let Err(error) = publication {
+            if let Some(append) = append {
+                let reference = crate::hub_v3::agent_ref_name(&agent_id)?;
+                crate::hub_v3::restore_ref_after_failed_publication(
+                    &self.cache_dir,
+                    &reference,
+                    &append.new_commit,
+                    append.old_commit.as_deref(),
+                )
+                .context("failed to roll back unpublished shared-domain event")?;
+            }
+            self.event_seq
+                .set(self.event_seq.get().saturating_sub(envelopes.len() as u64));
+            return Err(error);
         }
 
         if self.sync.remote_exists() {
@@ -568,7 +577,11 @@ impl SharedWriter {
         self.refresh_v3_state()?;
         self.write_and_push_v3_checkpoint();
 
-        Ok(outcome)
+        Ok(if requires_publication {
+            PushOutcome::Pushed
+        } else {
+            PushOutcome::LocalOnly
+        })
     }
 
     fn write_and_push_v3_checkpoint(&self) {

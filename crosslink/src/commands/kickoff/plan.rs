@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-use crate::db::Database;
+use crate::application::QueryService;
 use crate::identity::AgentConfig;
 
 use super::helpers::*;
@@ -130,7 +130,7 @@ Write a JSON file `.kickoff-plan.json` with exactly this structure:
     prompt
 }
 
-pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
+pub fn plan(crosslink_dir: &Path, db: &impl QueryService, opts: &PlanOpts) -> Result<()> {
     if cfg!(target_os = "windows") && !opts.dry_run {
         bail!(
             "Plan mode requires tmux, which is not available on Windows.\n\

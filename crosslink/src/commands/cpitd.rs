@@ -7,18 +7,22 @@ use serde::Deserialize;
 
 use crate::CpitdCommands;
 
-use crate::db::Database;
+use crate::application::{CommandService, QueryService};
 
-pub fn run(command: CpitdCommands, db: &Database, quiet: bool) -> Result<()> {
+pub fn run(
+    command: CpitdCommands,
+    service: &(impl CommandService + QueryService),
+    quiet: bool,
+) -> Result<()> {
     match command {
         CpitdCommands::Scan {
             paths,
             min_tokens,
             ignore,
             dry_run,
-        } => scan(db, &paths, min_tokens, &ignore, dry_run, quiet),
-        CpitdCommands::Status => status(db),
-        CpitdCommands::Clear => clear(db),
+        } => scan(service, &paths, min_tokens, &ignore, dry_run, quiet),
+        CpitdCommands::Status => status(service),
+        CpitdCommands::Clear => clear(service),
     }
 }
 use crate::utils::format_issue_id;
@@ -116,7 +120,11 @@ fn dedup_marker(file_a: &str, file_b: &str) -> String {
     format!("<!-- cpitd:file_a={a}:file_b={b} -->")
 }
 
-fn find_existing_clone_issue(db: &Database, file_a: &str, file_b: &str) -> Result<Option<i64>> {
+fn find_existing_clone_issue(
+    db: &impl QueryService,
+    file_a: &str,
+    file_b: &str,
+) -> Result<Option<i64>> {
     let marker = dedup_marker(file_a, file_b);
     let issues = db.list_issues(Some("open"), Some("cpitd"), None)?;
     for issue in issues {
@@ -167,7 +175,11 @@ fn format_clone_description(report: &CpitdCloneReport) -> String {
     desc
 }
 
-fn create_clone_issue(db: &Database, report: &CpitdCloneReport, quiet: bool) -> Result<i64> {
+fn create_clone_issue(
+    service: &impl CommandService,
+    report: &CpitdCloneReport,
+    quiet: bool,
+) -> Result<i64> {
     let title = format!(
         "Code clone: {} <-> {} ({} lines)",
         shorten_path(&report.file_a),
@@ -176,9 +188,14 @@ fn create_clone_issue(db: &Database, report: &CpitdCloneReport, quiet: bool) -> 
     );
 
     let description = format_clone_description(report);
-    let id = db.create_issue(&title, Some(&description), "low")?;
-    db.add_label(id, "cpitd")?;
-    db.add_label(id, "refactor")?;
+    let id = service.create_issue_with_labels(
+        &title,
+        Some(&description),
+        "low",
+        &["cpitd".to_string(), "refactor".to_string()],
+        None,
+        None,
+    )?;
 
     if !quiet {
         println!("  Created issue {}: {}", format_issue_id(id), title);
@@ -187,7 +204,7 @@ fn create_clone_issue(db: &Database, report: &CpitdCloneReport, quiet: bool) -> 
     Ok(id)
 }
 
-fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) {
+fn relate_clone_issues(service: &impl CommandService, created: &[(i64, String, String)]) {
     let mut file_to_issues: HashMap<&str, Vec<i64>> = HashMap::new();
     for (id, file_a, file_b) in created {
         file_to_issues.entry(file_a).or_default().push(*id);
@@ -196,7 +213,7 @@ fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) {
     for ids in file_to_issues.values() {
         for i in 0..ids.len() {
             for j in (i + 1)..ids.len() {
-                let _ = db.add_relation(ids[i], ids[j]);
+                let _ = service.add_relation(ids[i], ids[j]);
             }
         }
     }
@@ -210,7 +227,7 @@ pub struct ScanOutcome {
 }
 
 pub fn scan_and_file(
-    db: &Database,
+    service: &(impl CommandService + QueryService),
     paths: &[String],
     min_tokens: u32,
     ignore_patterns: &[String],
@@ -220,16 +237,18 @@ pub fn scan_and_file(
     let mut outcome = ScanOutcome::default();
 
     for report in &output.clone_reports {
-        if let Some(existing_id) = find_existing_clone_issue(db, &report.file_a, &report.file_b)? {
+        if let Some(existing_id) =
+            find_existing_clone_issue(service, &report.file_a, &report.file_b)?
+        {
             let comment = format!(
                 "[cpitd rescan] {} total cloned lines, {} group(s)",
                 report.total_cloned_lines,
                 report.groups.len(),
             );
-            db.add_comment(existing_id, &comment, "note")?;
+            service.add_comment(existing_id, &comment, "note")?;
             outcome.updated.push(existing_id);
         } else {
-            let id = create_clone_issue(db, report, true)?;
+            let id = create_clone_issue(service, report, true)?;
             outcome
                 .created
                 .push((id, report.file_a.clone(), report.file_b.clone()));
@@ -237,14 +256,14 @@ pub fn scan_and_file(
     }
 
     if outcome.created.len() > 1 {
-        relate_clone_issues(db, &outcome.created);
+        relate_clone_issues(service, &outcome.created);
     }
 
     Ok(outcome)
 }
 
 pub fn scan(
-    db: &Database,
+    service: &(impl CommandService + QueryService),
     paths: &[String],
     min_tokens: u32,
     ignore_patterns: &[String],
@@ -282,7 +301,7 @@ pub fn scan(
         return Ok(());
     }
 
-    let outcome = scan_and_file(db, paths, min_tokens, ignore_patterns)?;
+    let outcome = scan_and_file(service, paths, min_tokens, ignore_patterns)?;
 
     if outcome.created.is_empty() && outcome.updated.is_empty() {
         if !quiet {
@@ -311,7 +330,7 @@ pub fn scan(
     Ok(())
 }
 
-pub fn status(db: &Database) -> Result<()> {
+pub fn status(db: &impl QueryService) -> Result<()> {
     let issues = db.list_issues(Some("open"), Some("cpitd"), None)?;
 
     if issues.is_empty() {
@@ -326,8 +345,8 @@ pub fn status(db: &Database) -> Result<()> {
     Ok(())
 }
 
-pub fn clear(db: &Database) -> Result<()> {
-    let issues = db.list_issues(Some("open"), Some("cpitd"), None)?;
+pub fn clear(service: &(impl CommandService + QueryService)) -> Result<()> {
+    let issues = service.list_issues(Some("open"), Some("cpitd"), None)?;
 
     if issues.is_empty() {
         println!("No open cpitd clone issues to close.");
@@ -336,7 +355,7 @@ pub fn clear(db: &Database) -> Result<()> {
 
     let count = issues.len();
     for issue in &issues {
-        db.close_issue(issue.id)?;
+        service.close_issue(issue.id)?;
     }
 
     println!("Closed {count} cpitd clone issue(s).");

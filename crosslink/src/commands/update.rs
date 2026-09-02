@@ -1,16 +1,14 @@
 use anyhow::{bail, Result};
 
+use crate::application::{CommandService, DateTimeChange, DescriptionChange, OwnedIssueUpdate};
 use crate::commands::create::validate_priority;
-use crate::db::Database;
-use crate::shared_writer::{DescriptionUpdate, FieldUpdate, IssueUpdate, SharedWriter};
+use crate::shared_writer::{DescriptionUpdate, FieldUpdate, IssueUpdate};
 use crate::utils::format_issue_id;
 
-pub fn run(
-    db: &Database,
-    writer: Option<&SharedWriter>,
-    id: i64,
-    update: IssueUpdate<'_>,
-) -> Result<()> {
+#[cfg(test)]
+use crate::db::Database;
+
+pub fn run(service: &impl CommandService, id: i64, update: IssueUpdate<'_>) -> Result<()> {
     let scheduling_touched = !matches!(update.scheduled_at, FieldUpdate::Unchanged)
         || !matches!(update.due_at, FieldUpdate::Unchanged);
     let metadata_touched = update.title.is_some()
@@ -30,27 +28,28 @@ pub fn run(
         }
     }
 
-    if let Some(w) = writer {
-        w.update_issue(db, id, update)?;
-        println!("Updated issue {}", format_issue_id(id));
-    } else {
-        if scheduling_touched {
-            bail!(
-                "Updating scheduling dates requires the shared-writer path. \
-                 Run `crosslink agent init <id>` first to enable it."
-            );
-        }
-
-        let desc_for_db = match update.description {
-            DescriptionUpdate::Set(s) => Some(s),
-            _ => None,
-        };
-        if db.update_issue(id, update.title, desc_for_db, update.priority)? {
-            println!("Updated issue {}", format_issue_id(id));
-        } else {
-            bail!("Issue {} not found", format_issue_id(id));
-        }
-    }
+    let description = match update.description {
+        DescriptionUpdate::Unchanged => DescriptionChange::Unchanged,
+        DescriptionUpdate::Clear => DescriptionChange::Clear,
+        DescriptionUpdate::Set(value) => DescriptionChange::Set(value.to_string()),
+    };
+    let map_datetime = |value| match value {
+        FieldUpdate::Unchanged => DateTimeChange::Unchanged,
+        FieldUpdate::Clear => DateTimeChange::Clear,
+        FieldUpdate::Set(value) => DateTimeChange::Set(value),
+    };
+    service.update_issue(
+        id,
+        OwnedIssueUpdate {
+            title: update.title.map(str::to_string),
+            description,
+            status: update.status.map(str::to_string),
+            priority: update.priority.map(str::to_string),
+            scheduled_at: map_datetime(update.scheduled_at),
+            due_at: map_datetime(update.due_at),
+        },
+    )?;
+    println!("Updated issue {}", format_issue_id(id));
 
     Ok(())
 }
@@ -74,7 +73,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 title: Some("New title"),
@@ -94,7 +92,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 description: DescriptionUpdate::Set("New description"),
@@ -114,7 +111,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 priority: Some("critical"),
@@ -136,7 +132,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 title: Some("New title"),
@@ -158,7 +153,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-        let result = run(&db, None, issue_id, IssueUpdate::default());
+        let result = run(&db, issue_id, IssueUpdate::default());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -172,7 +167,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             99999,
             IssueUpdate {
                 title: Some("New title"),
@@ -190,7 +184,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 priority: Some("urgent"),
@@ -210,7 +203,6 @@ mod tests {
 
         run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 title: Some("New title"),
@@ -232,7 +224,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 title: Some("新しいタイトル 🎉"),
@@ -254,7 +245,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 description: DescriptionUpdate::Set(""),
@@ -275,7 +265,6 @@ mod tests {
         let malicious = "'; DROP TABLE issues; --";
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 title: Some(malicious),
@@ -299,7 +288,6 @@ mod tests {
 
         let result = run(
             &db,
-            None,
             issue_id,
             IssueUpdate {
                 title: Some("Updated closed issue"),
@@ -322,7 +310,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue(&original, None, "medium").unwrap();
 
-            run(&db, None, issue_id, IssueUpdate { title: Some(&new_title), ..Default::default() }).unwrap();
+            run(&db, issue_id, IssueUpdate { title: Some(&new_title), ..Default::default() }).unwrap();
 
             let issue = db.get_issue(issue_id).unwrap().unwrap();
             prop_assert_eq!(issue.title, new_title);
@@ -333,7 +321,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-            let result = run(&db, None, issue_id, IssueUpdate { priority: Some(&priority), ..Default::default() });
+            let result = run(&db, issue_id, IssueUpdate { priority: Some(&priority), ..Default::default() });
             prop_assert!(result.is_ok());
 
             let issue = db.get_issue(issue_id).unwrap().unwrap();
@@ -350,7 +338,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-            let result = run(&db, None, issue_id, IssueUpdate { priority: Some(&priority), ..Default::default() });
+            let result = run(&db, issue_id, IssueUpdate { priority: Some(&priority), ..Default::default() });
             prop_assert!(result.is_err());
         }
 
@@ -358,7 +346,7 @@ mod tests {
         fn prop_nonexistent_issue_fails(issue_id in 1000i64..10000) {
             let (db, _dir) = setup_test_db();
 
-            let result = run(&db, None, issue_id, IssueUpdate { title: Some("New title"), ..Default::default() });
+            let result = run(&db, issue_id, IssueUpdate { title: Some("New title"), ..Default::default() });
             prop_assert!(result.is_err());
         }
 
@@ -367,7 +355,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-            run(&db, None, issue_id, IssueUpdate { description: DescriptionUpdate::Set(&desc), ..Default::default() }).unwrap();
+            run(&db, issue_id, IssueUpdate { description: DescriptionUpdate::Set(&desc), ..Default::default() }).unwrap();
 
             let issue = db.get_issue(issue_id).unwrap().unwrap();
             prop_assert_eq!(issue.description, Some(desc));

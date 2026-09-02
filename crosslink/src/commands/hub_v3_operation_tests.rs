@@ -5,6 +5,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
+use crate::application::{CommandService, RepositoryService};
 use crate::db::Database;
 use crate::hub_v3::{self, agent_ref_name, HubMode};
 use crate::identity::{AgentConfig, AgentRole};
@@ -350,6 +351,33 @@ fn v3_mode_resolves_after_migration() {
 }
 
 #[test]
+fn failed_git_publication_cannot_create_sqlite_only_issue() {
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
+    let before = db.get_issue_count().unwrap();
+    let missing_remote = hub.work.path().join("missing-authority.git");
+    git(
+        &hub.cache_dir,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            missing_remote.to_str().unwrap(),
+        ],
+    );
+    let service = RepositoryService::new(&db, &hub.crosslink_dir).unwrap();
+
+    let result = service.create_issue("must not project", None, "medium", None, None);
+
+    assert!(result.is_err());
+    assert_eq!(db.get_issue_count().unwrap(), before);
+    assert!(db.search_issues("must not project").unwrap().is_empty());
+}
+
+#[test]
 fn v3_lifecycle_no_worktree_writes() {
     if !git_ok() {
         return;
@@ -561,28 +589,29 @@ fn v3_lock_release_works_from_fresh_process() {
 }
 
 #[test]
-fn v3_offline_mutation_durable_then_delivered() {
+fn v3_offline_mutation_fails_without_projection_or_ref_drift() {
     if !git_ok() {
         return;
     }
     let hub = setup_migrated_v3_hub();
     let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
     let writer = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
+    let before_count = db.get_issue_count().unwrap();
+    let before_tip =
+        hub_v3::git_rev_parse_optional(&hub.cache_dir, &agent_ref_name("alpha").unwrap()).unwrap();
 
     git(
         hub.work.path(),
         &["remote", "set-url", "origin", "/nonexistent/remote-xyz.git"],
     );
 
-    let id = writer
-        .create_issue(&db, "Offline issue", None, "medium", None, None)
-        .unwrap();
-    assert!(id > 0);
-    assert!(db.get_issue(id).unwrap().is_some());
-    let local_seq = hub_v3::read_max_event_seq_from_ref(&hub.cache_dir, "alpha").unwrap();
-    assert!(
-        local_seq > 0,
-        "event durable on local ref despite push failure"
+    let result = writer.create_issue(&db, "Offline issue", None, "medium", None, None);
+    assert!(result.is_err());
+    assert_eq!(db.get_issue_count().unwrap(), before_count);
+    assert!(db.search_issues("Offline issue").unwrap().is_empty());
+    assert_eq!(
+        hub_v3::git_rev_parse_optional(&hub.cache_dir, &agent_ref_name("alpha").unwrap()).unwrap(),
+        before_tip
     );
 
     git(
@@ -598,6 +627,7 @@ fn v3_offline_mutation_durable_then_delivered() {
         .create_issue(&db, "Back online", None, "low", None, None)
         .unwrap();
     assert!(id2 > 0);
+    assert!(db.search_issues("Offline issue").unwrap().is_empty());
     let ls = Command::new("git")
         .current_dir(hub.remote.path())
         .args([

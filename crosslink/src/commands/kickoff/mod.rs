@@ -24,6 +24,8 @@ pub use cleanup::cleanup;
 pub use graph::graph;
 pub use monitor::{list, logs, report, report_all, status, stop};
 pub use plan::{plan, show_plan};
+#[cfg(test)]
+pub(crate) use run::resolve_kickoff_issue;
 pub use run::run;
 
 pub(crate) use helpers::{
@@ -35,14 +37,12 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
 use crate::KickoffCommands;
 
 pub fn dispatch(
     command: KickoffCommands,
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
     quiet: bool,
     json: bool,
 ) -> Result<()> {
@@ -105,7 +105,7 @@ pub fn dispatch(
                 template: template.as_deref(),
             };
 
-            run(crosslink_dir, db, writer, &opts)?;
+            run(crosslink_dir, db, &opts)?;
             Ok(())
         }
         KickoffCommands::Status { agent } => agent.as_ref().map_or_else(
@@ -201,7 +201,6 @@ pub fn dispatch(
         } => dispatch_launch(
             crosslink_dir,
             db,
-            writer,
             quiet,
             json,
             doc,
@@ -223,7 +222,6 @@ pub fn dispatch(
 fn dispatch_launch(
     crosslink_dir: &Path,
     db: &Database,
-    writer: Option<&SharedWriter>,
     quiet: bool,
     _json: bool,
     doc: Option<PathBuf>,
@@ -328,7 +326,7 @@ fn dispatch_launch(
             template: None,
         };
 
-        run(crosslink_dir, db, writer, &opts)?;
+        run(crosslink_dir, db, &opts)?;
         return Ok(());
     }
 
@@ -432,7 +430,7 @@ fn dispatch_launch(
                 policy,
                 template: None,
             };
-            run(crosslink_dir, db, writer, &opts)?;
+            run(crosslink_dir, db, &opts)?;
             Ok(())
         }
     }

@@ -2,6 +2,9 @@ use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use std::path::Path;
 
+use crate::application::QueryService;
+
+#[cfg(test)]
 use crate::db::Database;
 use crate::locks::LocksFile;
 use crate::models::Issue;
@@ -56,7 +59,7 @@ fn format_remaining(remaining: Duration) -> Option<String> {
 }
 
 fn effective_schedule(
-    db: &Database,
+    db: &impl QueryService,
     issue: &Issue,
 ) -> (Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
     if issue.scheduled_at.is_some() || issue.due_at.is_some() {
@@ -70,7 +73,7 @@ fn effective_schedule(
     (None, None)
 }
 
-fn calculate_progress(db: &Database, issue: &Issue) -> Result<Option<SubissueProgress>> {
+fn calculate_progress(db: &impl QueryService, issue: &Issue) -> Result<Option<SubissueProgress>> {
     let subissues = db.get_subissues(issue.id)?;
     if subissues.is_empty() {
         return Ok(None);
@@ -84,7 +87,7 @@ fn calculate_progress(db: &Database, issue: &Issue) -> Result<Option<SubissuePro
     Ok(Some(SubissueProgress { completed, total }))
 }
 
-pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn run(db: &impl QueryService, crosslink_dir: &std::path::Path) -> Result<()> {
     let all_ready = db.list_ready_issues()?;
 
     if all_ready.is_empty() {

@@ -1,34 +1,25 @@
 use anyhow::{bail, Result};
 use serde_json;
 
-use crate::db::Database;
-use crate::shared_writer::SharedWriter;
+use crate::application::{CommandService, QueryService};
 use crate::utils::{format_issue_id, truncate};
 
+#[cfg(test)]
+use crate::db::Database;
+
 pub fn block(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + QueryService),
     issue_id: i64,
     blocker_id: i64,
 ) -> Result<()> {
-    db.require_issue(issue_id)?;
-    db.require_issue(blocker_id)?;
+    service.require_issue(issue_id)?;
+    service.require_issue(blocker_id)?;
 
     if issue_id == blocker_id {
         bail!("An issue cannot block itself");
     }
 
-    if let Some(w) = writer {
-        if w.add_blocker(db, issue_id, blocker_id)? {
-            println!(
-                "Issue {} is now blocked by {}",
-                format_issue_id(issue_id),
-                format_issue_id(blocker_id)
-            );
-        } else {
-            println!("Dependency already exists");
-        }
-    } else if db.add_dependency(issue_id, blocker_id)? {
+    if service.add_dependency(issue_id, blocker_id)? {
         println!(
             "Issue {} is now blocked by {}",
             format_issue_id(issue_id),
@@ -40,23 +31,8 @@ pub fn block(
     Ok(())
 }
 
-pub fn unblock(
-    db: &Database,
-    writer: Option<&SharedWriter>,
-    issue_id: i64,
-    blocker_id: i64,
-) -> Result<()> {
-    if let Some(w) = writer {
-        if w.remove_blocker(db, issue_id, blocker_id)? {
-            println!(
-                "Removed: {} no longer blocked by {}",
-                format_issue_id(issue_id),
-                format_issue_id(blocker_id)
-            );
-        } else {
-            println!("No such dependency found");
-        }
-    } else if db.remove_dependency(issue_id, blocker_id)? {
+pub fn unblock(service: &impl CommandService, issue_id: i64, blocker_id: i64) -> Result<()> {
+    if service.remove_dependency(issue_id, blocker_id)? {
         println!(
             "Removed: {} no longer blocked by {}",
             format_issue_id(issue_id),
@@ -68,7 +44,7 @@ pub fn unblock(
     Ok(())
 }
 
-pub fn list_blocked(db: &Database, json: bool) -> Result<()> {
+pub fn list_blocked(db: &impl QueryService, json: bool) -> Result<()> {
     let issues = db.list_blocked_issues()?;
 
     if json {
@@ -112,7 +88,7 @@ pub fn list_blocked(db: &Database, json: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn list_ready(db: &Database, json: bool) -> Result<()> {
+pub fn list_ready(db: &impl QueryService, json: bool) -> Result<()> {
     let issues = db.list_ready_issues()?;
 
     if json {
@@ -156,7 +132,7 @@ mod tests {
         let issue1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let issue2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        block(&db, None, issue1, issue2).unwrap();
+        block(&db, issue1, issue2).unwrap();
         let blockers = db.get_blockers(issue1).unwrap();
         assert!(
             blockers.contains(&issue2),
@@ -169,7 +145,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue = db.create_issue("Issue", None, "medium").unwrap();
 
-        let result = block(&db, None, 99999, issue);
+        let result = block(&db, 99999, issue);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -179,7 +155,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue = db.create_issue("Issue", None, "medium").unwrap();
 
-        let result = block(&db, None, issue, 99999);
+        let result = block(&db, issue, 99999);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -189,7 +165,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue = db.create_issue("Issue", None, "medium").unwrap();
 
-        let result = block(&db, None, issue, issue);
+        let result = block(&db, issue, issue);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -203,8 +179,8 @@ mod tests {
         let issue1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let issue2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        block(&db, None, issue1, issue2).unwrap();
-        block(&db, None, issue1, issue2).unwrap();
+        block(&db, issue1, issue2).unwrap();
+        block(&db, issue1, issue2).unwrap();
         let blockers = db.get_blockers(issue1).unwrap();
         assert_eq!(
             blockers.len(),
@@ -221,7 +197,7 @@ mod tests {
         let issue2 = db.create_issue("Issue 2", None, "medium").unwrap();
         db.add_dependency(issue1, issue2).unwrap();
 
-        unblock(&db, None, issue1, issue2).unwrap();
+        unblock(&db, issue1, issue2).unwrap();
         let blockers = db.get_blockers(issue1).unwrap();
         assert!(
             blockers.is_empty(),
@@ -235,7 +211,7 @@ mod tests {
         let issue1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let issue2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        unblock(&db, None, issue1, issue2).unwrap();
+        unblock(&db, issue1, issue2).unwrap();
         let blockers = db.get_blockers(issue1).unwrap();
         assert!(blockers.is_empty(), "No blockers should exist");
     }
@@ -326,11 +302,11 @@ mod tests {
         let issue1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let issue2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        block(&db, None, issue1, issue2).unwrap();
+        block(&db, issue1, issue2).unwrap();
         let blocked = db.list_blocked_issues().unwrap();
         assert!(blocked.iter().any(|i| i.id == issue1));
 
-        unblock(&db, None, issue1, issue2).unwrap();
+        unblock(&db, issue1, issue2).unwrap();
         let blocked = db.list_blocked_issues().unwrap();
         assert!(!blocked.iter().any(|i| i.id == issue1));
     }
@@ -364,7 +340,7 @@ mod tests {
             let issue1 = db.create_issue(&title1, None, "medium").unwrap();
             let issue2 = db.create_issue(&title2, None, "medium").unwrap();
 
-            block(&db, None, issue1, issue2).unwrap();
+            block(&db, issue1, issue2).unwrap();
             let blockers = db.get_blockers(issue1).unwrap();
             prop_assert!(blockers.contains(&issue2));
             let blocked = db.list_blocked_issues().unwrap();

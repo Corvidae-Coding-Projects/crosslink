@@ -1,9 +1,7 @@
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 
-use crate::db::Database;
-use crate::lock_check::{release_lock_best_effort, try_claim_lock, ClaimResult};
-use crate::shared_writer::SharedWriter;
+use crate::application::{AuthorityMode, CommandService, LocalStateService, QueryService};
 use crate::utils::format_issue_id;
 
 const VALID_PRIORITIES: [&str; 4] = ["low", "medium", "high", "critical"];
@@ -251,7 +249,7 @@ fn apply_template(
 }
 
 fn auto_claim_and_set_work(
-    db: &Database,
+    service: &(impl CommandService + LocalStateService + QueryService),
     id: i64,
     title: &str,
     crosslink_dir: Option<&std::path::Path>,
@@ -259,18 +257,20 @@ fn auto_claim_and_set_work(
 ) -> Result<()> {
     let mut freshly_claimed = false;
 
-    if let Some(dir) = crosslink_dir {
-        crate::lock_check::enforce_lock(dir, id, db)?;
-
-        match try_claim_lock(dir, id, None) {
-            Ok(ClaimResult::Claimed) => {
+    if crosslink_dir.is_some() {
+        match if service.authority_mode() == AuthorityMode::Shared {
+            service.claim_lock(id, None).map(Some)
+        } else {
+            Ok(None)
+        } {
+            Ok(Some(crate::shared_writer::LockClaimResult::Claimed)) => {
                 freshly_claimed = true;
                 if !quiet {
                     println!("Auto-claimed lock on issue {}", format_issue_id(id));
                 }
             }
-            Ok(ClaimResult::AlreadyHeld | ClaimResult::NotConfigured) => {}
-            Ok(ClaimResult::Contended { winner_agent_id }) => {
+            Ok(Some(crate::shared_writer::LockClaimResult::AlreadyHeld) | None) => {}
+            Ok(Some(crate::shared_writer::LockClaimResult::Contended { winner_agent_id })) => {
                 tracing::warn!(
                     "Lock on {} won by '{}'",
                     format_issue_id(id),
@@ -287,12 +287,10 @@ fn auto_claim_and_set_work(
             .flatten()
             .map(|a| a.agent_id)
     });
-    if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
-        if let Err(e) = db.set_session_issue(session.id, id) {
+    if let Ok(Some(session)) = service.get_current_session_for_agent(agent_id.as_deref()) {
+        if let Err(e) = service.set_session_issue(session.id, id) {
             if freshly_claimed {
-                if let Some(dir) = crosslink_dir {
-                    release_lock_best_effort(dir, id);
-                }
+                let _ = service.release_lock(id);
             }
             return Err(e);
         }
@@ -324,8 +322,7 @@ pub struct CreateOpts<'a> {
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     title: &str,
     description: Option<&str>,
     priority: &str,
@@ -360,47 +357,18 @@ pub fn run(
         );
     }
 
-    let id = if let Some(w) = writer {
-        let id = w.create_issue(
-            db,
-            title,
-            final_description.as_deref(),
-            &final_priority,
-            scheduled_at,
-            due_at,
-        )?;
-
-        if let Some(lbl) = template_label {
-            w.add_label(db, id, lbl)?;
-        }
-
-        for lbl in opts.labels {
-            w.add_label(db, id, lbl)?;
-        }
-
-        id
-    } else {
-        if scheduled_at.is_some() || due_at.is_some() {
-            bail!(
-                "Scheduling dates require the shared-writer path. \
-                 Run `crosslink agent init <id>` first to enable it."
-            );
-        }
-
-        db.transaction(|| {
-            let id = db.create_issue(title, final_description.as_deref(), &final_priority)?;
-
-            if let Some(lbl) = template_label {
-                db.add_label(id, lbl)?;
-            }
-
-            for lbl in opts.labels {
-                db.add_label(id, lbl)?;
-            }
-
-            Ok(id)
-        })?
-    };
+    let mut labels = opts.labels.to_vec();
+    if let Some(label) = template_label {
+        labels.insert(0, label.to_string());
+    }
+    let id = service.create_issue_with_labels(
+        title,
+        final_description.as_deref(),
+        &final_priority,
+        &labels,
+        scheduled_at,
+        due_at,
+    )?;
 
     if opts.defer_id && !opts.quiet {
         println!(
@@ -417,7 +385,7 @@ pub fn run(
     }
 
     if opts.work {
-        auto_claim_and_set_work(db, id, title, opts.crosslink_dir, opts.quiet)?;
+        auto_claim_and_set_work(service, id, title, opts.crosslink_dir, opts.quiet)?;
     }
 
     Ok(())
@@ -425,8 +393,7 @@ pub fn run(
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_subissue(
-    db: &Database,
-    writer: Option<&SharedWriter>,
+    service: &(impl CommandService + LocalStateService + QueryService),
     parent_id: i64,
     title: &str,
     description: Option<&str>,
@@ -450,49 +417,22 @@ pub fn run_subissue(
         );
     }
 
-    let parent = db.get_issue(parent_id)?;
+    let parent = service.get_issue(parent_id)?;
     if parent.is_none() {
         bail!("Parent issue {} not found", format_issue_id(parent_id));
     }
 
-    let id = if let Some(w) = writer {
-        let id = w.create_subissue(
-            db,
-            parent_id,
-            title,
-            final_description.as_deref(),
-            &final_priority,
-        )?;
-
-        if let Some(lbl) = template_label {
-            w.add_label(db, id, lbl)?;
-        }
-
-        for lbl in opts.labels {
-            w.add_label(db, id, lbl)?;
-        }
-
-        id
-    } else {
-        db.transaction(|| {
-            let id = db.create_subissue(
-                parent_id,
-                title,
-                final_description.as_deref(),
-                &final_priority,
-            )?;
-
-            if let Some(lbl) = template_label {
-                db.add_label(id, lbl)?;
-            }
-
-            for lbl in opts.labels {
-                db.add_label(id, lbl)?;
-            }
-
-            Ok(id)
-        })?
-    };
+    let mut labels = opts.labels.to_vec();
+    if let Some(label) = template_label {
+        labels.insert(0, label.to_string());
+    }
+    let id = service.create_subissue_with_labels(
+        parent_id,
+        title,
+        final_description.as_deref(),
+        &final_priority,
+        &labels,
+    )?;
 
     if opts.quiet {
         println!("{id}");
@@ -505,7 +445,7 @@ pub fn run_subissue(
     }
 
     if opts.work {
-        auto_claim_and_set_work(db, id, title, opts.crosslink_dir, opts.quiet)?;
+        auto_claim_and_set_work(service, id, title, opts.crosslink_dir, opts.quiet)?;
     }
 
     Ok(())
@@ -642,18 +582,7 @@ mod tests {
             defer_id: false,
             force: false,
         };
-        run(
-            &db,
-            None,
-            "Test issue",
-            None,
-            "medium",
-            None,
-            None,
-            None,
-            &opts,
-        )
-        .unwrap();
+        run(&db, "Test issue", None, "medium", None, None, None, &opts).unwrap();
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].title, "Test issue");
@@ -670,18 +599,7 @@ mod tests {
             defer_id: false,
             force: false,
         };
-        run(
-            &db,
-            None,
-            "A bug",
-            None,
-            "medium",
-            Some("bug"),
-            None,
-            None,
-            &opts,
-        )
-        .unwrap();
+        run(&db, "A bug", None, "medium", Some("bug"), None, None, &opts).unwrap();
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         assert_eq!(issues.len(), 1);
         let labels = db.get_labels(issues[0].id).unwrap();
@@ -700,18 +618,7 @@ mod tests {
             defer_id: false,
             force: false,
         };
-        run(
-            &db,
-            None,
-            "Labeled issue",
-            None,
-            "high",
-            None,
-            None,
-            None,
-            &opts,
-        )
-        .unwrap();
+        run(&db, "Labeled issue", None, "high", None, None, None, &opts).unwrap();
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         let issue_labels = db.get_labels(issues[0].id).unwrap();
         assert_eq!(issue_labels.len(), 2);
@@ -731,17 +638,7 @@ mod tests {
             defer_id: false,
             force: false,
         };
-        run_subissue(
-            &db,
-            None,
-            parent_id,
-            "Child task",
-            None,
-            "medium",
-            None,
-            &opts,
-        )
-        .unwrap();
+        run_subissue(&db, parent_id, "Child task", None, "medium", None, &opts).unwrap();
         let subs = db.get_subissues(parent_id).unwrap();
         assert_eq!(subs.len(), 1);
         assert_eq!(subs[0].title, "Child task");
@@ -758,17 +655,7 @@ mod tests {
             defer_id: false,
             force: false,
         };
-        let result = run(
-            &db,
-            None,
-            "Bad priority",
-            None,
-            "urgent",
-            None,
-            None,
-            None,
-            &opts,
-        );
+        let result = run(&db, "Bad priority", None, "urgent", None, None, None, &opts);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid priority"));
     }
@@ -900,7 +787,6 @@ mod tests {
         let opts = validating_opts(dir.path(), false);
         run(
             &db,
-            None,
             "Investigate",
             Some("Rationale: we need this to understand the failure mode in detail"),
             "medium",
@@ -920,7 +806,6 @@ mod tests {
         let opts = validating_opts(dir.path(), false);
         let err = run(
             &db,
-            None,
             "Investigate",
             None,
             "medium",
@@ -943,7 +828,6 @@ mod tests {
         let opts = validating_opts(dir.path(), false);
         let err = run(
             &db,
-            None,
             "Investigate",
             Some("Rationale: tiny"),
             "medium",
@@ -964,7 +848,6 @@ mod tests {
         let opts = validating_opts(dir.path(), true);
         run(
             &db,
-            None,
             "Investigate",
             Some("Rationale: tiny"),
             "medium",
@@ -991,7 +874,6 @@ mod tests {
 
         run(
             &db,
-            None,
             "Investigate",
             None,
             "medium",
@@ -1011,7 +893,6 @@ mod tests {
         let opts = validating_opts(dir.path(), false);
         run(
             &db,
-            None,
             "A feature",
             None,
             "medium",
@@ -1033,7 +914,6 @@ mod tests {
 
         let err = run_subissue(
             &db,
-            None,
             parent_id,
             "Child",
             Some("Rationale: tiny"),
@@ -1048,7 +928,6 @@ mod tests {
 
         run_subissue(
             &db,
-            None,
             parent_id,
             "Child",
             Some("Rationale: a thoroughly detailed explanation of the child task"),
@@ -1074,7 +953,6 @@ mod tests {
         };
         let err = run(
             &db,
-            None,
             "Quick research",
             None,
             "medium",

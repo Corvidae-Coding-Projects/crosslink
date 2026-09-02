@@ -1,15 +1,17 @@
 use anyhow::{bail, Result};
 use chrono::Utc;
 
+use crate::application::{LocalStateService, QueryService};
+#[cfg(test)]
 use crate::db::Database;
 use crate::utils::format_issue_id;
 
-pub fn start(db: &Database, issue_id: i64) -> Result<()> {
-    let Some(issue) = db.get_issue(issue_id)? else {
+pub fn start(service: &(impl LocalStateService + QueryService), issue_id: i64) -> Result<()> {
+    let Some(issue) = service.get_issue(issue_id)? else {
         bail!("Issue {} not found", format_issue_id(issue_id));
     };
 
-    if let Some((active_id, _)) = db.get_active_timer()? {
+    if let Some((active_id, _)) = service.get_active_timer()? {
         if active_id == issue_id {
             bail!(
                 "Timer already running for issue {}",
@@ -22,7 +24,7 @@ pub fn start(db: &Database, issue_id: i64) -> Result<()> {
         );
     }
 
-    db.start_timer(issue_id)?;
+    service.start_timer(issue_id)?;
     println!(
         "Started timer for {}: {}",
         format_issue_id(issue_id),
@@ -33,15 +35,15 @@ pub fn start(db: &Database, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn stop(db: &Database) -> Result<()> {
-    let Some((issue_id, started_at)) = db.get_active_timer()? else {
+pub fn stop(service: &(impl LocalStateService + QueryService)) -> Result<()> {
+    let Some((issue_id, started_at)) = service.get_active_timer()? else {
         bail!("No timer running. Start one with 'crosslink start <id>'.");
     };
     let duration = Utc::now().signed_duration_since(started_at);
 
-    db.stop_timer(issue_id)?;
+    service.stop_timer(issue_id)?;
 
-    let issue = db.get_issue(issue_id)?;
+    let issue = service.get_issue(issue_id)?;
     let title = issue.map_or_else(|| "(deleted)".to_string(), |i| i.title);
 
     let hours = duration.num_hours();
@@ -51,7 +53,7 @@ pub fn stop(db: &Database) -> Result<()> {
     println!("Stopped timer for {}: {}", format_issue_id(issue_id), title);
     println!("Time spent: {hours}h {minutes}m {seconds}s");
 
-    let total = db.get_total_time(issue_id)?;
+    let total = service.get_total_time(issue_id)?;
     let total_hours = total / 3600;
     let total_minutes = (total % 3600) / 60;
     println!("Total time on this issue: {total_hours}h {total_minutes}m");
@@ -59,8 +61,8 @@ pub fn stop(db: &Database) -> Result<()> {
     Ok(())
 }
 
-pub fn status(db: &Database) -> Result<()> {
-    let active = db.get_active_timer()?;
+pub fn status(service: &(impl LocalStateService + QueryService)) -> Result<()> {
+    let active = service.get_active_timer()?;
 
     match active {
         Some((issue_id, started_at)) => {
@@ -69,7 +71,7 @@ pub fn status(db: &Database) -> Result<()> {
             let minutes = duration.num_minutes() % 60;
             let seconds = duration.num_seconds() % 60;
 
-            let issue = db.get_issue(issue_id)?;
+            let issue = service.get_issue(issue_id)?;
             let title = issue.map_or_else(|| "(deleted)".to_string(), |i| i.title);
 
             println!("Timer running: {} {}", format_issue_id(issue_id), title);

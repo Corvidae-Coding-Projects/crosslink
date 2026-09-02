@@ -4,6 +4,7 @@ use axum::{
     response::Json,
 };
 
+use crate::application::{LocalStateService, LocalTokenUsage, RepositoryService};
 use crate::server::{
     errors::internal_error,
     state::AppState,
@@ -18,8 +19,9 @@ pub async fn list_usage(
     Query(params): Query<TokenUsageListQuery>,
 ) -> Result<Json<TokenUsageListResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
-    let items = db
+    let items = service
         .list_token_usage(
             params.agent_id.as_deref(),
             params.session_id,
@@ -41,28 +43,29 @@ pub async fn create_usage(
     Json(body): Json<CreateTokenUsageRequest>,
 ) -> Result<(StatusCode, Json<crate::models::TokenUsage>), (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
-    let id = db
-        .create_token_usage_for_provider(
-            &body.agent_id,
-            body.session_id,
-            &body.provider,
-            body.input_tokens,
-            body.output_tokens,
-            body.cached_input_tokens,
-            body.reasoning_output_tokens,
-            body.cache_read_tokens,
-            body.cache_creation_tokens,
-            &body.model,
-            body.cost_estimate,
-            body.provider_metadata
+    let id = service
+        .record_token_usage(&LocalTokenUsage {
+            agent_id: body.agent_id,
+            session_id: body.session_id,
+            provider: body.provider,
+            input_tokens: body.input_tokens,
+            output_tokens: body.output_tokens,
+            cached_input_tokens: body.cached_input_tokens,
+            reasoning_output_tokens: body.reasoning_output_tokens,
+            cache_read_tokens: body.cache_read_tokens,
+            cache_creation_tokens: body.cache_creation_tokens,
+            model: body.model,
+            cost_estimate: body.cost_estimate,
+            provider_metadata_json: body
+                .provider_metadata
                 .as_ref()
-                .map(serde_json::Value::to_string)
-                .as_deref(),
-        )
+                .map(serde_json::Value::to_string),
+        })
         .map_err(|e| internal_error("Failed to create token usage", e))?;
 
-    let usage = db
+    let usage = service
         .get_token_usage(id)
         .map_err(|e| internal_error("Failed to fetch new token usage", e))?
         .ok_or_else(|| internal_error("Token usage created but not found", format!("id={id}")))?;
@@ -77,8 +80,9 @@ pub async fn usage_summary(
     Query(params): Query<TokenUsageSummaryQuery>,
 ) -> Result<Json<TokenUsageSummaryResponse>, (StatusCode, Json<ApiError>)> {
     let db = state.db().await;
+    let service = RepositoryService::local_state(&db, &state.crosslink_dir);
 
-    let items = db
+    let items = service
         .get_usage_summary(
             params.agent_id.as_deref(),
             params.from.as_deref(),
