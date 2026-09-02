@@ -1,0 +1,14 @@
+{
+  "hub_version": 3,
+  "migrated_from_commit": "e06549592be2e3fbe3eedee4d3c9d15a6b265712",
+  "migrated_at": "2026-09-02T00:13:10.848253035Z",
+  "genesis_checkpoint_commit": "6d6107e1aa951d5003bc82f4e5f7328814591e99",
+  "seed_agent_tips": {
+    "anon-62b057cf": "abebd7ad62232fea8563fd5388c2e874cdeef8cf",
+    "anon-ab6221f8": "1b868b756f660eef3b047b008a58350d21f715d9",
+    "dashboard-bootstrap": "f13c5a50fc07ca99fd8d7e33320d8bab06c71b45",
+    "sQl8": "07aed7b4b206a91f5507eb2a5ab4ecdb563487c1",
+    "w4c5": "20ae807c945cb73e4560c43c49419d1686cca7ce",
+    "xXMe": "b0264cd314f62429628cb7ea36f20a7c0dbcd43c"
+  }
+}

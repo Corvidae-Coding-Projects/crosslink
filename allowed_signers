@@ -1,0 +1,80 @@
+# Crosslink trusted signers
+# Format: <principal> <key-type> <base64-key> [comment]
+m1@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd06glrYyNCzFpehaFA6sM08QcOgLRPRZ+MfG/Qqjhp crosslink-agent:m1@noether-4.local
+m1--f1@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICCsmqrmJLYFmxDjKjDIooxNlqiaiiUtzCxWz107yykg crosslink-agent:m1--f1@noether-4.local
+m1--f4@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFhDjf0xU/G+FLByLGrLBVX0koSoTMlKeaMqJeC6QlxX crosslink-agent:m1--f4@noether-4.local
+m1--f3@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5fk26iHWQ0Y3cMXaELoI7fPfdacg4YT1G/4sXFiGO/ crosslink-agent:m1--f3@noether-4.local
+m1--f5@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZVnngBk4PmpJU28V8ukgNYlZoIcZkwneScjVl3ea8l crosslink-agent:m1--f5@noether-4.local
+m1--f6@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGEcAPbpqIsaEwrL+sx/g6b4mBAjkYgiZjD/hA7lDV5L crosslink-agent:m1--f6@noether-4.local
+m1--f7@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEi0QXkapfiKc8Tvlg8kkw4WEOXeXRgynzDyNsZOglcF crosslink-agent:m1--f7@noether-4.local
+m1--track-driver-signing-key@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMg2ggBl62fPaesT6Q/YTbZVk5HEMgk+l55TcJwvWyYI crosslink-agent:m1--track-driver-signing-key@dollspace
+# approved by max at 2026-03-02 01:57:33 UTC
+maxine-at-forecast--noether@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILm8+Mn0tcEg78ZpUhkDSsEj2FKtJLc8KVSh5hUfTdMu crosslink-agent:maxine-at-forecast--noether@noether-4.local
+# approved by max at 2026-03-02 08:33:50 UTC
+maxine-at-forecast--noether--accept-both-conflict@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEL4hdcobW6MIzk61Wmqp+shRKAYe1vIfoIXvvOJyuFp crosslink-agent:maxine-at-forecast--noether--accept-both-conflict@noether-4.local
+# approved by max at 2026-03-02 08:41:05 UTC
+maxine-at-forecast--noether--ratatui-tui@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgS+4uje9hHAOg4BLoMqulQHsIQNEsqZC7s7HjvSIY7 crosslink-agent:maxine-at-forecast--noether--ratatui-tui@noether-4.local
+# approved by max at 2026-03-02 08:46:39 UTC
+maxine-at-forecast--noether--knowledge-norms@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPJYzfPt/Nz+UBqqMEZr9RB65eqM446BOhkuF48qZar8 crosslink-agent:maxine-at-forecast--noether--knowledge-norms@noether-4.local
+# approved by max at 2026-03-02 08:59:00 UTC
+maxine-at-forecast--noether--tui-dashboard@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8Ze2zGZEVfet50S2sZsmploEm+t5+tCws3+MvnYnKs crosslink-agent:maxine-at-forecast--noether--tui-dashboard@noether-4.local
+# approved by max at 2026-03-02 09:08:42 UTC
+maxine-at-forecast--noether--ci-cd-restructure@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP/wghwFwmfrBsWZQkBvgeiJD3DJv4T41Q3EDSKwZEFB crosslink-agent:maxine-at-forecast--noether--ci-cd-restructure@noether-4.local
+# approved by max at 2026-03-04 19:57:55 UTC
+m1--configurable-tracker-remote@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAaGpOCDvtjeOTjq598XcIxi7jZJ2ur7htC3n2ySBGMB crosslink-agent:m1--configurable-tracker-remote@noether-4.local
+# approved by max at 2026-03-04 19:58:29 UTC
+m1--fix-tui-agents-tab@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKS370uZ7MDCGirDeLJfDGPu4pcZbhTQZY0EL30BLOwU crosslink-agent:m1--fix-tui-agents-tab@noether-4.local
+# approved by maxine at 2026-03-10 03:02:12 UTC
+maxine--basel@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by maxine at 2026-03-10 04:17:59 UTC
+maxine--basel--refactor-subcommand-structure@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by maxine at 2026-03-10 19:56:01 UTC
+maxine--refactor-command--reinit@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILSmM2XHw2maiI/+pBANKFrIntYfUdyBktqgd4R9tPU3 crosslink-agent:maxine--refactor-command--reinit@basel.local
+# approved by maxine at 2026-03-10 22:27:07 UTC
+maxine--plan-050@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJkEAVCUa5gAuXm0vKu5TD+2fCNr9jPiQm90bsLE89T0 crosslink-agent:maxine--plan-050@basel.local
+# approved by maxine at 2026-03-11 01:22:39 UTC
+maxine--basel--gh-287-and-gh-291@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by maxine at 2026-03-18 00:06:05 UTC
+agent-206-ext-query@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKZ4RZLSv+acffb9RJKkFTUkxefMlIR5fDhxn5Oli0cc crosslink-agent:agent-206-ext-query@futura.local
+# approved by maxine at 2026-03-19 18:18:35 UTC
+maxine--basel--config-system-overhaul-2e70@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by doll at 2026-04-01 20:14:01 UTC
+m1--f2@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMX5IefDHI0cR7ZRNHuR0IA0hxK3lML/ESBNd/62+ulD crosslink-agent:m1--f2@noether-4.local
+# approved by doll at 2026-04-01 20:14:11 UTC
+noether--add-container-agent@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHxdZ6+ASUnlmWDRWVM5pMJDn0ElTSSAMIffAXZrQRt2 crosslink-agent:noether--add-container-agent@dollspace
+# approved by doll at 2026-04-01 20:14:26 UTC
+maxine-at-forecast--noether--restrict-proptests@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrtTWgzzBVejctqkdMGdYmVXjNHttIDfDYiSN3oAI4x crosslink-agent:maxine-at-forecast--noether--restrict-proptests@noether-4.local
+# approved by doll at 2026-04-01 20:14:38 UTC
+maxine-at-forecast--noether--config-tracker-remote@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBqI8oHkgjjQiLXBEvXzMoVsTb3t5xxtuz/DDfwEjiEC crosslink-agent:maxine-at-forecast--noether--config-tracker-remote@noether-4.local
+# approved by doll at 2026-04-01 20:15:13 UTC
+maxine--basel--gh-issues-299-and-301@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by doll at 2026-04-01 20:20:30 UTC
+m1--full-system-adversarial-review@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILDwCbbx8KrmjZvPzkr8IQF/ENhs0AIxXuiRJG1v4z9G crosslink-agent:m1--full-system-adversarial-review@noether-4.local
+# approved by doll at 2026-04-01 20:20:52 UTC
+maxine-at-forecast--noether--fix-signing@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGkf2AH8/zXy+moJNYGg8A/l4jjq3F8fBZtYhhyL/agX crosslink-agent:maxine-at-forecast--noether--fix-signing@noether-4.local
+# approved by doll at 2026-04-01 20:21:03 UTC
+maxine--basel--kickoff-graph-command-0fa7@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by doll at 2026-04-01 20:21:14 UTC
+maxine--knowledge-edit@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAEOPgfsTwrDrcovyWsm7ZvI/6nx5wSn9WKv/W87UQoz crosslink-agent:maxine--knowledge-edit@basel.local
+# approved by doll at 2026-04-01 20:21:23 UTC
+maxine--tui-startup-sync@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMcsO57DMtDE0ojwilL8yUcHg2hSrOnu1rf/0tNvZFm crosslink-agent:maxine--tui-startup-sync@basel.local
+# approved by doll at 2026-04-01 20:21:32 UTC
+maxine-at-forecast--noether--rules-local@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEdiS8X67XUBcXvhOZPECG2MPaH4RUsWD3coQy43HGVt crosslink-agent:maxine-at-forecast--noether--rules-local@noether-4.local
+# approved by doll at 2026-04-01 20:21:46 UTC
+maxine-at-forecast--noether--design-skill@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBg4qzGXFNXc13SQmwMs27Jl7whUk2Xat4XkUhEIrRWM crosslink-agent:maxine-at-forecast--noether--design-skill@noether-4.local
+# approved by doll at 2026-04-01 20:22:01 UTC
+maxine-at-forecast--noether--milestone-review@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHZaIVdtYIxCBBY4Q8FYQoISQror4gVLTpNbNP+C/RKQ crosslink-agent:maxine-at-forecast--noether--milestone-review@noether-4.local
+# approved by doll at 2026-04-01 20:22:14 UTC
+agent-217-kickoff-ux@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1QqI8XITGcwnym3RKV3VN6PzyGqo6JAaVivDVtxl+1 crosslink-agent:agent-217-kickoff-ux@futura.local
+# approved by doll at 2026-04-01 20:22:23 UTC
+maxine-at-forecast--noether--fuzz-ci@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA6kmv8jl+GdG87Y/Fw5TyB/UlNGyWRHwc1NwXadssm4 crosslink-agent:maxine-at-forecast--noether--fuzz-ci@noether-4.local
+# approved by doll at 2026-04-01 20:22:32 UTC
+maxine-at-forecast--noether--fix-tui-agents-tab@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDKVRssZ7ZtGLbg0b/7E2xcmVo3BzBPiu787MB/6ynOc crosslink-agent:maxine-at-forecast--noether--fix-tui-agents-tab@noether-4.local
+# approved by doll at 2026-04-01 20:22:42 UTC
+maxine-at-forecast--noether--clock-skew@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDwC9MpeAOxVGmpj4qCw95SQsE+P2AYaoaRq9Wry4ER4 crosslink-agent:maxine-at-forecast--noether--clock-skew@noether-4.local
+# approved by human backfill at 2026-04-01
+backfill@crosslink ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBHtCmOJf2exv735MdNJBcGbWNxYw/JXXulXDzUjU9OpMi+WVJ80BmyVDMznZRXeubP0Qs2YVSUFaJy0N8is4qRg= texas@dollspace
+dashboard-bootstrap@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKAFUqDzWVSnKzFSwxXGJnYbeAKRh6R8a58miF0ekCQT crosslink-agent:dashboard-bootstrap@dollspace
+driver@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKo+flEdaJYO8NPs2cLlm7FqczNhZVbMbKNZfq5/HUnw doll@dollspace
+# approved by doll at 2026-04-21 23:32:28 UTC
+jus4@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHIz6j+6yCnl/ihv2NE3I1ZN1iLYXhRWTVixqK8cB/Eg crosslink-agent:jus4@dollspace
