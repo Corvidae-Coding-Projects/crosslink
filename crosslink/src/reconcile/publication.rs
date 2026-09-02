@@ -19,6 +19,7 @@ pub(crate) const GENERATION_REF: &str = "refs/heads/crosslink/reconciliation/cur
 const GENERATION_ROOT: &str = "refs/heads/crosslink/reconciliation/generations";
 const ARCHIVE_ROOT: &str = "refs/heads/crosslink/reconciliation/archives";
 const LOCAL_ROOT: &str = "refs/crosslink/reconciliation";
+const RECOVERY_ARCHIVE_DIR: &str = "reconciliation-journal-archive";
 const PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +108,22 @@ impl CanonicalSemantic {
 
     pub const fn value(&self) -> &Value {
         &self.value
+    }
+
+    fn differing_sections(&self, other: &Self) -> Vec<String> {
+        let (Some(left), Some(right)) = (self.value.as_object(), other.value.as_object()) else {
+            return (self.value != other.value)
+                .then(|| "root".to_string())
+                .into_iter()
+                .collect();
+        };
+        left.keys()
+            .chain(right.keys())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|section| left.get(*section) != right.get(*section))
+            .cloned()
+            .collect()
     }
 }
 
@@ -532,12 +549,12 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         journal: ReconciliationJournal,
         observed_format: &RepositoryFormat,
     ) -> Result<PublicationOutcome> {
+        let current = remote_ref_map(self.repository, self.remote, &[GENERATION_REF.to_string()])?;
         if !self.source_still_pinned(&journal.descriptor.source, observed_format)? {
             return Ok(PublicationOutcome::BlockedCorrupt {
                 reason: "historical source changed after reconciliation was prepared".to_string(),
             });
         }
-        let current = remote_ref_map(self.repository, self.remote, &[GENERATION_REF.to_string()])?;
         if let Some(remote_oid) = current.get(GENERATION_REF) {
             if remote_oid == &journal.descriptor_oid {
                 let fallback = journal.atomic_publication == Some(false);
@@ -548,16 +565,25 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         match journal.stage {
             JournalStage::IntentRecorded | JournalStage::Prepared => {
                 let targets = descriptor_target_oids(&journal.descriptor);
-                let target_semantic = self
-                    .importer
-                    .read_target_semantic(self.repository, &targets)
-                    .context("verifying prepared targets while resuming")?;
-                if target_semantic.digest() != journal.descriptor.semantic_digest {
-                    return Ok(PublicationOutcome::BlockedCorrupt {
-                        reason: "prepared targets no longer match the journal semantic digest"
-                            .to_string(),
-                    });
-                }
+                let target_semantic = self.importer.read_target_semantic(self.repository, &targets);
+                let target_semantic = match target_semantic {
+                    Ok(semantic)
+                        if semantic.digest() == journal.descriptor.semantic_digest =>
+                    {
+                        semantic
+                    }
+                    result => {
+                        return self.recover_unpublished_preparation(
+                            &journal,
+                            observed_format,
+                            result,
+                        );
+                    }
+                };
+                anyhow::ensure!(
+                    target_semantic.digest() == journal.descriptor.semantic_digest,
+                    "prepared target digest differs from the generation descriptor"
+                );
                 let mut resumed = journal;
                 resumed.stage = JournalStage::Verified;
                 self.persist(&resumed)?;
@@ -573,6 +599,67 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         }
     }
 
+    fn recover_unpublished_preparation(
+        &mut self,
+        journal: &ReconciliationJournal,
+        observed_format: &RepositoryFormat,
+        target_semantic: Result<CanonicalSemantic>,
+    ) -> Result<PublicationOutcome> {
+        let authority_before = local_authority_refs(self.repository)?;
+        let provisional_id = journal
+            .descriptor
+            .source
+            .fingerprint
+            .get(..24)
+            .unwrap_or(&journal.descriptor.source.fingerprint);
+        let expected = match self.prepare_source(&journal.descriptor.source, provisional_id) {
+            Ok(prepared) => prepared.semantic,
+            Err(error) => {
+                ensure_authority_unchanged(self.repository, &authority_before)?;
+                return Ok(PublicationOutcome::BlockedCorrupt {
+                    reason: format!(
+                        "unpublished preparation failed and the pinned source could not be re-verified: {error:#}"
+                    ),
+                });
+            }
+        };
+        ensure_authority_unchanged(self.repository, &authority_before)?;
+        if expected.digest() != journal.descriptor.semantic_digest {
+            return Ok(PublicationOutcome::BlockedCorrupt {
+                reason: "unpublished preparation failed and the pinned source semantic digest is no longer reproducible"
+                    .to_string(),
+            });
+        }
+        let (reason, differing_sections) = match target_semantic {
+            Ok(target) => {
+                let sections = expected.differing_sections(&target);
+                let detail = if sections.is_empty() {
+                    "digest".to_string()
+                } else {
+                    sections.join(", ")
+                };
+                (
+                    format!(
+                        "prepared target semantics differ from the pinned historical source in sections: {detail}"
+                    ),
+                    sections,
+                )
+            }
+            Err(error) => (
+                format!("prepared targets could not be read: {error:#}"),
+                vec!["target".to_string()],
+            ),
+        };
+        let archived =
+            archive_unpublished_journal(&self.journal_path, journal, &reason, &differing_sections)?;
+        tracing::warn!(
+            journal = %archived.display(),
+            reason,
+            "archived invalid unpublished reconciliation preparation"
+        );
+        self.reconcile_inner(observed_format)
+    }
+
     fn verify_prepared(
         &self,
         journal: &ReconciliationJournal,
@@ -582,9 +669,11 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
             self.repository,
             &descriptor_target_oids(&journal.descriptor),
         )?;
+        let differing_sections = source_semantic.differing_sections(&target_semantic);
         anyhow::ensure!(
-            target_semantic.value() == source_semantic.value(),
-            "prepared target semantics differ from the pinned historical source"
+            differing_sections.is_empty(),
+            "prepared target semantics differ from the pinned historical source in sections: {}",
+            differing_sections.join(", ")
         );
         anyhow::ensure!(
             target_semantic.digest() == journal.descriptor.semantic_digest,
@@ -2742,6 +2831,83 @@ fn remove_journal(path: &Path) -> Result<()> {
     }
 }
 
+fn archive_unpublished_journal(
+    path: &Path,
+    journal: &ReconciliationJournal,
+    reason: &str,
+    differing_sections: &[String],
+) -> Result<PathBuf> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("journal path has no parent: {}", path.display()))?;
+    let archive_root = parent
+        .join(crate::db::snapshot::SNAPSHOT_DIR)
+        .join(RECOVERY_ARCHIVE_DIR);
+    fs::create_dir_all(&archive_root).with_context(|| {
+        format!(
+            "creating reconciliation journal archive {}",
+            archive_root.display()
+        )
+    })?;
+    let evidence_path = path.join("recovery-evidence");
+    let evidence = serde_json::to_vec_pretty(&serde_json::json!({
+        "descriptor_oid": journal.descriptor_oid,
+        "generation_id": journal.descriptor.generation_id,
+        "stage": journal.stage,
+        "semantic_digest": journal.descriptor.semantic_digest,
+        "reason": reason,
+        "differing_sections": differing_sections,
+    }))
+    .context("serializing reconciliation recovery evidence")?;
+    let mut evidence_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&evidence_path)
+        .with_context(|| {
+            format!(
+                "opening reconciliation recovery evidence {}",
+                evidence_path.display()
+            )
+        })?;
+    evidence_file.write_all(&evidence).with_context(|| {
+        format!(
+            "writing reconciliation recovery evidence {}",
+            evidence_path.display()
+        )
+    })?;
+    evidence_file.sync_all().with_context(|| {
+        format!(
+            "syncing reconciliation recovery evidence {}",
+            evidence_path.display()
+        )
+    })?;
+    sync_directory(path)?;
+    let mut sequence = 1_u64;
+    let destination = loop {
+        let candidate = archive_root.join(format!(
+            "{}-{sequence:020}",
+            journal.descriptor.generation_id
+        ));
+        if !candidate.exists() {
+            break candidate;
+        }
+        sequence = sequence
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("reconciliation journal archive sequence exhausted"))?;
+    };
+    crate::utils::durable_rename(path, &destination, false).with_context(|| {
+        format!(
+            "archiving unpublished reconciliation journal {} as {}",
+            path.display(),
+            destination.display()
+        )
+    })?;
+    sync_directory(parent)?;
+    sync_directory(&archive_root)?;
+    Ok(destination)
+}
+
 fn next_journal_sequence(path: &Path) -> Result<u64> {
     Ok(latest_journal_record(path)?
         .and_then(|record| {
@@ -3691,6 +3857,76 @@ mod tests {
                 .output()?;
             ensure_git_success(&output, "read object-backed target state")?;
             CanonicalSemantic::from_value(serde_json::from_slice(&output.stdout)?)
+        }
+    }
+
+    struct MismatchedImporter {
+        target: ObjectImporter,
+        expected: Value,
+    }
+
+    impl MismatchedImporter {
+        fn replace_semantic(&self, prepared: PreparedImport) -> Result<PreparedImport> {
+            Ok(PreparedImport {
+                targets: prepared.targets,
+                semantic: CanonicalSemantic::from_value(self.expected.clone())?,
+            })
+        }
+    }
+
+    impl HistoricalImporter for MismatchedImporter {
+        fn snapshot_source_refs(
+            &self,
+            repository: &Path,
+            source: &SourceEvidence,
+        ) -> Result<BTreeMap<String, String>> {
+            self.target.snapshot_source_refs(repository, source)
+        }
+
+        fn prepare_file_source(
+            &self,
+            repository: &Path,
+            source: &SourceEvidence,
+            generation_id: &str,
+        ) -> Result<PreparedImport> {
+            self.replace_semantic(self.target.prepare_file_source(
+                repository,
+                source,
+                generation_id,
+            )?)
+        }
+
+        fn prepare_local_source(
+            &self,
+            repository: &Path,
+            source: &SourceEvidence,
+            generation_id: &str,
+        ) -> Result<PreparedImport> {
+            self.replace_semantic(self.target.prepare_local_source(
+                repository,
+                source,
+                generation_id,
+            )?)
+        }
+
+        fn prepare_current_source(
+            &self,
+            repository: &Path,
+            source: &SourceEvidence,
+        ) -> Result<PreparedImport> {
+            self.replace_semantic(self.target.prepare_current_source(repository, source)?)
+        }
+
+        fn file_source_is_newer(&self, repository: &Path, source: &SourceEvidence) -> Result<bool> {
+            self.target.file_source_is_newer(repository, source)
+        }
+
+        fn read_target_semantic(
+            &self,
+            repository: &Path,
+            targets: &BTreeMap<String, String>,
+        ) -> Result<CanonicalSemantic> {
+            self.target.read_target_semantic(repository, targets)
         }
     }
 
@@ -4946,6 +5182,62 @@ mod tests {
         );
         assert!(remote_oid(&fixture, GENERATION_REF).is_none());
         assert!(remote_oid(&fixture, V2).is_some());
+    }
+
+    #[test]
+    fn unpublished_semantic_mismatch_is_archived_and_rebuilt() {
+        let fixture = v2_fixture();
+        let fixed = ObjectImporter::new("fixed-preparation");
+        let mut poisoned_value = fixed.semantic.clone();
+        poisoned_value.as_object_mut().unwrap().remove("trust");
+        let poisoned = MismatchedImporter {
+            target: ObjectImporter {
+                semantic: poisoned_value,
+                salt: "poisoned-preparation".to_string(),
+            },
+            expected: fixed.semantic.clone(),
+        };
+        let error = RepositoryReconciler::new(
+            fixture.repository.path(),
+            fixture.journal.clone(),
+            "origin",
+            &poisoned,
+        )
+        .reconcile(fixture.format.clone())
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("sections: trust"));
+        let JournalRecord::Generation(failed) =
+            read_journal(fixture.repository.path(), &fixture.journal)
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("expected failed preparation journal");
+        };
+        assert_eq!(failed.stage, JournalStage::Prepared);
+
+        let outcome = reconcile_fixture(&fixture, &fixed).unwrap();
+        assert!(matches!(outcome, PublicationOutcome::Published { .. }));
+        assert!(!fixture.journal.exists());
+        let archive_root = fixture
+            .repository
+            .path()
+            .join(crate::db::snapshot::SNAPSHOT_DIR)
+            .join(RECOVERY_ARCHIVE_DIR);
+        let archived = fs::read_dir(&archive_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(archived.len(), 1);
+        let evidence: Value =
+            serde_json::from_slice(&fs::read(archived[0].join("recovery-evidence")).unwrap())
+                .unwrap();
+        assert_eq!(evidence["descriptor_oid"], failed.descriptor_oid);
+        assert_eq!(evidence["differing_sections"], serde_json::json!(["trust"]));
+        assert!(evidence["reason"]
+            .as_str()
+            .unwrap()
+            .contains("sections: trust"));
+        assert!(remote_oid(&fixture, GENERATION_REF).is_some());
     }
 
     #[test]

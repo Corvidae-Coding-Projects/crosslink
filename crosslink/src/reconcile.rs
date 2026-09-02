@@ -98,6 +98,8 @@ pub enum MigrationAction {
     ImportV2,
     RenameHiddenV3Refs,
     ResolveMixedSharedStore,
+    EstablishReconciliationGeneration,
+    ResumeReconciliation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,12 +182,46 @@ pub fn check_repository(crosslink_dir: &Path) -> ReconcileReport {
         local_database,
         shared_store,
     };
-    let plan = plan_migration(&format);
+    let plan = plan_repository_reconciliation(&repository_root, crosslink_dir, &format);
     ReconcileReport {
         repository_root,
         format,
         plan,
     }
+}
+
+fn plan_repository_reconciliation(
+    repository_root: &Path,
+    crosslink_dir: &Path,
+    format: &RepositoryFormat,
+) -> MigrationPlan {
+    let mut plan = plan_migration(format);
+    if !matches!(format.shared_store, SharedStoreFormat::VisibleV3 { .. }) {
+        return plan;
+    }
+    if crosslink_dir.join("reconciliation-journal.json").exists() {
+        plan.actions.push(MigrationAction::ResumeReconciliation);
+    } else {
+        match publication::generation_id_at_ref(repository_root, publication::GENERATION_REF) {
+            Ok(Some(_)) => {}
+            Ok(None) => plan
+                .actions
+                .push(MigrationAction::EstablishReconciliationGeneration),
+            Err(error) => plan.blockers.push(format!(
+                "reconciliation generation is unreadable: {error:#}"
+            )),
+        }
+    }
+    plan.state = if plan.blockers.is_empty() {
+        if plan.actions.is_empty() {
+            ReadinessState::ReadyCurrent
+        } else {
+            ReadinessState::MigrationRequired
+        }
+    } else {
+        ReadinessState::BlockedCorrupt
+    };
+    plan
 }
 
 #[must_use]

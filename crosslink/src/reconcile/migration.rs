@@ -348,6 +348,7 @@ impl MigrationImporter<'_> {
         let targets = seed_v3_targets(
             self.cache_dir,
             materialized.path(),
+            signers.as_deref(),
             &genesis,
             &source_tip,
             generation_id,
@@ -382,6 +383,7 @@ impl MigrationImporter<'_> {
         let targets = seed_v3_targets(
             self.cache_dir,
             materialized.path(),
+            None,
             &genesis,
             &source_tip,
             generation_id,
@@ -525,15 +527,16 @@ impl HistoricalImporter for MigrationImporter<'_> {
         let current = reduce_v3_state(self.cache_dir, &current_targets)?;
         let (merged, changed) = merge_local_database_projection(&current, &local)?;
         anyhow::ensure!(changed, "local database contains no unshared state");
+        let signers = read_v3_allowed_signers(self.cache_dir, &current_targets)?;
         let targets = seed_v3_targets(
             self.cache_dir,
             materialized.path(),
+            signers.as_deref(),
             &merged,
             database_evidence.oid(),
             source.fingerprint(),
             Some(&current_targets),
         )?;
-        let signers = read_v3_allowed_signers(self.cache_dir, &current_targets)?;
         Ok(PreparedImport::new(
             targets,
             canonical_semantic(&merged, signers)?,
@@ -2354,6 +2357,7 @@ fn merge_agent_event_logs(agent_id: &str, left: &[u8], right: &[u8]) -> Result<V
 fn seed_v3_targets(
     repository: &Path,
     source_dir: &Path,
+    allowed_signers: Option<&[u8]>,
     genesis: &CheckpointState,
     source_tip: &str,
     generation_id: &str,
@@ -2458,18 +2462,9 @@ fn seed_v3_targets(
     };
     let hub_json =
         serde_json::to_vec_pretty(&meta).context("serializing reconciliation hub meta")?;
-    let signers_path = source_dir.join("trust").join("allowed_signers");
-    let signers = if signers_path.exists() {
-        Some(
-            std::fs::read(&signers_path)
-                .with_context(|| format!("failed to read {}", signers_path.display()))?,
-        )
-    } else {
-        None
-    };
     let mut files = vec![("hub.json", hub_json.as_slice())];
-    if let Some(bytes) = &signers {
-        files.push(("allowed_signers", bytes.as_slice()));
+    if let Some(bytes) = allowed_signers {
+        files.push(("allowed_signers", bytes));
     }
     let meta_ref = format!("{build_root}/meta");
     let meta_oid = hub_v3::commit_files_to_ref(
@@ -3560,6 +3555,75 @@ pub(crate) mod tests {
         assert_eq!(fs::read(&database_path).unwrap(), database_before);
         assert_eq!(fs::read(&wal_path).unwrap(), wal_before);
         assert_local_database_archive_contains(&cache_dir, local_uuid);
+        drop(database);
+    }
+
+    #[test]
+    fn pregeneration_v3_preserves_trust_and_imports_local_projection() {
+        let (_work, _remote, crosslink_dir, cache_dir) = setup_v2_hub();
+        let allowed_signers = b"alpha ssh-ed25519 AAAAPREGENERATION\n";
+        fs::write(
+            cache_dir.join("trust").join("allowed_signers"),
+            allowed_signers,
+        )
+        .unwrap();
+        run(&cache_dir, &["add", "trust"]);
+        run(&cache_dir, &["commit", "-m", "pin trust", "--no-gpg-sign"]);
+        run(&cache_dir, &["push", "origin", "crosslink/hub"]);
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+        run(
+            &cache_dir,
+            &["push", "origin", &format!(":{GENERATION_POINTER}")],
+        );
+        run(&cache_dir, &["update-ref", "-d", GENERATION_POINTER]);
+
+        let database = open_with_uncheckpointed_wal(&crosslink_dir.join("issues.db"));
+        let local_id = database
+            .create_issue("pregeneration local projection", None, "high")
+            .unwrap();
+        let local_uuid: Uuid = database
+            .get_issue_uuid_by_id(local_id)
+            .unwrap()
+            .parse()
+            .unwrap();
+        let check = crate::reconcile::check_repository(&crosslink_dir);
+        assert_eq!(
+            check.plan.state,
+            crate::reconcile::ReadinessState::MigrationRequired
+        );
+        assert!(check
+            .plan
+            .actions
+            .contains(&crate::reconcile::MigrationAction::EstablishReconciliationGeneration));
+
+        let first = activate_repository(&crosslink_dir).unwrap();
+        let RepositoryActivation::ReadyMigrated { generation_id } = first else {
+            panic!("expected migrated activation, got {first:?}");
+        };
+        let state = compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
+            .unwrap()
+            .state;
+        assert!(state.issues.contains_key(&local_uuid));
+        let source = RefHubSource::new(&cache_dir).unwrap();
+        assert_eq!(
+            fs::read(source.allowed_signers_file().unwrap().unwrap()).unwrap(),
+            allowed_signers
+        );
+        let projection =
+            crate::db::Database::open_read_only(&crosslink_dir.join("issues.db")).unwrap();
+        assert!(projection
+            .get_issue_id_by_uuid(&local_uuid.to_string())
+            .is_ok());
+        drop(projection);
+
+        let second = activate_repository(&crosslink_dir).unwrap();
+        assert_eq!(second, RepositoryActivation::ReadyCurrent { generation_id });
+        assert_eq!(
+            crate::reconcile::check_repository(&crosslink_dir)
+                .plan
+                .state,
+            crate::reconcile::ReadinessState::ReadyCurrent
+        );
         drop(database);
     }
 
