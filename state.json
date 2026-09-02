@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1225,
+  "next_comment_id": 1226,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16122,7 +16122,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-02T00:16:41.482746895Z",
+      "updated_at": "2026-09-02T00:25:13.287999055Z",
       "labels": [
         "feature"
       ],
@@ -16183,6 +16183,15 @@
           "kind": "handoff",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMQcZ/G3kPYe8wHxFRZPoJgCvBR8kku6gMT35vNKoD8p2+yOyzsNq00fso7vaXwcLWxbUcR6W0El9MK4RhLkgBA=="
+        },
+        "23284353-4229-4f87-b6b6-47ff195dc8ad": {
+          "display_id": 1225,
+          "author": "sQl8",
+          "content": "Committed fa6860c: fix(reconcile): recover pre-generation v3 trust [CL-794] | Files: 5 files changed, 427 insertions(+), 30 deletions(-) | Verification: strict Clippy, 5,399 Rust tests across all targets, Windows GNU all-target/all-feature check, Rust 1.88 MSRV, plugin parity, zero-byte rules, local bare-remote binary smoke, and real-repository automatic recovery all passed. Real generation: 027dcd4a87f7645740f3ea73fc57faaf; archived mismatch section: trust; signer bytes preserved exactly.",
+          "created_at": "2026-09-02T00:25:13.284768683Z",
+          "kind": "result",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAx7oLWZau3sHxyFrwEaACrDo86BIcn8Liwr1/BjcHskOn1tAvDBZQvJ+gGdE2GZFHyTDougcjFOIyrbVpdzDyAQ=="
         },
         "24052e48-1d19-4f10-a27d-fc5c206048ba": {
           "display_id": 1194,
@@ -26190,11 +26199,16 @@
       "agent_id": "sQl8",
       "agent_seq": 14,
       "timestamp": "2026-09-02T00:16:41.482746895Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 15,
+      "timestamp": "2026-09-02T00:25:13.287999055Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-02T00:16:41.482746895Z",
+    "timestamp": "2026-09-02T00:25:13.287999055Z",
     "agent_id": "sQl8",
-    "agent_seq": 14
+    "agent_seq": 15
   }
 }
