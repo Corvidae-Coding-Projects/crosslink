@@ -1,6 +1,6 @@
 {
   "next_display_id": 795,
-  "next_comment_id": 1224,
+  "next_comment_id": 1225,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16122,11 +16122,20 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-01T23:28:53.706242103Z",
+      "updated_at": "2026-09-02T00:16:41.482746895Z",
       "labels": [
         "feature"
       ],
       "comments": {
+        "00a55d3a-1848-4333-b675-262f54953e7b": {
+          "display_id": 1224,
+          "author": "sQl8",
+          "content": "Root-cause repair in progress on fix/reconciliation-trust-recovery. The fixed binary archived the unpublished prepared journal with differing_sections=[trust], preserved signer SHA-256 15731bc87b950b103987487b5c78b85c282515a0959489cf0ce8a2bfba900dc6, published generation 027dcd4a87f7645740f3ea73fc57faaf, verified the projection, and now reports ready_current. Full local gates follow.",
+          "created_at": "2026-09-02T00:16:41.479750278Z",
+          "kind": "progress",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZfXC2FWFGSYOUPVTdKMyLx7ddcFZ7fHoyyAX/Fn0bn73adVBWrThqQBY712J2r7fOPn09LXkPNigIBYawsdtCQ=="
+        },
         "02333ae0-b056-4091-a711-1c496cb95878": {
           "display_id": 1201,
           "author": "anon-62b057cf",
@@ -26176,11 +26185,16 @@
       "agent_id": "sQl8",
       "agent_seq": 13,
       "timestamp": "2026-09-01T23:28:53.706242103Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 14,
+      "timestamp": "2026-09-02T00:16:41.482746895Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-01T23:28:53.706242103Z",
+    "timestamp": "2026-09-02T00:16:41.482746895Z",
     "agent_id": "sQl8",
-    "agent_seq": 13
+    "agent_seq": 14
   }
 }
