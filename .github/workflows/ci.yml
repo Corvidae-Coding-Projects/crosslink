@@ -223,7 +223,9 @@ jobs:
       CLI_TEST_FILTERS: >-
         test_a test_b test_c test_d test_e test_f test_g test_h test_i test_j test_k test_l
         test_m test_n test_o test_p test_q test_r test_search test_security test_sentinel
-        test_session test_show test_special test_sql test_start test_stop test_stress test_subissue
+        test_session test_show test_special test_sql test_start test_stop test_stress_deep_nesting
+        test_stress_many_issues test_stress_rapid_operations test_stress_very_long_description
+        test_stress_very_long_title test_subissue
         test_t test_u test_v test_w test_x test_y test_z
     defaults:
       run:
@@ -240,8 +242,10 @@ jobs:
             prefixes: test_m test_n test_o test_p test_q test_r
           - shard: s-core
             prefixes: test_search test_security test_sentinel test_session test_show test_special test_sql test_start test_stop
-          - shard: s-stress
-            prefixes: test_stress test_subissue
+          - shard: s-stress-create
+            prefixes: test_stress_many_issues test_stress_very_long_description test_stress_very_long_title
+          - shard: s-stress-mutate
+            prefixes: test_stress_deep_nesting test_stress_rapid_operations test_subissue
           - shard: t-z
             prefixes: test_t test_u test_v test_w test_x test_y test_z
     steps:
