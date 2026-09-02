@@ -3858,7 +3858,7 @@ fn test_design_detects_both_agent_environments() {
 }
 
 #[test]
-fn test_reconcile_check_json_reports_current_without_writes() {
+fn test_reconcile_check_json_reports_pre_generation_v3_without_writes() {
     let dir = test_dir();
     let crosslink_dir = dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
@@ -3883,7 +3883,12 @@ fn test_reconcile_check_json_reports_current_without_writes() {
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["reconcile", "--check", "--json"]);
     assert!(success, "{stderr}");
     let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(report["plan"]["state"], "ready_current");
+    assert_eq!(report["plan"]["state"], "migration_required");
+    assert!(report["plan"]["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action["action"] == "establish_reconciliation_generation"));
     assert_eq!(report["format"]["local_database"]["kind"], "sqlite");
     assert_eq!(report["format"]["shared_store"]["kind"], "visible_v3");
     assert_eq!(database_before, std::fs::read(&database_path).unwrap());

@@ -1486,7 +1486,7 @@ const fn state_name(state: ReadinessState) -> &'static str {
 
 fn evidence_path(crosslink_dir: &Path) -> Option<String> {
     let journal = crosslink_dir.join("reconciliation-journal.json");
-    if journal.is_file() {
+    if journal.exists() {
         return Some(journal.display().to_string());
     }
     let integrity = crosslink_dir.join(crate::db::snapshot::SNAPSHOT_DIR);
@@ -1542,7 +1542,7 @@ fn write_observation_evidence(
         reason: reason.map(str::to_string),
         publication_journal: crosslink_dir
             .join("reconciliation-journal.json")
-            .is_file()
+            .exists()
             .then(|| {
                 crosslink_dir
                     .join("reconciliation-journal.json")
