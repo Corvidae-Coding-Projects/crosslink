@@ -320,8 +320,22 @@ fn concurrent_ensure_converges_and_offline_exit_is_structured() {
     let waiting_b = ensure_child(work.path());
     let waiting_a = wait_output(waiting_a, DAEMON_PROCESS_TIMEOUT);
     let waiting_b = wait_output(waiting_b, DAEMON_PROCESS_TIMEOUT);
-    assert_eq!(waiting_a.status.code(), Some(20));
-    assert_eq!(waiting_b.status.code(), Some(20));
+    assert_eq!(
+        waiting_a.status.code(),
+        Some(20),
+        "stdout={} stderr={} daemon_log={}",
+        String::from_utf8_lossy(&waiting_a.stdout),
+        String::from_utf8_lossy(&waiting_a.stderr),
+        std::fs::read_to_string(work.path().join(".crosslink/daemon.log")).unwrap_or_default()
+    );
+    assert_eq!(
+        waiting_b.status.code(),
+        Some(20),
+        "stdout={} stderr={} daemon_log={}",
+        String::from_utf8_lossy(&waiting_b.stdout),
+        String::from_utf8_lossy(&waiting_b.stderr),
+        std::fs::read_to_string(work.path().join(".crosslink/daemon.log")).unwrap_or_default()
+    );
     let waiting_a = parse(&waiting_a);
     let waiting_b = parse(&waiting_b);
     assert_eq!(waiting_a["state"], "waiting_for_remote");
