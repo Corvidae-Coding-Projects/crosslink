@@ -635,12 +635,12 @@ Exit condition: every supported historical fixture reaches a verified current st
 
 - Status: implemented on `feature/authoritative-command-query-boundary`.
 - `application::CommandService` is the exhaustive typed mutation boundary for issues, imports, archive state, comments, interventions, labels, dependencies, relations, milestones, locks, and session-to-issue association.
-- `application::QueryService` owns shared projection reads. `application::LocalStateService` owns sessions, timers, token usage, and sentinel operational state.
+- `application::QueryService` owns shared projection reads, including the dashboard's Git-backed `HubSnapshot`. `application::LocalStateService` owns sessions, timers, token usage, and sentinel operational state.
 - CLI handlers and aliases, dashboard CLI actions, legacy HTTP handlers, TUI reads, sentinel, kickoff, swarm delegation, and orchestrator route through these services.
 - `RepositoryService::new` resolves shared authority without converting writer construction failures into local mode. A configured shared repository cannot fall back to SQLite when its writer, cache, readiness state, or remote publication is unavailable.
 - Shared v3 commands append and publish the agent ref before hydration. Failed publication rolls the append back with compare-and-swap and returns an error without changing SQLite.
 - `RepositoryService::projection` can query shared data and use the explicitly local session-to-issue association, but rejects all other domain commands. Projector, hydration, reconciliation, migration, and compaction code remain the only direct shared-domain SQLite writers.
-- Source guards reject new direct domain `Database` mutations in production adapters. Recording tests cover the command variants and the CLI, legacy HTTP, sentinel, kickoff, and orchestrator adapters; query parity tests compare every `QueryService` result with the underlying projection.
+- Source guards reject direct domain `Database` mutation methods under any receiver name and raw SQL writes to shared tables in production adapters. Recording tests cover every command variant and exercise CLI and alias handlers, cpitd, legacy HTTP, sentinel, kickoff, swarm's kickoff delegation, and orchestrator paths. Query parity covers the SQLite projection and the dashboard snapshot implementation.
 
 Exit condition: production interfaces cannot directly call shared-domain `Database` mutation methods.
 

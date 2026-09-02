@@ -320,6 +320,7 @@ fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectD
             hub_sha: None,
             layout_version: 1,
             issues: vec![],
+            milestones: vec![],
             agents: vec![],
             locks: vec![],
             agent_requests: vec![],
@@ -332,6 +333,7 @@ fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectD
             hub_sha: None,
             layout_version: 1,
             issues: vec![],
+            milestones: vec![],
             agents: vec![],
             locks: vec![],
             agent_requests: vec![],
@@ -341,7 +343,8 @@ fn load_project_detail(db_path: &std::path::Path, slug: &str) -> Result<ProjectD
         }
     };
 
-    let mut issues = snapshot.issues;
+    let mut issues = crate::application::QueryService::list_issue_records(&snapshot)
+        .map_err(|error| ApiError::internal(format!("query project issues: {error}")))?;
     issues.sort_by(|a, b| {
         use std::cmp::Ordering;
         let by_status = match (a.status, b.status) {

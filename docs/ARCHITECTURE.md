@@ -130,6 +130,9 @@ or failed hydration returns an error. Crosslink never converts those failures
 into an authoritative SQLite write.
 
 `QueryService` reads shared-domain data from the verified SQLite projection.
+The multi-project dashboard provides a Git-backed `HubSnapshot` implementation,
+so dashboard detail, counter, and alert reads use the same query contract without
+treating its machine-local registry database as repository authority.
 `LocalStateService` separates machine-local operations: sessions, timers, token
 usage, and sentinel run/dispatch state. Session-to-issue association is typed as
 a command while remaining an explicit local operational link. Projection,
@@ -139,8 +142,9 @@ write shared-domain SQLite tables directly.
 New adapters must accept or construct the application services, invoke typed
 methods, and return application failures unchanged. They must not accept an
 optional writer and must not call a shared-domain `Database` mutation method.
-The `production_source_cannot_bypass_application_mutation_boundary` test is the
-mechanical enforcement gate.
+The `production_source_cannot_bypass_application_mutation_boundary` test rejects
+direct mutation methods under any receiver name and raw SQL writes to shared
+tables outside projector modules.
 
 ## Git Branch Layout
 

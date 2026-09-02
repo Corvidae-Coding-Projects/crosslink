@@ -321,7 +321,7 @@ fn check_hydration(
         }
     }
 
-    db.clear_shared_data()?;
+    crate::hydration::clear_shared_projection(db)?;
     let stats = hydrate_to_sqlite(&cache_dir, db)?;
 
     let mut parts: Vec<String> = vec![format!(

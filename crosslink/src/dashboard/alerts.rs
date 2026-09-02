@@ -41,6 +41,8 @@ pub fn derive_alerts(
     now: DateTime<Utc>,
 ) -> Vec<DerivedAlert> {
     let mut out = Vec::new();
+    let issue_records = crate::application::QueryService::list_issue_records(snapshot)
+        .unwrap_or_else(|_| Vec::new());
 
     if project.status == "error" {
         out.push(DerivedAlert {
@@ -91,7 +93,7 @@ pub fn derive_alerts(
         }
     }
 
-    for issue in &snapshot.issues {
+    for issue in &issue_records {
         if !matches!(issue.status, crate::models::IssueStatus::Open) {
             continue;
         }
@@ -146,8 +148,8 @@ pub fn derive_alerts(
     }
 
     let by_uuid: std::collections::HashMap<Uuid, &crate::issue_file::IssueFile> =
-        snapshot.issues.iter().map(|i| (i.uuid, i)).collect();
-    for issue in &snapshot.issues {
+        issue_records.iter().map(|i| (i.uuid, i)).collect();
+    for issue in &issue_records {
         if !matches!(issue.status, crate::models::IssueStatus::Open) {
             continue;
         }
@@ -211,6 +213,7 @@ mod tests {
             hub_sha: None,
             layout_version: 2,
             issues: vec![],
+            milestones: vec![],
             agents: vec![],
             locks: vec![],
             agent_requests: vec![],

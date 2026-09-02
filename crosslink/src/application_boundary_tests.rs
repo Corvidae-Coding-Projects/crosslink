@@ -36,6 +36,10 @@ impl CommandService for RecordingService<'_> {
 }
 
 impl QueryService for RecordingService<'_> {
+    fn list_issue_records(&self) -> Result<Vec<crate::issue_file::IssueFile>> {
+        QueryService::list_issue_records(self.database)
+    }
+
     fn get_issue(&self, id: i64) -> Result<Option<Issue>> {
         self.database.get_issue(id)
     }
@@ -326,6 +330,8 @@ fn cli_and_sentinel_adapters_emit_typed_commands() {
     let database = Database::open(&directory.path().join("issues.db")).unwrap();
     let first = database.create_issue("first", None, "medium").unwrap();
     let second = database.create_issue("second", None, "high").unwrap();
+    let clone = database.create_issue("clone", None, "low").unwrap();
+    database.add_label(clone, "cpitd").unwrap();
     let service = RecordingService::new(&database);
 
     crate::commands::create::run(
@@ -338,6 +344,23 @@ fn cli_and_sentinel_adapters_emit_typed_commands() {
         None,
         &crate::commands::create::CreateOpts {
             labels: &["adapter".to_string()],
+            work: false,
+            quiet: true,
+            crosslink_dir: None,
+            defer_id: false,
+            force: false,
+        },
+    )
+    .unwrap();
+    crate::commands::create::run_subissue(
+        &service,
+        first,
+        "subissue through adapter",
+        None,
+        "medium",
+        None,
+        &crate::commands::create::CreateOpts {
+            labels: &[],
             work: false,
             quiet: true,
             crosslink_dir: None,
@@ -384,10 +407,39 @@ fn cli_and_sentinel_adapters_emit_typed_commands() {
         &["sentinel"],
     )
     .unwrap();
+    crate::commands::cpitd::clear(&service).unwrap();
     crate::commands::lifecycle::close_quiet(&service, first, false, directory.path()).unwrap();
     crate::commands::archive::archive(&service, first).unwrap();
     crate::commands::archive::unarchive(&service, first).unwrap();
     crate::commands::milestone::create(&service, "recorded milestone", None).unwrap();
+    let milestone = service
+        .list_milestones(Some("all"))
+        .unwrap()
+        .into_iter()
+        .find(|milestone| milestone.name == "recorded milestone")
+        .unwrap();
+    crate::commands::milestone::add(&service, milestone.id, &[first]).unwrap();
+    crate::commands::milestone::remove(&service, milestone.id, first).unwrap();
+    crate::commands::milestone::close(&service, milestone.id).unwrap();
+    crate::commands::milestone::delete(&service, milestone.id).unwrap();
+    crate::lock_check::try_claim_lock(&service, first, None).unwrap();
+    crate::lock_check::try_release_lock(&service, first).unwrap();
+    crate::commands::delete::run(&service, second, true).unwrap();
+    let agent_request = crate::commands::agent::run(
+        crate::AgentCommands::Request {
+            target: "recorded-agent".to_string(),
+            kind: "pause".to_string(),
+            subject_issue: Some(first),
+            reason: Some("recording".to_string()),
+        },
+        directory.path(),
+        Some(&service),
+    );
+    assert!(agent_request.is_err());
+    let session_id = service.start_session(None).unwrap();
+    service.set_session_issue(session_id, first).unwrap();
+    crate::commands::session::action(&service, "recorded action", directory.path()).unwrap();
+    crate::commands::session::end(&service, Some("recorded handoff"), directory.path()).unwrap();
 
     let commands = service.recorded();
     assert!(commands
@@ -422,10 +474,40 @@ fn cli_and_sentinel_adapters_emit_typed_commands() {
         .any(|command| matches!(command, Command::CreateIssue { .. })));
     assert!(commands
         .iter()
+        .any(|command| matches!(command, Command::CreateSubissue { .. })));
+    assert!(commands
+        .iter()
         .any(|command| matches!(command, Command::ImportIssues { .. })));
     assert!(commands
         .iter()
         .any(|command| matches!(command, Command::CreateMilestone { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::AssignMilestone { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::ClearMilestone { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::CloseMilestone { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::DeleteMilestone { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::ClaimLock { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::ReleaseLock { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::DeleteIssue { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::WriteAgentRequest { .. })));
+    assert!(commands
+        .iter()
+        .any(|command| matches!(command, Command::SetSessionIssue { .. })));
     assert!(commands
         .iter()
         .any(|command| matches!(command, Command::ArchiveIssue { .. })));

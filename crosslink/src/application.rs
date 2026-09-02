@@ -469,6 +469,7 @@ impl OwnedIssueUpdate {
 }
 
 pub trait QueryService {
+    fn list_issue_records(&self) -> Result<Vec<crate::issue_file::IssueFile>>;
     fn get_issue(&self, id: i64) -> Result<Option<Issue>>;
     fn require_issue(&self, id: i64) -> Result<Issue>;
     fn list_issues(
@@ -1134,6 +1135,10 @@ impl CommandService for RepositoryService<'_> {
 }
 
 impl QueryService for RepositoryService<'_> {
+    fn list_issue_records(&self) -> Result<Vec<crate::issue_file::IssueFile>> {
+        build_issue_records(self)
+    }
+
     fn get_issue(&self, id: i64) -> Result<Option<Issue>> {
         self.database.get_issue(id)
     }
@@ -1432,6 +1437,121 @@ impl LocalStateService for RepositoryService<'_> {
     }
 }
 
+fn build_issue_records(
+    queries: &(impl QueryService + ?Sized),
+) -> Result<Vec<crate::issue_file::IssueFile>> {
+    let issues = queries.list_issues(Some("all"), None, None)?;
+    let mut uuid_map = std::collections::HashMap::new();
+    for issue in &issues {
+        let (uuid, _) = queries.get_issue_export_metadata(issue.id)?;
+        let uuid = uuid
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(uuid::Uuid::new_v4);
+        uuid_map.insert(issue.id, uuid);
+    }
+    let mut records = Vec::with_capacity(issues.len());
+    for issue in issues {
+        let (uuid, created_by) = queries.get_issue_export_metadata(issue.id)?;
+        let uuid = uuid
+            .and_then(|value| value.parse().ok())
+            .or_else(|| uuid_map.get(&issue.id).copied())
+            .unwrap_or_else(uuid::Uuid::new_v4);
+        let parent_uuid = issue
+            .parent_id
+            .map(|parent_id| resolve_issue_record_uuid(queries, &uuid_map, parent_id));
+        let blockers = queries
+            .get_blockers(issue.id)?
+            .into_iter()
+            .map(|id| resolve_issue_record_uuid(queries, &uuid_map, id))
+            .collect();
+        let related = queries
+            .get_related_issue_ids(issue.id)?
+            .into_iter()
+            .map(|id| resolve_issue_record_uuid(queries, &uuid_map, id))
+            .collect();
+        let milestone_uuid = queries
+            .get_milestone_uuid_for_issue(issue.id)?
+            .and_then(|uuid| uuid.parse().ok());
+        let comments = queries
+            .get_comments_with_author(issue.id)?
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    author,
+                    content,
+                    created_at,
+                    kind,
+                    trigger_type,
+                    intervention_context,
+                    driver_key_fingerprint,
+                )| {
+                    crate::issue_file::CommentEntry {
+                        id,
+                        author: author.unwrap_or_else(|| "unknown".to_string()),
+                        content,
+                        created_at,
+                        kind,
+                        trigger_type,
+                        intervention_context,
+                        driver_key_fingerprint,
+                        signed_by: None,
+                        signature: None,
+                    }
+                },
+            )
+            .collect();
+        let time_entries = queries
+            .get_time_entries_for_issue(issue.id)?
+            .into_iter()
+            .map(
+                |(id, started_at, ended_at, duration_seconds)| crate::issue_file::TimeEntry {
+                    id,
+                    started_at,
+                    ended_at,
+                    duration_seconds,
+                },
+            )
+            .collect();
+        records.push(crate::issue_file::IssueFile {
+            uuid,
+            display_id: Some(issue.id),
+            title: issue.title,
+            description: issue.description,
+            status: issue.status,
+            priority: issue.priority,
+            parent_uuid,
+            created_by: created_by.unwrap_or_else(|| "unknown".to_string()),
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+            closed_at: issue.closed_at,
+            scheduled_at: issue.scheduled_at,
+            due_at: issue.due_at,
+            labels: queries.get_labels(issue.id)?,
+            comments,
+            blockers,
+            related,
+            milestone_uuid,
+            time_entries,
+        });
+    }
+    Ok(records)
+}
+
+fn resolve_issue_record_uuid(
+    queries: &(impl QueryService + ?Sized),
+    uuid_map: &std::collections::HashMap<i64, uuid::Uuid>,
+    id: i64,
+) -> uuid::Uuid {
+    uuid_map.get(&id).copied().unwrap_or_else(|| {
+        queries
+            .get_issue_uuid_by_id(id)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(uuid::Uuid::new_v4)
+    })
+}
+
 const fn map_datetime_change(change: DateTimeChange) -> FieldUpdate<DateTime<Utc>> {
     match change {
         DateTimeChange::Unchanged => FieldUpdate::Unchanged,
@@ -1489,6 +1609,10 @@ impl CommandService for Database {
 }
 
 impl QueryService for Database {
+    fn list_issue_records(&self) -> Result<Vec<crate::issue_file::IssueFile>> {
+        build_issue_records(self)
+    }
+
     fn get_issue(&self, id: i64) -> Result<Option<Issue>> {
         Database::get_issue(self, id)
     }
@@ -1813,6 +1937,10 @@ mod tests {
         let since = "1970-01-01T00:00:00Z";
 
         assert_eq!(
+            service.list_issue_records().unwrap(),
+            QueryService::list_issue_records(&database).unwrap()
+        );
+        assert_eq!(
             service.get_issue(parent).unwrap(),
             database.get_issue(parent).unwrap()
         );
@@ -2029,7 +2157,6 @@ mod tests {
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files = Vec::new();
         source_files(&source_root, &mut files);
-        let receivers = ["db", "database", "main_db", "writable"];
         let database_methods = [
             "create_issue",
             "create_subissue",
@@ -2065,27 +2192,11 @@ mod tests {
             "complete_sentinel_run",
             "insert_sentinel_dispatch",
             "update_dispatch_outcome",
-        ];
-        let writer_methods = [
-            "create_issue",
-            "create_subissue",
-            "update_issue",
-            "delete_issue",
-            "close_issue",
-            "reopen_issue",
-            "add_comment",
-            "add_intervention_comment",
-            "add_label",
-            "remove_label",
+            "clear_shared_data",
             "add_blocker",
             "remove_blocker",
-            "add_relation",
-            "remove_relation",
-            "create_milestone",
             "set_milestone_on_issues",
             "clear_milestone_on_issue",
-            "close_milestone",
-            "delete_milestone",
             "claim_lock_v2",
             "release_lock_v2",
             "steal_lock_v2",
@@ -2093,6 +2204,17 @@ mod tests {
             "write_agent_request",
             "write_agent_ack",
         ];
+        let method_calls = regex::Regex::new(&format!(
+            r"(?m)\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*({})\s*\(",
+            database_methods.join("|")
+        ))
+        .unwrap();
+        let test_module =
+            regex::Regex::new(r"(?m)^\s*#\[cfg\(test\)\]\s*\n\s*mod\s+[A-Za-z0-9_]+\s*\{").unwrap();
+        let raw_shared_sql = regex::Regex::new(
+            r"(?i)\b(?:INSERT\s+INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:issues|comments|labels|dependencies|relations|milestones|milestone_issues)\b",
+        )
+        .unwrap();
         let mut violations = Vec::new();
 
         for path in files {
@@ -2109,24 +2231,22 @@ mod tests {
                 continue;
             }
             let source = std::fs::read_to_string(&path).unwrap();
-            let production = source
-                .find("#[cfg(test)]\nmod tests")
-                .map_or(source.as_str(), |index| &source[..index]);
-            for receiver in receivers {
-                for method in database_methods {
-                    let pattern = format!("{receiver}.{method}(");
-                    if production.contains(&pattern) {
-                        violations.push(format!("{}: {pattern}", relative.display()));
-                    }
+            let production = test_module
+                .find(&source)
+                .map_or(source.as_str(), |found| &source[..found.start()]);
+            for capture in method_calls.captures_iter(production) {
+                let receiver = &capture[1];
+                if !matches!(receiver, "service" | "commands") {
+                    violations.push(format!(
+                        "{}: {}.{}(",
+                        relative.display(),
+                        receiver,
+                        &capture[2]
+                    ));
                 }
             }
-            for receiver in ["writer", "shared_writer"] {
-                for method in writer_methods {
-                    let pattern = format!("{receiver}.{method}(");
-                    if production.contains(&pattern) {
-                        violations.push(format!("{}: {pattern}", relative.display()));
-                    }
-                }
+            if raw_shared_sql.is_match(production) {
+                violations.push(format!("{}: raw shared-domain SQL", relative.display()));
             }
             if production.contains("SharedWriter::new(") {
                 violations.push(format!("{}: SharedWriter::new(", relative.display()));
