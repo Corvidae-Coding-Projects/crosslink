@@ -1,6 +1,6 @@
 {
   "next_display_id": 796,
-  "next_comment_id": 1227,
+  "next_comment_id": 1228,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -18693,11 +18693,20 @@
       "priority": "high",
       "created_by": "sQl8",
       "created_at": "2026-09-02T01:49:49.425900812Z",
-      "updated_at": "2026-09-02T01:51:10.979565272Z",
+      "updated_at": "2026-09-02T01:52:40.090137386Z",
       "labels": [
         "feature"
       ],
       "comments": {
+        "2ab8e64c-b8af-4ec0-9234-561a9c2de3d5": {
+          "display_id": 1227,
+          "author": "sQl8",
+          "content": "Phase 1 plan: add typed CommandService and QueryService inside the existing Rust crate; route issue, comment, relation, dependency, milestone, lock, and session-to-issue mutations from every production adapter through CommandService; make Git authority mandatory in shared mode; confine SQLite shared-domain writes to projection code and explicitly classified local operational writes to a local-state service; preserve automatic reconciliation/readiness and external behavior; add recording-adapter, mutation-entrypoint, shared-failure, local-state, query-parity, readiness, concurrency, and mechanical direct-write enforcement tests; update architecture and executable documentation. Branch feature/authoritative-command-query-boundary starts exactly at merged develop 76a726e2. Completion requires no production interface to directly call a shared-domain Database mutation method. Do not stop at inventory, interface shells, or partial adapter migration.",
+          "created_at": "2026-09-02T01:52:40.087462591Z",
+          "kind": "plan",
+          "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcwKGDFGOpUpG+POXvIK5mCePLYl6QDFZPqCTcqNf8fkDq3VPbr++hsbag6j9DlkXfO/cWkAHW8ronrt8kgPUBw=="
+        },
         "6b961fd1-73cb-4750-8de8-74c3a1feb79c": {
           "display_id": 1226,
           "author": "sQl8",
@@ -26255,11 +26264,16 @@
       "agent_id": "sQl8",
       "agent_seq": 19,
       "timestamp": "2026-09-02T01:51:10.979565272Z"
+    },
+    {
+      "agent_id": "sQl8",
+      "agent_seq": 20,
+      "timestamp": "2026-09-02T01:52:40.090137386Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-02T01:51:10.979565272Z",
+    "timestamp": "2026-09-02T01:52:40.090137386Z",
     "agent_id": "sQl8",
-    "agent_seq": 19
+    "agent_seq": 20
   }
 }
