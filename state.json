@@ -18776,11 +18776,12 @@
       "uuid": "b6976c66-52a6-41b6-a8f9-ebc8d27d84f5",
       "display_id": 795,
       "title": "Add authoritative application command and query boundary",
-      "status": "open",
+      "status": "closed",
       "priority": "high",
       "created_by": "sQl8",
       "created_at": "2026-09-02T01:49:49.425900812Z",
-      "updated_at": "2026-09-03T23:08:03.334378290Z",
+      "updated_at": "2026-09-03T23:08:11.317561822Z",
+      "closed_at": "2026-09-03T23:08:11.316867484Z",
       "labels": [
         "feature"
       ],
@@ -26629,11 +26630,16 @@
       "agent_id": "w4c5",
       "agent_seq": 37,
       "timestamp": "2026-09-03T23:08:03.334378290Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 38,
+      "timestamp": "2026-09-03T23:08:11.317561822Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T23:08:03.334378290Z",
+    "timestamp": "2026-09-03T23:08:11.317561822Z",
     "agent_id": "w4c5",
-    "agent_seq": 37
+    "agent_seq": 38
   }
 }
