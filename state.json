@@ -944,10 +944,6 @@
       "agent_id": "dashboard-bootstrap",
       "claimed_at": "2026-06-25T06:57:09.279557146Z"
     },
-    "794": {
-      "agent_id": "w4c5",
-      "claimed_at": "2026-09-01T20:01:13.247083894Z"
-    },
     "795": {
       "agent_id": "sQl8",
       "claimed_at": "2026-09-02T06:08:27.971112113Z"
@@ -26614,11 +26610,16 @@
       "agent_id": "w4c5",
       "agent_seq": 35,
       "timestamp": "2026-09-03T23:07:50.323821424Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 36,
+      "timestamp": "2026-09-03T23:07:54.981893251Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T23:07:50.323821424Z",
+    "timestamp": "2026-09-03T23:07:54.981893251Z",
     "agent_id": "w4c5",
-    "agent_seq": 35
+    "agent_seq": 36
   }
 }
