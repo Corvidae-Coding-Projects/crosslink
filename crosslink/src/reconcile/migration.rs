@@ -331,7 +331,7 @@ impl MigrationImporter<'_> {
                 &database_source.path().join("issues.db"),
                 &self.agent_id,
             )?;
-            let (combined, changed) = merge_local_database_projection(&genesis, &database_state)?;
+            let (combined, changed) = merge_local_database_projection(&genesis, &database_state);
             genesis = combined;
             merged |= changed;
         }
@@ -466,8 +466,7 @@ impl HistoricalImporter for MigrationImporter<'_> {
             let current = reduce_v3_state(self.cache_dir, &targets)?;
             let (_workspace, snapshot) = logical_sqlite_snapshot(&database, "issues.db")?;
             let local = build_genesis_from_database(&snapshot, &self.agent_id)?;
-            let requires_import = merge_local_database_projection(&current, &local)
-                .map_or(true, |(_, changed)| changed);
+            let requires_import = merge_local_database_projection(&current, &local).1;
             if requires_import {
                 snapshots.insert(
                     "local/issues.db".to_string(),
@@ -525,7 +524,7 @@ impl HistoricalImporter for MigrationImporter<'_> {
         let local =
             build_genesis_from_database(&materialized.path().join("issues.db"), &self.agent_id)?;
         let current = reduce_v3_state(self.cache_dir, &current_targets)?;
-        let (merged, changed) = merge_local_database_projection(&current, &local)?;
+        let (merged, changed) = merge_local_database_projection(&current, &local);
         anyhow::ensure!(changed, "local database contains no unshared state");
         let signers = read_v3_allowed_signers(self.cache_dir, &current_targets)?;
         let targets = seed_v3_targets(
@@ -738,16 +737,7 @@ fn merge_checkpoint_states(
     .flatten()
     .max();
     state.compaction_lease = None;
-    let mut display_ids = BTreeSet::new();
-    for display_id in state.display_id_map.values() {
-        anyhow::ensure!(
-            display_ids.insert(*display_id),
-            "concurrent historical changes assigned duplicate display id {display_id}"
-        );
-    }
-    state.next_display_id = state
-        .next_display_id
-        .max(display_ids.last().copied().unwrap_or(0) + 1);
+    repair_issue_display_ids(&mut state);
     let max_comment = state
         .issues
         .values()
@@ -870,6 +860,69 @@ fn reduce_v3_state(
         .state)
 }
 
+fn repair_issue_display_ids(state: &mut CheckpointState) -> bool {
+    let previous_map = state.display_id_map.clone();
+    let previous_next = state.next_display_id;
+    let previous_issue_ids = state
+        .issues
+        .iter()
+        .map(|(uuid, issue)| (*uuid, issue.display_id))
+        .collect::<BTreeMap<_, _>>();
+    let mut ordered = state
+        .issues
+        .values()
+        .map(|issue| (issue.created_at, issue.uuid))
+        .collect::<Vec<_>>();
+    ordered.sort_unstable();
+    let mut next = state
+        .issues
+        .values()
+        .filter_map(|issue| issue.display_id)
+        .chain(state.display_id_map.values().copied())
+        .filter(|id| *id > 0)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
+        .max(state.next_display_id)
+        .max(1);
+    let mut used = BTreeSet::new();
+    let mut repaired = BTreeMap::new();
+    for (_, uuid) in ordered {
+        let requested = state
+            .issues
+            .get(&uuid)
+            .and_then(|issue| issue.display_id)
+            .or_else(|| state.display_id_map.get(&uuid).copied())
+            .filter(|id| *id > 0);
+        let display_id = match requested {
+            Some(id) if used.insert(id) => id,
+            _ => {
+                while used.contains(&next) {
+                    next = next.saturating_add(1);
+                }
+                let allocated = next;
+                used.insert(allocated);
+                next = next.saturating_add(1);
+                allocated
+            }
+        };
+        if let Some(issue) = state.issues.get_mut(&uuid) {
+            issue.display_id = Some(display_id);
+        }
+        repaired.insert(uuid, display_id);
+    }
+    state.display_id_map = repaired;
+    state.next_display_id = next;
+    previous_map != state.display_id_map
+        || previous_next != state.next_display_id
+        || previous_issue_ids
+            != state
+                .issues
+                .iter()
+                .map(|(uuid, issue)| (*uuid, issue.display_id))
+                .collect()
+}
+
 fn read_v3_allowed_signers(
     repository: &Path,
     targets: &BTreeMap<String, String>,
@@ -894,9 +947,9 @@ fn read_v3_allowed_signers(
 fn merge_local_database_projection(
     shared: &CheckpointState,
     local: &CheckpointState,
-) -> Result<(CheckpointState, bool)> {
+) -> (CheckpointState, bool) {
     let mut merged = shared.clone();
-    let mut changed = false;
+    let mut changed = repair_issue_display_ids(&mut merged);
     let mut issue_ids = merged
         .display_id_map
         .iter()
@@ -928,15 +981,7 @@ fn merge_local_database_projection(
         .max(comment_ids.keys().next_back().copied().unwrap_or(0) + 1);
 
     for (uuid, local_milestone) in &local.milestones {
-        anyhow::ensure!(
-            !merged.deleted_milestones.contains(uuid),
-            "local database milestone {uuid} conflicts with a shared deletion"
-        );
-        if let Some(shared_milestone) = merged.milestones.get(uuid) {
-            anyhow::ensure!(
-                shared_milestone == local_milestone,
-                "local database milestone {uuid} conflicts with shared authority"
-            );
+        if merged.deleted_milestones.contains(uuid) || merged.milestones.contains_key(uuid) {
             continue;
         }
         let mut milestone = local_milestone.clone();
@@ -954,24 +999,10 @@ fn merge_local_database_projection(
     }
 
     for (uuid, local_issue) in &local.issues {
-        anyhow::ensure!(
-            !merged.deleted_issues.contains(uuid),
-            "local database issue {uuid} conflicts with a shared deletion"
-        );
+        if merged.deleted_issues.contains(uuid) {
+            continue;
+        }
         if let Some(shared_issue) = merged.issues.get_mut(uuid) {
-            let mut shared_identity = shared_issue.clone();
-            let mut local_identity = local_issue.clone();
-            for issue in [&mut shared_identity, &mut local_identity] {
-                issue.labels.clear();
-                issue.blockers.clear();
-                issue.related.clear();
-                issue.comments.clear();
-                issue.time_entries.clear();
-            }
-            anyhow::ensure!(
-                serde_json::to_value(&shared_identity)? == serde_json::to_value(&local_identity)?,
-                "local database issue {uuid} conflicts with shared authority"
-            );
             let before = (
                 shared_issue.labels.len(),
                 shared_issue.blockers.len(),
@@ -986,27 +1017,14 @@ fn merge_local_database_projection(
             shared_issue
                 .related
                 .extend(local_issue.related.iter().copied());
-            changed |= before
+            let mut issue_changed = before
                 != (
                     shared_issue.labels.len(),
                     shared_issue.blockers.len(),
                     shared_issue.related.len(),
                 );
             for (comment_uuid, local_comment) in &local_issue.comments {
-                if let Some(shared_comment) = shared_issue.comments.get(comment_uuid) {
-                    let mut normalized = shared_comment.clone();
-                    let mut local_normalized = local_comment.clone();
-                    normalized.signed_by = None;
-                    normalized.signature = None;
-                    if normalized.display_id.is_none()
-                        && local_normalized.display_id.is_some_and(|id| id < 0)
-                    {
-                        local_normalized.display_id = None;
-                    }
-                    anyhow::ensure!(
-                        normalized == local_normalized,
-                        "local database comment {comment_uuid} conflicts with shared authority"
-                    );
+                if shared_issue.comments.contains_key(comment_uuid) {
                     continue;
                 }
                 let mut comment = local_comment.clone();
@@ -1020,20 +1038,19 @@ fn merge_local_database_projection(
                     comment_ids.insert(display_id, *comment_uuid);
                 }
                 shared_issue.comments.insert(*comment_uuid, comment);
-                changed = true;
+                issue_changed = true;
             }
             for (entry_uuid, local_entry) in &local_issue.time_entries {
-                if let Some(shared_entry) = shared_issue.time_entries.get(entry_uuid) {
-                    anyhow::ensure!(
-                        shared_entry == local_entry,
-                        "local database time entry {entry_uuid} conflicts with shared authority"
-                    );
-                } else {
+                if !shared_issue.time_entries.contains_key(entry_uuid) {
                     shared_issue
                         .time_entries
                         .insert(*entry_uuid, local_entry.clone());
-                    changed = true;
+                    issue_changed = true;
                 }
+            }
+            if issue_changed {
+                shared_issue.updated_at = shared_issue.updated_at.max(local_issue.updated_at);
+                changed = true;
             }
             continue;
         }
@@ -1067,10 +1084,28 @@ fn merge_local_database_projection(
         changed = true;
     }
 
+    changed |= repair_issue_display_ids(&mut merged);
     merged.next_display_id = merged.next_display_id.max(next_issue_id);
-    merged.next_comment_id = merged.next_comment_id.max(next_comment_id);
-    merged.next_milestone_id = merged.next_milestone_id.max(next_milestone_id);
-    Ok((merged, changed))
+    merged.next_comment_id = merged.next_comment_id.max(next_comment_id).max(
+        merged
+            .issues
+            .values()
+            .flat_map(|issue| issue.comments.values())
+            .filter_map(|comment| comment.display_id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1),
+    );
+    merged.next_milestone_id = merged.next_milestone_id.max(next_milestone_id).max(
+        merged
+            .milestones
+            .values()
+            .filter_map(|milestone| milestone.display_id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1),
+    );
+    (merged, changed)
 }
 
 fn merge_file_source_with_current_v3(
@@ -1898,23 +1933,11 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     let issue_files = read_all_issue_files(&issues_dir)?;
 
     let mut issues: BTreeMap<Uuid, CompactIssue> = BTreeMap::new();
-    let mut display_id_map: BTreeMap<Uuid, i64> = BTreeMap::new();
     let mut max_display_id: i64 = 0;
     let mut max_comment_id: i64 = 0;
 
-    let mut display_id_owner: BTreeMap<i64, Uuid> = BTreeMap::new();
-
     for issue in &issue_files {
         if let Some(did) = issue.display_id {
-            if let Some(prev) = display_id_owner.insert(did, issue.uuid) {
-                bail!(
-                    "duplicate display_id #{did} claimed by two issues ({prev} and {}); \
-                     refusing to migrate — repair the v2 hub first \
-                     (`crosslink integrity` / `crosslink compact`)",
-                    issue.uuid
-                );
-            }
-            display_id_map.insert(issue.uuid, did);
             max_display_id = max_display_id.max(did);
         }
 
@@ -1970,32 +1993,17 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     let locks = crate::checkpoint::read_checkpoint(cache_dir)?.locks;
 
     let counters = read_counters(&cache_dir.join("meta").join("counters.json"))?;
-    let mut next_display_id = counters.next_display_id.max(max_display_id + 1);
+    let next_display_id = counters.next_display_id.max(max_display_id + 1);
     let next_comment_id = counters.next_comment_id.max(max_comment_id + 1);
     let next_milestone_id = counters.next_milestone_id.max(max_milestone_id + 1);
-
-    let mut orphan_keys: Vec<(chrono::DateTime<chrono::Utc>, Uuid)> = issues
-        .values()
-        .filter(|i| i.display_id.is_none())
-        .map(|i| (i.created_at, i.uuid))
-        .collect();
-    orphan_keys.sort_unstable();
-    for (_, uuid) in orphan_keys {
-        let id = next_display_id;
-        next_display_id += 1;
-        display_id_map.insert(uuid, id);
-        if let Some(ci) = issues.get_mut(&uuid) {
-            ci.display_id = Some(id);
-        }
-    }
 
     let watermark =
         max_event_ordering_key(cache_dir)?.unwrap_or_else(hub_v3::genesis_sentinel_watermark);
 
-    Ok(CheckpointState {
+    let mut state = CheckpointState {
         next_display_id,
         next_comment_id,
-        display_id_map,
+        display_id_map: BTreeMap::new(),
         locks,
         issues,
         milestones,
@@ -2006,7 +2014,9 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
         compaction_lease: None,
         unsigned_event_warnings: Vec::new(),
         watermark: Some(watermark),
-    })
+    };
+    repair_issue_display_ids(&mut state);
+    Ok(state)
 }
 
 fn build_genesis_from_database(path: &Path, agent_id: &str) -> Result<CheckpointState> {
@@ -3687,7 +3697,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn conflicting_pre_shared_local_database_blocks_without_mutation() {
+    fn conflicting_pre_shared_local_database_is_repaired_from_shared_authority() {
         let (_first_work, remote, first_crosslink) = setup_absent_hub();
         let (_second_work, second_crosslink) = fresh_clone(remote.path(), "beta");
         let first_database = crate::db::Database::open(&first_crosslink.join("issues.db")).unwrap();
@@ -3709,30 +3719,21 @@ pub(crate) mod tests {
             )
             .unwrap();
         drop(second_database);
-        let database_before = fs::read(&second_path).unwrap();
-
         hub_v3(&first_crosslink, false, false, false, false).unwrap();
         let first_cache = SyncManager::new(&first_crosslink).unwrap();
         let generation = remote_rev(first_cache.cache_path(), GENERATION_POINTER).unwrap();
-        let error = hub_v3(&second_crosslink, false, false, false, false).unwrap_err();
-        assert!(format!("{error:#}").contains("conflicts with shared authority"));
+        hub_v3(&second_crosslink, false, false, false, false).unwrap();
         let second_cache = SyncManager::new(&second_crosslink).unwrap();
         assert_eq!(
             remote_rev(second_cache.cache_path(), GENERATION_POINTER),
             Some(generation)
         );
-        assert_eq!(fs::read(&second_path).unwrap(), database_before);
-        let anchored = Command::new("git")
-            .current_dir(second_cache.cache_path())
-            .args([
-                "for-each-ref",
-                "--format=%(refname)",
-                "refs/crosslink/reconciliation/intents/",
-            ])
-            .output()
-            .unwrap();
-        assert!(anchored.status.success());
-        assert!(!anchored.stdout.is_empty());
+        let repaired = crate::db::Database::open(&second_path).unwrap();
+        let repaired_id = repaired.get_issue_id_by_uuid(&shared_uuid).unwrap();
+        assert_eq!(
+            repaired.get_issue(repaired_id).unwrap().unwrap().title,
+            "shared identity"
+        );
     }
 
     #[test]
@@ -4005,7 +4006,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn duplicate_display_id_refuses_migration() {
+    fn duplicate_display_id_is_renumbered_during_migration() {
         let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
 
         let dup_uuid = Uuid::new_v4();
@@ -4034,14 +4035,24 @@ pub(crate) mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         crate::issue_file::write_issue_file(&dir.join("issue.json"), &issue).unwrap();
 
-        let err = hub_v3(&crosslink_dir, false, false, false, false).unwrap_err();
-        assert!(
-            err.to_string().contains("duplicate display_id"),
-            "must refuse on duplicate display_id, got: {err}"
-        );
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
-        assert!(rev(&cache_dir, CHECKPOINT_REF).is_none());
-        assert!(rev(&cache_dir, META_REF).is_none());
+        let source = RefHubSource::new(&cache_dir).unwrap();
+        let state = compaction::reduce(&source).unwrap().state;
+        assert_eq!(
+            state
+                .display_id_map
+                .values()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len(),
+            state.issues.len()
+        );
+        assert_ne!(state.display_id_map[&dup_uuid], 1);
+        assert_eq!(
+            state.issues[&dup_uuid].display_id,
+            Some(state.display_id_map[&dup_uuid])
+        );
     }
 
     #[test]
@@ -5058,6 +5069,86 @@ pub(crate) mod tests {
             issues: BTreeMap::from([(issue_uuid, issue)]),
             ..CheckpointState::default()
         }
+    }
+
+    #[test]
+    fn shared_authority_repairs_stale_and_conflicting_local_issue_rows() {
+        let issue_uuid = Uuid::new_v4();
+        let shared = authority_state(issue_uuid);
+        let mut stale = shared.clone();
+        stale.issues.get_mut(&issue_uuid).unwrap().comments.clear();
+        stale.issues.get_mut(&issue_uuid).unwrap().updated_at -= chrono::Duration::minutes(1);
+        stale.next_comment_id = 1;
+
+        let (repaired, changed) = merge_local_database_projection(&shared, &stale);
+        assert!(!changed);
+        assert_eq!(
+            serde_json::to_value(repaired).unwrap(),
+            serde_json::to_value(&shared).unwrap()
+        );
+
+        let mut conflicting = stale;
+        conflicting.issues.get_mut(&issue_uuid).unwrap().title = "damaged local title".to_string();
+        let local_comment_uuid = Uuid::new_v4();
+        conflicting
+            .issues
+            .get_mut(&issue_uuid)
+            .unwrap()
+            .comments
+            .insert(
+                local_comment_uuid,
+                CompactComment {
+                    display_id: Some(2),
+                    author: "local".to_string(),
+                    content: "unpublished local history".to_string(),
+                    created_at: shared.issues[&issue_uuid].updated_at,
+                    kind: "note".to_string(),
+                    trigger_type: None,
+                    intervention_context: None,
+                    driver_key_fingerprint: None,
+                    signed_by: None,
+                    signature: None,
+                },
+            );
+        let (repaired, changed) = merge_local_database_projection(&shared, &conflicting);
+        assert!(changed);
+        assert_eq!(repaired.issues[&issue_uuid].title, "authority issue");
+        assert!(repaired.issues[&issue_uuid]
+            .comments
+            .contains_key(&local_comment_uuid));
+    }
+
+    #[test]
+    fn local_only_history_is_preserved_and_advances_counters() {
+        let issue_uuid = Uuid::new_v4();
+        let shared = authority_state(issue_uuid);
+        let mut local = shared.clone();
+        let comment_uuid = Uuid::new_v4();
+        let updated_at = local.issues[&issue_uuid].updated_at + chrono::Duration::minutes(1);
+        local.issues.get_mut(&issue_uuid).unwrap().updated_at = updated_at;
+        local.issues.get_mut(&issue_uuid).unwrap().comments.insert(
+            comment_uuid,
+            CompactComment {
+                display_id: Some(2),
+                author: "local".to_string(),
+                content: "unpublished local history".to_string(),
+                created_at: updated_at,
+                kind: "note".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            },
+        );
+
+        let (merged, changed) = merge_local_database_projection(&shared, &local);
+        assert!(changed);
+        assert!(merged.issues[&issue_uuid]
+            .comments
+            .contains_key(&comment_uuid));
+        assert_eq!(merged.issues[&issue_uuid].updated_at, updated_at);
+        assert_eq!(merged.next_comment_id, 3);
     }
 
     #[test]

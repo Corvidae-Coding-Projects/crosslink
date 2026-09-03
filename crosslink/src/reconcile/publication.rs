@@ -432,10 +432,8 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         if current.fingerprint != intent.source.fingerprint
             || has_unrecorded_legacy_source(&intent.source, observed_format)
         {
-            return Ok(PublicationOutcome::BlockedCorrupt {
-                reason: "historical source changed after reconciliation intent was recorded"
-                    .to_string(),
-            });
+            remove_journal(&self.journal_path)?;
+            return self.reconcile_inner(observed_format);
         }
         let authority_before = local_authority_refs(self.repository)?;
         self.failure
@@ -550,16 +548,26 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         observed_format: &RepositoryFormat,
     ) -> Result<PublicationOutcome> {
         let current = remote_ref_map(self.repository, self.remote, &[GENERATION_REF.to_string()])?;
-        if !self.source_still_pinned(&journal.descriptor.source, observed_format)? {
-            return Ok(PublicationOutcome::BlockedCorrupt {
-                reason: "historical source changed after reconciliation was prepared".to_string(),
-            });
+        if current.get(GENERATION_REF) == Some(&journal.descriptor_oid) {
+            let fallback = journal.atomic_publication == Some(false);
+            return self.resume_after_commit(journal, fallback);
         }
-        if let Some(remote_oid) = current.get(GENERATION_REF) {
-            if remote_oid == &journal.descriptor_oid {
-                let fallback = journal.atomic_publication == Some(false);
-                return self.resume_after_commit(journal, fallback);
-            }
+        if !self.source_still_pinned(&journal.descriptor.source, observed_format)? {
+            let reason = "historical source changed after reconciliation was prepared";
+            let archived = archive_unpublished_journal(
+                &self.journal_path,
+                &journal,
+                reason,
+                &["source".to_string()],
+            )?;
+            tracing::warn!(
+                journal = %archived.display(),
+                reason,
+                "archived stale unpublished reconciliation preparation"
+            );
+            return self.reconcile_inner(observed_format);
+        }
+        if current.contains_key(GENERATION_REF) {
             return self.publish(journal);
         }
         match journal.stage {
@@ -4495,7 +4503,7 @@ mod tests {
     }
 
     #[test]
-    fn late_historical_write_blocks_resume_and_preserves_both_states() {
+    fn late_historical_write_restarts_reconciliation_and_publishes() {
         let fixture = v2_fixture();
         let importer = ObjectImporter::new("late");
         let failpoint = Failpoint {
@@ -4526,18 +4534,67 @@ mod tests {
         .unwrap();
         update_ref(fixture.repository.path(), V2, &new_tip).unwrap();
         let outcome = reconcile_fixture(&fixture, &importer).unwrap();
-        assert!(matches!(outcome, PublicationOutcome::BlockedCorrupt { .. }));
-        assert_eq!(
-            local_ref_oid(fixture.repository.path(), V2).unwrap(),
-            Some(new_tip)
-        );
-        let record = read_journal(fixture.repository.path(), &fixture.journal)
-            .unwrap()
-            .unwrap();
-        let JournalRecord::Generation(journal) = record else {
-            panic!("expected prepared generation journal");
-        };
-        assert_eq!(journal.descriptor.source.refs[V2].oid, old_tip);
+        assert!(matches!(outcome, PublicationOutcome::Published { .. }));
+        assert!(!fixture.journal.exists());
+        let descriptor = read_descriptor(
+            fixture.repository.path(),
+            &remote_oid(&fixture, GENERATION_REF).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(descriptor.source.refs[V2].oid, new_tip);
+        let archived = fixture
+            .repository
+            .path()
+            .join(crate::db::snapshot::SNAPSHOT_DIR)
+            .join(RECOVERY_ARCHIVE_DIR);
+        assert!(archived.is_dir());
+        assert_ne!(descriptor.source.refs[V2].oid, old_tip);
+    }
+
+    #[test]
+    fn source_change_after_intent_restarts_reconciliation_and_publishes() {
+        let fixture = v2_fixture();
+        let importer = ObjectImporter::new("intent-restart");
+        let error = RepositoryReconciler::new(
+            fixture.repository.path(),
+            fixture.journal.clone(),
+            "origin",
+            &importer,
+        )
+        .with_failpoint(Failpoint {
+            transition: Transition::Prepare,
+            position: TransitionPosition::Before,
+            occurrence: 1,
+        })
+        .reconcile(fixture.format.clone())
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("injected reconciliation failure"));
+        assert!(matches!(
+            read_journal(fixture.repository.path(), &fixture.journal)
+                .unwrap()
+                .unwrap(),
+            JournalRecord::Intent(_)
+        ));
+
+        let new_tip = state_commit(
+            fixture.repository.path(),
+            &serde_json::json!({"late": "intent"}),
+            "late write after intent",
+        )
+        .unwrap();
+        update_ref(fixture.repository.path(), V2, &new_tip).unwrap();
+
+        let outcome = reconcile_fixture(&fixture, &importer).unwrap();
+        assert!(matches!(outcome, PublicationOutcome::Published { .. }));
+        assert!(!fixture.journal.exists());
+        let descriptor = read_descriptor(
+            fixture.repository.path(),
+            &remote_oid(&fixture, GENERATION_REF).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(descriptor.source.refs[V2].oid, new_tip);
     }
 
     #[test]
@@ -5264,7 +5321,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_source_advance_before_publication_blocks_stale_commit() {
+    fn remote_source_advance_before_publication_restarts_with_new_source() {
         let fixture = v2_fixture();
         let importer = ObjectImporter::new("remote-advance");
         let journal = prepare_journal(&fixture, &importer);
@@ -5281,9 +5338,16 @@ mod tests {
             &["push", "origin", &format!("{advanced}:{V2}")],
         );
         let outcome = reconcile_fixture(&fixture, &importer).unwrap();
-        assert!(matches!(outcome, PublicationOutcome::BlockedCorrupt { .. }));
-        assert_eq!(remote_oid(&fixture, V2), Some(advanced));
-        assert!(remote_oid(&fixture, GENERATION_REF).is_none());
+        assert!(matches!(outcome, PublicationOutcome::Published { .. }));
+        let descriptor = read_descriptor(
+            fixture.repository.path(),
+            &remote_oid(&fixture, GENERATION_REF).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            descriptor.source.refs[V2].remote_oid(),
+            Some(advanced.as_str())
+        );
         for archive in journal.descriptor.archives.values() {
             assert!(object_exists(fixture.repository.path(), &archive.oid).unwrap());
         }
