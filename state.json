@@ -1,6 +1,6 @@
 {
   "next_display_id": 796,
-  "next_comment_id": 1241,
+  "next_comment_id": 1242,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -16127,7 +16127,7 @@
       "priority": "high",
       "created_by": "anon-62b057cf",
       "created_at": "2026-09-01T03:41:30.022220819Z",
-      "updated_at": "2026-09-03T01:28:48.197921690Z",
+      "updated_at": "2026-09-03T02:29:39.253668047Z",
       "labels": [
         "feature"
       ],
@@ -16343,6 +16343,13 @@
           "content": "[action] Recorded architect preflight for #794; awaiting explicit user approval before implementation delegation.",
           "created_at": "2026-09-01T03:48:37.479154427Z",
           "kind": "note"
+        },
+        "a5920485-12b5-4cb7-be9e-32e211425052": {
+          "display_id": 1241,
+          "author": "anon-6aac1553",
+          "content": "Committed 2c2f34db: steady-state daemon housekeeping now hydrates valid projection-bearing ref advances under a narrowly scoped repair permit, heartbeat-only commits no longer invalidate the projection frontier, and normal operation no longer re-enters full reconciliation every 30 seconds. Verification: strict all-target/all-feature Clippy; full all-target/all-feature tests (1954 library, 3080 binary, 204 integration, 6 readiness, 21 provider hooks, 3 provider wire, 159 smoke with 4 intentional ignores); release build/install; live Project-Peritus soak remained ready_current with the same PID and attempt while new issue comments were recorded; SQLite quick_check ok; no transition lock.",
+          "created_at": "2026-09-03T02:29:39.252600367Z",
+          "kind": "result"
         },
         "b7fe96e3-ae91-4d33-ac41-05e6d28f54df": {
           "display_id": 1217,
@@ -26471,11 +26478,16 @@
       "agent_id": "w4c5",
       "agent_seq": 30,
       "timestamp": "2026-09-03T01:28:48.197921690Z"
+    },
+    {
+      "agent_id": "anon-6aac1553",
+      "agent_seq": 1,
+      "timestamp": "2026-09-03T02:29:39.253668047Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T01:28:48.197921690Z",
-    "agent_id": "w4c5",
-    "agent_seq": 30
+    "timestamp": "2026-09-03T02:29:39.253668047Z",
+    "agent_id": "anon-6aac1553",
+    "agent_seq": 1
   }
 }
