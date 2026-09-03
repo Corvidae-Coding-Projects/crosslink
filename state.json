@@ -16668,8 +16668,9 @@
       "priority": "high",
       "created_by": "anon-396e79b5",
       "created_at": "2026-09-03T04:21:42.204860722Z",
-      "updated_at": "2026-09-03T04:21:46.728296228Z",
+      "updated_at": "2026-09-03T04:21:51.028344425Z",
       "labels": [
+        "maintenance",
         "security"
       ]
     },
@@ -26507,11 +26508,16 @@
       "agent_id": "anon-396e79b5",
       "agent_seq": 2,
       "timestamp": "2026-09-03T04:21:46.728296228Z"
+    },
+    {
+      "agent_id": "anon-396e79b5",
+      "agent_seq": 3,
+      "timestamp": "2026-09-03T04:21:51.028344425Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T04:21:46.728296228Z",
+    "timestamp": "2026-09-03T04:21:51.028344425Z",
     "agent_id": "anon-396e79b5",
-    "agent_seq": 2
+    "agent_seq": 3
   }
 }
