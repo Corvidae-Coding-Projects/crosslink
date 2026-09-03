@@ -1,6 +1,6 @@
 {
   "next_display_id": 799,
-  "next_comment_id": 1248,
+  "next_comment_id": 1249,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22793,10 +22793,21 @@
       "priority": "critical",
       "created_by": "w4c5",
       "created_at": "2026-09-03T23:15:12.535041845Z",
-      "updated_at": "2026-09-03T23:15:17.529752068Z",
+      "updated_at": "2026-09-03T23:48:25.167300986Z",
       "labels": [
         "refactor"
-      ]
+      ],
+      "comments": {
+        "d8a35218-f3f9-441d-8d18-e38d66f97040": {
+          "display_id": 1248,
+          "author": "w4c5",
+          "content": "Implemented the Phase 2 core on feature/checkpoint-causal-frontiers: schema-v2 per-agent frontiers with contiguous sequence, exact tip, and prefix SHA-256; fail-closed legacy watermark guard; per-agent unseen selection before deterministic total ordering; complete RefHub first-parent history reconstruction across pruning; forged, missing, rewritten, and non-prefix rejection; causal pruning; dominance-only sync adoption with authority recomputation for concurrency; verified automatic daemon reconciliation migration with staged publication, archived source evidence, and crash/restart recovery; dashboard and migration seeding now reduce through pinned causal authority. Focused property/failure tests are being expanded before the complete verification matrix.",
+          "created_at": "2026-09-03T23:48:25.163678648Z",
+          "kind": "note",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAueBDWPY5pQ+bjEKnSV90YbbxzEclMVyzUrKhHmVX1UxEX4Yg1eJJoYjaVTQZAct+4lD4rE1Omoxy+gkvq+c4DQ=="
+        }
+      }
     },
     "e597a103-e6ac-4473-a3d1-9b0b8a587c99": {
       "uuid": "e597a103-e6ac-4473-a3d1-9b0b8a587c99",
@@ -26691,11 +26702,16 @@
       "agent_id": "w4c5",
       "agent_seq": 44,
       "timestamp": "2026-09-03T23:15:22.361441036Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 45,
+      "timestamp": "2026-09-03T23:48:25.167300986Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T23:15:22.361441036Z",
+    "timestamp": "2026-09-03T23:48:25.167300986Z",
     "agent_id": "w4c5",
-    "agent_seq": 44
+    "agent_seq": 45
   }
 }
