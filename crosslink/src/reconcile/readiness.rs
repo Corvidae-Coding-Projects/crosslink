@@ -857,6 +857,49 @@ pub fn acquire_mutation_permit(crosslink_dir: &Path) -> Result<Option<MutationPe
 }
 
 pub fn acquire_mutation_operation_permit(crosslink_dir: &Path) -> Result<MutationOperationPermit> {
+    acquire_operation_permit_with(crosslink_dir, acquire_mutation_permit)
+}
+
+#[allow(dead_code)]
+pub(crate) fn acquire_projection_repair_operation_permit(
+    crosslink_dir: &Path,
+) -> Result<MutationOperationPermit> {
+    acquire_operation_permit_with(crosslink_dir, acquire_projection_repair_mutation_permit)
+}
+
+#[allow(dead_code)]
+fn acquire_projection_repair_mutation_permit(
+    crosslink_dir: &Path,
+) -> Result<Option<MutationPermit>> {
+    if !requires_readiness(crosslink_dir) {
+        return Ok(None);
+    }
+    let permit = acquire_raw_mutation_permit(crosslink_dir)?;
+    let result = (|| {
+        let record = read_record(crosslink_dir)?.ok_or_else(|| {
+            anyhow::anyhow!(
+                "repository readiness is missing; run `crosslink daemon ensure --wait-ready --json`"
+            )
+        })?;
+        validate_record_for_projection_repair(crosslink_dir, &record)?;
+        anyhow::ensure!(
+            record.state.grants_mutations(),
+            "repository is {}",
+            state_name(record.state)
+        );
+        Ok(())
+    })();
+    if let Err(error) = result {
+        drop(permit);
+        return Err(error);
+    }
+    Ok(Some(permit))
+}
+
+fn acquire_operation_permit_with(
+    crosslink_dir: &Path,
+    acquire_readiness: fn(&Path) -> Result<Option<MutationPermit>>,
+) -> Result<MutationOperationPermit> {
     let directory = crosslink_dir.join(READINESS_DIR);
     fs::create_dir_all(&directory)
         .with_context(|| format!("creating readiness directory {}", directory.display()))?;
@@ -888,7 +931,7 @@ pub fn acquire_mutation_operation_permit(crosslink_dir: &Path) -> Result<Mutatio
             Err(error) => return Err(error).context("acquiring mutation operation permit"),
         }
     };
-    let readiness = acquire_mutation_permit(crosslink_dir)?;
+    let readiness = acquire_readiness(crosslink_dir)?;
     let authority = Arc::new(OperationAuthority {
         _readiness: readiness,
         _operation: operation,
@@ -1031,6 +1074,22 @@ where
 }
 
 pub fn validate_record(crosslink_dir: &Path, record: &ReadinessRecord) -> Result<()> {
+    validate_record_with_projection_policy(crosslink_dir, record, true)
+}
+
+#[allow(dead_code)]
+fn validate_record_for_projection_repair(
+    crosslink_dir: &Path,
+    record: &ReadinessRecord,
+) -> Result<()> {
+    validate_record_with_projection_policy(crosslink_dir, record, false)
+}
+
+fn validate_record_with_projection_policy(
+    crosslink_dir: &Path,
+    record: &ReadinessRecord,
+    require_current_projection: bool,
+) -> Result<()> {
     anyhow::ensure!(
         record.schema_version == READINESS_SCHEMA_VERSION,
         "unsupported readiness schema {}",
@@ -1091,14 +1150,16 @@ pub fn validate_record(crosslink_dir: &Path, record: &ReadinessRecord) -> Result
             record.projection_frontier.is_some() && current_frontier.is_some(),
             "projection frontier is missing"
         );
-        anyhow::ensure!(
-            record.projection_frontier == current_frontier,
-            "readiness record projection frontier is stale"
-        );
-        anyhow::ensure!(
-            projection_is_current(crosslink_dir)?,
-            "local projection is not hydrated to the current authority frontier"
-        );
+        if require_current_projection {
+            anyhow::ensure!(
+                record.projection_frontier == current_frontier,
+                "readiness record projection frontier is stale"
+            );
+            anyhow::ensure!(
+                projection_is_current(crosslink_dir)?,
+                "local projection is not hydrated to the current authority frontier"
+            );
+        }
         anyhow::ensure!(
             record.projection_schema_version == Some(crate::db::SCHEMA_VERSION)
                 && projection_schema_version(crosslink_dir)? == Some(crate::db::SCHEMA_VERSION),

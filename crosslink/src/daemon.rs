@@ -647,40 +647,38 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
     while !wait_interruptible(should_exit, Duration::from_secs(FLUSH_INTERVAL_SECS)) {
         let identity = readiness::read_daemon_identity(crosslink_dir)?
             .ok_or_else(|| anyhow::anyhow!("daemon identity disappeared"))?;
-        let deferred = defer_reconciliation_for_active_mutations(crosslink_dir, &identity)?;
-        if !deferred && !reconcile_until_ready(crosslink_dir, &identity, should_exit)? {
-            return Ok(());
+        if defer_reconciliation_for_active_mutations(crosslink_dir, &identity)? {
+            continue;
         }
         let mutation_operation = acquire_housekeeping_operation(crosslink_dir)?;
         let mut active_issue_id = None;
-        match Database::open_read_only(&db_path) {
-            Ok(db) => {
-                let service = crate::application::RepositoryService::projection(&db);
-                let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
-                    .ok()
-                    .flatten()
-                    .map(|agent| agent.agent_id);
-                if let Ok(Some(session)) =
-                    crate::application::LocalStateService::get_current_session_for_agent(
-                        &service,
-                        agent_id.as_deref(),
-                    )
-                {
-                    active_issue_id = session.active_issue_id;
-                    let data = serde_json::json!({
-                        "session_id": session.id,
-                        "started_at": session.started_at.to_rfc3339(),
-                        "active_issue_id": session.active_issue_id,
-                    });
-                    if let Ok(bytes) = serde_json::to_vec_pretty(&data) {
-                        if let Err(error) = fs::write(&session_file, bytes) {
-                            tracing::warn!("failed to write session file: {error}");
-                        }
-                    }
+        let db = Database::open(&db_path).context("opening projection for daemon housekeeping")?;
+        crate::hydration::maybe_auto_hydrate_under_operation(crosslink_dir, &db)
+            .context("hydrating current authority during daemon housekeeping")?;
+        let service = crate::application::RepositoryService::projection(&db);
+        let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
+            .ok()
+            .flatten()
+            .map(|agent| agent.agent_id);
+        if let Ok(Some(session)) =
+            crate::application::LocalStateService::get_current_session_for_agent(
+                &service,
+                agent_id.as_deref(),
+            )
+        {
+            active_issue_id = session.active_issue_id;
+            let data = serde_json::json!({
+                "session_id": session.id,
+                "started_at": session.started_at.to_rfc3339(),
+                "active_issue_id": session.active_issue_id,
+            });
+            if let Ok(bytes) = serde_json::to_vec_pretty(&data) {
+                if let Err(error) = fs::write(&session_file, bytes) {
+                    tracing::warn!("failed to write session file: {error}");
                 }
             }
-            Err(error) => tracing::warn!("failed to open database: {error}"),
         }
+        refresh_ready_record_with(crosslink_dir, &identity, || Ok(()))?;
         drop(mutation_operation);
         heartbeat_counter += 1;
         if heartbeat_counter.is_multiple_of(5) {
@@ -695,7 +693,7 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
 fn acquire_housekeeping_operation(
     crosslink_dir: &Path,
 ) -> Result<readiness::MutationOperationPermit> {
-    readiness::acquire_mutation_operation_permit(crosslink_dir)
+    readiness::acquire_projection_repair_operation_permit(crosslink_dir)
 }
 
 fn defer_reconciliation_for_active_mutations(
@@ -1410,7 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn steady_state_defers_transition_while_long_mutation_is_live_then_resumes() {
+    fn steady_state_refreshes_readiness_without_starting_a_transition() {
         let (_work, _remote, crosslink, identity) = ready_connected();
         let long_mutation = readiness::acquire_mutation_permit(&crosslink).unwrap();
         let before = readiness::read_record(&crosslink).unwrap().unwrap();
@@ -1421,8 +1419,13 @@ mod tests {
         drop(later_mutation);
         drop(long_mutation);
         assert!(!defer_reconciliation_for_active_mutations(&crosslink, &identity).unwrap());
-        let should_exit = AtomicBool::new(false);
-        assert!(reconcile_until_ready(&crosslink, &identity, &should_exit).unwrap());
+        let housekeeping = acquire_housekeeping_operation(&crosslink).unwrap();
+        assert!(refresh_ready_record_with(&crosslink, &identity, || Ok(())).unwrap());
+        drop(housekeeping);
+        let maintained = readiness::read_record(&crosslink).unwrap().unwrap();
+        assert!(maintained.sequence > refreshed.sequence);
+        assert_eq!(maintained.attempt_id, refreshed.attempt_id);
+        assert!(!crosslink.join("readiness").join("transition.lock").exists());
         assert!(readiness::require_mutation_ready(&crosslink).is_ok());
     }
 
@@ -1466,21 +1469,26 @@ mod tests {
     }
 
     #[test]
-    fn authority_advance_during_deferral_keeps_daemon_live_and_then_converges() {
+    fn authority_advance_during_deferral_is_hydrated_without_reconciliation() {
         let (_work, _remote, crosslink, identity) = ready_connected();
         let long_mutation = readiness::acquire_mutation_permit(&crosslink).unwrap();
         let sync = SyncManager::new(&crosslink).unwrap();
         let cache = sync.cache_path().to_path_buf();
         assert!(
             defer_reconciliation_for_active_mutations_with(&crosslink, &identity, || {
-                crate::hub_v3::write_heartbeat_to_ref(
+                crate::hub_v3::append_event_to_ref(
                     &cache,
                     "interleaving-agent",
-                    &crate::locks::Heartbeat {
+                    &crate::events::EventEnvelope {
                         agent_id: "interleaving-agent".to_string(),
-                        last_heartbeat: chrono::Utc::now(),
-                        active_issue_id: None,
-                        machine_id: "test-machine".to_string(),
+                        agent_seq: 1,
+                        timestamp: chrono::Utc::now(),
+                        event: crate::events::Event::LockClaimed {
+                            issue_display_id: 1,
+                            branch: None,
+                        },
+                        signed_by: None,
+                        signature: None,
                     },
                 )?;
                 Ok(())
@@ -1489,11 +1497,15 @@ mod tests {
         );
         assert!(!readiness::projection_is_current(&crosslink).unwrap());
         drop(long_mutation);
-        let should_exit = AtomicBool::new(false);
-        assert!(reconcile_until_ready(&crosslink, &identity, &should_exit).unwrap());
+        let housekeeping = acquire_housekeeping_operation(&crosslink).unwrap();
+        let db = Database::open(&crosslink.join("issues.db")).unwrap();
+        assert!(crate::hydration::maybe_auto_hydrate_under_operation(&crosslink, &db).unwrap());
+        assert!(refresh_ready_record_with(&crosslink, &identity, || Ok(())).unwrap());
+        drop(housekeeping);
         let record = readiness::read_record(&crosslink).unwrap().unwrap();
         readiness::validate_record(&crosslink, &record).unwrap();
         assert!(readiness::projection_is_current(&crosslink).unwrap());
+        assert!(!crosslink.join("readiness").join("transition.lock").exists());
     }
 
     #[test]
