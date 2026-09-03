@@ -1510,20 +1510,23 @@ pub fn projection_authority_ref(crosslink_dir: &Path) -> Result<Option<String>> 
         "observing current v3 projection authority failed: {}",
         String::from_utf8_lossy(&output.stderr).trim()
     );
-    let advertised = String::from_utf8(output.stdout.clone())
+    let advertised = String::from_utf8(output.stdout)
         .context("v3 projection authority observation was not UTF-8")?;
-    let names = advertised
+    let refs = advertised
         .lines()
-        .filter_map(|line| line.split_once('\0').map(|(name, _)| name))
-        .collect::<std::collections::HashSet<_>>();
-    if !names.is_empty() {
+        .filter_map(|line| {
+            line.split_once('\0')
+                .map(|(name, oid)| (name.to_string(), oid.to_string()))
+        })
+        .collect::<Vec<_>>();
+    if !refs.is_empty() {
         anyhow::ensure!(
-            names.contains(crate::hub_v3::CHECKPOINT_REF)
-                && names.contains(crate::hub_v3::META_REF),
+            refs.iter()
+                .any(|(name, _)| name == crate::hub_v3::CHECKPOINT_REF)
+                && refs.iter().any(|(name, _)| name == crate::hub_v3::META_REF),
             "current v3 projection authority is incomplete"
         );
-        use sha2::Digest as _;
-        return Ok(Some(hex::encode(sha2::Sha256::digest(output.stdout))));
+        return Ok(Some(projection_object_frontier(sync.cache_path(), &refs)?));
     }
     let output = std::process::Command::new("git")
         .current_dir(sync.cache_path())
@@ -1542,6 +1545,89 @@ pub fn projection_authority_ref(crosslink_dir: &Path) -> Result<Option<String>> 
         "current v2 projection authority is empty"
     );
     Ok(Some(value))
+}
+
+fn projection_object_frontier(repo_dir: &Path, refs: &[(String, String)]) -> Result<String> {
+    let mut queries = Vec::new();
+    for (reference, oid) in refs {
+        if reference == crate::hub_v3::CHECKPOINT_REF {
+            queries.push((
+                "checkpoint/state.json".to_string(),
+                format!("{oid}:state.json"),
+                "blob",
+                true,
+            ));
+        } else if reference == crate::hub_v3::META_REF {
+            queries.push(("meta".to_string(), format!("{oid}^{{tree}}"), "tree", true));
+        } else if reference.starts_with(crate::hub_v3::AGENT_REF_PREFIX) {
+            queries.push((
+                format!("{reference}/events.log"),
+                format!("{oid}:events.log"),
+                "blob",
+                false,
+            ));
+        }
+    }
+    queries.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut child = std::process::Command::new("git")
+        .current_dir(repo_dir)
+        .args(["cat-file", "--batch-check=%(objectname) %(objecttype)"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("starting v3 projection object observation")?;
+    let mut input = String::new();
+    for (_, spec, _, _) in &queries {
+        input.push_str(spec);
+        input.push('\n');
+    }
+    use std::io::Write as _;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("v3 projection object observation stdin is unavailable"))?
+        .write_all(input.as_bytes())
+        .context("writing v3 projection object queries")?;
+    let output = child
+        .wait_with_output()
+        .context("waiting for v3 projection object observation")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "v3 projection object observation failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let observed = String::from_utf8(output.stdout)
+        .context("v3 projection object observation was not UTF-8")?;
+    let lines = observed.lines().collect::<Vec<_>>();
+    anyhow::ensure!(
+        lines.len() == queries.len(),
+        "v3 projection object observation returned an incomplete response"
+    );
+    let mut evidence = Vec::new();
+    for ((key, _, expected_type, required), line) in queries.iter().zip(lines) {
+        if line.ends_with(" missing") {
+            anyhow::ensure!(
+                !required,
+                "current v3 projection authority is missing {key}"
+            );
+            continue;
+        }
+        let (oid, object_type) = line
+            .split_once(' ')
+            .ok_or_else(|| anyhow::anyhow!("v3 projection object response was malformed"))?;
+        anyhow::ensure!(
+            object_type == *expected_type
+                && matches!(oid.len(), 40 | 64)
+                && oid
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "v3 projection object response was invalid for {key}"
+        );
+        evidence.push(format!("{key}\0{oid}"));
+    }
+    use sha2::Digest as _;
+    Ok(hex::encode(sha2::Sha256::digest(evidence.join("\n"))))
 }
 
 #[cfg(test)]
@@ -2455,6 +2541,51 @@ mod tests {
             .unwrap()
             .success());
         assert!(projection_needs_hydration(&crosslink).is_err());
+    }
+
+    #[test]
+    fn projection_frontier_ignores_heartbeat_only_agent_ref_movement() {
+        let root = initialized_repository();
+        let crosslink = root.path().join(".crosslink");
+        let sync = crate::sync::SyncManager::new(&crosslink).unwrap();
+        assert_eq!(
+            sync.init_cache_for_reconciliation(),
+            crate::sync::ReconciliationCacheOutcome::Ready
+        );
+        record_hydrated_ref_durable(&crosslink).unwrap();
+        let before = projection_authority_ref(&crosslink).unwrap();
+        crate::hub_v3::write_heartbeat_to_ref(
+            sync.cache_path(),
+            "test-agent",
+            &crate::locks::Heartbeat {
+                agent_id: "test-agent".to_string(),
+                last_heartbeat: chrono::Utc::now(),
+                active_issue_id: None,
+                machine_id: "test-machine".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(projection_authority_ref(&crosslink).unwrap(), before);
+        assert!(!projection_needs_hydration(&crosslink).unwrap());
+
+        crate::hub_v3::append_event_to_ref(
+            sync.cache_path(),
+            "test-agent",
+            &crate::events::EventEnvelope {
+                agent_id: "test-agent".to_string(),
+                agent_seq: 1,
+                timestamp: chrono::Utc::now(),
+                event: crate::events::Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+                signed_by: None,
+                signature: None,
+            },
+        )
+        .unwrap();
+        assert_ne!(projection_authority_ref(&crosslink).unwrap(), before);
+        assert!(projection_needs_hydration(&crosslink).unwrap());
     }
 
     #[test]
