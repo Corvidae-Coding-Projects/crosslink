@@ -1,3 +1,4 @@
 {"agent_id":"anon-396e79b5","agent_seq":1,"timestamp":"2026-09-03T04:21:42.204860722Z","event":{"type":"IssueCreated","uuid":"9e24fb86-128b-4ae6-8400-559b56904c99","title":"Remediate dependency and security alerts","priority":"high","created_by":"anon-396e79b5"}}
 {"agent_id":"anon-396e79b5","agent_seq":2,"timestamp":"2026-09-03T04:21:46.728296228Z","event":{"type":"LabelAdded","issue_uuid":"9e24fb86-128b-4ae6-8400-559b56904c99","label":"security"}}
 {"agent_id":"anon-396e79b5","agent_seq":3,"timestamp":"2026-09-03T04:21:51.028344425Z","event":{"type":"LabelAdded","issue_uuid":"9e24fb86-128b-4ae6-8400-559b56904c99","label":"maintenance"}}
+{"agent_id":"anon-396e79b5","agent_seq":4,"timestamp":"2026-09-03T04:21:55.540627476Z","event":{"type":"LockClaimed","issue_display_id":796}}
