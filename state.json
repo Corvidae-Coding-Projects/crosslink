@@ -950,10 +950,6 @@
     "795": {
       "agent_id": "sQl8",
       "claimed_at": "2026-09-02T06:08:27.971112113Z"
-    },
-    "796": {
-      "agent_id": "anon-396e79b5",
-      "claimed_at": "2026-09-03T04:21:55.540627476Z"
     }
   },
   "issues": {
@@ -26548,11 +26544,16 @@
       "agent_id": "anon-396e79b5",
       "agent_seq": 6,
       "timestamp": "2026-09-03T04:47:55.995410386Z"
+    },
+    {
+      "agent_id": "anon-396e79b5",
+      "agent_seq": 7,
+      "timestamp": "2026-09-03T04:48:05.048847123Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T04:47:55.995410386Z",
+    "timestamp": "2026-09-03T04:48:05.048847123Z",
     "agent_id": "anon-396e79b5",
-    "agent_seq": 6
+    "agent_seq": 7
   }
 }
