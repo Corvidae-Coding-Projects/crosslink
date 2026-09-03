@@ -1,6 +1,6 @@
 {
   "next_display_id": 798,
-  "next_comment_id": 1246,
+  "next_comment_id": 1247,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -18780,7 +18780,7 @@
       "priority": "high",
       "created_by": "sQl8",
       "created_at": "2026-09-02T01:49:49.425900812Z",
-      "updated_at": "2026-09-02T07:02:12.586302139Z",
+      "updated_at": "2026-09-03T23:08:03.334378290Z",
       "labels": [
         "feature"
       ],
@@ -18802,6 +18802,15 @@
           "kind": "plan",
           "signed_by": "SHA256:xw8Ze11gSaYKyTpfbhkMx4os73kCCwXvWPiw3jdId74",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgmuT0TdcMigx0tFmAovzhl0bvUgO0WMArDlKMuuoVq/cAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcwKGDFGOpUpG+POXvIK5mCePLYl6QDFZPqCTcqNf8fkDq3VPbr++hsbag6j9DlkXfO/cWkAHW8ronrt8kgPUBw=="
+        },
+        "504ec082-22cc-420a-ba4f-bef83aa67da7": {
+          "display_id": 1246,
+          "author": "w4c5",
+          "content": "Delivered the authoritative application command/query boundary through merged PR #92. Current develop routes production shared-domain mutations through CommandService, shared reads through QueryService, local operational state through LocalStateService, rejects implicit shared-to-SQLite fallback, rolls back failed publication, and enforces the boundary with source and recording tests.",
+          "created_at": "2026-09-03T23:08:03.331004418Z",
+          "kind": "result",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAd3npWbGmz0EnxSqi9bEtWdjJedrHD46+4J3tUJN8YkW/AYUiW0qxYnFDgFXrvhbQS1E4X+6CeyORLnrBhTUgBw=="
         },
         "5fcf2231-f49d-4c10-85aa-6bb495f4842c": {
           "display_id": 1236,
@@ -26615,11 +26624,16 @@
       "agent_id": "w4c5",
       "agent_seq": 36,
       "timestamp": "2026-09-03T23:07:54.981893251Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 37,
+      "timestamp": "2026-09-03T23:08:03.334378290Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-03T23:07:54.981893251Z",
+    "timestamp": "2026-09-03T23:08:03.334378290Z",
     "agent_id": "w4c5",
-    "agent_seq": 36
+    "agent_seq": 37
   }
 }
