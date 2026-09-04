@@ -1,6 +1,6 @@
 {
   "next_display_id": 799,
-  "next_comment_id": 1252,
+  "next_comment_id": 1253,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22789,7 +22789,7 @@
       "priority": "critical",
       "created_by": "w4c5",
       "created_at": "2026-09-03T23:15:12.535041845Z",
-      "updated_at": "2026-09-04T00:51:32.986333982Z",
+      "updated_at": "2026-09-04T00:51:50.804642692Z",
       "labels": [
         "refactor"
       ],
@@ -22802,6 +22802,15 @@
           "kind": "note",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJJYYldGdoo2WOHqECe31DRmthhaeZA6ITwqMW+21vmAPozlcLdhefiCpo0ZLUBu+fdAlHaJZIIHWcArL7fNCCw=="
+        },
+        "9151f5bc-9678-403e-a72f-7541dd379ab4": {
+          "display_id": 1252,
+          "author": "w4c5",
+          "content": "Completed #798 on feature/checkpoint-causal-frontiers at 4a3d8e11. Added schema-v2 per-agent causal frontiers, verified replay/adoption/recomputation, automatic legacy migration, failure and real-remote coverage, bounded Windows coverage, and architecture docs. Full all-feature suite and every requested build/static gate pass. Branch is ready for user push.",
+          "created_at": "2026-09-04T00:51:50.801354430Z",
+          "kind": "handoff",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA5HqAMrUnEZxbIoqOCH06V0ow9uW0rilRq4BcwhYEzIG0m48p65DmCvfTQQrK6RRut0wdKfDf+Q6M5SIwi5hTCw=="
         },
         "b2c46216-f01b-4211-b3a3-a27dbbb3bd4b": {
           "display_id": 1249,
@@ -26750,11 +26759,16 @@
       "agent_id": "w4c5",
       "agent_seq": 49,
       "timestamp": "2026-09-04T00:51:46.278073766Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 50,
+      "timestamp": "2026-09-04T00:51:50.804642692Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T00:51:46.278073766Z",
+    "timestamp": "2026-09-04T00:51:50.804642692Z",
     "agent_id": "w4c5",
-    "agent_seq": 49
+    "agent_seq": 50
   }
 }
