@@ -143,17 +143,37 @@ fn init_crosslink_unready(dir: &std::path::Path) {
 }
 
 fn add_current_reconcile_refs(dir: &std::path::Path) {
-    for ref_name in [
-        "refs/heads/crosslink/meta",
-        "refs/heads/crosslink/checkpoint",
-    ] {
-        let output = Command::new("git")
-            .current_dir(dir)
-            .args(["update-ref", ref_name, "HEAD"])
-            .output()
-            .unwrap();
-        assert!(output.status.success());
-    }
+    let checkpoint = crosslink::checkpoint::CheckpointState::default();
+    crosslink::hub_v3::commit_blob_to_ref(
+        dir,
+        crosslink::hub_v3::CHECKPOINT_REF,
+        "state.json",
+        &serde_json::to_vec_pretty(&checkpoint).unwrap(),
+        "test checkpoint",
+    )
+    .unwrap();
+    let head = Command::new("git")
+        .current_dir(dir)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    let meta = crosslink::hub_v3::HubMeta {
+        hub_version: 3,
+        migrated_from_commit: String::from_utf8(head.stdout).unwrap().trim().to_string(),
+        migrated_at: chrono::Utc::now(),
+        finalized_at: None,
+        genesis_checkpoint_commit: None,
+        seed_agent_tips: None,
+    };
+    crosslink::hub_v3::commit_blob_to_ref(
+        dir,
+        crosslink::hub_v3::META_REF,
+        "hub.json",
+        &serde_json::to_vec_pretty(&meta).unwrap(),
+        "test hub metadata",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -2178,24 +2198,63 @@ fn test_stress_very_long_description() {
     assert!(stdout.contains("BBBB"));
 }
 
-#[test]
-fn test_stress_many_issues() {
+fn run_many_issues_partition(start: usize, count: usize) {
+    assert!(count > 0);
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    for i in 0..100 {
+    for i in start..start + count {
         let title = format!("Issue number {i}");
         let (success, _, stderr) = run_crosslink(dir.path(), &["create", &title]);
         assert!(success, "Failed to create issue {i}: {stderr}");
     }
 
+    let last = start + count - 1;
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
-    assert!(stdout.contains("Issue number 99"));
+    assert!(stdout.contains(&format!("Issue number {last}")));
 
-    let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "search", "number 50"]);
+    let midpoint = start + count / 2;
+    let query = format!("number {midpoint}");
+    let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "search", &query]);
     assert!(success);
-    assert!(stdout.contains("50"));
+    assert!(stdout.contains(&midpoint.to_string()));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn test_stress_many_issues() {
+    run_many_issues_partition(0, 100);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_many_issues_000_019() {
+    run_many_issues_partition(0, 20);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_many_issues_020_039() {
+    run_many_issues_partition(20, 20);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_many_issues_040_059() {
+    run_many_issues_partition(40, 20);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_many_issues_060_079() {
+    run_many_issues_partition(60, 20);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_many_issues_080_099() {
+    run_many_issues_partition(80, 20);
 }
 
 #[test]
@@ -2358,16 +2417,16 @@ fn test_edge_large_ids() {
     assert!(!success, "Show with negative ID should fail");
 }
 
-#[test]
-fn test_stress_rapid_operations() {
+fn run_rapid_operations_partition(start: usize, count: usize) {
+    assert!(count > 0);
     let dir = test_dir();
     init_crosslink(dir.path());
 
-    for i in 0..20 {
+    for (offset, i) in (start..start + count).enumerate() {
         let title = format!("Rapid issue {i}");
         let (success, _, stderr) = run_crosslink(dir.path(), &["create", &title]);
         assert!(success, "Failed to create rapid issue {i}: {stderr}");
-        let id = (i + 1).to_string();
+        let id = (offset + 1).to_string();
         let (success, _, stderr) = run_crosslink(dir.path(), &["close", &id]);
         assert!(success, "Failed to close rapid issue {i}: {stderr}");
         let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "reopen", &id]);
@@ -2379,9 +2438,46 @@ fn test_stress_rapid_operations() {
         assert!(success, "Failed to label rapid issue {i}: {stderr}");
     }
 
+    let last = start + count - 1;
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
-    assert!(stdout.contains("Rapid issue 19"));
+    assert!(stdout.contains(&format!("Rapid issue {last}")));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn test_stress_rapid_operations() {
+    run_rapid_operations_partition(0, 20);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_rapid_operations_000_003() {
+    run_rapid_operations_partition(0, 4);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_rapid_operations_004_007() {
+    run_rapid_operations_partition(4, 4);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_rapid_operations_008_011() {
+    run_rapid_operations_partition(8, 4);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_rapid_operations_012_015() {
+    run_rapid_operations_partition(12, 4);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stress_rapid_operations_016_019() {
+    run_rapid_operations_partition(16, 4);
 }
 
 #[test]

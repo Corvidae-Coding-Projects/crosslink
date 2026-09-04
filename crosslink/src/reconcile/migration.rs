@@ -14,7 +14,6 @@ use crate::checkpoint::{
     CheckpointState, CompactComment, CompactIssue, CompactMilestone, CompactTimeEntry,
 };
 use crate::compaction;
-use crate::events::OrderingKey;
 use crate::hub_source::{HubSource, RefHubSource};
 use crate::hub_v3::{self, HubMeta, CHECKPOINT_REF, META_REF};
 use crate::issue_file::{
@@ -515,8 +514,49 @@ impl HistoricalImporter for MigrationImporter<'_> {
         );
         let current_targets = direct_v3_targets(source)?;
         let Some(database_evidence) = source.refs().get("local/issues.db") else {
-            let semantic = self.read_target_semantic(repository, &current_targets)?;
-            return Ok(PreparedImport::new(current_targets, semantic));
+            let raw = read_checkpoint_target(repository, &current_targets)?;
+            if !raw.is_legacy() {
+                let semantic = self.read_target_semantic(repository, &current_targets)?;
+                return Ok(PreparedImport::new(current_targets, semantic));
+            }
+            let state = reduce_v3_state(repository, &current_targets)?;
+            anyhow::ensure!(
+                state.checkpoint_schema_version == crate::checkpoint::CHECKPOINT_SCHEMA_VERSION,
+                "legacy checkpoint replay did not produce the current causal schema"
+            );
+            let signers = read_v3_allowed_signers(repository, &current_targets)?;
+            let mut targets = current_targets;
+            let old_checkpoint = targets
+                .get(CHECKPOINT_REF)
+                .context("v3 source checkpoint is missing")?
+                .clone();
+            let staging_ref = format!(
+                "refs/crosslink/reconciliation/build/{}/checkpoint-causality",
+                source.fingerprint()
+            );
+            git_update_ref(repository, &staging_ref, &old_checkpoint)?;
+            let state_bytes = serde_json::to_vec_pretty(&state)
+                .context("serializing migrated causal checkpoint")?;
+            let checkpoint_oid = hub_v3::commit_blob_to_ref(
+                repository,
+                &staging_ref,
+                "state.json",
+                &state_bytes,
+                "crosslink reconciliation checkpoint causality upgrade",
+            )?;
+            targets.insert(CHECKPOINT_REF.to_string(), checkpoint_oid.clone());
+            if let Some(meta_oid) = add_causal_baseline_metadata(
+                repository,
+                &targets,
+                &checkpoint_oid,
+                source.fingerprint(),
+            )? {
+                targets.insert(META_REF.to_string(), meta_oid);
+            }
+            return Ok(PreparedImport::new(
+                targets,
+                canonical_semantic(&state, signers)?,
+            ));
         };
         let materialized =
             tempfile::tempdir().context("creating pinned local database merge workspace")?;
@@ -573,6 +613,76 @@ impl HistoricalImporter for MigrationImporter<'_> {
             .context("reading allowed_signers from prepared reconciliation target")?;
         canonical_semantic(&outcome.state, allowed_signers)
     }
+}
+
+fn add_causal_baseline_metadata(
+    repository: &Path,
+    targets: &BTreeMap<String, String>,
+    checkpoint_oid: &str,
+    generation_id: &str,
+) -> Result<Option<String>> {
+    let meta_oid = targets
+        .get(META_REF)
+        .context("v3 target metadata is missing")?;
+    let bytes = git_cat_file_blob_optional(repository, &format!("{meta_oid}:hub.json"))?
+        .context("v3 target hub.json is missing")?;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&bytes).context("parsing v3 target hub.json")?;
+    let object = value
+        .as_object_mut()
+        .context("v3 target hub.json is not an object")?;
+    let has_checkpoint = object
+        .get("genesis_checkpoint_commit")
+        .is_some_and(|value| !value.is_null());
+    let has_tips = object
+        .get("seed_agent_tips")
+        .is_some_and(|value| !value.is_null());
+    match (has_checkpoint, has_tips) {
+        (true, true) => return Ok(None),
+        (false, false) => {}
+        _ => anyhow::bail!(
+            "v3 target hub.json must record both genesis_checkpoint_commit and seed_agent_tips"
+        ),
+    }
+    let tips = targets
+        .iter()
+        .filter_map(|(reference, oid)| {
+            reference
+                .strip_prefix(hub_v3::AGENT_REF_PREFIX)
+                .map(|agent| (agent.to_string(), oid.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    object.insert(
+        "genesis_checkpoint_commit".to_string(),
+        serde_json::Value::String(checkpoint_oid.to_string()),
+    );
+    object.insert(
+        "seed_agent_tips".to_string(),
+        serde_json::to_value(tips).context("serializing causal baseline agent tips")?,
+    );
+    let updated = serde_json::to_vec_pretty(&value).context("serializing causal hub metadata")?;
+    let staging_ref = format!("refs/crosslink/reconciliation/build/{generation_id}/meta-causality");
+    git_update_ref(repository, &staging_ref, meta_oid)?;
+    hub_v3::commit_blob_to_ref(
+        repository,
+        &staging_ref,
+        "hub.json",
+        &updated,
+        "crosslink reconciliation causal baseline metadata",
+    )
+    .map(Some)
+}
+
+fn read_checkpoint_target(
+    repository: &Path,
+    targets: &BTreeMap<String, String>,
+) -> Result<CheckpointState> {
+    let tip = targets
+        .get(CHECKPOINT_REF)
+        .context("v3 target checkpoint is missing")?;
+    let bytes = git_cat_file_blob_optional(repository, &format!("{tip}:state.json"))?
+        .context("v3 target checkpoint state.json is missing")?;
+    CheckpointState::from_slice(&bytes).context("reading pinned v3 checkpoint state")
 }
 
 fn read_allowed_signers(source_dir: &Path) -> Result<Option<Vec<u8>>> {
@@ -708,6 +818,8 @@ fn merge_checkpoint_states(
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("checkpoint state is not an object"))?;
         object.remove("watermark");
+        object.remove("checkpoint_schema_version");
+        object.remove("frontier");
         object.remove("compaction_lease");
         object.remove("next_display_id");
         object.remove("next_comment_id");
@@ -728,14 +840,7 @@ fn merge_checkpoint_states(
     }
     let mut state: CheckpointState = serde_json::from_value(merged)
         .context("deserializing losslessly merged checkpoint state")?;
-    state.watermark = [
-        base.watermark.clone(),
-        local.watermark.clone(),
-        remote.watermark.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .max();
+    state.activate_causal(crate::checkpoint::CausalFrontier::default());
     state.compaction_lease = None;
     repair_issue_display_ids(&mut state);
     let max_comment = state
@@ -835,6 +940,8 @@ fn canonical_semantic(
     state: &CheckpointState,
     allowed_signers: Option<Vec<u8>>,
 ) -> Result<CanonicalSemantic> {
+    let mut state = state.clone();
+    state.activate_causal(crate::checkpoint::CausalFrontier::default());
     CanonicalSemantic::from_value(serde_json::json!({
         "state": state,
         "trust": allowed_signers.map(hex::encode),
@@ -1901,7 +2008,7 @@ fn normalized_projection_state(mut state: CheckpointState) -> Result<CheckpointS
     state.skew_warnings.clear();
     state.compaction_lease = None;
     state.unsigned_event_warnings.clear();
-    state.watermark = None;
+    state.activate_causal(crate::checkpoint::CausalFrontier::default());
     for issue in state.issues.values_mut() {
         for comment in issue.comments.values_mut() {
             comment.signed_by = None;
@@ -1997,9 +2104,6 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     let next_comment_id = counters.next_comment_id.max(max_comment_id + 1);
     let next_milestone_id = counters.next_milestone_id.max(max_milestone_id + 1);
 
-    let watermark =
-        max_event_ordering_key(cache_dir)?.unwrap_or_else(hub_v3::genesis_sentinel_watermark);
-
     let mut state = CheckpointState {
         next_display_id,
         next_comment_id,
@@ -2013,7 +2117,7 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
         skew_warnings: Vec::new(),
         compaction_lease: None,
         unsigned_event_warnings: Vec::new(),
-        watermark: Some(watermark),
+        ..CheckpointState::default()
     };
     repair_issue_display_ids(&mut state);
     Ok(state)
@@ -2218,7 +2322,7 @@ fn build_genesis_from_open_database(
         skew_warnings: Vec::new(),
         compaction_lease: None,
         unsigned_event_warnings: Vec::new(),
-        watermark: Some(hub_v3::genesis_sentinel_watermark()),
+        ..CheckpointState::default()
     })
 }
 
@@ -2304,35 +2408,6 @@ fn derive_uuid(kind: &str, issue_uuid: Uuid, id: i64) -> Uuid {
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(&digest[0..16]);
     Uuid::from_bytes(bytes)
-}
-
-fn max_event_ordering_key(cache_dir: &Path) -> Result<Option<OrderingKey>> {
-    let agents_dir = cache_dir.join("agents");
-    let mut max_key: Option<OrderingKey> = None;
-    if !agents_dir.exists() {
-        return Ok(None);
-    }
-    for entry in std::fs::read_dir(&agents_dir)
-        .with_context(|| format!("failed to read agents dir {}", agents_dir.display()))?
-    {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let log_path = entry.path().join("events.log");
-        if !log_path.exists() {
-            continue;
-        }
-        let events = crate::events::read_events(&log_path)?;
-        for ev in &events {
-            let key = OrderingKey::from_envelope(ev);
-            match &max_key {
-                Some(m) if *m >= key => {}
-                _ => max_key = Some(key),
-            }
-        }
-    }
-    Ok(max_key)
 }
 
 fn merge_agent_event_logs(agent_id: &str, left: &[u8], right: &[u8]) -> Result<Vec<u8>> {
@@ -2450,7 +2525,18 @@ fn seed_v3_targets(
         targets.insert(format!("{}{agent_id}", hub_v3::AGENT_REF_PREFIX), oid);
     }
 
-    let state_bytes = serde_json::to_vec_pretty(genesis)
+    let pinned_agents = targets
+        .iter()
+        .filter_map(|(reference, oid)| {
+            reference
+                .strip_prefix(hub_v3::AGENT_REF_PREFIX)
+                .map(|agent| (agent.to_string(), oid.clone()))
+        })
+        .collect();
+    let source = RefHubSource::at_tips(repository, None, None, pinned_agents)?;
+    let mut checkpoint = genesis.clone();
+    checkpoint.activate_causal(crate::compaction::frontier_from_authority(&source)?);
+    let state_bytes = serde_json::to_vec_pretty(&checkpoint)
         .context("serializing reconciliation checkpoint state")?;
     let checkpoint_ref = format!("{build_root}/checkpoint");
     let checkpoint_oid = hub_v3::commit_blob_to_ref(
@@ -3955,9 +4041,10 @@ pub(crate) mod tests {
 
         let genesis = build_genesis_from_files(&cache_dir).unwrap();
 
-        let base = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
+        let mut base = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
             .unwrap()
             .state;
+        base.activate_causal(crate::checkpoint::CausalFrontier::default());
         assert_eq!(
             serde_json::to_value(&genesis).unwrap(),
             serde_json::to_value(&base).unwrap(),
@@ -3968,7 +4055,7 @@ pub(crate) mod tests {
         let new_uuid = Uuid::new_v4();
         let env = EventEnvelope {
             agent_id: "alpha".to_string(),
-            agent_seq: 9999,
+            agent_seq: 11,
             timestamp: Utc::now() + chrono::Duration::seconds(60),
             event: Event::IssueCreated {
                 uuid: new_uuid,
@@ -4003,6 +4090,180 @@ pub(crate) mod tests {
         );
 
         assert_eq!(after.issues.len(), genesis.issues.len() + 1);
+    }
+
+    #[test]
+    fn phase2_causality_daemon_activation_migrates_legacy_checkpoint_and_recovers_late_event() {
+        let (_work, _remote, crosslink_dir, cache_dir) = setup_v2_hub();
+        hub_v3(&crosslink_dir, false, false, false, false).unwrap();
+
+        let source = RefHubSource::new(&cache_dir).unwrap();
+        let mut legacy = compaction::reduce(&source).unwrap().state;
+        let orphan_uuid = Uuid::new_v4();
+        let mut orphan = legacy.issues.values().next().unwrap().clone();
+        orphan.uuid = orphan_uuid;
+        orphan.display_id = Some(legacy.next_display_id);
+        orphan.title = "Pre-metadata imported issue".to_string();
+        orphan.parent_uuid = None;
+        orphan.blockers.clear();
+        orphan.related.clear();
+        orphan.milestone_uuid = None;
+        orphan.comments.clear();
+        orphan.time_entries.clear();
+        legacy
+            .display_id_map
+            .insert(orphan_uuid, legacy.next_display_id);
+        legacy.next_display_id += 1;
+        legacy.issues.insert(orphan_uuid, orphan);
+        let meta_tip = rev(&cache_dir, META_REF).unwrap();
+        let meta_bytes = git_cat_file_blob_optional(&cache_dir, &format!("{meta_tip}:hub.json"))
+            .unwrap()
+            .unwrap();
+        let mut meta_value: serde_json::Value = serde_json::from_slice(&meta_bytes).unwrap();
+        let meta_object = meta_value.as_object_mut().unwrap();
+        meta_object.remove("genesis_checkpoint_commit");
+        meta_object.remove("seed_agent_tips");
+        hub_v3::commit_blob_to_ref(
+            &cache_dir,
+            META_REF,
+            "hub.json",
+            &serde_json::to_vec_pretty(&meta_value).unwrap(),
+            "pre-metadata v3 hub",
+        )
+        .unwrap();
+        run(
+            &cache_dir,
+            &[
+                "push",
+                "--force",
+                "origin",
+                &format!("{META_REF}:{META_REF}"),
+            ],
+        );
+        legacy.activate_legacy(Some(crate::events::OrderingKey {
+            timestamp: Utc::now() + chrono::Duration::days(1),
+            agent_id: "alpha".to_string(),
+            agent_seq: 10,
+        }));
+        let legacy_bytes = serde_json::to_vec_pretty(&legacy).unwrap();
+        let legacy_tip = hub_v3::commit_blob_to_ref(
+            &cache_dir,
+            CHECKPOINT_REF,
+            "state.json",
+            &legacy_bytes,
+            "legacy global watermark checkpoint",
+        )
+        .unwrap();
+        run(
+            &cache_dir,
+            &[
+                "push",
+                "--force",
+                "origin",
+                &format!("{CHECKPOINT_REF}:{CHECKPOINT_REF}"),
+            ],
+        );
+
+        let issue_uuid = Uuid::new_v4();
+        let envelope = crate::events::EventEnvelope {
+            agent_id: "alpha".to_string(),
+            agent_seq: 11,
+            timestamp: chrono::DateTime::<Utc>::UNIX_EPOCH + chrono::Duration::seconds(1),
+            event: crate::events::Event::IssueCreated {
+                uuid: issue_uuid,
+                title: "Late offline issue".to_string(),
+                description: None,
+                priority: "high".to_string(),
+                labels: vec!["offline".to_string()],
+                parent_uuid: None,
+                created_by: "alpha".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
+            },
+            signed_by: None,
+            signature: None,
+        };
+        hub_v3::append_event_to_ref(&cache_dir, "alpha", &envelope).unwrap();
+        let alpha_ref = agent_ref_name("alpha").unwrap();
+        run(
+            &cache_dir,
+            &[
+                "push",
+                "--force",
+                "origin",
+                &format!("{alpha_ref}:{alpha_ref}"),
+            ],
+        );
+
+        let report = crate::reconcile::check_repository(&crosslink_dir);
+        assert!(report.plan.actions.contains(
+            &crate::reconcile::MigrationAction::UpgradeCheckpointCausality {
+                from: 1,
+                to: crate::checkpoint::CHECKPOINT_SCHEMA_VERSION,
+            }
+        ));
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+        let lock = sync.acquire_lock().unwrap();
+        let importer = MigrationImporter {
+            crosslink_dir: &crosslink_dir,
+            cache_dir: &cache_dir,
+            hub_lock: &lock,
+            agent_id: "alpha".to_string(),
+        };
+        let failed = RepositoryReconciler::new(
+            &cache_dir,
+            crosslink_dir.join("reconciliation-journal.json"),
+            "origin",
+            &importer,
+        )
+        .with_failpoint(crate::reconcile::publication::Failpoint {
+            transition: crate::reconcile::publication::Transition::Verify,
+            position: crate::reconcile::publication::TransitionPosition::After,
+            occurrence: 1,
+        })
+        .reconcile(report.format);
+        assert!(failed.is_err());
+        let pinned_legacy = RefHubSource::new(&cache_dir)
+            .and_then(|source| source.read_checkpoint())
+            .unwrap();
+        assert!(pinned_legacy.is_legacy());
+        drop(importer);
+        drop(lock);
+        let activation = activate_repository(&crosslink_dir).unwrap();
+        assert!(
+            matches!(
+                &activation,
+                RepositoryActivation::ReadyMigrated { .. }
+                    | RepositoryActivation::ReadyAdopted { .. }
+            ),
+            "unexpected activation: {activation:?}"
+        );
+
+        let state = RefHubSource::new(&cache_dir)
+            .and_then(|source| compaction::reduce(&source).map(|outcome| outcome.state))
+            .unwrap();
+        assert_eq!(
+            state.checkpoint_schema_version,
+            crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
+        );
+        assert_eq!(state.frontier.agents["alpha"].sequence, 11);
+        assert!(state.issues.contains_key(&issue_uuid));
+        assert!(state.issues.contains_key(&orphan_uuid));
+        let meta = hub_v3::read_hub_meta(&cache_dir).unwrap().unwrap();
+        assert!(meta.genesis_checkpoint_commit.is_some());
+        assert!(meta.seed_agent_tips.is_some());
+
+        let descriptor = rev(&cache_dir, crate::reconcile::publication::GENERATION_REF).unwrap();
+        let bytes =
+            git_cat_file_blob_optional(&cache_dir, &format!("{descriptor}:generation.json"))
+                .unwrap()
+                .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            value["source"]["refs"][CHECKPOINT_REF]["authority_oid"],
+            legacy_tip
+        );
     }
 
     #[test]
@@ -4187,10 +4448,11 @@ pub(crate) mod tests {
         let cp = crate::checkpoint::read_checkpoint(&cache_dir);
         let _ = cp;
         let genesis = build_genesis_from_files(&cache_dir).unwrap();
-        assert!(
-            genesis.watermark.is_some(),
-            "no-events genesis must have a watermark"
+        assert_eq!(
+            genesis.checkpoint_schema_version,
+            crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
         );
+        assert!(genesis.frontier.is_empty());
         let reduced = crate::compaction::reduce(&RefHubSource::new(&cache_dir).unwrap())
             .unwrap()
             .state;

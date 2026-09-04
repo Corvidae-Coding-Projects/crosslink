@@ -1,14 +1,55 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use uuid::Uuid;
 
-use crate::events::OrderingKey;
+use crate::events::{EventEnvelope, OrderingKey};
+
+pub const CHECKPOINT_SCHEMA_VERSION: u32 = 2;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CausalFrontier {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agents: BTreeMap<String, AgentFrontier>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentFrontier {
+    pub sequence: u64,
+    pub tip_oid: String,
+    pub prefix_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontierRelation {
+    Equal,
+    Dominates,
+    Dominated,
+    Concurrent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum WatermarkCompatibility {
+    Legacy(OrderingKey),
+    Unsupported { unsupported_checkpoint_schema: u32 },
+}
+
+const fn legacy_schema_version() -> u32 {
+    1
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointState {
+    #[serde(default = "legacy_schema_version")]
+    pub checkpoint_schema_version: u32,
+
+    #[serde(default, skip_serializing_if = "CausalFrontier::is_empty")]
+    pub frontier: CausalFrontier,
+
     pub next_display_id: i64,
     pub next_comment_id: i64,
     pub display_id_map: BTreeMap<Uuid, i64>,
@@ -33,8 +74,8 @@ pub struct CheckpointState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsigned_event_warnings: Vec<UnsignedEventWarning>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub watermark: Option<OrderingKey>,
+    #[serde(default, rename = "watermark", skip_serializing_if = "Option::is_none")]
+    pub(crate) legacy_watermark: Option<WatermarkCompatibility>,
 }
 
 const fn default_next_id() -> i64 {
@@ -44,6 +85,8 @@ const fn default_next_id() -> i64 {
 impl Default for CheckpointState {
     fn default() -> Self {
         Self {
+            checkpoint_schema_version: CHECKPOINT_SCHEMA_VERSION,
+            frontier: CausalFrontier::default(),
             next_display_id: 1,
             next_comment_id: 1,
             display_id_map: BTreeMap::new(),
@@ -56,9 +99,50 @@ impl Default for CheckpointState {
             skew_warnings: Vec::new(),
             compaction_lease: None,
             unsigned_event_warnings: Vec::new(),
-            watermark: None,
+            legacy_watermark: Some(WatermarkCompatibility::Unsupported {
+                unsupported_checkpoint_schema: CHECKPOINT_SCHEMA_VERSION,
+            }),
         }
     }
+}
+
+impl CausalFrontier {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.agents.is_empty()
+    }
+
+    #[must_use]
+    pub fn relation(&self, other: &Self) -> FrontierRelation {
+        let mut greater = false;
+        let mut less = false;
+        let ids: BTreeSet<_> = self.agents.keys().chain(other.agents.keys()).collect();
+        for id in ids {
+            let left = self.agents.get(id).map_or(0, |entry| entry.sequence);
+            let right = other.agents.get(id).map_or(0, |entry| entry.sequence);
+            greater |= left > right;
+            less |= left < right;
+        }
+        match (greater, less) {
+            (false, false) => FrontierRelation::Equal,
+            (true, false) => FrontierRelation::Dominates,
+            (false, true) => FrontierRelation::Dominated,
+            (true, true) => FrontierRelation::Concurrent,
+        }
+    }
+}
+
+pub fn event_prefix_sha256(events: &[EventEnvelope], sequence: u64) -> Result<String> {
+    let mut hasher = Sha256::new();
+    for event in events
+        .iter()
+        .take_while(|event| event.agent_seq <= sequence)
+    {
+        let bytes = serde_json::to_vec(event).context("failed to hash event envelope")?;
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,7 +264,60 @@ pub struct UnsignedEventWarning {
 impl CheckpointState {
     #[allow(dead_code)]
     pub fn from_slice(bytes: &[u8]) -> Result<Self> {
-        serde_json::from_slice(bytes).context("Failed to parse checkpoint state from bytes")
+        let state: Self =
+            serde_json::from_slice(bytes).context("Failed to parse checkpoint state from bytes")?;
+        state.validate_schema()?;
+        Ok(state)
+    }
+
+    pub fn validate_schema(&self) -> Result<()> {
+        match self.checkpoint_schema_version {
+            1 => match &self.legacy_watermark {
+                None | Some(WatermarkCompatibility::Legacy(_)) => Ok(()),
+                Some(WatermarkCompatibility::Unsupported { .. }) => {
+                    anyhow::bail!("legacy checkpoint contains a causal schema guard")
+                }
+            },
+            CHECKPOINT_SCHEMA_VERSION => match &self.legacy_watermark {
+                Some(WatermarkCompatibility::Unsupported {
+                    unsupported_checkpoint_schema,
+                }) if *unsupported_checkpoint_schema == CHECKPOINT_SCHEMA_VERSION => Ok(()),
+                _ => anyhow::bail!(
+                    "checkpoint schema {CHECKPOINT_SCHEMA_VERSION} is missing its fail-closed compatibility guard"
+                ),
+            },
+            version if version > CHECKPOINT_SCHEMA_VERSION => anyhow::bail!(
+                "unsupported checkpoint schema version {version}; this binary supports through version {CHECKPOINT_SCHEMA_VERSION}"
+            ),
+            version => anyhow::bail!("unsupported checkpoint schema version {version}"),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_legacy(&self) -> bool {
+        self.checkpoint_schema_version == 1
+    }
+
+    #[must_use]
+    pub const fn legacy_watermark(&self) -> Option<&OrderingKey> {
+        match &self.legacy_watermark {
+            Some(WatermarkCompatibility::Legacy(watermark)) => Some(watermark),
+            None | Some(WatermarkCompatibility::Unsupported { .. }) => None,
+        }
+    }
+
+    pub fn activate_causal(&mut self, frontier: CausalFrontier) {
+        self.checkpoint_schema_version = CHECKPOINT_SCHEMA_VERSION;
+        self.frontier = frontier;
+        self.legacy_watermark = Some(WatermarkCompatibility::Unsupported {
+            unsupported_checkpoint_schema: CHECKPOINT_SCHEMA_VERSION,
+        });
+    }
+
+    pub(crate) fn activate_legacy(&mut self, watermark: Option<OrderingKey>) {
+        self.checkpoint_schema_version = 1;
+        self.frontier = CausalFrontier::default();
+        self.legacy_watermark = watermark.map(WatermarkCompatibility::Legacy);
     }
 }
 
@@ -198,11 +335,12 @@ pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
     }
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read checkpoint: {}", path.display()))?;
-    serde_json::from_str(&content)
+    CheckpointState::from_slice(content.as_bytes())
         .with_context(|| format!("Failed to parse checkpoint: {}", path.display()))
 }
 
 pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()> {
+    state.validate_schema()?;
     let dir = checkpoint_dir(cache_dir);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create checkpoint dir: {}", dir.display()))?;
@@ -212,9 +350,13 @@ pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()>
 }
 
 pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
+    let state_path = checkpoint_dir(cache_dir).join(CHECKPOINT_FILE);
     let state = read_checkpoint(cache_dir)?;
-    if state.watermark.is_some() {
-        return Ok(state.watermark);
+    if state.legacy_watermark().is_some() {
+        return Ok(state.legacy_watermark().cloned());
+    }
+    if state_path.exists() && !state.is_legacy() {
+        return Ok(None);
     }
 
     let path = checkpoint_dir(cache_dir).join(WATERMARK_FILE);
@@ -231,13 +373,66 @@ pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
 #[cfg(test)]
 pub(crate) fn write_watermark(cache_dir: &Path, key: &OrderingKey) -> Result<()> {
     let mut state = read_checkpoint(cache_dir)?;
-    state.watermark = Some(key.clone());
+    state.activate_legacy(Some(key.clone()));
     write_checkpoint(cache_dir, &state)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Deserialize)]
+    struct LegacyCheckpointReader {
+        watermark: Option<OrderingKey>,
+    }
+
+    #[test]
+    fn phase2_causality_current_checkpoint_fails_closed_in_legacy_reader() {
+        let bytes = serde_json::to_vec(&CheckpointState::default()).unwrap();
+        assert!(serde_json::from_slice::<LegacyCheckpointReader>(&bytes).is_err());
+        let legacy =
+            br#"{"watermark":{"timestamp":"2026-01-01T00:00:00Z","agent_id":"a","agent_seq":1}}"#;
+        assert_eq!(
+            serde_json::from_slice::<LegacyCheckpointReader>(legacy)
+                .unwrap()
+                .watermark
+                .unwrap()
+                .agent_seq,
+            1
+        );
+    }
+
+    #[test]
+    fn phase2_causality_legacy_and_future_schema_detection_is_explicit() {
+        let legacy = br#"{"next_display_id":1,"next_comment_id":1,"display_id_map":{},"locks":{},"issues":{},"watermark":{"timestamp":"2026-01-01T00:00:00Z","agent_id":"a","agent_seq":1}}"#;
+        let state = CheckpointState::from_slice(legacy).unwrap();
+        assert!(state.is_legacy());
+        let future = br#"{"checkpoint_schema_version":3,"next_display_id":1,"next_comment_id":1,"display_id_map":{},"locks":{},"issues":{},"watermark":{"unsupported_checkpoint_schema":3}}"#;
+        let error = CheckpointState::from_slice(future).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unsupported checkpoint schema version 3"));
+    }
+
+    #[test]
+    fn phase2_causality_frontier_relation_is_componentwise() {
+        let entry = |sequence| AgentFrontier {
+            sequence,
+            tip_oid: format!("tip-{sequence}"),
+            prefix_sha256: format!("hash-{sequence}"),
+        };
+        let mut left = CausalFrontier::default();
+        left.agents.insert("a".to_string(), entry(2));
+        left.agents.insert("b".to_string(), entry(1));
+        let mut right = CausalFrontier::default();
+        right.agents.insert("a".to_string(), entry(1));
+        right.agents.insert("b".to_string(), entry(2));
+        assert_eq!(left.relation(&right), FrontierRelation::Concurrent);
+        right.agents.insert("a".to_string(), entry(2));
+        assert_eq!(right.relation(&left), FrontierRelation::Dominates);
+        assert_eq!(left.relation(&right), FrontierRelation::Dominated);
+        assert_eq!(right.relation(&right), FrontierRelation::Equal);
+    }
 
     #[test]
     fn test_default_checkpoint_state() {
@@ -398,8 +593,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path();
 
-        let state = CheckpointState::default();
-        assert!(state.watermark.is_none());
+        let mut state = CheckpointState::default();
+        state.activate_legacy(None);
+        assert!(state.legacy_watermark().is_none());
         write_checkpoint(cache_dir, &state).unwrap();
 
         let checkpoint_dir = cache_dir.join("checkpoint");

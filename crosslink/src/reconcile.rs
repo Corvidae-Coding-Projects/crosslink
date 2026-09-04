@@ -98,6 +98,7 @@ pub enum MigrationAction {
     ImportV2,
     RenameHiddenV3Refs,
     ResolveMixedSharedStore,
+    UpgradeCheckpointCausality { from: u32, to: u32 },
     EstablishReconciliationGeneration,
     ResumeReconciliation,
 }
@@ -199,6 +200,23 @@ fn plan_repository_reconciliation(
     if !matches!(format.shared_store, SharedStoreFormat::VisibleV3 { .. }) {
         return plan;
     }
+    match detect_checkpoint_schema(repository_root) {
+        Ok(version) if version < crate::checkpoint::CHECKPOINT_SCHEMA_VERSION => {
+            plan.actions
+                .push(MigrationAction::UpgradeCheckpointCausality {
+                    from: version,
+                    to: crate::checkpoint::CHECKPOINT_SCHEMA_VERSION,
+                });
+        }
+        Ok(version) if version == crate::checkpoint::CHECKPOINT_SCHEMA_VERSION => {}
+        Ok(version) => plan.blockers.push(format!(
+            "checkpoint schema {version} is newer than supported schema {}",
+            crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
+        )),
+        Err(error) => plan
+            .blockers
+            .push(format!("checkpoint schema is unreadable: {error:#}")),
+    }
     if crosslink_dir.join("reconciliation-journal.json").exists() {
         plan.actions.push(MigrationAction::ResumeReconciliation);
     } else {
@@ -222,6 +240,32 @@ fn plan_repository_reconciliation(
         ReadinessState::BlockedCorrupt
     };
     plan
+}
+
+pub(crate) fn detect_checkpoint_schema(repository_root: &Path) -> Result<u32> {
+    let tip = match crate::hub_v3::git_rev_parse_optional(
+        repository_root,
+        crate::hub_v3::CHECKPOINT_REF,
+    )? {
+        Some(tip) => Some(tip),
+        None => crate::hub_v3::git_rev_parse_optional(repository_root, HIDDEN_CHECKPOINT_REF)?,
+    };
+    let Some(tip) = tip else {
+        anyhow::bail!("checkpoint ref is missing");
+    };
+    let spec = format!("{tip}:state.json");
+    let bytes = crate::hub_v3::git_cat_file_blob_optional(repository_root, &spec)?
+        .context("checkpoint state.json is missing")?;
+    let value: Value = serde_json::from_slice(&bytes).context("checkpoint state is not JSON")?;
+    let version = value
+        .get("checkpoint_schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let version = u32::try_from(version).context("checkpoint schema version exceeds u32")?;
+    if version <= crate::checkpoint::CHECKPOINT_SCHEMA_VERSION {
+        crate::checkpoint::CheckpointState::from_slice(&bytes)?;
+    }
+    Ok(version)
 }
 
 #[must_use]
@@ -546,6 +590,7 @@ mod tests {
     #[derive(Deserialize)]
     struct FixtureManifest {
         sqlite: Vec<SqliteFixture>,
+        checkpoint: Vec<CheckpointFixture>,
         git: Vec<GitFixture>,
     }
 
@@ -560,6 +605,13 @@ mod tests {
     struct GitFixture {
         file: String,
         expected_kind: String,
+    }
+
+    #[derive(Deserialize)]
+    struct CheckpointFixture {
+        file: String,
+        version: u32,
+        valid: bool,
     }
 
     fn refs(names: &[&str]) -> BTreeSet<String> {
@@ -733,6 +785,31 @@ mod tests {
                 "mixed",
             ])
         );
+    }
+
+    #[test]
+    fn immutable_checkpoint_fixtures_cover_legacy_current_and_fail_closed_schemas() {
+        let manifest = fixture_manifest();
+        let root = fixture_root();
+        let mut versions = BTreeSet::new();
+        let mut validity = BTreeSet::new();
+        for fixture in manifest.checkpoint {
+            let bytes = std::fs::read(root.join(&fixture.file)).unwrap();
+            let value: Value = serde_json::from_slice(&bytes).unwrap();
+            let version = value
+                .get("checkpoint_schema_version")
+                .and_then(Value::as_u64)
+                .unwrap_or(1) as u32;
+            assert_eq!(version, fixture.version);
+            assert_eq!(
+                crate::checkpoint::CheckpointState::from_slice(&bytes).is_ok(),
+                fixture.valid
+            );
+            versions.insert(version);
+            validity.insert(fixture.valid);
+        }
+        assert_eq!(versions, BTreeSet::from([1, 2, 3]));
+        assert_eq!(validity, BTreeSet::from([false, true]));
     }
 
     #[test]

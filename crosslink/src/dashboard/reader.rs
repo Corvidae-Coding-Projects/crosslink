@@ -199,16 +199,11 @@ fn read_snapshot_v3(
 }
 
 fn read_checkpoint_state(repo_dir: &Path) -> Result<crate::checkpoint::CheckpointState> {
-    let Some(tip) = crate::hub_v3::git_rev_parse_optional(repo_dir, crate::hub_v3::CHECKPOINT_REF)?
-    else {
-        return Ok(crate::checkpoint::CheckpointState::default());
-    };
-    let spec = format!("{tip}:state.json");
-    let Some(bytes) = crate::hub_v3::git_cat_file_blob_optional(repo_dir, &spec)? else {
-        return Ok(crate::checkpoint::CheckpointState::default());
-    };
-    crate::checkpoint::CheckpointState::from_slice(&bytes)
-        .context("failed to parse v3 checkpoint state.json for dashboard snapshot")
+    let source = crate::hub_source::RefHubSource::new(repo_dir)
+        .context("failed to pin v3 refs for dashboard snapshot")?;
+    Ok(crate::compaction::reduce(&source)
+        .context("failed to verify and reduce v3 checkpoint for dashboard snapshot")?
+        .state)
 }
 
 fn compact_issue_to_file(issue: &crate::checkpoint::CompactIssue) -> crate::issue_file::IssueFile {

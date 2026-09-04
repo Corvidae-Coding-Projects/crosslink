@@ -322,7 +322,7 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
     }
 
     #[cfg(test)]
-    fn with_failpoint(mut self, failpoint: Failpoint) -> Self {
+    pub(crate) fn with_failpoint(mut self, failpoint: Failpoint) -> Self {
         self.failure = FailureController::new(Some(failpoint));
         self
     }
@@ -1321,6 +1321,19 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         else {
             return Ok(None);
         };
+        if matches!(
+            observed_format.shared_store,
+            SharedStoreFormat::VisibleV3 { .. } | SharedStoreFormat::HiddenV3 { .. }
+        ) {
+            let checkpoint_schema = super::detect_checkpoint_schema(self.repository)?;
+            if checkpoint_schema < crate::checkpoint::CHECKPOINT_SCHEMA_VERSION {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                checkpoint_schema == crate::checkpoint::CHECKPOINT_SCHEMA_VERSION,
+                "checkpoint schema {checkpoint_schema} is unsupported"
+            );
+        }
         for _ in 0..8 {
             fetch_oid(self.repository, self.remote, &descriptor_oid)?;
             let descriptor = read_descriptor(self.repository, &descriptor_oid)?;
@@ -1412,6 +1425,37 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
             ));
         }
         let mut advanced = false;
+        let winner_checkpoint = &winner.targets[crate::hub_v3::CHECKPOINT_REF].oid;
+        let proposed_checkpoint = &proposed.targets[crate::hub_v3::CHECKPOINT_REF].oid;
+        if winner_checkpoint != proposed_checkpoint
+            && is_ancestor(self.repository, winner_checkpoint, proposed_checkpoint)?
+        {
+            let winner_schema = checkpoint_schema_at_commit(self.repository, winner_checkpoint)?;
+            let proposed_schema =
+                checkpoint_schema_at_commit(self.repository, proposed_checkpoint)?;
+            if winner_schema < crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
+                && proposed_schema == crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
+            {
+                advanced = true;
+            }
+        }
+        let source_checkpoint = proposed
+            .source
+            .refs
+            .get(crate::hub_v3::CHECKPOINT_REF)
+            .or_else(|| proposed.source.refs.get(crate::hub_v3::OLD_CHECKPOINT_REF));
+        if let Some(source_checkpoint) = source_checkpoint {
+            let source_schema =
+                checkpoint_schema_at_commit(self.repository, &source_checkpoint.oid)?;
+            let proposed_schema =
+                checkpoint_schema_at_commit(self.repository, proposed_checkpoint)?;
+            if source_schema < crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
+                && proposed_schema == crate::checkpoint::CHECKPOINT_SCHEMA_VERSION
+                && is_ancestor(self.repository, &source_checkpoint.oid, proposed_checkpoint)?
+            {
+                advanced = true;
+            }
+        }
         for (name, winner_evidence) in &winner.source.refs {
             if !is_retired_source_ref(name) {
                 continue;
@@ -1932,11 +1976,15 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         if has_unrecorded_legacy_source(source, observed_format) {
             return Ok(false);
         }
-        if !matches!(observed_format.local_database, LocalDatabaseFormat::Missing) {
-            let observed = self.pin_source(observed_format.clone()).with_context(|| {
+        let observed = if matches!(observed_format.local_database, LocalDatabaseFormat::Missing) {
+            None
+        } else {
+            Some(self.pin_source(observed_format.clone()).with_context(|| {
                 format!("pinning observed repository format {observed_format:?}")
-            })?;
-            if observed.refs.contains_key("local/issues.db")
+            })?)
+        };
+        if let Some(current) = &observed {
+            if current.refs.contains_key("local/issues.db")
                 && !source.refs.contains_key("local/issues.db")
             {
                 return Ok(false);
@@ -1957,21 +2005,32 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                 return Ok(true);
             }
         }
-        let current = self.pin_source(source.format.clone())?;
+        let current = match observed {
+            Some(current) => current,
+            None => self.pin_source(observed_format.clone())?,
+        };
         let local_projection_consumed = source.refs.contains_key("local/issues.db")
             && !current.refs.contains_key("local/issues.db");
-        if current.format.shared_store != source.format.shared_store
+        let visible_v3_evolved = matches!(
+            (&source.format.shared_store, &current.format.shared_store),
+            (
+                SharedStoreFormat::VisibleV3 { .. },
+                SharedStoreFormat::VisibleV3 { .. }
+            )
+        );
+        if (!visible_v3_evolved && current.format.shared_store != source.format.shared_store)
             || (!local_projection_consumed
                 && (current.format.local_database != source.format.local_database
                     || current.local_fingerprint != source.local_fingerprint))
-            || current
-                .refs
-                .keys()
-                .filter(|name| name.as_str() != "local/issues.db")
-                .ne(source
+            || (!visible_v3_evolved
+                && current
                     .refs
                     .keys()
-                    .filter(|name| name.as_str() != "local/issues.db"))
+                    .filter(|name| name.as_str() != "local/issues.db")
+                    .ne(source
+                        .refs
+                        .keys()
+                        .filter(|name| name.as_str() != "local/issues.db")))
             || (!local_projection_consumed
                 && current.refs.contains_key("local/issues.db")
                     != source.refs.contains_key("local/issues.db"))
@@ -2003,6 +2062,27 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         }
         Ok(true)
     }
+}
+
+fn checkpoint_schema_at_commit(repository: &Path, commit: &str) -> Result<u32> {
+    let spec = format!("{commit}:state.json");
+    let output = Command::new("git")
+        .current_dir(repository)
+        .args(["cat-file", "blob", &spec])
+        .output()
+        .with_context(|| format!("reading checkpoint state at {commit}"))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "checkpoint state at {commit} is unavailable: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("checkpoint state at {commit} is invalid JSON"))?;
+    let version = value
+        .get("checkpoint_schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    u32::try_from(version).context("checkpoint schema version exceeds u32")
 }
 
 fn has_unrecorded_legacy_source(

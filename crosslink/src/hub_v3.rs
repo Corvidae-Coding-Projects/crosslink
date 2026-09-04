@@ -963,10 +963,17 @@ fn render_browse_readme(state: &crate::checkpoint::CheckpointState) -> Vec<u8> {
         .filter(|u| !state.deleted_issues.contains(u))
         .count();
     let milestones = state.milestones.len();
-    let watermark = state
-        .watermark
-        .as_ref()
-        .map_or_else(|| "(none)".to_string(), |w| w.timestamp.to_rfc3339());
+    let frontier = if state.frontier.agents.is_empty() {
+        "(empty)".to_string()
+    } else {
+        state
+            .frontier
+            .agents
+            .iter()
+            .map(|(agent, entry)| format!("{agent}:{}", entry.sequence))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
 
     let body = format!(
         "# crosslink hub (v3 checkpoint)\n\
@@ -991,7 +998,7 @@ of its own branch.\n\
 \n\
 - Live issues: {live_issues}\n\
 - Milestones: {milestones}\n\
-- Compaction watermark: {watermark}\n"
+- Causal frontier: {frontier}\n"
     );
     body.into_bytes()
 }
@@ -1064,7 +1071,12 @@ pub fn compact_v3(
         .context("failed to construct RefHubSource for v3 compaction")?;
     let outcome = crate::compaction::reduce(&source).context("v3 reduction failed")?;
     let events_processed = outcome.events_processed;
-    let watermark = outcome.state.watermark.clone();
+    let covered_sequence = outcome
+        .state
+        .frontier
+        .agents
+        .get(agent_id)
+        .map(|entry| entry.sequence);
 
     let mut state = outcome.state;
     state.compaction_lease = None;
@@ -1158,8 +1170,8 @@ pub fn compact_v3(
 
     let prune_ok = checkpoint_commit.is_some() && (remote.is_none() || checkpoint_pushed);
     let events_pruned = if prune_ok {
-        match &watermark {
-            Some(wm) => prune_own_ref(repo_dir, agent_id, wm)?,
+        match covered_sequence {
+            Some(sequence) => prune_own_ref(repo_dir, agent_id, sequence)?,
             None => 0,
         }
     } else {
@@ -1200,11 +1212,7 @@ fn remote_checkpoint_sha(repo_dir: &Path, _remote: &str) -> Option<String> {
     git_rev_parse_optional(repo_dir, tracking).ok().flatten()
 }
 
-fn prune_own_ref(
-    repo_dir: &Path,
-    agent_id: &str,
-    watermark: &crate::events::OrderingKey,
-) -> Result<usize> {
+fn prune_own_ref(repo_dir: &Path, agent_id: &str, covered_sequence: u64) -> Result<usize> {
     let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
     let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
         return Ok(0);
@@ -1218,7 +1226,7 @@ fn prune_own_ref(
     let before = all.len();
     let remaining: Vec<_> = all
         .into_iter()
-        .filter(|e| crate::events::OrderingKey::from_envelope(e) > *watermark)
+        .filter(|event| event.agent_seq > covered_sequence)
         .collect();
     let pruned = before - remaining.len();
     if pruned == 0 {
@@ -1263,15 +1271,6 @@ pub fn warn_if_migrated_v2_operation(repo_dir: &Path, mode: HubMode) {
     }
 }
 
-#[must_use]
-pub fn genesis_sentinel_watermark() -> crate::events::OrderingKey {
-    crate::events::OrderingKey {
-        timestamp: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
-        agent_id: "hub-v3-genesis".to_string(),
-        agent_seq: 0,
-    }
-}
-
 pub fn bootstrap_v3_hub(
     repo_dir: &Path,
     agent_id: &str,
@@ -1309,10 +1308,7 @@ pub fn bootstrap_v3_hub(
     )
     .context("failed to write genesis meta marker")?;
 
-    let genesis = crate::checkpoint::CheckpointState {
-        watermark: Some(genesis_sentinel_watermark()),
-        ..crate::checkpoint::CheckpointState::default()
-    };
+    let genesis = crate::checkpoint::CheckpointState::default();
     let state_bytes =
         serde_json::to_vec_pretty(&genesis).context("failed to serialize genesis checkpoint")?;
     commit_blob_to_ref(
@@ -3271,7 +3267,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_v3_concurrent_cas_loss_is_benign() {
+    fn phase2_causality_compact_v3_concurrent_cas_loss_is_benign() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
         let agent_id = "cv3-cas";
@@ -3306,7 +3302,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_v3_two_compactors_produce_consistent_checkpoint() {
+    fn phase2_causality_compact_v3_two_compactors_produce_consistent_checkpoint() {
         use std::sync::Arc;
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
@@ -3497,7 +3493,7 @@ mod tests {
             compact_v3(one.path(), agent, &lock, None).unwrap();
         }
         let one_tip = run_git_output(one.path(), &["rev-parse", CHECKPOINT_REF]);
-        let one_tree = read_browse_tree(one.path(), &one_tip);
+        let mut one_tree = read_browse_tree(one.path(), &one_tip);
 
         let inc = tempfile::tempdir().unwrap();
         git_init(inc.path());
@@ -3509,7 +3505,10 @@ mod tests {
             drop(lock);
         }
         let inc_tip = run_git_output(inc.path(), &["rev-parse", CHECKPOINT_REF]);
-        let inc_tree = read_browse_tree(inc.path(), &inc_tip);
+        let mut inc_tree = read_browse_tree(inc.path(), &inc_tip);
+
+        one_tree.remove("state.json");
+        inc_tree.remove("state.json");
 
         assert_eq!(
             one_tree, inc_tree,

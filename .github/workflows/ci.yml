@@ -182,7 +182,8 @@ jobs:
             "commands::kickoff::",
             "dashboard::pty::tests",
             "git_compat::",
-            "orchestrator::decompose::"
+            "orchestrator::decompose::",
+            "phase2_causality"
           )
           foreach ($filter in $filters) {
             cargo test --bin crosslink --verbose $filter -- --skip proptest --skip prop_
@@ -199,7 +200,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run integration tests
-        if: matrix.os != 'windows-latest'
+        if: matrix.os == 'ubuntu-latest'
         run: cargo test --test cli_integration --verbose
 
       - name: Run bounded repository readiness integration tests
@@ -214,6 +215,84 @@ jobs:
         run: cargo test --test provider_readiness_wire --verbose
 
 
+  macos-cli:
+    needs: lint
+    name: macOS CLI (${{ matrix.shard }})
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      CLI_TEST_FILTERS: >-
+        test_a test_b test_c test_d test_e test_f test_g test_h test_i test_j test_k test_l
+        test_m test_n test_o test_p test_q test_r test_search test_security test_sentinel
+        test_session test_show test_special test_sql test_start test_stop test_stress_deep_nesting
+        test_stress_many_issues test_stress_rapid_operations test_stress_very_long_description
+        test_stress_very_long_title test_subissue test_t test_u test_v test_w test_x test_y test_z
+    defaults:
+      run:
+        working-directory: crosslink
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: a-l
+            filters: test_a test_b test_c test_d test_e test_f test_g test_h test_i test_j test_k test_l
+          - shard: m-z
+            filters: test_m test_n test_o test_p test_q test_r test_search test_security test_sentinel test_session test_show test_special test_sql test_start test_stop test_subissue test_t test_u test_v test_w test_x test_y test_z
+          - shard: stress
+            filters: test_stress_deep_nesting test_stress_many_issues test_stress_rapid_operations test_stress_very_long_description test_stress_very_long_title
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Verify complete shard partition
+        shell: bash
+        run: |
+          listed="$(cargo test --test cli_integration -- --list)"
+          tests="$(printf '%s\n' "$listed" | sed -n 's/: test$//p')"
+          test_count=0
+          invalid=""
+          for test_name in $tests; do
+            test_count=$((test_count + 1))
+            match_count=0
+            matches=""
+            for filter in $CLI_TEST_FILTERS; do
+              case "$test_name" in
+                *"$filter"*)
+                  match_count=$((match_count + 1))
+                  matches="$matches $filter"
+                  ;;
+              esac
+            done
+            if [ "$match_count" -ne 1 ]; then
+              invalid="$invalid $test_name=$matches;"
+            fi
+          done
+          if [ "$test_count" -eq 0 ] || [ -n "$invalid" ]; then
+            echo "CLI test partition is incomplete or overlapping:$invalid" >&2
+            exit 1
+          fi
+
+      - name: Run CLI shard
+        shell: bash
+        run: |
+          for filter in ${{ matrix.filters }}; do
+            cargo test --test cli_integration --verbose "$filter"
+          done
+
+
   windows-cli:
     needs: lint
     name: Windows CLI (${{ matrix.shard }})
@@ -224,8 +303,12 @@ jobs:
         test_a test_b test_c test_d test_e test_f test_g test_h test_i test_j test_k test_l
         test_m test_n test_o test_p test_q test_r test_search test_security test_sentinel
         test_session test_show test_special test_sql test_start test_stop test_stress_deep_nesting
-        test_stress_many_issues test_stress_rapid_operations test_stress_very_long_description
-        test_stress_very_long_title test_subissue
+        test_stress_many_issues_000_019 test_stress_many_issues_020_039
+        test_stress_many_issues_040_059 test_stress_many_issues_060_079
+        test_stress_many_issues_080_099 test_stress_rapid_operations_000_003
+        test_stress_rapid_operations_004_007 test_stress_rapid_operations_008_011
+        test_stress_rapid_operations_012_015 test_stress_rapid_operations_016_019
+        test_stress_very_long_description test_stress_very_long_title test_subissue
         test_t test_u test_v test_w test_x test_y test_z
     defaults:
       run:
@@ -242,10 +325,30 @@ jobs:
             prefixes: test_m test_n test_o test_p test_q test_r
           - shard: s-core
             prefixes: test_search test_security test_sentinel test_session test_show test_special test_sql test_start test_stop
-          - shard: s-stress-create
-            prefixes: test_stress_many_issues test_stress_very_long_description test_stress_very_long_title
-          - shard: s-stress-rapid
-            prefixes: test_stress_rapid_operations
+          - shard: s-stress-many-000-019
+            prefixes: test_stress_many_issues_000_019
+          - shard: s-stress-many-020-039
+            prefixes: test_stress_many_issues_020_039
+          - shard: s-stress-many-040-059
+            prefixes: test_stress_many_issues_040_059
+          - shard: s-stress-many-060-079
+            prefixes: test_stress_many_issues_060_079
+          - shard: s-stress-many-080-099
+            prefixes: test_stress_many_issues_080_099
+          - shard: s-stress-rapid-000-003
+            prefixes: test_stress_rapid_operations_000_003
+          - shard: s-stress-rapid-004-007
+            prefixes: test_stress_rapid_operations_004_007
+          - shard: s-stress-rapid-008-011
+            prefixes: test_stress_rapid_operations_008_011
+          - shard: s-stress-rapid-012-015
+            prefixes: test_stress_rapid_operations_012_015
+          - shard: s-stress-rapid-016-019
+            prefixes: test_stress_rapid_operations_016_019
+          - shard: s-stress-long-description
+            prefixes: test_stress_very_long_description
+          - shard: s-stress-long-title
+            prefixes: test_stress_very_long_title
           - shard: s-stress-tree
             prefixes: test_stress_deep_nesting test_subissue
           - shard: t-z
@@ -368,7 +471,7 @@ jobs:
 
 
   proptest:
-    needs: [test, windows-cli, windows-readiness]
+    needs: [test, macos-cli, windows-cli, windows-readiness]
     name: Property Tests
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
@@ -401,7 +504,7 @@ jobs:
 
 
   fuzz:
-    needs: [test, windows-cli, windows-readiness]
+    needs: [test, macos-cli, windows-cli, windows-readiness]
     name: Fuzz Tests
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')

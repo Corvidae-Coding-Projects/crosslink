@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use super::types::*;
 
@@ -449,6 +450,31 @@ pub(crate) fn command_available(cmd: &str) -> bool {
     let lookup = Command::new("which").arg(cmd).output();
 
     lookup.is_ok_and(|o| o.status.success())
+}
+
+pub(super) fn command_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Option<Output> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
 }
 
 pub(super) fn detect_platform() -> Platform {
