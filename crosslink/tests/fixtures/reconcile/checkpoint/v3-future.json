@@ -1,0 +1,11 @@
+{
+  "checkpoint_schema_version": 3,
+  "next_display_id": 1,
+  "next_comment_id": 1,
+  "display_id_map": {},
+  "locks": {},
+  "issues": {},
+  "watermark": {
+    "unsupported_checkpoint_schema": 3
+  }
+}

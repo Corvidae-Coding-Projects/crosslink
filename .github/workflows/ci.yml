@@ -182,7 +182,8 @@ jobs:
             "commands::kickoff::",
             "dashboard::pty::tests",
             "git_compat::",
-            "orchestrator::decompose::"
+            "orchestrator::decompose::",
+            "phase2_causality"
           )
           foreach ($filter in $filters) {
             cargo test --bin crosslink --verbose $filter -- --skip proptest --skip prop_

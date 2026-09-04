@@ -156,7 +156,7 @@ refs/heads/crosslink/agents/{agent-id}
   └─ events.log          ← one append-only stream per writer
 
 refs/heads/crosslink/checkpoint
-  └─ state.json          ← reduced projection state
+  └─ state.json          ← versioned reduced state plus per-agent causal frontier
 
 refs/heads/crosslink/meta
   └─ trust and format metadata
@@ -167,6 +167,15 @@ crosslink/knowledge      ← shared research (orphan branch)
   └─ pages/
       └─ {slug}.md       ← knowledge pages with YAML frontmatter
 ```
+
+Each causal-frontier entry records the highest contiguous sequence applied for
+one agent, the pinned Git tip that proves the prefix, and a digest of the event
+prefix. Reduction selects unseen events independently per agent before applying
+the deterministic total order used for conflict resolution. Checkpoints are
+adopted only when a verified frontier dominates the local frontier; concurrent
+frontiers are recomputed from pinned authority. Daemon reconciliation upgrades
+legacy global-watermark checkpoints from their recorded genesis snapshot and
+complete agent histories before publishing the replacement schema.
 
 ## Command Modules (src/commands/)
 

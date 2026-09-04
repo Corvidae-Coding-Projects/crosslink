@@ -143,17 +143,37 @@ fn init_crosslink_unready(dir: &std::path::Path) {
 }
 
 fn add_current_reconcile_refs(dir: &std::path::Path) {
-    for ref_name in [
-        "refs/heads/crosslink/meta",
-        "refs/heads/crosslink/checkpoint",
-    ] {
-        let output = Command::new("git")
-            .current_dir(dir)
-            .args(["update-ref", ref_name, "HEAD"])
-            .output()
-            .unwrap();
-        assert!(output.status.success());
-    }
+    let checkpoint = crosslink::checkpoint::CheckpointState::default();
+    crosslink::hub_v3::commit_blob_to_ref(
+        dir,
+        crosslink::hub_v3::CHECKPOINT_REF,
+        "state.json",
+        &serde_json::to_vec_pretty(&checkpoint).unwrap(),
+        "test checkpoint",
+    )
+    .unwrap();
+    let head = Command::new("git")
+        .current_dir(dir)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    let meta = crosslink::hub_v3::HubMeta {
+        hub_version: 3,
+        migrated_from_commit: String::from_utf8(head.stdout).unwrap().trim().to_string(),
+        migrated_at: chrono::Utc::now(),
+        finalized_at: None,
+        genesis_checkpoint_commit: None,
+        seed_agent_tips: None,
+    };
+    crosslink::hub_v3::commit_blob_to_ref(
+        dir,
+        crosslink::hub_v3::META_REF,
+        "hub.json",
+        &serde_json::to_vec_pretty(&meta).unwrap(),
+        "test hub metadata",
+    )
+    .unwrap();
 }
 
 #[test]

@@ -1,17 +1,18 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::checkpoint::{
-    read_watermark, write_checkpoint, CheckpointState, CompactComment, CompactIssue,
-    CompactMilestone, CompactTimeEntry, LockEntry, SkewWarning, UnsignedEventWarning,
+    event_prefix_sha256, read_watermark, write_checkpoint, AgentFrontier, CausalFrontier,
+    CheckpointState, CompactComment, CompactIssue, CompactMilestone, CompactTimeEntry, LockEntry,
+    SkewWarning, UnsignedEventWarning,
 };
 use crate::events::{Event, EventEnvelope, OrderingKey};
-use crate::hub_source::{HubSource, WorktreeSource};
+use crate::hub_source::{AgentHistory, HubSource, WorktreeSource};
 use crate::issue_file::{IssueFile, LockFileV2};
 
 const LEASE_DURATION_SECS: i64 = 30;
@@ -133,35 +134,54 @@ pub struct ReductionOutcome {
 
 pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
     let mut state = source.read_checkpoint()?;
+    state.validate_schema()?;
+    let external_legacy_watermark = source.read_legacy_watermark()?;
+    let legacy_watermark = state
+        .legacy_watermark()
+        .cloned()
+        .or(external_legacy_watermark);
+    let legacy = state.is_legacy() || legacy_watermark.is_some();
 
-    let watermark = match state.watermark.clone() {
-        Some(wm) => Some(wm),
-        None => source.read_legacy_watermark()?,
-    };
+    if legacy && !source.histories_are_complete() {
+        return reduce_legacy_snapshot(source, state, legacy_watermark.as_ref());
+    }
+
+    let histories = validated_histories(source)?;
+    let replaying_from_empty;
+    if legacy {
+        if let Some(baseline) = source.read_authority_baseline()? {
+            validate_frontier(source, &baseline.frontier, &histories)?;
+            state = baseline.state;
+            state.activate_causal(baseline.frontier);
+            replaying_from_empty = false;
+        } else {
+            state.activate_causal(CausalFrontier::default());
+            replaying_from_empty = true;
+        }
+    } else {
+        validate_frontier(source, &state.frontier, &histories)?;
+        let rebuilt = rebuild_state_to_frontier(source, &histories, &state.frontier)?;
+        anyhow::ensure!(
+            checkpoint_semantics_equal(&state, &rebuilt)?,
+            "checkpoint semantic state does not equal authoritative reconstruction at its causal frontier"
+        );
+        replaying_from_empty = state.frontier.is_empty();
+    }
 
     let mut all_events = Vec::new();
-    for agent_id in source.agent_ids()? {
-        let events = source.read_events(&agent_id, watermark.as_ref())?;
-        all_events.extend(events);
-    }
-
-    if state.watermark.is_none() {
-        if let Some(ref wm) = watermark {
-            state.watermark = Some(wm.clone());
-        }
-    }
-
-    if all_events.is_empty() && watermark.is_some() {
-        return Ok(ReductionOutcome {
-            state,
-            changed_issues: HashSet::new(),
-            changed_locks: HashSet::new(),
-            events_processed: 0,
-        });
-    }
-
-    if watermark.is_none() {
-        state = CheckpointState::default();
+    for (agent_id, history) in &histories {
+        let applied = state
+            .frontier
+            .agents
+            .get(agent_id)
+            .map_or(0, |entry| entry.sequence);
+        all_events.extend(
+            history
+                .events
+                .iter()
+                .filter(|event| event.agent_seq > applied)
+                .cloned(),
+        );
     }
 
     all_events.sort_by_cached_key(OrderingKey::from_envelope);
@@ -170,7 +190,7 @@ pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
     let mut changed_issues: HashSet<Uuid> = HashSet::new();
     let mut changed_locks: HashSet<i64> = HashSet::new();
 
-    if watermark.is_none() {
+    if replaying_from_empty {
         state.skew_warnings.clear();
         state.unsigned_event_warnings.clear();
     }
@@ -190,10 +210,268 @@ pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
         );
     }
 
-    if let Some(last) = all_events.last() {
-        state.watermark = Some(OrderingKey::from_envelope(last));
-    }
+    let frontier = frontier_for_histories(&histories, Some(&state.frontier))?;
+    state.activate_causal(frontier);
 
+    Ok(ReductionOutcome {
+        state,
+        changed_issues,
+        changed_locks,
+        events_processed,
+    })
+}
+
+pub fn rebuild_from_authority(source: &dyn HubSource) -> Result<ReductionOutcome> {
+    let histories = validated_histories(source)?;
+    let mut state = if let Some(baseline) = source.read_authority_baseline()? {
+        validate_frontier(source, &baseline.frontier, &histories)?;
+        let mut state = baseline.state;
+        state.activate_causal(baseline.frontier);
+        state
+    } else {
+        CheckpointState::default()
+    };
+    let mut all_events: Vec<_> = histories
+        .iter()
+        .flat_map(|(agent_id, history)| {
+            let applied = state
+                .frontier
+                .agents
+                .get(agent_id)
+                .map_or(0, |entry| entry.sequence);
+            history
+                .events
+                .iter()
+                .filter(move |event| event.agent_seq > applied)
+                .cloned()
+        })
+        .collect();
+    all_events.sort_by_cached_key(OrderingKey::from_envelope);
+    let events_processed = all_events.len();
+    let mut changed_issues = HashSet::new();
+    let mut changed_locks = HashSet::new();
+    let allowed_signers_path = source
+        .allowed_signers_file()?
+        .unwrap_or_else(|| PathBuf::from("/dev/null/no-allowed-signers"));
+    for envelope in &all_events {
+        detect_clock_skew(&mut state, envelope);
+        check_unsigned(&mut state, envelope, &allowed_signers_path);
+        apply(
+            &mut state,
+            envelope,
+            &mut changed_issues,
+            &mut changed_locks,
+        );
+    }
+    state.activate_causal(frontier_for_histories(&histories, None)?);
+    Ok(ReductionOutcome {
+        state,
+        changed_issues,
+        changed_locks,
+        events_processed,
+    })
+}
+
+fn rebuild_state_to_frontier(
+    source: &dyn HubSource,
+    histories: &BTreeMap<String, AgentHistory>,
+    target: &CausalFrontier,
+) -> Result<CheckpointState> {
+    validate_frontier(source, target, histories)?;
+    let mut state = if let Some(baseline) = source.read_authority_baseline()? {
+        validate_frontier(source, &baseline.frontier, histories)?;
+        anyhow::ensure!(
+            matches!(
+                target.relation(&baseline.frontier),
+                crate::checkpoint::FrontierRelation::Equal
+                    | crate::checkpoint::FrontierRelation::Dominates
+            ),
+            "checkpoint causal frontier does not cover its pinned authority baseline"
+        );
+        let mut state = baseline.state;
+        state.activate_causal(baseline.frontier);
+        state
+    } else {
+        CheckpointState::default()
+    };
+    let mut events = Vec::new();
+    for (agent_id, history) in histories {
+        let applied = state
+            .frontier
+            .agents
+            .get(agent_id)
+            .map_or(0, |entry| entry.sequence);
+        let covered = target
+            .agents
+            .get(agent_id)
+            .map_or(0, |entry| entry.sequence);
+        anyhow::ensure!(
+            covered >= applied,
+            "checkpoint causal frontier for agent '{agent_id}' precedes its pinned authority baseline"
+        );
+        events.extend(
+            history
+                .events
+                .iter()
+                .filter(|event| event.agent_seq > applied && event.agent_seq <= covered)
+                .cloned(),
+        );
+    }
+    events.sort_by_cached_key(OrderingKey::from_envelope);
+    let allowed_signers_path = source
+        .allowed_signers_file()?
+        .unwrap_or_else(|| PathBuf::from("/dev/null/no-allowed-signers"));
+    let mut changed_issues = HashSet::new();
+    let mut changed_locks = HashSet::new();
+    for envelope in &events {
+        detect_clock_skew(&mut state, envelope);
+        check_unsigned(&mut state, envelope, &allowed_signers_path);
+        apply(
+            &mut state,
+            envelope,
+            &mut changed_issues,
+            &mut changed_locks,
+        );
+    }
+    state.activate_causal(target.clone());
+    Ok(state)
+}
+
+fn checkpoint_semantics_equal(left: &CheckpointState, right: &CheckpointState) -> Result<bool> {
+    let normalize = |state: &CheckpointState| {
+        let mut state = state.clone();
+        state.compaction_lease = None;
+        state.skew_warnings.clear();
+        state.unsigned_event_warnings.clear();
+        serde_json::to_value(state).context("serializing checkpoint for semantic verification")
+    };
+    Ok(normalize(left)? == normalize(right)?)
+}
+
+pub fn frontier_from_authority(source: &dyn HubSource) -> Result<CausalFrontier> {
+    frontier_for_histories(&validated_histories(source)?, None)
+}
+
+fn validated_histories(source: &dyn HubSource) -> Result<BTreeMap<String, AgentHistory>> {
+    let mut ids = source.agent_ids()?;
+    ids.sort();
+    ids.dedup();
+    let mut histories = BTreeMap::new();
+    for agent_id in ids {
+        let mut history = source
+            .read_agent_history(&agent_id)
+            .with_context(|| format!("failed to read complete history for agent '{agent_id}'"))?;
+        history.validate()?;
+        histories.insert(agent_id, history);
+    }
+    Ok(histories)
+}
+
+fn validate_frontier(
+    source: &dyn HubSource,
+    frontier: &CausalFrontier,
+    histories: &BTreeMap<String, AgentHistory>,
+) -> Result<()> {
+    for (agent_id, entry) in &frontier.agents {
+        let history = histories.get(agent_id).with_context(|| {
+            format!("frontier claims agent '{agent_id}' but its pinned ref is missing")
+        })?;
+        anyhow::ensure!(
+            entry.sequence > 0,
+            "frontier for agent '{agent_id}' contains a non-canonical zero sequence"
+        );
+        anyhow::ensure!(
+            entry.sequence <= history.events.len() as u64,
+            "frontier for agent '{agent_id}' claims sequence {} but pinned history ends at {}",
+            entry.sequence,
+            history.events.len()
+        );
+        anyhow::ensure!(
+            source.tip_contains(agent_id, &entry.tip_oid)?,
+            "frontier tip {} for agent '{agent_id}' is not a prefix of pinned tip {}",
+            entry.tip_oid,
+            history.tip_oid
+        );
+        let actual = event_prefix_sha256(&history.events, entry.sequence)?;
+        anyhow::ensure!(
+            actual == entry.prefix_sha256,
+            "frontier prefix hash for agent '{agent_id}' sequence {} is forged or rewritten",
+            entry.sequence
+        );
+        if let Some(digest) = entry.tip_oid.strip_prefix("sha256:") {
+            anyhow::ensure!(
+                digest == entry.prefix_sha256,
+                "frontier snapshot identity for agent '{agent_id}' does not match its prefix hash"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn frontier_for_histories(
+    histories: &BTreeMap<String, AgentHistory>,
+    previous: Option<&CausalFrontier>,
+) -> Result<CausalFrontier> {
+    let mut agents = BTreeMap::new();
+    for (agent_id, history) in histories {
+        let sequence = history.events.len() as u64;
+        if sequence == 0 {
+            continue;
+        }
+        let prefix_sha256 = event_prefix_sha256(&history.events, sequence)?;
+        let tip_oid = previous
+            .and_then(|frontier| frontier.agents.get(agent_id))
+            .filter(|entry| entry.sequence == sequence && entry.prefix_sha256 == prefix_sha256)
+            .map_or_else(|| history.tip_oid.clone(), |entry| entry.tip_oid.clone());
+        agents.insert(
+            agent_id.clone(),
+            AgentFrontier {
+                sequence,
+                tip_oid,
+                prefix_sha256,
+            },
+        );
+    }
+    Ok(CausalFrontier { agents })
+}
+
+fn reduce_legacy_snapshot(
+    source: &dyn HubSource,
+    mut state: CheckpointState,
+    watermark: Option<&OrderingKey>,
+) -> Result<ReductionOutcome> {
+    let mut all_events = Vec::new();
+    for agent_id in source.agent_ids()? {
+        all_events.extend(source.read_events(&agent_id, watermark)?);
+    }
+    if all_events.is_empty() {
+        return Ok(ReductionOutcome {
+            state,
+            changed_issues: HashSet::new(),
+            changed_locks: HashSet::new(),
+            events_processed: 0,
+        });
+    }
+    all_events.sort_by_cached_key(OrderingKey::from_envelope);
+    let events_processed = all_events.len();
+    let mut changed_issues = HashSet::new();
+    let mut changed_locks = HashSet::new();
+    let allowed_signers_path = source
+        .allowed_signers_file()?
+        .unwrap_or_else(|| PathBuf::from("/dev/null/no-allowed-signers"));
+    for envelope in &all_events {
+        detect_clock_skew(&mut state, envelope);
+        check_unsigned(&mut state, envelope, &allowed_signers_path);
+        apply(
+            &mut state,
+            envelope,
+            &mut changed_issues,
+            &mut changed_locks,
+        );
+    }
+    if let Some(last) = all_events.last() {
+        state.activate_legacy(Some(OrderingKey::from_envelope(last)));
+    }
     Ok(ReductionOutcome {
         state,
         changed_issues,
@@ -215,7 +493,7 @@ pub fn compact(
     let source = WorktreeSource::new(cache_dir);
     let outcome = reduce(&source)?;
 
-    if outcome.events_processed == 0 && outcome.state.watermark.is_some() {
+    if outcome.events_processed == 0 && !outcome.state.frontier.is_empty() {
         let git_violations = crate::clock_skew::detect_git_skew_violations(cache_dir)
             .unwrap_or_else(|e| {
                 tracing::warn!("git skew detection failed, defaulting to no violations: {e}");
@@ -480,6 +758,13 @@ fn apply_issue_event(
             signed_by,
             signature,
         } => {
+            if state
+                .issues
+                .get(issue_uuid)
+                .is_some_and(|issue| issue.comments.contains_key(comment_uuid))
+            {
+                return;
+            }
             let claimed = adopt_comment_id(state, *display_id);
             apply_issue_field(state, envelope, changed_issues, *issue_uuid, |issue| {
                 issue
@@ -915,6 +1200,7 @@ mod tests {
     use crate::checkpoint::{read_checkpoint, CompactionLease};
     use crate::events::{append_event, Event, EventEnvelope};
     use chrono::Duration;
+    use proptest::prelude::*;
 
     fn try_acquire_lease(state: &mut CheckpointState, agent_id: &str) -> bool {
         let now = Utc::now();
@@ -992,6 +1278,156 @@ mod tests {
     ) -> Result<Option<CompactionResult>> {
         let lock = test_hub_lock(cache_dir);
         compact(cache_dir, agent_id, force, &lock)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        #[test]
+        fn phase2_causality_per_agent_selection_is_independent_of_clock_order(
+            first_offset in -100_000_i64..100_000,
+            second_offset in -100_000_i64..100_000,
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let cache_dir = dir.path();
+            setup_cache(cache_dir);
+            let mut first = make_envelope(
+                "agent-a",
+                1,
+                Event::LockClaimed { issue_display_id: 1, branch: None },
+            );
+            first.timestamp = chrono::DateTime::<Utc>::UNIX_EPOCH
+                + Duration::seconds(first_offset);
+            append_event(&cache_dir.join("agents/agent-a/events.log"), &first).unwrap();
+            compact_t(cache_dir, "agent-a", true).unwrap();
+
+            let mut second = make_envelope(
+                "agent-b",
+                1,
+                Event::LockClaimed { issue_display_id: 2, branch: None },
+            );
+            second.timestamp = chrono::DateTime::<Utc>::UNIX_EPOCH
+                + Duration::seconds(second_offset);
+            append_event(&cache_dir.join("agents/agent-b/events.log"), &second).unwrap();
+            let result = compact_t(cache_dir, "agent-b", true).unwrap().unwrap();
+            prop_assert_eq!(result.events_processed, 1);
+            let state = read_checkpoint(cache_dir).unwrap();
+            prop_assert!(state.locks.contains_key(&1));
+            prop_assert!(state.locks.contains_key(&2));
+        }
+
+        #[test]
+        fn phase2_causality_reduction_accepts_arbitrary_delivery_permutations(keys in any::<[u8; 6]>()) {
+            let dir = tempfile::tempdir().unwrap();
+            setup_cache(dir.path());
+            let mut events = Vec::new();
+            for index in 0..6_usize {
+                let agent = if index < 3 { "agent-a" } else { "agent-b" };
+                let sequence = (index % 3 + 1) as u64;
+                let mut event = make_envelope(
+                    agent,
+                    sequence,
+                    Event::LockClaimed {
+                        issue_display_id: index as i64 + 1,
+                        branch: None,
+                    },
+                );
+                event.timestamp = chrono::DateTime::<Utc>::UNIX_EPOCH
+                    + Duration::seconds((6 - index) as i64);
+                events.push(event);
+            }
+            let mut order: Vec<_> = (0..events.len()).collect();
+            order.sort_by_key(|index| (keys[*index], *index));
+            for index in order {
+                let event = &events[index];
+                append_event(
+                    &dir.path().join("agents").join(&event.agent_id).join("events.log"),
+                    event,
+                )
+                .unwrap();
+            }
+            let outcome = reduce(&WorktreeSource::new(dir.path())).unwrap();
+            prop_assert_eq!(outcome.events_processed, 6);
+            prop_assert_eq!(outcome.state.locks.len(), 6);
+            prop_assert_eq!(outcome.state.frontier.agents["agent-a"].sequence, 3);
+            prop_assert_eq!(outcome.state.frontier.agents["agent-b"].sequence, 3);
+        }
+    }
+
+    #[test]
+    fn phase2_causality_reduction_rejects_missing_middle_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        setup_cache(dir.path());
+        let log = dir.path().join("agents/agent-a/events.log");
+        for sequence in [1, 3] {
+            append_event(
+                &log,
+                &make_envelope(
+                    "agent-a",
+                    sequence,
+                    Event::LockClaimed {
+                        issue_display_id: i64::try_from(sequence).unwrap(),
+                        branch: None,
+                    },
+                ),
+            )
+            .unwrap();
+        }
+        let error = reduce(&WorktreeSource::new(dir.path())).unwrap_err();
+        assert!(error.to_string().contains("expected sequence 2"));
+    }
+
+    #[test]
+    fn phase2_causality_reduction_rejects_forged_prefix_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        setup_cache(dir.path());
+        append_event(
+            &dir.path().join("agents/agent-a/events.log"),
+            &make_envelope(
+                "agent-a",
+                1,
+                Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+            ),
+        )
+        .unwrap();
+        compact_t(dir.path(), "agent-a", true).unwrap();
+        let mut state = read_checkpoint(dir.path()).unwrap();
+        state
+            .frontier
+            .agents
+            .get_mut("agent-a")
+            .unwrap()
+            .prefix_sha256 = "00".repeat(32);
+        write_checkpoint(dir.path(), &state).unwrap();
+        let error = reduce(&WorktreeSource::new(dir.path())).unwrap_err();
+        assert!(error.to_string().contains("forged or rewritten"));
+    }
+
+    #[test]
+    fn phase2_causality_reduction_rejects_forged_checkpoint_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+        setup_cache(dir.path());
+        append_event(
+            &dir.path().join("agents/agent-a/events.log"),
+            &make_envelope(
+                "agent-a",
+                1,
+                Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+            ),
+        )
+        .unwrap();
+        compact_t(dir.path(), "agent-a", true).unwrap();
+        let mut state = read_checkpoint(dir.path()).unwrap();
+        state.locks.get_mut(&1).unwrap().agent_id = "forged-agent".to_string();
+        write_checkpoint(dir.path(), &state).unwrap();
+        let error = reduce(&WorktreeSource::new(dir.path())).unwrap_err();
+        assert!(error.to_string().contains("semantic state"));
     }
 
     #[test]
@@ -1666,10 +2102,10 @@ mod tests {
         compact_t(cache_dir, "agent-1", true).unwrap();
 
         let pruned = prune_events(cache_dir, "agent-1").unwrap();
-        assert_eq!(pruned, 2);
+        assert_eq!(pruned, 0);
 
         let remaining = crate::events::read_events(&log).unwrap();
-        assert!(remaining.is_empty());
+        assert_eq!(remaining.len(), 2);
     }
 
     #[test]
@@ -3568,7 +4004,7 @@ mod tests {
         compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
-        let embedded_watermark = state.watermark.clone().unwrap();
+        let embedded_watermark = OrderingKey::from_envelope(&e1);
 
         let checkpoint_dir = cache_dir.join("checkpoint");
         let legacy_wm_path = checkpoint_dir.join("watermark.json");
@@ -3576,7 +4012,7 @@ mod tests {
         std::fs::write(&legacy_wm_path, &wm_json).unwrap();
 
         let mut state_no_wm = state;
-        state_no_wm.watermark = None;
+        state_no_wm.activate_legacy(None);
         write_checkpoint(cache_dir, &state_no_wm).unwrap();
 
         let e2 = make_envelope(
@@ -3602,7 +4038,7 @@ mod tests {
         );
 
         assert!(
-            final_state.watermark.is_some(),
+            final_state.legacy_watermark().is_some(),
             "Checkpoint should have embedded watermark after migration"
         );
     }
@@ -3787,6 +4223,37 @@ mod tests {
             signed_by: None,
             signature: None,
         }
+    }
+
+    #[test]
+    fn phase2_causality_legacy_replay_does_not_reallocate_existing_comment_id() {
+        let issue_uuid = Uuid::new_v4();
+        let comment_uuid = Uuid::new_v4();
+        let issue = make_envelope("agent-1", 1, issue_created(issue_uuid, "Issue"));
+        let comment = make_envelope(
+            "agent-1",
+            2,
+            comment_added(issue_uuid, comment_uuid, "Comment"),
+        );
+        let mut state = CheckpointState::default();
+        let mut changed_issues = HashSet::new();
+        let mut changed_locks = HashSet::new();
+        apply(&mut state, &issue, &mut changed_issues, &mut changed_locks);
+        apply(
+            &mut state,
+            &comment,
+            &mut changed_issues,
+            &mut changed_locks,
+        );
+        let next_comment_id = state.next_comment_id;
+        apply(
+            &mut state,
+            &comment,
+            &mut changed_issues,
+            &mut changed_locks,
+        );
+        assert_eq!(state.next_comment_id, next_comment_id);
+        assert_eq!(state.issues[&issue_uuid].comments.len(), 1);
     }
 
     #[test]

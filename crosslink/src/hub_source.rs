@@ -1,8 +1,12 @@
 use anyhow::{Context, Result};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::checkpoint::{read_checkpoint, read_watermark, CheckpointState};
+use crate::checkpoint::{
+    event_prefix_sha256, read_checkpoint, read_watermark, AgentFrontier, CausalFrontier,
+    CheckpointState,
+};
 use crate::events::{read_events_from_bytes, EventEnvelope, OrderingKey};
 
 pub trait HubSource {
@@ -19,6 +23,77 @@ pub trait HubSource {
     fn read_legacy_watermark(&self) -> Result<Option<OrderingKey>>;
 
     fn allowed_signers_file(&self) -> Result<Option<PathBuf>>;
+
+    fn read_agent_history(&self, agent_id: &str) -> Result<AgentHistory> {
+        let mut events = self.read_events(agent_id, None)?;
+        events.sort_by_key(|event| event.agent_seq);
+        let digest = event_prefix_sha256(&events, u64::MAX)?;
+        Ok(AgentHistory {
+            agent_id: agent_id.to_string(),
+            tip_oid: format!("sha256:{digest}"),
+            events,
+        })
+    }
+
+    fn tip_contains(&self, agent_id: &str, claimed_tip: &str) -> Result<bool> {
+        let history = self.read_agent_history(agent_id)?;
+        if claimed_tip == history.tip_oid {
+            return Ok(true);
+        }
+        Ok(claimed_tip.starts_with("sha256:"))
+    }
+
+    fn histories_are_complete(&self) -> bool {
+        false
+    }
+
+    fn read_authority_baseline(&self) -> Result<Option<AuthorityBaseline>> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentHistory {
+    pub agent_id: String,
+    pub tip_oid: String,
+    pub events: Vec<EventEnvelope>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthorityBaseline {
+    pub state: CheckpointState,
+    pub frontier: CausalFrontier,
+}
+
+#[derive(serde::Deserialize)]
+struct AuthorityBaselineMeta {
+    #[serde(default)]
+    genesis_checkpoint_commit: Option<String>,
+    #[serde(default)]
+    seed_agent_tips: Option<BTreeMap<String, String>>,
+}
+
+impl AgentHistory {
+    pub fn validate(&mut self) -> Result<()> {
+        self.events.sort_by_key(|event| event.agent_seq);
+        for (index, event) in self.events.iter().enumerate() {
+            let expected = index as u64 + 1;
+            anyhow::ensure!(
+                event.agent_id == self.agent_id,
+                "agent '{}' history contains an event owned by '{}' at sequence {}",
+                self.agent_id,
+                event.agent_id,
+                event.agent_seq
+            );
+            anyhow::ensure!(
+                event.agent_seq == expected,
+                "agent '{}' history is not a contiguous prefix: expected sequence {expected}, found {}",
+                self.agent_id,
+                event.agent_seq
+            );
+        }
+        Ok(())
+    }
 }
 
 pub struct WorktreeSource {
@@ -270,6 +345,18 @@ impl HubSource for ObjectStoreSource {
     fn allowed_signers_file(&self) -> Result<Option<PathBuf>> {
         Ok(self.allowed_signers_path.clone())
     }
+
+    fn read_agent_history(&self, agent_id: &str) -> Result<AgentHistory> {
+        Ok(AgentHistory {
+            agent_id: agent_id.to_string(),
+            tip_oid: self.commit_sha.clone(),
+            events: self.read_events(agent_id, None)?,
+        })
+    }
+
+    fn tip_contains(&self, _agent_id: &str, claimed_tip: &str) -> Result<bool> {
+        Ok(claimed_tip == self.commit_sha)
+    }
 }
 
 #[derive(Debug)]
@@ -339,6 +426,12 @@ impl RefHubSource {
             _allowed_signers_dir: allowed_signers_dir,
             allowed_signers_path,
         })
+    }
+
+    pub fn at_checkpoint(repo_dir: &Path, checkpoint_sha: Option<String>) -> Result<Self> {
+        let mut source = Self::new(repo_dir)?;
+        source.checkpoint_sha = checkpoint_sha;
+        Ok(source)
     }
 
     #[must_use]
@@ -413,6 +506,149 @@ impl HubSource for RefHubSource {
 
     fn allowed_signers_file(&self) -> Result<Option<PathBuf>> {
         Ok(self.allowed_signers_path.clone())
+    }
+
+    fn read_agent_history(&self, agent_id: &str) -> Result<AgentHistory> {
+        let Some((_, tip)) = self.agent_tips.iter().find(|(id, _)| id == agent_id) else {
+            anyhow::bail!("agent ref for '{agent_id}' is missing from the pinned authority");
+        };
+        let commits = git_first_parent_history(&self.repo_path, tip)?;
+        let mut by_sequence: BTreeMap<u64, (Vec<u8>, EventEnvelope)> = BTreeMap::new();
+        for commit in commits {
+            let Some(bytes) = git_cat_file_blob(&self.repo_path, &commit, "events.log")? else {
+                continue;
+            };
+            let events = read_events_from_bytes(&bytes).with_context(|| {
+                format!("failed to parse agent '{agent_id}' history at pinned commit {commit}")
+            })?;
+            let mut seen = std::collections::BTreeSet::new();
+            for event in events {
+                anyhow::ensure!(
+                    seen.insert(event.agent_seq),
+                    "agent '{agent_id}' history repeats sequence {} in pinned commit {commit}",
+                    event.agent_seq
+                );
+                let encoded = serde_json::to_vec(&event)
+                    .context("failed to encode event while validating agent history")?;
+                if let Some((existing, _)) = by_sequence.get(&event.agent_seq) {
+                    anyhow::ensure!(
+                        *existing == encoded,
+                        "agent '{agent_id}' history rewrites sequence {} between pinned commits",
+                        event.agent_seq
+                    );
+                } else {
+                    by_sequence.insert(event.agent_seq, (encoded, event));
+                }
+            }
+        }
+        Ok(AgentHistory {
+            agent_id: agent_id.to_string(),
+            tip_oid: tip.clone(),
+            events: by_sequence.into_values().map(|(_, event)| event).collect(),
+        })
+    }
+
+    fn tip_contains(&self, agent_id: &str, claimed_tip: &str) -> Result<bool> {
+        let Some((_, current_tip)) = self.agent_tips.iter().find(|(id, _)| id == agent_id) else {
+            return Ok(false);
+        };
+        git_is_ancestor(&self.repo_path, claimed_tip, current_tip)
+    }
+
+    fn histories_are_complete(&self) -> bool {
+        true
+    }
+
+    fn read_authority_baseline(&self) -> Result<Option<AuthorityBaseline>> {
+        let Some(meta_sha) = &self.meta_sha else {
+            return Ok(None);
+        };
+        let bytes = git_cat_file_blob(&self.repo_path, meta_sha, "hub.json")?
+            .with_context(|| format!("pinned meta commit {meta_sha} has no hub.json"))?;
+        let meta: AuthorityBaselineMeta = serde_json::from_slice(&bytes).with_context(|| {
+            format!("failed to parse hub.json at pinned meta commit {meta_sha}")
+        })?;
+        let (checkpoint, tips) = match (meta.genesis_checkpoint_commit, meta.seed_agent_tips) {
+            (None, None) => return Ok(None),
+            (Some(checkpoint), Some(tips)) => (checkpoint, tips),
+            _ => anyhow::bail!(
+                "pinned hub metadata must record both genesis_checkpoint_commit and seed_agent_tips"
+            ),
+        };
+        let seed = Self::at_tips(
+            &self.repo_path,
+            Some(checkpoint),
+            Some(meta_sha.clone()),
+            tips.into_iter().collect(),
+        )?;
+        let mut state = seed.read_checkpoint()?;
+        let mut agents = BTreeMap::new();
+        for agent_id in seed.agent_ids()? {
+            let mut history = seed.read_agent_history(&agent_id)?;
+            history.validate()?;
+            anyhow::ensure!(
+                self.tip_contains(&agent_id, &history.tip_oid)?,
+                "pinned authority baseline tip {} for agent '{agent_id}' is not a prefix of the current authority",
+                history.tip_oid
+            );
+            let sequence = history.events.len() as u64;
+            if sequence == 0 {
+                continue;
+            }
+            agents.insert(
+                agent_id,
+                AgentFrontier {
+                    sequence,
+                    tip_oid: history.tip_oid,
+                    prefix_sha256: event_prefix_sha256(&history.events, sequence)?,
+                },
+            );
+        }
+        let frontier = CausalFrontier { agents };
+        state.activate_causal(frontier.clone());
+        Ok(Some(AuthorityBaseline { state, frontier }))
+    }
+}
+
+fn git_first_parent_history(repo_path: &Path, tip: &str) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["rev-list", "--first-parent", "--reverse", tip])
+        .output()
+        .with_context(|| format!("failed to enumerate pinned agent history at {tip}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "failed to enumerate pinned agent history at {tip}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn git_is_ancestor(repo_path: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
+    anyhow::ensure!(
+        commit_object_exists(repo_path, ancestor)?,
+        "frontier claims missing pinned commit {ancestor}"
+    );
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["merge-base", "--is-ancestor", ancestor, descendant])
+        .output()
+        .with_context(|| {
+            format!("failed to validate frontier tip {ancestor} against {descendant}")
+        })?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => anyhow::bail!(
+            "failed to validate frontier tip {ancestor} against {descendant}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
     }
 }
 
@@ -731,8 +967,16 @@ pub(crate) mod test_support {
             a.changed_locks, b.changed_locks,
             "{label}: changed_locks mismatch"
         );
-        let state_a = serde_json::to_value(&a.state).unwrap();
-        let state_b = serde_json::to_value(&b.state).unwrap();
+        let mut normalized_a = a.state.clone();
+        let mut normalized_b = b.state.clone();
+        for entry in normalized_a.frontier.agents.values_mut() {
+            entry.tip_oid.clear();
+        }
+        for entry in normalized_b.frontier.agents.values_mut() {
+            entry.tip_oid.clear();
+        }
+        let state_a = serde_json::to_value(&normalized_a).unwrap();
+        let state_b = serde_json::to_value(&normalized_b).unwrap();
         assert_eq!(state_a, state_b, "{label}: checkpoint state mismatch");
     }
 }
@@ -774,6 +1018,94 @@ mod tests {
                 due_at: None,
             },
         )
+    }
+
+    fn commit_reduced_checkpoint(repo: &Path) -> CheckpointState {
+        let state = crate::compaction::reduce(&RefHubSource::new(repo).unwrap())
+            .unwrap()
+            .state;
+        let bytes = serde_json::to_vec_pretty(&state).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            repo,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "causal checkpoint",
+        )
+        .unwrap();
+        state
+    }
+
+    #[test]
+    fn phase2_causality_ref_hub_rejects_rewritten_sequence_in_descendant_history() {
+        let repo = tempfile::tempdir().unwrap();
+        ref_repo_init(repo.path());
+        let original = make_issue_created("agent-a", 1, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(std::slice::from_ref(&original)),
+            "original",
+        )
+        .unwrap();
+        commit_reduced_checkpoint(repo.path());
+        let rewritten = make_issue_created("agent-a", 1, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(&[rewritten]),
+            "rewrite",
+        )
+        .unwrap();
+        let error =
+            crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("rewrites sequence 1"), "{message}");
+    }
+
+    #[test]
+    fn phase2_causality_ref_hub_rejects_missing_and_non_prefix_frontier_tips() {
+        let repo = tempfile::tempdir().unwrap();
+        ref_repo_init(repo.path());
+        let event = make_issue_created("agent-a", 1, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(repo.path(), "agent-a", &log_bytes(&[event]), "event")
+            .unwrap();
+        let mut state = commit_reduced_checkpoint(repo.path());
+        state.frontier.agents.get_mut("agent-a").unwrap().tip_oid = "f".repeat(40);
+        let bytes = serde_json::to_vec_pretty(&state).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            repo.path(),
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "missing frontier tip",
+        )
+        .unwrap();
+        let error =
+            crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap_err();
+        assert!(error.to_string().contains("missing pinned commit"));
+
+        let unrelated = crate::hub_v3::commit_blob_to_ref(
+            repo.path(),
+            crate::hub_v3::META_REF,
+            "hub.json",
+            b"{}",
+            "unrelated tip",
+        )
+        .unwrap();
+        state.frontier.agents.get_mut("agent-a").unwrap().tip_oid = unrelated;
+        let bytes = serde_json::to_vec_pretty(&state).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            repo.path(),
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "non-prefix frontier tip",
+        )
+        .unwrap();
+        let error =
+            crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap_err();
+        assert!(error.to_string().contains("is not a prefix"));
     }
 
     #[test]
@@ -899,10 +1231,8 @@ mod tests {
         write_agent_events(hub_dir, "agent-1", &[e1.clone()]);
 
         let wm = OrderingKey::from_envelope(&e1);
-        let mut state = CheckpointState {
-            watermark: Some(wm),
-            ..Default::default()
-        };
+        let mut state = CheckpointState::default();
+        state.activate_legacy(Some(wm));
 
         state.issues.insert(
             uuid1,
@@ -1186,10 +1516,8 @@ mod tests {
             .unwrap();
 
         let wm = OrderingKey::from_envelope(&e_pre);
-        let mut state = CheckpointState {
-            watermark: Some(wm),
-            ..Default::default()
-        };
+        let mut state = CheckpointState::default();
+        state.activate_legacy(Some(wm));
         state.issues.insert(
             uuid_pre,
             crate::checkpoint::CompactIssue {
@@ -1230,8 +1558,8 @@ mod tests {
         let outcome = crate::compaction::reduce(&source).unwrap();
 
         assert_eq!(
-            outcome.events_processed, 2,
-            "only post-watermark events apply"
+            outcome.events_processed, 3,
+            "legacy ref history is fully replayed"
         );
 
         assert!(
@@ -1247,6 +1575,96 @@ mod tests {
             "post-wm issue 2 applied"
         );
         assert_eq!(outcome.state.issues.len(), 3);
+    }
+
+    #[test]
+    fn phase2_causality_legacy_upgrade_replays_from_pinned_genesis_without_losing_eventless_records(
+    ) {
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+
+        let seeded_uuid = Uuid::new_v4();
+        let orphan_uuid = Uuid::new_v4();
+        let late_uuid = Uuid::new_v4();
+        let e1 = make_issue_created("agent-1", 1, seeded_uuid);
+        crate::hub_v3::commit_log_bytes(
+            repo,
+            "agent-1",
+            &log_bytes(std::slice::from_ref(&e1)),
+            "seed history",
+        )
+        .unwrap();
+        let seed_tip =
+            git_rev_parse_optional(repo, &format!("{}agent-1", crate::hub_v3::AGENT_REF_PREFIX))
+                .unwrap()
+                .unwrap();
+        let mut baseline =
+            crate::compaction::rebuild_from_authority(&RefHubSource::new(repo).unwrap())
+                .unwrap()
+                .state;
+        let mut orphan = baseline.issues[&seeded_uuid].clone();
+        orphan.uuid = orphan_uuid;
+        orphan.display_id = Some(50);
+        orphan.title = "Imported without an event".to_string();
+        baseline.issues.insert(orphan_uuid, orphan);
+        baseline.display_id_map.insert(orphan_uuid, 50);
+        baseline.next_display_id = 51;
+        let genesis = crate::hub_v3::commit_blob_to_ref(
+            repo,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &serde_json::to_vec_pretty(&baseline).unwrap(),
+            "pinned migration genesis",
+        )
+        .unwrap();
+        let meta = crate::hub_v3::HubMeta {
+            hub_version: 3,
+            migrated_from_commit: "legacy-source".to_string(),
+            migrated_at: Utc::now(),
+            finalized_at: None,
+            genesis_checkpoint_commit: Some(genesis),
+            seed_agent_tips: Some(std::collections::BTreeMap::from([(
+                "agent-1".to_string(),
+                seed_tip,
+            )])),
+        };
+        crate::hub_v3::commit_blob_to_ref(
+            repo,
+            crate::hub_v3::META_REF,
+            "hub.json",
+            &serde_json::to_vec_pretty(&meta).unwrap(),
+            "migration metadata",
+        )
+        .unwrap();
+
+        let e2 = make_issue_created("agent-1", 2, late_uuid);
+        crate::hub_v3::commit_log_bytes(repo, "agent-1", &log_bytes(&[e1, e2]), "late history")
+            .unwrap();
+        let mut legacy = baseline;
+        legacy.activate_legacy(Some(OrderingKey {
+            timestamp: Utc::now() + Duration::days(1),
+            agent_id: "agent-1".to_string(),
+            agent_seq: 1,
+        }));
+        crate::hub_v3::commit_blob_to_ref(
+            repo,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &serde_json::to_vec_pretty(&legacy).unwrap(),
+            "legacy checkpoint",
+        )
+        .unwrap();
+
+        let source = RefHubSource::new(repo).unwrap();
+        let migrated = crate::compaction::reduce(&source).unwrap();
+        assert_eq!(migrated.events_processed, 1);
+        assert!(migrated.state.issues.contains_key(&seeded_uuid));
+        assert!(migrated.state.issues.contains_key(&orphan_uuid));
+        assert!(migrated.state.issues.contains_key(&late_uuid));
+        let rebuilt = crate::compaction::rebuild_from_authority(&source).unwrap();
+        assert!(rebuilt.state.issues.contains_key(&orphan_uuid));
+        assert!(rebuilt.state.issues.contains_key(&late_uuid));
     }
 
     #[test]
@@ -1386,12 +1804,7 @@ mod tests {
         let ref_source = RefHubSource::new(repo).unwrap();
         let ref_outcome = crate::compaction::reduce(&ref_source).unwrap();
 
-        let wt = serde_json::to_value(&worktree_outcome.state).unwrap();
-        let rf = serde_json::to_value(&ref_outcome.state).unwrap();
-        assert_eq!(
-            wt, rf,
-            "WorktreeSource and RefHubSource must reduce to identical state"
-        );
+        assert_outcomes_equal(&worktree_outcome, &ref_outcome, "worktree-ref");
         assert_eq!(
             worktree_outcome.events_processed, ref_outcome.events_processed,
             "both sources must process the same number of events"

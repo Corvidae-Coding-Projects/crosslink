@@ -21,6 +21,12 @@
     { "file": "sqlite/v17.sql", "version": 17, "source": "728ad5ff" },
     { "file": "sqlite/v18.sql", "version": 18, "source": "dd0b7173" }
   ],
+  "checkpoint": [
+    { "file": "checkpoint/v1-global-watermark.json", "version": 1, "valid": true },
+    { "file": "checkpoint/v2-causal-frontier.json", "version": 2, "valid": true },
+    { "file": "checkpoint/v2-forged-guard.json", "version": 2, "valid": false },
+    { "file": "checkpoint/v3-future.json", "version": 3, "valid": false }
+  ],
   "git": [
     { "file": "git/absent.refs", "expected_kind": "absent" },
     { "file": "git/legacy-locks.refs", "expected_kind": "legacy_locks" },

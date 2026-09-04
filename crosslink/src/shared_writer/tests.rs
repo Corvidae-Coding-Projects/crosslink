@@ -447,10 +447,8 @@ mod lock_v2_tests {
             agent_seq: 1,
         };
 
-        let mut state = CheckpointState {
-            watermark: Some(watermark),
-            ..CheckpointState::default()
-        };
+        let mut state = CheckpointState::default();
+        state.activate_legacy(Some(watermark));
         state.locks.insert(
             5,
             LockEntry {

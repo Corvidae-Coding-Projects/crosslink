@@ -1,0 +1,12 @@
+{
+  "next_display_id": 1,
+  "next_comment_id": 1,
+  "display_id_map": {},
+  "locks": {},
+  "issues": {},
+  "watermark": {
+    "timestamp": "2026-01-01T00:00:00Z",
+    "agent_id": "legacy-agent",
+    "agent_seq": 4
+  }
+}

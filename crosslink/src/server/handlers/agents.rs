@@ -1070,10 +1070,7 @@ mod tests {
         } else {
             chrono::Utc::now() - chrono::Duration::minutes(120)
         };
-        let mut cp = crate::checkpoint::CheckpointState {
-            watermark: Some(crate::hub_v3::genesis_sentinel_watermark()),
-            ..Default::default()
-        };
+        let mut cp = crate::checkpoint::CheckpointState::default();
         cp.locks.insert(
             issue_id,
             crate::checkpoint::LockEntry {

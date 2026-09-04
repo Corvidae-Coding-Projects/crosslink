@@ -18,6 +18,35 @@ enum ReconciliationRemoteError {
     Rejected(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckpointAdoption {
+    AdoptRemote,
+    KeepLocal,
+    Recompute,
+}
+
+fn checkpoint_adoption(
+    local: &crate::checkpoint::CheckpointState,
+    remote: &crate::checkpoint::CheckpointState,
+) -> CheckpointAdoption {
+    match remote.frontier.relation(&local.frontier) {
+        crate::checkpoint::FrontierRelation::Dominates => CheckpointAdoption::AdoptRemote,
+        crate::checkpoint::FrontierRelation::Dominated => CheckpointAdoption::KeepLocal,
+        crate::checkpoint::FrontierRelation::Concurrent => CheckpointAdoption::Recompute,
+        crate::checkpoint::FrontierRelation::Equal => {
+            let equal = match (serde_json::to_value(local), serde_json::to_value(remote)) {
+                (Ok(local), Ok(remote)) => local == remote,
+                _ => false,
+            };
+            if equal {
+                CheckpointAdoption::KeepLocal
+            } else {
+                CheckpointAdoption::Recompute
+            }
+        }
+    }
+}
+
 impl std::fmt::Display for ReconciliationRemoteError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -555,7 +584,7 @@ impl SyncManager {
             }
         }
 
-        self.adopt_checkpoint_by_watermark();
+        self.adopt_checkpoint_by_frontier();
     }
 
     fn list_remote_agent_tips(&self) -> Result<Vec<(String, String)>> {
@@ -581,7 +610,7 @@ impl SyncManager {
         Ok(out)
     }
 
-    fn adopt_checkpoint_by_watermark(&self) {
+    fn adopt_checkpoint_by_frontier(&self) {
         let remote_tracking = "refs/crosslink-remote/checkpoint";
         let Some(remote_tip) =
             crate::hub_v3::git_rev_parse_optional(&self.cache_dir, remote_tracking)
@@ -590,36 +619,98 @@ impl SyncManager {
         else {
             return;
         };
-        let local_wm = self.checkpoint_watermark_count(crate::hub_v3::CHECKPOINT_REF);
-        let remote_wm = self.checkpoint_watermark_count(remote_tracking);
-        if remote_wm >= local_wm {
-            if let Err(e) =
-                self.git_in_cache(&["update-ref", crate::hub_v3::CHECKPOINT_REF, &remote_tip])
-            {
-                tracing::warn!("v3 fetch: failed to adopt remote checkpoint: {e}");
+        let remote = match self.verified_checkpoint(remote_tracking) {
+            Ok(Some(state)) if !state.is_legacy() => state,
+            Ok(Some(_)) => {
+                tracing::warn!("v3 fetch: remote checkpoint uses the legacy watermark schema");
+                return;
+            }
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!("v3 fetch: rejected invalid remote checkpoint: {error:#}");
+                return;
+            }
+        };
+        let local = match self.verified_checkpoint(crate::hub_v3::CHECKPOINT_REF) {
+            Ok(Some(state)) if !state.is_legacy() => state,
+            Ok(Some(_)) => {
+                tracing::warn!(
+                    "v3 fetch: local checkpoint uses the legacy watermark schema and will be recomputed"
+                );
+                self.recompute_checkpoint_from_authority();
+                return;
+            }
+            Ok(None) => crate::checkpoint::CheckpointState::default(),
+            Err(error) => {
+                tracing::warn!(
+                    "v3 fetch: local checkpoint is invalid and will be recovered from pinned authority: {error:#}"
+                );
+                self.recompute_checkpoint_from_authority();
+                return;
+            }
+        };
+        match checkpoint_adoption(&local, &remote) {
+            CheckpointAdoption::AdoptRemote => {
+                if let Err(error) =
+                    self.git_in_cache(&["update-ref", crate::hub_v3::CHECKPOINT_REF, &remote_tip])
+                {
+                    tracing::warn!(
+                        "v3 fetch: failed to adopt causally dominant remote checkpoint: {error}"
+                    );
+                }
+            }
+            CheckpointAdoption::KeepLocal => {}
+            CheckpointAdoption::Recompute => {
+                self.recompute_checkpoint_from_authority();
             }
         }
     }
 
-    fn checkpoint_watermark_count(&self, ref_name: &str) -> i64 {
+    fn verified_checkpoint(
+        &self,
+        ref_name: &str,
+    ) -> Result<Option<crate::checkpoint::CheckpointState>> {
         let Some(tip) = crate::hub_v3::git_rev_parse_optional(&self.cache_dir, ref_name)
-            .ok()
-            .flatten()
+            .with_context(|| format!("reading checkpoint ref '{ref_name}'"))?
         else {
-            return -1;
+            return Ok(None);
         };
-        let spec = format!("{tip}:state.json");
-        let Some(bytes) = crate::hub_v3::git_cat_file_blob_optional(&self.cache_dir, &spec)
-            .ok()
-            .flatten()
-        else {
-            return 0;
+        let source = crate::hub_source::RefHubSource::at_checkpoint(&self.cache_dir, Some(tip))?;
+        let state = crate::hub_source::HubSource::read_checkpoint(&source)?;
+        crate::compaction::reduce(&source)?;
+        Ok(Some(state))
+    }
+
+    fn recompute_checkpoint_from_authority(&self) {
+        let source = match crate::hub_source::RefHubSource::at_checkpoint(&self.cache_dir, None) {
+            Ok(source) => source,
+            Err(error) => {
+                tracing::warn!("v3 fetch: could not pin authority for recomputation: {error:#}");
+                return;
+            }
         };
-        match crate::checkpoint::CheckpointState::from_slice(&bytes) {
-            Ok(state) => state
-                .watermark
-                .map_or(0, |w| i64::try_from(w.agent_seq).unwrap_or(i64::MAX)),
-            Err(_) => 0,
+        let state = match crate::compaction::rebuild_from_authority(&source) {
+            Ok(outcome) => outcome.state,
+            Err(error) => {
+                tracing::warn!("v3 fetch: authority recomputation failed: {error:#}");
+                return;
+            }
+        };
+        let bytes = match serde_json::to_vec_pretty(&state) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::warn!("v3 fetch: recomputed checkpoint serialization failed: {error}");
+                return;
+            }
+        };
+        if let Err(error) = crate::hub_v3::commit_blob_to_ref(
+            &self.cache_dir,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "crosslink v3 checkpoint (causal recompute)",
+        ) {
+            tracing::warn!("v3 fetch: authority recomputation publication failed: {error:#}");
         }
     }
 
@@ -691,6 +782,212 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::tempdir;
+
+    fn checkpoint_with_sequences(sequences: &[(&str, u64)]) -> crate::checkpoint::CheckpointState {
+        let mut state = crate::checkpoint::CheckpointState::default();
+        for (agent, sequence) in sequences {
+            state.frontier.agents.insert(
+                (*agent).to_string(),
+                crate::checkpoint::AgentFrontier {
+                    sequence: *sequence,
+                    tip_oid: format!("{agent}-{sequence}"),
+                    prefix_sha256: format!("hash-{agent}-{sequence}"),
+                },
+            );
+        }
+        state
+    }
+
+    #[test]
+    fn phase2_causality_checkpoint_adoption_requires_dominance_and_recomputes_concurrency() {
+        let local = checkpoint_with_sequences(&[("a", 2), ("b", 1)]);
+        let dominant = checkpoint_with_sequences(&[("a", 2), ("b", 2)]);
+        let concurrent = checkpoint_with_sequences(&[("a", 1), ("b", 2)]);
+        assert_eq!(
+            checkpoint_adoption(&local, &dominant),
+            CheckpointAdoption::AdoptRemote
+        );
+        assert_eq!(
+            checkpoint_adoption(&dominant, &local),
+            CheckpointAdoption::KeepLocal
+        );
+        assert_eq!(
+            checkpoint_adoption(&local, &concurrent),
+            CheckpointAdoption::Recompute
+        );
+        assert_eq!(
+            checkpoint_adoption(&local, &local),
+            CheckpointAdoption::KeepLocal
+        );
+        let mut inconsistent = local.clone();
+        inconsistent.next_display_id += 1;
+        assert_eq!(
+            checkpoint_adoption(&local, &inconsistent),
+            CheckpointAdoption::Recompute
+        );
+    }
+
+    #[test]
+    fn phase2_causality_concurrent_remote_checkpoint_recomputes_union_without_losing_local_agent_history(
+    ) {
+        let root = initialize_repository();
+        let remote = tempdir().unwrap();
+        assert!(Command::new("git")
+            .current_dir(remote.path())
+            .args(["init", "--bare", "-b", "main"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["remote", "add", "origin", remote.path().to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .current_dir(root.path())
+            .args(["push", "-u", "origin", "main"])
+            .status()
+            .unwrap()
+            .success());
+        let crosslink = root.path().join(".crosslink");
+        crate::identity::AgentConfig::init(&crosslink, "agent-b", None).unwrap();
+        let sync = SyncManager::new(&crosslink).unwrap();
+        sync.init_cache().unwrap();
+        let cache = sync.cache_path();
+
+        let make_event = |agent: &str, sequence: u64| crate::events::EventEnvelope {
+            agent_id: agent.to_string(),
+            agent_seq: sequence,
+            timestamp: chrono::Utc::now(),
+            event: crate::events::Event::IssueCreated {
+                uuid: uuid::Uuid::new_v4(),
+                title: format!("{agent}-{sequence}"),
+                description: None,
+                priority: "medium".to_string(),
+                labels: Vec::new(),
+                parent_uuid: None,
+                created_by: agent.to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
+            },
+            signed_by: None,
+            signature: None,
+        };
+        let log_bytes = |events: &[crate::events::EventEnvelope]| {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("events.log");
+            for event in events {
+                crate::events::append_event(&path, event).unwrap();
+            }
+            std::fs::read(path).unwrap()
+        };
+        let a1 = make_event("agent-a", 1);
+        let a2 = make_event("agent-a", 2);
+        let b1 = make_event("agent-b", 1);
+        let b2 = make_event("agent-b", 2);
+        let a1_tip = crate::hub_v3::commit_log_bytes(
+            cache,
+            "agent-a",
+            &log_bytes(std::slice::from_ref(&a1)),
+            "agent a sequence 1",
+        )
+        .unwrap();
+        let a2_tip = crate::hub_v3::commit_log_bytes(
+            cache,
+            "agent-a",
+            &log_bytes(&[a1, a2]),
+            "agent a sequence 2",
+        )
+        .unwrap();
+        let b1_tip = crate::hub_v3::commit_log_bytes(
+            cache,
+            "agent-b",
+            &log_bytes(std::slice::from_ref(&b1)),
+            "agent b sequence 1",
+        )
+        .unwrap();
+        let b2_tip = crate::hub_v3::commit_log_bytes(
+            cache,
+            "agent-b",
+            &log_bytes(&[b1, b2]),
+            "agent b sequence 2",
+        )
+        .unwrap();
+        let a_ref = format!("{}agent-a", crate::hub_v3::AGENT_REF_PREFIX);
+        assert!(Command::new("git")
+            .current_dir(cache)
+            .args(["update-ref", &a_ref, &a1_tip, &a2_tip])
+            .status()
+            .unwrap()
+            .success());
+
+        let local = crate::compaction::rebuild_from_authority(
+            &crate::hub_source::RefHubSource::at_checkpoint(cache, None).unwrap(),
+        )
+        .unwrap()
+        .state;
+        crate::hub_v3::commit_blob_to_ref(
+            cache,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &serde_json::to_vec_pretty(&local).unwrap(),
+            "local concurrent checkpoint",
+        )
+        .unwrap();
+
+        let remote_source = crate::hub_source::RefHubSource::at_tips(
+            cache,
+            None,
+            None,
+            vec![
+                ("agent-a".to_string(), a2_tip.clone()),
+                ("agent-b".to_string(), b1_tip.clone()),
+            ],
+        )
+        .unwrap();
+        let remote_state = crate::compaction::rebuild_from_authority(&remote_source)
+            .unwrap()
+            .state;
+        let remote_checkpoint = crate::hub_v3::commit_blob_to_ref(
+            cache,
+            "refs/crosslink/test/remote-checkpoint",
+            "state.json",
+            &serde_json::to_vec_pretty(&remote_state).unwrap(),
+            "remote concurrent checkpoint",
+        )
+        .unwrap();
+        for refspec in [
+            format!("{a2_tip}:refs/heads/crosslink/agents/agent-a"),
+            format!("{b1_tip}:refs/heads/crosslink/agents/agent-b"),
+            format!("{remote_checkpoint}:refs/heads/crosslink/checkpoint"),
+        ] {
+            assert!(Command::new("git")
+                .current_dir(cache)
+                .args(["push", "--force", "origin", &refspec])
+                .status()
+                .unwrap()
+                .success());
+        }
+
+        sync.fetch_and_adopt_v3_refs();
+        let state = crate::hub_source::HubSource::read_checkpoint(
+            &crate::hub_source::RefHubSource::new(cache).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(state.frontier.agents["agent-a"].sequence, 2);
+        assert_eq!(state.frontier.agents["agent-b"].sequence, 2);
+        assert_eq!(state.issues.len(), 4);
+        assert_eq!(
+            crate::hub_v3::git_rev_parse_optional(
+                cache,
+                &format!("{}agent-b", crate::hub_v3::AGENT_REF_PREFIX)
+            )
+            .unwrap(),
+            Some(b2_tip)
+        );
+    }
 
     fn initialize_repository() -> tempfile::TempDir {
         let root = tempdir().unwrap();

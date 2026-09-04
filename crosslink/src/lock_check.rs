@@ -293,18 +293,23 @@ mod tests {
             } else {
                 chrono::Utc::now() - chrono::Duration::minutes(200)
             };
-            let mut state = crate::checkpoint::CheckpointState {
-                watermark: Some(crate::hub_v3::genesis_sentinel_watermark()),
-                ..Default::default()
-            };
-            state.locks.insert(
-                issue_id,
-                crate::checkpoint::LockEntry {
-                    agent_id: holder.to_string(),
+            let envelope = crate::events::EventEnvelope {
+                agent_id: holder.to_string(),
+                agent_seq: 1,
+                timestamp: claimed_at,
+                event: crate::events::Event::LockClaimed {
+                    issue_display_id: issue_id,
                     branch: None,
-                    claimed_at,
                 },
-            );
+                signed_by: None,
+                signature: None,
+            };
+            crate::hub_v3::append_event_to_ref(cache_dir, holder, &envelope).unwrap();
+            let state = crate::compaction::reduce(
+                &crate::hub_source::RefHubSource::new(cache_dir).unwrap(),
+            )
+            .unwrap()
+            .state;
             let bytes = serde_json::to_vec_pretty(&state).unwrap();
             crate::hub_v3::commit_blob_to_ref(
                 cache_dir,
