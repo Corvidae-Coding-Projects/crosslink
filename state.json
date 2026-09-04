@@ -26874,11 +26874,16 @@
       "agent_id": "w4c5",
       "agent_seq": 58,
       "timestamp": "2026-09-04T02:25:03.726371351Z"
+    },
+    {
+      "agent_id": "anon-aeb72d19",
+      "agent_seq": 1,
+      "timestamp": "2026-09-04T02:34:29.322677916Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T02:25:03.726371351Z",
-    "agent_id": "w4c5",
-    "agent_seq": 58
+    "timestamp": "2026-09-04T02:34:29.322677916Z",
+    "agent_id": "anon-aeb72d19",
+    "agent_seq": 1
   }
 }
