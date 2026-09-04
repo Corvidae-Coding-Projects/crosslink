@@ -1,6 +1,6 @@
 {
   "next_display_id": 799,
-  "next_comment_id": 1260,
+  "next_comment_id": 1261,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22793,7 +22793,7 @@
       "priority": "critical",
       "created_by": "w4c5",
       "created_at": "2026-09-03T23:15:12.535041845Z",
-      "updated_at": "2026-09-04T02:25:03.726371351Z",
+      "updated_at": "2026-09-04T02:37:13.106614824Z",
       "labels": [
         "refactor"
       ],
@@ -22842,6 +22842,15 @@
           "kind": "decision",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzxFlQ9xeRG685EhImxPa0NhqqpCjO8IQA4dCpqM3c7+QQjc9EVdDwIhCP8IvNZoARaFai6OXJNeLVzHcKNzKAw=="
+        },
+        "6c2e1dc7-c56b-433a-8693-454e88dab791": {
+          "display_id": 1260,
+          "author": "w4c5",
+          "content": "Committed 113c2f71: fix(ci): shard Windows stress workloads. Five many-issue partitions and five rapid-operation partitions now run independently, long-input cases have separate shards, the 20-minute ceiling remains, and full non-Windows stress semantics are preserved. Native build, strict Clippy, full suite, formatting, matrix validation, plugin sync check, and Windows GNU test compilation pass.",
+          "created_at": "2026-09-04T02:37:13.099531186Z",
+          "kind": "result",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABArUeLjYnI8iEDha8nQlzL2BG3mcXpwFRzeL6/GKo/khfxVYNKCrbtPki9CDB0VFFZ4jucowKDVnUhgewpefVDDQ=="
         },
         "70282f50-5e6a-4c09-88cd-5c1626f13a7b": {
           "display_id": 1253,
@@ -26884,11 +26893,16 @@
       "agent_id": "anon-aeb72d19",
       "agent_seq": 2,
       "timestamp": "2026-09-04T02:34:34.449746013Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 59,
+      "timestamp": "2026-09-04T02:37:13.106614824Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T02:34:34.449746013Z",
-    "agent_id": "anon-aeb72d19",
-    "agent_seq": 2
+    "timestamp": "2026-09-04T02:37:13.106614824Z",
+    "agent_id": "w4c5",
+    "agent_seq": 59
   }
 }
