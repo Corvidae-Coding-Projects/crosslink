@@ -1,6 +1,6 @@
 {
   "next_display_id": 799,
-  "next_comment_id": 1255,
+  "next_comment_id": 1256,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22793,7 +22793,7 @@
       "priority": "critical",
       "created_by": "w4c5",
       "created_at": "2026-09-03T23:15:12.535041845Z",
-      "updated_at": "2026-09-04T02:18:41.884563122Z",
+      "updated_at": "2026-09-04T02:18:47.044800433Z",
       "labels": [
         "refactor"
       ],
@@ -22815,6 +22815,15 @@
           "kind": "plan",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWmGQczh98gYSdn/YG0hmQ6gcuA+XTTqw/BG+P4ttA/Y1udPq9i+IwxAojIq3vusHHjAJR+oytDOZ8jLQEx2rAQ=="
+        },
+        "392379a9-a8f4-4951-a74c-c1a422369e6a": {
+          "display_id": 1255,
+          "author": "w4c5",
+          "content": "Decision: shard workload rather than raise the timeout. The previous jobs spent about five minutes compiling and up to fourteen minutes in one test; independent partitions preserve coverage while bounding each runner below the timeout.",
+          "created_at": "2026-09-04T02:18:47.041474869Z",
+          "kind": "decision",
+          "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzxFlQ9xeRG685EhImxPa0NhqqpCjO8IQA4dCpqM3c7+QQjc9EVdDwIhCP8IvNZoARaFai6OXJNeLVzHcKNzKAw=="
         },
         "70282f50-5e6a-4c09-88cd-5c1626f13a7b": {
           "display_id": 1253,
@@ -26804,11 +26813,16 @@
       "agent_id": "w4c5",
       "agent_seq": 53,
       "timestamp": "2026-09-04T02:18:41.884563122Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 54,
+      "timestamp": "2026-09-04T02:18:47.044800433Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T02:18:41.884563122Z",
+    "timestamp": "2026-09-04T02:18:47.044800433Z",
     "agent_id": "w4c5",
-    "agent_seq": 53
+    "agent_seq": 54
   }
 }
