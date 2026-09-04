@@ -2,11 +2,13 @@ use anyhow::{bail, Context, Result};
 use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use crate::agents::{parse_jsonl_event, runtime_provider, runtime_snapshot};
 
 const RUNTIME_LOG: &str = ".crosslink/runtime/agent-events.jsonl";
 const USAGE_MARKER: &str = ".crosslink/runtime/recorded-usage.json";
+const RUNTIME_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) fn record_runtime_usage(crosslink_dir: &Path, worktree_dir: &Path, agent_id: &str) {
     use sha2::{Digest, Sha256};
@@ -308,17 +310,16 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
     }
 
     if command_available("docker") {
-        if let Ok(output) = Command::new("docker")
-            .args([
-                "ps",
-                "-a",
-                "--filter",
-                "label=crosslink-agent=true",
-                "--format",
-                "{{.Names}}\t{{.Status}}\t{{.Label \"crosslink-task\"}}",
-            ])
-            .output()
-        {
+        let mut command = Command::new("docker");
+        command.args([
+            "ps",
+            "-a",
+            "--filter",
+            "label=crosslink-agent=true",
+            "--format",
+            "{{.Names}}\t{{.Status}}\t{{.Label \"crosslink-task\"}}",
+        ]);
+        if let Some(output) = command_output_with_timeout(&mut command, RUNTIME_DISCOVERY_TIMEOUT) {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {

@@ -1,5 +1,6 @@
 use std::path::Path;
-use std::time::Duration;
+use std::process::Command;
+use std::time::{Duration, Instant};
 
 use super::helpers::*;
 use super::launch::*;
@@ -2285,6 +2286,25 @@ fn test_command_available_nonexistent() {
 #[test]
 fn test_command_available_real() {
     assert!(command_available("which"));
+}
+
+#[test]
+fn external_command_timeout_is_bounded() {
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = Command::new("ping.exe");
+        command.args(["-n", "6", "127.0.0.1"]);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = Command::new("sleep");
+        command.arg("5");
+        command
+    };
+    let started = Instant::now();
+    assert!(command_output_with_timeout(&mut command, Duration::from_millis(100)).is_none());
+    assert!(started.elapsed() < Duration::from_secs(3));
 }
 
 #[test]
