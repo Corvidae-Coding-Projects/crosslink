@@ -1,6 +1,6 @@
 {
   "next_display_id": 799,
-  "next_comment_id": 1261,
+  "next_comment_id": 1262,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22789,7 +22789,7 @@
       "priority": "critical",
       "created_by": "w4c5",
       "created_at": "2026-09-03T23:15:12.535041845Z",
-      "updated_at": "2026-09-04T02:37:13.106614824Z",
+      "updated_at": "2026-09-04T02:37:45.648251974Z",
       "labels": [
         "refactor"
       ],
@@ -22838,6 +22838,13 @@
           "kind": "decision",
           "signed_by": "SHA256:XnWFB8sWC/arinvVKiYsNYOcKNGxO3Md9d5QkQizAKM",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgvh4fVIEUEUeefLs/7RhSt3fSF7wnc31qS4rmf1e3cRkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzxFlQ9xeRG685EhImxPa0NhqqpCjO8IQA4dCpqM3c7+QQjc9EVdDwIhCP8IvNZoARaFai6OXJNeLVzHcKNzKAw=="
+        },
+        "68b245c6-7f40-4c94-bb8d-d98fb26bb1ec": {
+          "display_id": 1261,
+          "author": "w4c5",
+          "content": "Committed 113c2f71 to PR #95: split Windows many-issue and rapid-operation stress tests into five bounded shards each and isolated the two long-input tests. All local gates pass; user must push feature/checkpoint-causal-frontiers, then monitor full PR CI.",
+          "created_at": "2026-09-04T02:37:45.639112460Z",
+          "kind": "handoff"
         },
         "6c2e1dc7-c56b-433a-8693-454e88dab791": {
           "display_id": 1260,
@@ -26899,11 +26906,16 @@
       "agent_id": "w4c5",
       "agent_seq": 60,
       "timestamp": "2026-09-04T02:37:40.205203834Z"
+    },
+    {
+      "agent_id": "w4c5",
+      "agent_seq": 61,
+      "timestamp": "2026-09-04T02:37:45.648251974Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T02:37:40.205203834Z",
+    "timestamp": "2026-09-04T02:37:45.648251974Z",
     "agent_id": "w4c5",
-    "agent_seq": 60
+    "agent_seq": 61
   }
 }
