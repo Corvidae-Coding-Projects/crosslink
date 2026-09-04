@@ -225,8 +225,12 @@ jobs:
         test_a test_b test_c test_d test_e test_f test_g test_h test_i test_j test_k test_l
         test_m test_n test_o test_p test_q test_r test_search test_security test_sentinel
         test_session test_show test_special test_sql test_start test_stop test_stress_deep_nesting
-        test_stress_many_issues test_stress_rapid_operations test_stress_very_long_description
-        test_stress_very_long_title test_subissue
+        test_stress_many_issues_000_019 test_stress_many_issues_020_039
+        test_stress_many_issues_040_059 test_stress_many_issues_060_079
+        test_stress_many_issues_080_099 test_stress_rapid_operations_000_003
+        test_stress_rapid_operations_004_007 test_stress_rapid_operations_008_011
+        test_stress_rapid_operations_012_015 test_stress_rapid_operations_016_019
+        test_stress_very_long_description test_stress_very_long_title test_subissue
         test_t test_u test_v test_w test_x test_y test_z
     defaults:
       run:
@@ -243,10 +247,30 @@ jobs:
             prefixes: test_m test_n test_o test_p test_q test_r
           - shard: s-core
             prefixes: test_search test_security test_sentinel test_session test_show test_special test_sql test_start test_stop
-          - shard: s-stress-create
-            prefixes: test_stress_many_issues test_stress_very_long_description test_stress_very_long_title
-          - shard: s-stress-rapid
-            prefixes: test_stress_rapid_operations
+          - shard: s-stress-many-000-019
+            prefixes: test_stress_many_issues_000_019
+          - shard: s-stress-many-020-039
+            prefixes: test_stress_many_issues_020_039
+          - shard: s-stress-many-040-059
+            prefixes: test_stress_many_issues_040_059
+          - shard: s-stress-many-060-079
+            prefixes: test_stress_many_issues_060_079
+          - shard: s-stress-many-080-099
+            prefixes: test_stress_many_issues_080_099
+          - shard: s-stress-rapid-000-003
+            prefixes: test_stress_rapid_operations_000_003
+          - shard: s-stress-rapid-004-007
+            prefixes: test_stress_rapid_operations_004_007
+          - shard: s-stress-rapid-008-011
+            prefixes: test_stress_rapid_operations_008_011
+          - shard: s-stress-rapid-012-015
+            prefixes: test_stress_rapid_operations_012_015
+          - shard: s-stress-rapid-016-019
+            prefixes: test_stress_rapid_operations_016_019
+          - shard: s-stress-long-description
+            prefixes: test_stress_very_long_description
+          - shard: s-stress-long-title
+            prefixes: test_stress_very_long_title
           - shard: s-stress-tree
             prefixes: test_stress_deep_nesting test_subissue
           - shard: t-z
