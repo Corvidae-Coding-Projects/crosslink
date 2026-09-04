@@ -388,8 +388,9 @@ fn acquire_run_lease(crosslink_dir: &Path, identity: &DaemonIdentity) -> Result<
         match publish_lease(&path, &contents) {
             Ok(true) => return Ok(FileLease { path, contents }),
             Ok(false) => {
-                let existing = fs::read(&path)
-                    .with_context(|| format!("reading daemon run lease {}", path.display()))?;
+                let Some(existing) = read_lease_if_present(&path, "daemon run lease")? else {
+                    continue;
+                };
                 if let Ok(holder) = serde_json::from_slice::<DaemonIdentity>(&existing) {
                     if holder.repository_id != identity.repository_id {
                         remove_owned_lease(&path, &existing)?;
@@ -445,9 +446,20 @@ fn publish_lease(path: &Path, contents: &[u8]) -> std::io::Result<bool> {
     Ok(published)
 }
 
+fn read_lease_if_present(path: &Path, description: &str) -> Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("reading {description} {}", path.display()))
+        }
+    }
+}
+
 fn remove_stale_start_lease(path: &Path, repository_id: &str) -> Result<bool> {
-    let contents = fs::read(path)
-        .with_context(|| format!("reading daemon startup lease {}", path.display()))?;
+    let Some(contents) = read_lease_if_present(path, "daemon startup lease")? else {
+        return Ok(true);
+    };
     if let Ok(owner) = serde_json::from_slice::<ProcessLeaseOwner>(&contents) {
         if owner.repository_id != repository_id {
             remove_owned_lease(path, &contents)?;
@@ -475,14 +487,25 @@ fn remove_stale_start_lease(path: &Path, repository_id: &str) -> Result<bool> {
 
 fn remove_owned_lease(path: &Path, contents: &[u8]) -> Result<()> {
     if fs::read(path).ok().as_deref() == Some(contents) {
-        fs::remove_file(path)
-            .with_context(|| format!("removing stale lease {}", path.display()))?;
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("removing stale lease {}", path.display()));
+            }
+        }
     }
     Ok(())
 }
 
 fn lease_is_fresh(path: &Path, duration: Duration) -> Result<bool> {
-    let modified = fs::metadata(path)?.modified()?;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let modified = metadata.modified()?;
     Ok(modified.elapsed().unwrap_or_default() < duration)
 }
 
@@ -1244,6 +1267,17 @@ mod tests {
             .filter(|_| lease_liveness_probe_due(&mut sweep))
             .count();
         assert_eq!(probes, 10);
+    }
+
+    #[test]
+    fn vanished_lease_is_retryable() {
+        let root = initialized();
+        let path = root.path().join(".crosslink/daemon.start.lock");
+        assert!(read_lease_if_present(&path, "daemon startup lease")
+            .unwrap()
+            .is_none());
+        assert!(!lease_is_fresh(&path, Duration::from_secs(1)).unwrap());
+        assert!(remove_stale_start_lease(&path, "repository").unwrap());
     }
 
     #[test]
