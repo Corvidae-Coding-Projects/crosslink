@@ -26879,11 +26879,16 @@
       "agent_id": "anon-aeb72d19",
       "agent_seq": 1,
       "timestamp": "2026-09-04T02:34:29.322677916Z"
+    },
+    {
+      "agent_id": "anon-aeb72d19",
+      "agent_seq": 2,
+      "timestamp": "2026-09-04T02:34:34.449746013Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T02:34:29.322677916Z",
+    "timestamp": "2026-09-04T02:34:34.449746013Z",
     "agent_id": "anon-aeb72d19",
-    "agent_seq": 1
+    "agent_seq": 2
   }
 }
