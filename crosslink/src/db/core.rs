@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, Transaction};
+use rusqlite::{Connection, OpenFlags, Transaction};
 use std::path::Path;
 
 pub const SCHEMA_VERSION: i32 = 18;
@@ -80,6 +80,30 @@ impl Database {
             "database schema version {version} is newer than supported version {SCHEMA_VERSION}"
         );
         Ok(db)
+    }
+
+    pub(crate) fn recover_interrupted_transaction(path: &Path) -> Result<()> {
+        if !path.is_file() || !rollback_journal_path(path).is_file() {
+            return Ok(());
+        }
+        let connection = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| {
+            format!(
+                "failed to recover interrupted SQLite transaction in {}",
+                path.display()
+            )
+        })?;
+        let quick_check: String = connection
+            .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+            .context("failed to verify SQLite database after transaction recovery")?;
+        anyhow::ensure!(
+            quick_check == "ok",
+            "SQLite quick_check reported {quick_check} after transaction recovery"
+        );
+        Ok(())
     }
 
     pub(crate) fn open_without_migrations(path: &Path) -> Result<Self> {
@@ -527,4 +551,10 @@ impl Database {
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
         Ok(version)
     }
+}
+
+fn rollback_journal_path(path: &Path) -> std::path::PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push("-journal");
+    value.into()
 }

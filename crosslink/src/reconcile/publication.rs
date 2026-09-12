@@ -179,6 +179,20 @@ pub trait HistoricalImporter {
         repository: &Path,
         targets: &BTreeMap<String, String>,
     ) -> Result<CanonicalSemantic>;
+
+    fn read_legacy_target_semantic(
+        &self,
+        _repository: &Path,
+        _targets: &BTreeMap<String, String>,
+    ) -> Result<Option<CanonicalSemantic>> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug)]
+struct VerifiedBaseline {
+    semantic: CanonicalSemantic,
+    legacy_encoding: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -734,16 +748,21 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
             }
             fetch_oid(self.repository, self.remote, winner)?;
             let committed = read_descriptor(self.repository, winner)?;
-            if committed.source.fingerprint == journal.descriptor.source.fingerprint {
-                return self.adopt_winner(journal, winner);
-            }
-            if let Err(error) = self.verified_baseline_semantic(&committed) {
-                if error.downcast_ref::<RemoteGitError>().is_some() {
+            let verified = match self.verified_baseline_semantic(&committed) {
+                Ok(verified) => verified,
+                Err(error) if error.downcast_ref::<RemoteGitError>().is_some() => {
                     return Err(error);
                 }
-                return Ok(PublicationOutcome::BlockedCorrupt {
-                    reason: format!("committed remote generation is unverifiable: {error:#}"),
-                });
+                Err(error) => {
+                    return Ok(PublicationOutcome::BlockedCorrupt {
+                        reason: format!("committed remote generation is unverifiable: {error:#}"),
+                    });
+                }
+            };
+            if committed.source.fingerprint == journal.descriptor.source.fingerprint
+                && !verified.legacy_encoding
+            {
+                return self.adopt_winner(journal, winner);
             }
             let expectations = alias_expectations_from_source(&committed);
             match self.complete_committed_generation(&committed, winner, &expectations, true)? {
@@ -1255,8 +1274,8 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                     ),
                 });
             }
-            let semantic = match self.verified_baseline_semantic(&winner) {
-                Ok(semantic) => semantic,
+            let verified = match self.verified_baseline_semantic(&winner) {
+                Ok(verified) => verified,
                 Err(error) if error.downcast_ref::<RemoteGitError>().is_some() => {
                     return Err(error);
                 }
@@ -1266,15 +1285,16 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                     });
                 }
             };
-            if semantic.digest() != winner.semantic_digest
-                || semantic.digest() != journal.descriptor.semantic_digest
+            if verified.legacy_encoding
+                || verified.semantic.digest() != winner.semantic_digest
+                || verified.semantic.digest() != journal.descriptor.semantic_digest
             {
                 return Ok(PublicationOutcome::BlockedCorrupt {
                     reason: format!(
                         "remote winner failed independent semantic verification (winner {}, local {}, verified {})",
                         winner.semantic_digest,
                         journal.descriptor.semantic_digest,
-                        semantic.digest()
+                        verified.semantic.digest()
                     ),
                 });
             }
@@ -1731,14 +1751,23 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         ))
     }
 
-    fn fetch_and_verify_target_objects(
+    fn verified_baseline_semantic(
         &self,
         descriptor: &GenerationDescriptor,
-    ) -> Result<BTreeMap<String, String>> {
+    ) -> Result<VerifiedBaseline> {
         validate_descriptor_schema(descriptor)?;
+        let immutable_refs = descriptor
+            .targets
+            .values()
+            .chain(descriptor.archives.values())
+            .map(|target| target.immutable_ref.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        fetch_refs(self.repository, self.remote, &immutable_refs)?;
+        let advertised = remote_ref_map(self.repository, self.remote, &immutable_refs)?;
         let mut targets = BTreeMap::new();
         for (canonical, target) in &descriptor.targets {
-            fetch_ref(self.repository, self.remote, &target.immutable_ref)?;
             anyhow::ensure!(
                 object_exists(self.repository, &target.oid)?,
                 "remote target object {} is unavailable after fetching {}",
@@ -1746,27 +1775,16 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
                 target.immutable_ref
             );
             validate_object_type(self.repository, &target.oid, "commit")?;
-            let advertised = remote_ref_oid(self.repository, self.remote, &target.immutable_ref)?;
             anyhow::ensure!(
-                advertised.as_deref() == Some(target.oid.as_str()),
+                advertised.get(&target.immutable_ref) == Some(&target.oid),
                 "remote immutable target {} does not match its descriptor",
                 target.immutable_ref
             );
             targets.insert(canonical.clone(), target.oid.clone());
         }
-        Ok(targets)
-    }
-
-    fn verified_baseline_semantic(
-        &self,
-        descriptor: &GenerationDescriptor,
-    ) -> Result<CanonicalSemantic> {
-        let targets = self.fetch_and_verify_target_objects(descriptor)?;
         for archive in descriptor.archives.values() {
-            fetch_ref(self.repository, self.remote, &archive.immutable_ref)?;
-            let advertised = remote_ref_oid(self.repository, self.remote, &archive.immutable_ref)?;
             anyhow::ensure!(
-                advertised.as_deref() == Some(archive.oid.as_str()),
+                advertised.get(&archive.immutable_ref) == Some(&archive.oid),
                 "remote immutable archive {} does not match its descriptor",
                 archive.immutable_ref
             );
@@ -1776,11 +1794,24 @@ impl<'a, I: HistoricalImporter> RepositoryReconciler<'a, I> {
         let semantic = self
             .importer
             .read_target_semantic(self.repository, &targets)?;
+        if semantic.digest() == descriptor.semantic_digest {
+            return Ok(VerifiedBaseline {
+                semantic,
+                legacy_encoding: false,
+            });
+        }
+        let legacy = self
+            .importer
+            .read_legacy_target_semantic(self.repository, &targets)?
+            .context("immutable generation targets differ from the descriptor semantic digest")?;
         anyhow::ensure!(
-            semantic.digest() == descriptor.semantic_digest,
-            "immutable generation targets differ from the descriptor semantic digest"
+            legacy.digest() == descriptor.semantic_digest,
+            "immutable generation targets differ from both current and legacy semantic digests"
         );
-        Ok(semantic)
+        Ok(VerifiedBaseline {
+            semantic: legacy,
+            legacy_encoding: true,
+        })
     }
 
     fn verify_remote_targets(
@@ -3708,6 +3739,29 @@ fn fetch_ref(repository: &Path, remote: &str, reference: &str) -> Result<()> {
     }
 }
 
+fn fetch_refs(repository: &Path, remote: &str, references: &[String]) -> Result<()> {
+    if references.is_empty() {
+        return Ok(());
+    }
+    let mut command = Command::new("git");
+    command
+        .current_dir(repository)
+        .args(["fetch", "--no-tags", remote])
+        .args(references);
+    let output = command
+        .output()
+        .context("fetching immutable reconciliation refs")?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(classify_remote_error(
+            "git fetch immutable reconciliation refs",
+            &output_message(&output),
+        )
+        .into())
+    }
+}
+
 pub(crate) fn refresh_generation_ref(
     repository: &Path,
     remote: &str,
@@ -4015,6 +4069,66 @@ mod tests {
             targets: &BTreeMap<String, String>,
         ) -> Result<CanonicalSemantic> {
             self.target.read_target_semantic(repository, targets)
+        }
+    }
+
+    struct VerificationImporter {
+        current: Value,
+        legacy: Option<Value>,
+    }
+
+    impl HistoricalImporter for VerificationImporter {
+        fn prepare_file_source(
+            &self,
+            _repository: &Path,
+            _source: &SourceEvidence,
+            _generation_id: &str,
+        ) -> Result<PreparedImport> {
+            bail!("verification importer cannot prepare a file source")
+        }
+
+        fn prepare_local_source(
+            &self,
+            _repository: &Path,
+            _source: &SourceEvidence,
+            _generation_id: &str,
+        ) -> Result<PreparedImport> {
+            bail!("verification importer cannot prepare a local source")
+        }
+
+        fn prepare_current_source(
+            &self,
+            _repository: &Path,
+            _source: &SourceEvidence,
+        ) -> Result<PreparedImport> {
+            bail!("verification importer cannot prepare a current source")
+        }
+
+        fn file_source_is_newer(
+            &self,
+            _repository: &Path,
+            _source: &SourceEvidence,
+        ) -> Result<bool> {
+            Ok(false)
+        }
+
+        fn read_target_semantic(
+            &self,
+            _repository: &Path,
+            _targets: &BTreeMap<String, String>,
+        ) -> Result<CanonicalSemantic> {
+            CanonicalSemantic::from_value(self.current.clone())
+        }
+
+        fn read_legacy_target_semantic(
+            &self,
+            _repository: &Path,
+            _targets: &BTreeMap<String, String>,
+        ) -> Result<Option<CanonicalSemantic>> {
+            self.legacy
+                .clone()
+                .map(CanonicalSemantic::from_value)
+                .transpose()
         }
     }
 
@@ -4555,6 +4669,43 @@ mod tests {
         assert!(matches!(outcome, PublicationOutcome::BlockedCorrupt { .. }));
         assert_eq!(remote_oid(&fixture, GENERATION_REF), Some(descriptor_oid));
         assert_eq!(local_ref_oid(fixture.repository.path(), V2).unwrap(), None);
+    }
+
+    #[test]
+    fn verified_legacy_digest_allows_upgrade_without_accepting_arbitrary_mismatch() {
+        let fixture = v2_fixture();
+        let original = ObjectImporter::new("legacy-generation");
+        reconcile_fixture(&fixture, &original).unwrap();
+        let descriptor_oid = remote_oid(&fixture, GENERATION_REF).unwrap();
+        let descriptor = read_descriptor(fixture.repository.path(), &descriptor_oid).unwrap();
+        let verifier = VerificationImporter {
+            current: serde_json::json!({"encoding": "current"}),
+            legacy: Some(original.semantic),
+        };
+        let reconciler = RepositoryReconciler::new(
+            fixture.repository.path(),
+            fixture.journal.clone(),
+            "origin",
+            &verifier,
+        );
+        let verified = reconciler.verified_baseline_semantic(&descriptor).unwrap();
+        assert!(verified.legacy_encoding);
+        assert_eq!(verified.semantic.digest(), descriptor.semantic_digest);
+
+        let corrupt = VerificationImporter {
+            current: serde_json::json!({"encoding": "current"}),
+            legacy: Some(serde_json::json!({"encoding": "unrelated"})),
+        };
+        let reconciler = RepositoryReconciler::new(
+            fixture.repository.path(),
+            fixture.journal.clone(),
+            "origin",
+            &corrupt,
+        );
+        let error = reconciler
+            .verified_baseline_semantic(&descriptor)
+            .unwrap_err();
+        assert!(error.to_string().contains("current and legacy"));
     }
 
     #[test]

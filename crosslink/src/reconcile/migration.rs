@@ -14,7 +14,7 @@ use crate::checkpoint::{
     CheckpointState, CompactComment, CompactIssue, CompactMilestone, CompactTimeEntry,
 };
 use crate::compaction;
-use crate::hub_source::{HubSource, RefHubSource};
+use crate::hub_source::{HubSource, RefHistoryCache, RefHubSource};
 use crate::hub_v3::{self, HubMeta, CHECKPOINT_REF, META_REF};
 use crate::issue_file::{
     read_all_issue_files, read_all_milestone_files, read_comment_files, read_counters, IssueFile,
@@ -41,6 +41,7 @@ pub enum RepositoryActivation {
 }
 
 pub fn activate_repository(crosslink_dir: &Path) -> Result<RepositoryActivation> {
+    crate::db::Database::recover_interrupted_transaction(&crosslink_dir.join("issues.db"))?;
     let sync = SyncManager::new(crosslink_dir)?;
     match sync.init_cache_for_reconciliation() {
         crate::sync::ReconciliationCacheOutcome::Ready => {}
@@ -252,6 +253,7 @@ struct MigrationImporter<'a> {
     cache_dir: &'a Path,
     hub_lock: &'a crate::sync::HubWriteLock,
     agent_id: String,
+    history_cache: RefHistoryCache,
 }
 
 impl MigrationImporter<'_> {
@@ -462,7 +464,7 @@ impl HistoricalImporter for MigrationImporter<'_> {
         let database = self.crosslink_dir.join("issues.db");
         if database.is_file() && has_complete_v3_source(source) {
             let targets = direct_v3_targets(source)?;
-            let current = reduce_v3_state(self.cache_dir, &targets)?;
+            let current = reduce_v3_state(self.cache_dir, &targets, &self.history_cache)?;
             let (_workspace, snapshot) = logical_sqlite_snapshot(&database, "issues.db")?;
             let local = build_genesis_from_database(&snapshot, &self.agent_id)?;
             let requires_import = merge_local_database_projection(&current, &local).1;
@@ -519,7 +521,7 @@ impl HistoricalImporter for MigrationImporter<'_> {
                 let semantic = self.read_target_semantic(repository, &current_targets)?;
                 return Ok(PreparedImport::new(current_targets, semantic));
             }
-            let state = reduce_v3_state(repository, &current_targets)?;
+            let state = reduce_v3_state(repository, &current_targets, &self.history_cache)?;
             anyhow::ensure!(
                 state.checkpoint_schema_version == crate::checkpoint::CHECKPOINT_SCHEMA_VERSION,
                 "legacy checkpoint replay did not produce the current causal schema"
@@ -563,7 +565,7 @@ impl HistoricalImporter for MigrationImporter<'_> {
         materialize_commit_tree(self.cache_dir, database_evidence.oid(), materialized.path())?;
         let local =
             build_genesis_from_database(&materialized.path().join("issues.db"), &self.agent_id)?;
-        let current = reduce_v3_state(self.cache_dir, &current_targets)?;
+        let current = reduce_v3_state(self.cache_dir, &current_targets, &self.history_cache)?;
         let (merged, changed) = merge_local_database_projection(&current, &local);
         anyhow::ensure!(changed, "local database contains no unshared state");
         let signers = read_v3_allowed_signers(self.cache_dir, &current_targets)?;
@@ -603,7 +605,13 @@ impl HistoricalImporter for MigrationImporter<'_> {
                     .map(|agent| (agent.to_string(), oid.clone()))
             })
             .collect();
-        let source = RefHubSource::at_tips(repository, checkpoint, meta, agents)?;
+        let source = RefHubSource::at_tips_cached(
+            repository,
+            checkpoint,
+            meta,
+            agents,
+            self.history_cache.clone(),
+        )?;
         let outcome =
             compaction::reduce(&source).context("reducing prepared reconciliation targets")?;
         let allowed_signers = source
@@ -612,6 +620,44 @@ impl HistoricalImporter for MigrationImporter<'_> {
             .transpose()
             .context("reading allowed_signers from prepared reconciliation target")?;
         canonical_semantic(&outcome.state, allowed_signers)
+    }
+
+    fn read_legacy_target_semantic(
+        &self,
+        repository: &Path,
+        targets: &BTreeMap<String, String>,
+    ) -> Result<Option<CanonicalSemantic>> {
+        let checkpoint = read_checkpoint_target(repository, targets)?;
+        if !checkpoint.is_legacy() {
+            return Ok(None);
+        }
+        let checkpoint = targets.get(CHECKPOINT_REF).cloned();
+        let meta = targets.get(META_REF).cloned();
+        let agents = targets
+            .iter()
+            .filter_map(|(name, oid)| {
+                name.strip_prefix(hub_v3::AGENT_REF_PREFIX)
+                    .map(|agent| (agent.to_string(), oid.clone()))
+            })
+            .collect();
+        let source = RefHubSource::at_tips_cached(
+            repository,
+            checkpoint,
+            meta,
+            agents,
+            self.history_cache.clone(),
+        )?;
+        let outcome = compaction::reduce_legacy_compatible(&source)
+            .context("reducing legacy reconciliation targets")?;
+        let allowed_signers = source
+            .allowed_signers_file()?
+            .map(fs::read)
+            .transpose()
+            .context("reading allowed_signers from legacy reconciliation target")?;
+        Ok(Some(legacy_canonical_semantic(
+            &outcome.state,
+            allowed_signers,
+        )?))
     }
 }
 
@@ -948,9 +994,26 @@ fn canonical_semantic(
     }))
 }
 
+fn legacy_canonical_semantic(
+    state: &CheckpointState,
+    allowed_signers: Option<Vec<u8>>,
+) -> Result<CanonicalSemantic> {
+    let mut state = serde_json::to_value(state).context("serializing legacy semantic state")?;
+    let object = state
+        .as_object_mut()
+        .context("legacy semantic state is not an object")?;
+    object.remove("checkpoint_schema_version");
+    object.remove("frontier");
+    CanonicalSemantic::from_value(serde_json::json!({
+        "state": state,
+        "trust": allowed_signers.map(hex::encode),
+    }))
+}
+
 fn reduce_v3_state(
     repository: &Path,
     targets: &BTreeMap<String, String>,
+    history_cache: &RefHistoryCache,
 ) -> Result<CheckpointState> {
     let checkpoint = targets.get(CHECKPOINT_REF).cloned();
     let meta = targets.get(META_REF).cloned();
@@ -961,7 +1024,8 @@ fn reduce_v3_state(
                 .map(|agent| (agent.to_string(), oid.clone()))
         })
         .collect();
-    let source = RefHubSource::at_tips(repository, checkpoint, meta, agents)?;
+    let source =
+        RefHubSource::at_tips_cached(repository, checkpoint, meta, agents, history_cache.clone())?;
     Ok(compaction::reduce(&source)
         .context("reducing current v3 state for local database reconciliation")?
         .state)
@@ -1673,6 +1737,7 @@ pub fn reconcile_repository(
         cache_dir,
         hub_lock,
         agent_id,
+        history_cache: RefHistoryCache::default(),
     };
     let journal_path = crosslink_dir.join("reconciliation-journal.json");
     let outcome = RepositoryReconciler::new(cache_dir, journal_path, remote, &importer)
@@ -2722,6 +2787,14 @@ pub(crate) mod tests {
             targets: &BTreeMap<String, String>,
         ) -> Result<CanonicalSemantic> {
             HistoricalImporter::read_target_semantic(&self.inner, repository, targets)
+        }
+
+        fn read_legacy_target_semantic(
+            &self,
+            repository: &Path,
+            targets: &BTreeMap<String, String>,
+        ) -> Result<Option<CanonicalSemantic>> {
+            HistoricalImporter::read_legacy_target_semantic(&self.inner, repository, targets)
         }
     }
 
@@ -4210,6 +4283,7 @@ pub(crate) mod tests {
             cache_dir: &cache_dir,
             hub_lock: &lock,
             agent_id: "alpha".to_string(),
+            history_cache: RefHistoryCache::default(),
         };
         let failed = RepositoryReconciler::new(
             &cache_dir,
@@ -5136,6 +5210,7 @@ pub(crate) mod tests {
                 cache_dir: &source_cache,
                 hub_lock: &source_lock,
                 agent_id: "alpha".to_string(),
+                history_cache: RefHistoryCache::default(),
             },
             barrier: Arc::clone(&barrier),
             fingerprints: Arc::clone(&fingerprints),
@@ -5146,6 +5221,7 @@ pub(crate) mod tests {
                 cache_dir: &second_cache,
                 hub_lock: &second_lock,
                 agent_id: "alpha".to_string(),
+                history_cache: RefHistoryCache::default(),
             },
             barrier,
             fingerprints: Arc::clone(&fingerprints),

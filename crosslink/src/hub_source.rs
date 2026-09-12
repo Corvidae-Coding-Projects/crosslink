@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use crate::checkpoint::{
     event_prefix_sha256, read_checkpoint, read_watermark, AgentFrontier, CausalFrontier,
@@ -65,6 +66,14 @@ pub struct AuthorityBaseline {
     pub frontier: CausalFrontier,
 }
 
+type RefHistoryKey = (PathBuf, String, String);
+type RefHistoryMap = BTreeMap<RefHistoryKey, AgentHistory>;
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RefHistoryCache {
+    histories: Arc<Mutex<RefHistoryMap>>,
+}
+
 #[derive(serde::Deserialize)]
 struct AuthorityBaselineMeta {
     #[serde(default)]
@@ -76,8 +85,10 @@ struct AuthorityBaselineMeta {
 impl AgentHistory {
     pub fn validate(&mut self) -> Result<()> {
         self.events.sort_by_key(|event| event.agent_seq);
-        for (index, event) in self.events.iter().enumerate() {
-            let expected = index as u64 + 1;
+        let mut normalized = Vec::with_capacity(self.events.len());
+        let mut previous_sequence = None;
+        let mut encodings = std::collections::BTreeSet::new();
+        for event in self.events.drain(..) {
             anyhow::ensure!(
                 event.agent_id == self.agent_id,
                 "agent '{}' history contains an event owned by '{}' at sequence {}",
@@ -85,14 +96,33 @@ impl AgentHistory {
                 event.agent_id,
                 event.agent_seq
             );
-            anyhow::ensure!(
-                event.agent_seq == expected,
-                "agent '{}' history is not a contiguous prefix: expected sequence {expected}, found {}",
-                self.agent_id,
-                event.agent_seq
-            );
+            if previous_sequence != Some(event.agent_seq) {
+                let expected = previous_sequence.map_or(1, |sequence| sequence + 1);
+                anyhow::ensure!(
+                    event.agent_seq == expected,
+                    "agent '{}' history is not a contiguous prefix: expected sequence {expected}, found {}",
+                    self.agent_id,
+                    event.agent_seq
+                );
+                previous_sequence = Some(event.agent_seq);
+                encodings.clear();
+            }
+            let encoded = serde_json::to_vec(&event)
+                .context("failed to encode event while validating agent history")?;
+            if encodings.insert(encoded) {
+                normalized.push(event);
+            }
         }
+        self.events = normalized;
         Ok(())
+    }
+
+    pub(crate) fn last_sequence(&self) -> u64 {
+        self.events
+            .iter()
+            .map(|event| event.agent_seq)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -373,6 +403,8 @@ pub struct RefHubSource {
     _allowed_signers_dir: Option<tempfile::TempDir>,
 
     allowed_signers_path: Option<PathBuf>,
+
+    history_cache: RefHistoryCache,
 }
 
 #[allow(dead_code)]
@@ -405,6 +437,7 @@ impl RefHubSource {
             agent_tips,
             _allowed_signers_dir: allowed_signers_dir,
             allowed_signers_path,
+            history_cache: RefHistoryCache::default(),
         })
     }
 
@@ -413,6 +446,22 @@ impl RefHubSource {
         checkpoint_sha: Option<String>,
         meta_sha: Option<String>,
         agent_tips: Vec<(String, String)>,
+    ) -> Result<Self> {
+        Self::at_tips_cached(
+            repo_dir,
+            checkpoint_sha,
+            meta_sha,
+            agent_tips,
+            RefHistoryCache::default(),
+        )
+    }
+
+    pub(crate) fn at_tips_cached(
+        repo_dir: &Path,
+        checkpoint_sha: Option<String>,
+        meta_sha: Option<String>,
+        agent_tips: Vec<(String, String)>,
+        history_cache: RefHistoryCache,
     ) -> Result<Self> {
         let (allowed_signers_dir, allowed_signers_path) = match &meta_sha {
             Some(sha) => extract_meta_allowed_signers(repo_dir, sha)?,
@@ -425,6 +474,7 @@ impl RefHubSource {
             agent_tips,
             _allowed_signers_dir: allowed_signers_dir,
             allowed_signers_path,
+            history_cache,
         })
     }
 
@@ -512,40 +562,29 @@ impl HubSource for RefHubSource {
         let Some((_, tip)) = self.agent_tips.iter().find(|(id, _)| id == agent_id) else {
             anyhow::bail!("agent ref for '{agent_id}' is missing from the pinned authority");
         };
-        let commits = git_first_parent_history(&self.repo_path, tip)?;
-        let mut by_sequence: BTreeMap<u64, (Vec<u8>, EventEnvelope)> = BTreeMap::new();
-        for commit in commits {
-            let Some(bytes) = git_cat_file_blob(&self.repo_path, &commit, "events.log")? else {
-                continue;
-            };
-            let events = read_events_from_bytes(&bytes).with_context(|| {
-                format!("failed to parse agent '{agent_id}' history at pinned commit {commit}")
-            })?;
-            let mut seen = std::collections::BTreeSet::new();
-            for event in events {
-                anyhow::ensure!(
-                    seen.insert(event.agent_seq),
-                    "agent '{agent_id}' history repeats sequence {} in pinned commit {commit}",
-                    event.agent_seq
-                );
-                let encoded = serde_json::to_vec(&event)
-                    .context("failed to encode event while validating agent history")?;
-                if let Some((existing, _)) = by_sequence.get(&event.agent_seq) {
-                    anyhow::ensure!(
-                        *existing == encoded,
-                        "agent '{agent_id}' history rewrites sequence {} between pinned commits",
-                        event.agent_seq
-                    );
-                } else {
-                    by_sequence.insert(event.agent_seq, (encoded, event));
-                }
-            }
+        let key = (self.repo_path.clone(), agent_id.to_string(), tip.clone());
+        let cached = {
+            let histories = self
+                .history_cache
+                .histories
+                .lock()
+                .map_err(|_| anyhow::anyhow!("agent history cache lock was poisoned"))?;
+            histories.get(&key).cloned()
+        };
+        if let Some(history) = cached {
+            return Ok(history);
         }
-        Ok(AgentHistory {
+        let history = AgentHistory {
             agent_id: agent_id.to_string(),
             tip_oid: tip.clone(),
-            events: by_sequence.into_values().map(|(_, event)| event).collect(),
-        })
+            events: read_git_event_history(&self.repo_path, tip, agent_id)?,
+        };
+        self.history_cache
+            .histories
+            .lock()
+            .map_err(|_| anyhow::anyhow!("agent history cache lock was poisoned"))?
+            .insert(key, history.clone());
+        Ok(history)
     }
 
     fn tip_contains(&self, agent_id: &str, claimed_tip: &str) -> Result<bool> {
@@ -575,11 +614,12 @@ impl HubSource for RefHubSource {
                 "pinned hub metadata must record both genesis_checkpoint_commit and seed_agent_tips"
             ),
         };
-        let seed = Self::at_tips(
+        let seed = Self::at_tips_cached(
             &self.repo_path,
             Some(checkpoint),
             Some(meta_sha.clone()),
             tips.into_iter().collect(),
+            self.history_cache.clone(),
         )?;
         let mut state = seed.read_checkpoint()?;
         let mut agents = BTreeMap::new();
@@ -591,7 +631,7 @@ impl HubSource for RefHubSource {
                 "pinned authority baseline tip {} for agent '{agent_id}' is not a prefix of the current authority",
                 history.tip_oid
             );
-            let sequence = history.events.len() as u64;
+            let sequence = history.last_sequence();
             if sequence == 0 {
                 continue;
             }
@@ -610,10 +650,18 @@ impl HubSource for RefHubSource {
     }
 }
 
+#[cfg(test)]
 fn git_first_parent_history(repo_path: &Path, tip: &str) -> Result<Vec<String>> {
     let output = Command::new("git")
         .current_dir(repo_path)
-        .args(["rev-list", "--first-parent", "--reverse", tip])
+        .args([
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            tip,
+            "--",
+            "events.log",
+        ])
         .output()
         .with_context(|| format!("failed to enumerate pinned agent history at {tip}"))?;
     if !output.status.success() {
@@ -628,6 +676,131 @@ fn git_first_parent_history(repo_path: &Path, tip: &str) -> Result<Vec<String>> 
         .filter(|line| !line.is_empty())
         .map(str::to_string)
         .collect())
+}
+
+fn read_git_event_history(
+    repo_path: &Path,
+    tip: &str,
+    agent_id: &str,
+) -> Result<Vec<EventEnvelope>> {
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args([
+            "log",
+            "--first-parent",
+            "--reverse",
+            "--diff-merges=first-parent",
+            "--format=commit:%H",
+            "--patch",
+            "--unified=0",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-renames",
+            tip,
+            "--",
+            "events.log",
+        ])
+        .output()
+        .with_context(|| format!("reading Git event history for agent '{agent_id}'"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "failed to read Git event history for agent '{agent_id}': {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let mut commit = None::<String>;
+    let mut removed = BTreeMap::<u64, Vec<Vec<u8>>>::new();
+    let mut added = BTreeMap::<u64, Vec<(Vec<u8>, EventEnvelope)>>::new();
+    let mut history = BTreeMap::<u64, Vec<(Vec<u8>, EventEnvelope)>>::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(oid) = line.strip_prefix("commit:") {
+            apply_event_delta(
+                agent_id,
+                commit.as_deref(),
+                &mut history,
+                &mut removed,
+                &mut added,
+            )?;
+            commit = Some(oid.to_string());
+            continue;
+        }
+        if line.starts_with("Binary files ") {
+            anyhow::bail!(
+                "agent '{agent_id}' history became binary at pinned commit {}",
+                commit.as_deref().unwrap_or("unknown")
+            );
+        }
+        if line.starts_with("+++ ") || line.starts_with("--- ") {
+            continue;
+        }
+        if let Some(content) = line.strip_prefix('+') {
+            let (encoded, event) = decode_delta_event(content, agent_id, commit.as_deref())?;
+            added
+                .entry(event.agent_seq)
+                .or_default()
+                .push((encoded, event));
+        } else if let Some(content) = line.strip_prefix('-') {
+            let (encoded, event) = decode_delta_event(content, agent_id, commit.as_deref())?;
+            removed.entry(event.agent_seq).or_default().push(encoded);
+        }
+    }
+    apply_event_delta(
+        agent_id,
+        commit.as_deref(),
+        &mut history,
+        &mut removed,
+        &mut added,
+    )?;
+    Ok(history
+        .into_values()
+        .flatten()
+        .map(|(_, event)| event)
+        .collect())
+}
+
+fn decode_delta_event(
+    content: &str,
+    agent_id: &str,
+    commit: Option<&str>,
+) -> Result<(Vec<u8>, EventEnvelope)> {
+    let event: EventEnvelope = serde_json::from_str(content).with_context(|| {
+        format!(
+            "failed to parse agent '{agent_id}' history delta at pinned commit {}",
+            commit.unwrap_or("unknown")
+        )
+    })?;
+    let encoded = serde_json::to_vec(&event)
+        .context("failed to encode event while validating agent history")?;
+    Ok((encoded, event))
+}
+
+fn apply_event_delta(
+    agent_id: &str,
+    commit: Option<&str>,
+    history: &mut BTreeMap<u64, Vec<(Vec<u8>, EventEnvelope)>>,
+    removed: &mut BTreeMap<u64, Vec<Vec<u8>>>,
+    added: &mut BTreeMap<u64, Vec<(Vec<u8>, EventEnvelope)>>,
+) -> Result<()> {
+    let commit = commit.unwrap_or("unknown");
+    for (sequence, additions) in std::mem::take(added) {
+        let existing = history.entry(sequence).or_default();
+        let new = additions
+            .into_iter()
+            .filter(|(encoding, _)| !existing.iter().any(|(prior, _)| prior == encoding))
+            .collect::<Vec<_>>();
+        let removed_existing = removed.get(&sequence).is_some_and(|deletions| {
+            deletions
+                .iter()
+                .any(|encoding| existing.iter().any(|(prior, _)| prior == encoding))
+        });
+        anyhow::ensure!(
+            new.is_empty() || !removed_existing,
+            "agent '{agent_id}' history rewrites sequence {sequence} at pinned commit {commit}"
+        );
+        existing.extend(new);
+    }
+    removed.clear();
+    Ok(())
 }
 
 fn git_is_ancestor(repo_path: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
@@ -1061,6 +1234,169 @@ mod tests {
             crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap_err();
         let message = format!("{error:#}");
         assert!(message.contains("rewrites sequence 1"), "{message}");
+    }
+
+    #[test]
+    fn phase2_causality_preserves_distinct_legacy_sequence_collisions() {
+        let repo = tempfile::tempdir().unwrap();
+        ref_repo_init(repo.path());
+        let first_id = Uuid::new_v4();
+        let second_id = Uuid::new_v4();
+        let third_id = Uuid::new_v4();
+        let first = make_issue_created("agent-a", 1, first_id);
+        let second = make_issue_created("agent-a", 1, second_id);
+        let third = make_issue_created("agent-a", 2, third_id);
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(std::slice::from_ref(&first)),
+            "first",
+        )
+        .unwrap();
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(&[first.clone(), second.clone()]),
+            "collision",
+        )
+        .unwrap();
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(&[first.clone(), second.clone(), third.clone()]),
+            "advance",
+        )
+        .unwrap();
+
+        let outcome = crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap();
+        assert_eq!(outcome.events_processed, 3);
+        assert!(outcome.state.issues.contains_key(&first_id));
+        assert!(outcome.state.issues.contains_key(&second_id));
+        assert!(outcome.state.issues.contains_key(&third_id));
+        let frontier = &outcome.state.frontier.agents["agent-a"];
+        assert_eq!(frontier.sequence, 2);
+        assert_eq!(
+            frontier.prefix_sha256,
+            event_prefix_sha256(&[first, second, third], 2).unwrap()
+        );
+
+        let bytes = serde_json::to_vec_pretty(&outcome.state).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            repo.path(),
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "causal checkpoint",
+        )
+        .unwrap();
+        let repeated = crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap();
+        assert_eq!(repeated.events_processed, 0);
+    }
+
+    #[test]
+    fn phase2_causality_git_deltas_preserve_pruned_history() {
+        let repo = tempfile::tempdir().unwrap();
+        ref_repo_init(repo.path());
+        let first = make_issue_created("agent-a", 1, Uuid::new_v4());
+        let second = make_issue_created("agent-a", 2, Uuid::new_v4());
+        let third = make_issue_created("agent-a", 3, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(&[first.clone(), second.clone()]),
+            "initial",
+        )
+        .unwrap();
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(std::slice::from_ref(&second)),
+            "prune",
+        )
+        .unwrap();
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(&[second, third]),
+            "append",
+        )
+        .unwrap();
+
+        let mut history = RefHubSource::new(repo.path())
+            .unwrap()
+            .read_agent_history("agent-a")
+            .unwrap();
+        history.validate().unwrap();
+        assert_eq!(history.events.len(), 3);
+        assert_eq!(history.last_sequence(), 3);
+        assert_eq!(history.events[0].agent_seq, first.agent_seq);
+    }
+
+    #[test]
+    fn complete_history_skips_heartbeat_only_commits() {
+        let repo = tempfile::tempdir().unwrap();
+        ref_repo_init(repo.path());
+        let event = make_issue_created("agent-a", 1, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(std::slice::from_ref(&event)),
+            "event",
+        )
+        .unwrap();
+        let heartbeat = crate::locks::Heartbeat {
+            agent_id: "agent-a".to_string(),
+            last_heartbeat: Utc::now(),
+            active_issue_id: None,
+            machine_id: "test-machine".to_string(),
+        };
+        crate::hub_v3::write_heartbeat_to_ref(repo.path(), "agent-a", &heartbeat).unwrap();
+        crate::hub_v3::write_heartbeat_to_ref(repo.path(), "agent-a", &heartbeat).unwrap();
+        let tip = git_rev_parse(
+            repo.path(),
+            &format!("{}agent-a", crate::hub_v3::AGENT_REF_PREFIX),
+        )
+        .unwrap();
+
+        assert_eq!(
+            git_first_parent_history(repo.path(), &tip).unwrap().len(),
+            1
+        );
+        let mut history = RefHubSource::new(repo.path())
+            .unwrap()
+            .read_agent_history("agent-a")
+            .unwrap();
+        history.validate().unwrap();
+        assert_eq!(history.events.len(), 1);
+        assert_eq!(history.events[0].agent_seq, 1);
+    }
+
+    #[test]
+    fn phase2_causality_rejects_sequence_collision_after_checkpoint() {
+        let repo = tempfile::tempdir().unwrap();
+        ref_repo_init(repo.path());
+        let first = make_issue_created("agent-a", 1, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(std::slice::from_ref(&first)),
+            "first",
+        )
+        .unwrap();
+        commit_reduced_checkpoint(repo.path());
+        let collision = make_issue_created("agent-a", 1, Uuid::new_v4());
+        crate::hub_v3::commit_log_bytes(
+            repo.path(),
+            "agent-a",
+            &log_bytes(&[first, collision]),
+            "collision",
+        )
+        .unwrap();
+
+        let error =
+            crate::compaction::reduce(&RefHubSource::new(repo.path()).unwrap()).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("forged or rewritten"), "{message}");
     }
 
     #[test]
