@@ -3,6 +3,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 const CLI_PROCESS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -188,6 +189,33 @@ fn ensure_child(directory: &Path) -> Child {
         .unwrap()
 }
 
+fn rollback_journal_path(path: &Path) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push("-journal");
+    value.into()
+}
+
+fn install_hot_rollback_journal(database_path: &Path) {
+    let source = tempfile::tempdir().unwrap();
+    let source_database = source.path().join("issues.db");
+    std::fs::copy(database_path, &source_database).unwrap();
+    let connection = Connection::open(&source_database).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA journal_mode=DELETE;\
+             PRAGMA synchronous=FULL;\
+             PRAGMA cache_size=1;\
+             BEGIN IMMEDIATE;\
+             UPDATE issues SET title = 'uncommitted title' WHERE id = 1;",
+        )
+        .unwrap();
+    connection.cache_flush().unwrap();
+    let source_journal = rollback_journal_path(&source_database);
+    assert!(source_journal.metadata().unwrap().len() > 512);
+    std::fs::copy(&source_database, database_path).unwrap();
+    std::fs::copy(&source_journal, rollback_journal_path(database_path)).unwrap();
+}
+
 #[cfg(unix)]
 fn ensure_child_in_own_group(directory: &Path) -> Child {
     use std::os::unix::process::CommandExt;
@@ -225,6 +253,61 @@ fn fresh_hook_initialized_local_repository_bootstraps_to_ready() {
     ));
     assert!(work.path().join(".crosslink/issues.db").is_file());
     assert!(work.path().join(".crosslink/.hub-cache").is_dir());
+}
+
+#[test]
+fn daemon_recovers_hot_rollback_journal_before_reconciliation() {
+    let work = fresh_local_repository();
+    let _cleanup = DaemonCleanup::new(work.path());
+    let database_path = work.path().join(".crosslink/issues.db");
+    let database = crosslink::db::Database::open(&database_path).unwrap();
+    database
+        .create_issue("durable title", None, "medium")
+        .unwrap();
+    drop(database);
+    install_hot_rollback_journal(&database_path);
+
+    let read_only =
+        Connection::open_with_flags(&database_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let failure = read_only
+        .query_row::<String, _, _>("PRAGMA quick_check(1)", [], |row| row.get(0))
+        .unwrap_err();
+    assert!(matches!(
+        failure,
+        rusqlite::Error::SqliteFailure(error, _)
+            if error.extended_code == rusqlite::ffi::SQLITE_READONLY_ROLLBACK
+    ));
+    drop(read_only);
+
+    let database_before = std::fs::read(&database_path).unwrap();
+    let journal_before = std::fs::read(rollback_journal_path(&database_path)).unwrap();
+    let diagnostic = crosslink(work.path(), &["reconcile", "--check"]);
+    assert!(
+        diagnostic.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&diagnostic.stdout),
+        String::from_utf8_lossy(&diagnostic.stderr)
+    );
+    assert_eq!(std::fs::read(&database_path).unwrap(), database_before);
+    assert_eq!(
+        std::fs::read(rollback_journal_path(&database_path)).unwrap(),
+        journal_before
+    );
+
+    let ready = wait_output(ensure_child(work.path()), DAEMON_PROCESS_TIMEOUT);
+    assert!(
+        ready.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&ready.stdout),
+        String::from_utf8_lossy(&ready.stderr)
+    );
+    let ready = parse(&ready);
+    assert_eq!(ready["ready"], true);
+    assert!(!rollback_journal_path(&database_path).exists());
+
+    let recovered = crosslink::db::Database::open_read_only(&database_path).unwrap();
+    let issue = recovered.get_issue(1).unwrap().unwrap();
+    assert_eq!(issue.title, "durable title");
 }
 
 #[cfg(unix)]

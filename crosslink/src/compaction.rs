@@ -221,6 +221,18 @@ pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
     })
 }
 
+pub(crate) fn reduce_legacy_compatible(source: &dyn HubSource) -> Result<ReductionOutcome> {
+    let state = source.read_checkpoint()?;
+    state.validate_schema()?;
+    anyhow::ensure!(
+        state.is_legacy(),
+        "legacy-compatible reduction requires a schema-1 checkpoint"
+    );
+    let external_watermark = source.read_legacy_watermark()?;
+    let watermark = state.legacy_watermark().cloned().or(external_watermark);
+    reduce_legacy_snapshot(source, state, watermark.as_ref())
+}
+
 pub fn rebuild_from_authority(source: &dyn HubSource) -> Result<ReductionOutcome> {
     let histories = validated_histories(source)?;
     let mut state = if let Some(baseline) = source.read_authority_baseline()? {
@@ -381,10 +393,10 @@ fn validate_frontier(
             "frontier for agent '{agent_id}' contains a non-canonical zero sequence"
         );
         anyhow::ensure!(
-            entry.sequence <= history.events.len() as u64,
+            entry.sequence <= history.last_sequence(),
             "frontier for agent '{agent_id}' claims sequence {} but pinned history ends at {}",
             entry.sequence,
-            history.events.len()
+            history.last_sequence()
         );
         anyhow::ensure!(
             source.tip_contains(agent_id, &entry.tip_oid)?,
@@ -414,7 +426,7 @@ fn frontier_for_histories(
 ) -> Result<CausalFrontier> {
     let mut agents = BTreeMap::new();
     for (agent_id, history) in histories {
-        let sequence = history.events.len() as u64;
+        let sequence = history.last_sequence();
         if sequence == 0 {
             continue;
         }
