@@ -758,83 +758,70 @@ pub fn read_all_agent_requests(
 /// The highest `agent_seq` the verified authority already knows for this
 /// agent — the ceiling a new event must exceed.
 ///
-/// Two copies of an agent's history exist and can disagree: the agent's own
-/// ref (`refs/heads/crosslink/agents/<id>`, the file the writer appends to)
-/// and the checkpoint's compacted copy (`agents/<id>/events.log` on
-/// `CHECKPOINT_REF`, the one the causal frontier and `event_prefix_sha256`
-/// are computed over). A ref migrated across numbering epochs (the pre-v3
-/// commit-per-event scheme reached seq 1169 on one hub; the v3 log then
-/// restarted at 1) carries the low numbering on its tip while the
-/// checkpoint's copy carries the high one. Seeding from the tip alone
-/// produced `agent_seq` 178 under a frontier at 1169: `take_while(agent_seq
-/// <= 1169)` then folded the new event into the frozen prefix and every
-/// reduce refused the agent's chain as "forged or rewritten". The ceiling
-/// is therefore the maximum over BOTH copies.
+/// The agent ref tip's `events.log` is the writer's own record. The
+/// checkpoint's causal frontier (`state.json` → `frontier.agents.<id>`) is
+/// what `event_prefix_sha256` is verified against, and the reconciliation
+/// seeds it from pinned pre-v3 tips. When that recorded tip is an ancestor
+/// of the live agent ref — one lineage whose numbering restarted (one hub
+/// carried commit-per-event numbering to 1169 while the v3 log stopped at
+/// 177) — seeding from the tip alone put the next event inside the frozen
+/// prefix and every reduce refused the chain as "forged or rewritten"; the
+/// frontier is the ceiling there. When the recorded tip is NOT in the
+/// ref's lineage (a hub migrated from the v2 layout, whose v3 ref starts
+/// its own stream at 1), the frontier belongs to the legacy stream and
+/// raising the seed to it opens a gap the verifier rejects the same way;
+/// the tip alone is right there. Lineage decides.
 pub fn read_max_event_seq_from_ref(repo_dir: &Path, agent_id: &str) -> Result<u64> {
     validate_agent_id(agent_id)?;
     let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
-    let tip_max = match git_rev_parse_optional(repo_dir, &ref_name)? {
-        Some(tip) => {
-            let spec = format!("{tip}:events.log");
-            match git_cat_file_blob_optional(repo_dir, &spec)? {
-                Some(bytes) => read_events_from_bytes(&bytes)
-                    .with_context(|| {
-                        format!("failed to parse events.log on '{ref_name}' for seq init")
-                    })?
-                    .iter()
-                    .map(|e| e.agent_seq)
-                    .max()
-                    .unwrap_or(0),
-                None => 0,
-            }
-        }
+    let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+        return Ok(0);
+    };
+    let spec = format!("{tip}:events.log");
+    let tip_max = match git_cat_file_blob_optional(repo_dir, &spec)? {
+        Some(bytes) => read_events_from_bytes(&bytes)
+            .with_context(|| format!("failed to parse events.log on '{ref_name}' for seq init"))?
+            .iter()
+            .map(|e| e.agent_seq)
+            .max()
+            .unwrap_or(0),
         None => 0,
     };
-    let checkpoint_max = match git_rev_parse_optional(repo_dir, CHECKPOINT_REF)? {
-        Some(checkpoint) => {
-            let spec = format!("{checkpoint}:agents/{agent_id}/events.log");
-            match git_cat_file_blob_optional(repo_dir, &spec)? {
-                Some(bytes) => read_events_from_bytes(&bytes)
-                    .with_context(|| {
-                        format!(
-                            "failed to parse the checkpoint's agents/{agent_id}/events.log for seq init"
-                        )
-                    })?
-                    .iter()
-                    .map(|e| e.agent_seq)
-                    .max()
-                    .unwrap_or(0),
-                None => 0,
+    let Some(checkpoint) = git_rev_parse_optional(repo_dir, CHECKPOINT_REF)? else {
+        return Ok(tip_max);
+    };
+    let mut frontier_max = 0;
+    for path in ["state.json", "checkpoint/state.json"] {
+        let spec = format!("{checkpoint}:{path}");
+        let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+            continue;
+        };
+        // An unreadable state must contribute nothing, never fail the seed:
+        // the caller folds an error into a ceiling of 0.
+        let Ok(state) = crate::checkpoint::CheckpointState::from_slice(&bytes) else {
+            break;
+        };
+        if let Some(frontier) = state.frontier.agents.get(agent_id) {
+            if git_is_ancestor(repo_dir, &frontier.tip_oid, &tip) {
+                frontier_max = frontier.sequence;
             }
         }
-        None => 0,
-    };
-    // The verifier compares against the checkpoint's recorded causal
-    // frontier (state.json → frontier.agents.<id>.sequence), which the
-    // reconciliation seeds from the pinned pre-v3 agent tips; on this hub
-    // that is 1169 while both events.log copies stop at 177. The frontier
-    // is therefore the authoritative ceiling wherever it exists.
-    let frontier_max = match git_rev_parse_optional(repo_dir, CHECKPOINT_REF)? {
-        Some(checkpoint) => {
-            let mut sequence = 0;
-            for path in ["state.json", "checkpoint/state.json"] {
-                let spec = format!("{checkpoint}:{path}");
-                if let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? {
-                    let state = crate::checkpoint::CheckpointState::from_slice(&bytes)
-                        .with_context(|| {
-                            format!("failed to parse the checkpoint's {path} for seq init")
-                        })?;
-                    if let Some(frontier) = state.frontier.agents.get(agent_id) {
-                        sequence = sequence.max(frontier.sequence);
-                    }
-                    break;
-                }
-            }
-            sequence
-        }
-        None => 0,
-    };
-    Ok(tip_max.max(checkpoint_max).max(frontier_max))
+        break;
+    }
+    Ok(tip_max.max(frontier_max))
+}
+
+/// `git merge-base --is-ancestor ancestor descendant`; false when either
+/// object is unknown to the repository.
+fn git_is_ancestor(repo_dir: &Path, ancestor: &str, descendant: &str) -> bool {
+    if ancestor == descendant {
+        return true;
+    }
+    Command::new("git")
+        .current_dir(repo_dir)
+        .args(["merge-base", "--is-ancestor", ancestor, descendant])
+        .output()
+        .is_ok_and(|out| out.status.success())
 }
 
 fn for_each_agent_ref(repo_dir: &Path) -> Result<Vec<String>> {
@@ -3402,11 +3389,12 @@ mod tests {
 
     #[test]
     fn seq_init_takes_the_max_over_the_agent_ref_and_the_checkpoint_copy() {
-        // An agent ref migrated across numbering epochs: its tip's events.log
-        // carries the restarted (low) numbering while the checkpoint's
-        // compacted copy — the one the causal frontier hashes — carries the
-        // old (high) numbering. The next event must exceed both, or the
-        // frontier check folds it into the frozen prefix.
+        // Lineage decides whether the checkpoint's recorded frontier raises
+        // the writer's seed above the agent ref tip: it does when the
+        // frontier's tip is an ancestor of the live ref (one stream whose
+        // numbering restarted), and it must not when the frontier belongs to
+        // a legacy stream the ref never descended from (a hub migrated from
+        // the v2 layout, whose v3 ref starts at 1).
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
         let line = |seq: u64| {
@@ -3415,7 +3403,7 @@ mod tests {
             )
         };
         let tip_log: String = (1..=3).map(line).collect();
-        commit_blob_to_ref(
+        let tip = commit_blob_to_ref(
             dir.path(),
             &format!("{AGENT_REF_PREFIX}agt1"),
             "events.log",
@@ -3426,74 +3414,49 @@ mod tests {
         assert_eq!(
             read_max_event_seq_from_ref(dir.path(), "agt1").unwrap(),
             3,
-            "no checkpoint copy: the tip's max"
+            "no checkpoint: the tip's max"
         );
 
-        // The checkpoint's copy lives two levels deep (agents/<id>/events.log),
-        // past what commit_blob_to_ref expresses, so build it with plumbing.
-        let checkpoint_log: String = (1..=500).map(line).collect();
-        let log_path = dir.path().join("checkpoint-agt1-events.log");
-        std::fs::write(&log_path, checkpoint_log.as_bytes()).unwrap();
-        let blob = run_git_output(
-            dir.path(),
-            &["hash-object", "-w", log_path.to_str().unwrap()],
-        );
-        let index = dir.path().join("checkpoint-index");
-        let with_index = |args: &[&str]| -> String {
-            let out = std::process::Command::new("git")
-                .current_dir(dir.path())
-                .env("GIT_INDEX_FILE", &index)
-                .args(args)
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "{}",
-                String::from_utf8_lossy(&out.stderr)
+        let write_checkpoint = |frontier_tip: &str| {
+            let mut state = crate::checkpoint::CheckpointState::default();
+            state.frontier.agents.insert(
+                "agt1".to_string(),
+                crate::checkpoint::AgentFrontier {
+                    sequence: 1169,
+                    tip_oid: frontier_tip.to_string(),
+                    prefix_sha256: "unused".to_string(),
+                },
             );
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
+            commit_blob_to_ref(
+                dir.path(),
+                CHECKPOINT_REF,
+                "state.json",
+                &serde_json::to_vec(&state).unwrap(),
+                "checkpoint",
+            )
+            .unwrap();
         };
-        with_index(&[
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            &format!("100644,{blob},agents/agt1/events.log"),
-        ]);
-        // The recorded causal frontier is what the verifier hashes against:
-        // higher than either events.log copy, it must win.
-        let mut state = crate::checkpoint::CheckpointState::default();
-        state.frontier.agents.insert(
-            "agt1".to_string(),
-            crate::checkpoint::AgentFrontier {
-                sequence: 1169,
-                tip_oid: "0000000000000000000000000000000000000000".to_string(),
-                prefix_sha256: "unused".to_string(),
-            },
-        );
-        let state_path = dir.path().join("checkpoint-state.json");
-        std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
-        let state_blob = run_git_output(
-            dir.path(),
-            &["hash-object", "-w", state_path.to_str().unwrap()],
-        );
-        with_index(&[
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            &format!("100644,{state_blob},state.json"),
-        ]);
-        let tree = with_index(&["write-tree"]);
-        let commit = run_git_output(dir.path(), &["commit-tree", &tree, "-m", "checkpoint"]);
-        run_git(dir.path(), &["update-ref", CHECKPOINT_REF, &commit]);
+
+        // Frontier recorded at the ref's own tip: same lineage, it wins.
+        write_checkpoint(&tip);
         assert_eq!(
             read_max_event_seq_from_ref(dir.path(), "agt1").unwrap(),
             1169,
-            "the checkpoint's recorded frontier (1169) outranks both events.log copies (3, 500)"
+            "a frontier in the ref's lineage is the ceiling"
+        );
+
+        // Frontier recorded at an object outside the ref's lineage (a legacy
+        // stream): ignored, the tip alone is the ceiling.
+        write_checkpoint("0000000000000000000000000000000000000000");
+        assert_eq!(
+            read_max_event_seq_from_ref(dir.path(), "agt1").unwrap(),
+            3,
+            "a frontier outside the ref's lineage must not raise the seed"
         );
         assert_eq!(
             read_max_event_seq_from_ref(dir.path(), "absent").unwrap(),
             0,
-            "an agent with neither copy starts at 0"
+            "an agent with no ref starts at 0"
         );
     }
 
