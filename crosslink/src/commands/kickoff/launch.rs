@@ -853,6 +853,20 @@ pub(super) fn launch_container(
         args.push(format!("{git_path}:{git_path}:rw"));
     }
 
+    // The host's hub and knowledge caches are worktrees registered in the
+    // shared .git mounted above. A worktree resolves its cache at the main
+    // repository's host path, so without these mounts readiness finds no
+    // cache there, tries to create one, and the shared .git refuses because
+    // the cache branch is already checked out on the host.
+    for cache in [".hub-cache", ".knowledge-cache"] {
+        let host_cache = host_repo_root.join(".crosslink").join(cache);
+        if host_cache.is_dir() {
+            let cache_path = host_cache.to_string_lossy();
+            args.push("-v".to_string());
+            args.push(format!("{cache_path}:{cache_path}:rw"));
+        }
+    }
+
     if let Some((uid, gid)) = &uid_gid {
         args.extend([
             "-e".to_string(),
