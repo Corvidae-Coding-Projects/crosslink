@@ -86,7 +86,7 @@ impl SharedWriter {
             &cache_dir,
             &agent.agent_id,
             sync.hub_mode(),
-        ));
+        )?);
 
         crate::hub_v3::warn_if_migrated_v2_operation(&cache_dir, sync.hub_mode());
 
@@ -171,14 +171,15 @@ impl SharedWriter {
         cache_dir: &Path,
         agent_id: &str,
         mode: crate::hub_v3::HubMode,
-    ) -> u64 {
+    ) -> Result<u64> {
         if mode.is_v3() {
-            return crate::hub_v3::read_max_event_seq_from_ref(cache_dir, agent_id).unwrap_or(0);
+            return crate::hub_v3::read_max_event_seq_from_ref(cache_dir, agent_id)
+                .with_context(|| format!("seeding the event sequence for agent '{agent_id}'"));
         }
         let log_path = cache_dir.join("agents").join(agent_id).join("events.log");
-        crate::events::read_events(&log_path).map_or(0, |events| {
+        Ok(crate::events::read_events(&log_path).map_or(0, |events| {
             events.iter().map(|e| e.agent_seq).max().unwrap_or(0)
-        })
+        }))
     }
 
     pub(super) fn next_event_seq(&self) -> u64 {

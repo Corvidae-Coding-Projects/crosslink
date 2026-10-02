@@ -433,6 +433,40 @@ fn v3_lifecycle_no_worktree_writes() {
 }
 
 #[test]
+fn v3_write_after_compaction_continues_the_agent_sequence() {
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
+    let writer = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
+    let first = writer
+        .create_issue(&db, "Before compaction", None, "medium", None, None)
+        .unwrap();
+    drop(writer);
+
+    let lock = crate::sync::acquire_hub_lock(&hub.cache_dir.join(".hub-write-lock")).unwrap();
+    let compacted = hub_v3::compact_v3(&hub.cache_dir, "alpha", &lock, None).unwrap();
+    drop(lock);
+    assert!(compacted.events_pruned > 0, "compaction pruned the own ref");
+    // The checkpoint moved, so hydrate the projection the way the daemon's
+    // housekeeping does before the next writer validates readiness.
+    let housekeeping =
+        crate::reconcile::readiness::acquire_projection_repair_operation_permit(&hub.crosslink_dir)
+            .unwrap();
+    assert!(crate::hydration::maybe_auto_hydrate_under_operation(&hub.crosslink_dir, &db).unwrap());
+    drop(housekeeping);
+
+    let writer = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
+    let second = writer
+        .create_issue(&db, "After compaction", None, "medium", None, None)
+        .unwrap();
+    assert_ne!(first, second);
+    let issue = db.get_issue(second).unwrap().expect("issue hydrated");
+    assert_eq!(issue.title, "After compaction");
+}
+
+#[test]
 fn v3_display_ids_stable_across_re_reduce() {
     if !git_ok() {
         return;
