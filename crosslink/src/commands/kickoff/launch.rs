@@ -607,6 +607,17 @@ pub(super) fn init_worktree_agent(
     let agent_id = compact_name.to_string();
 
     let wt_crosslink = worktree_dir.join(".crosslink");
+
+    // Readiness is per checkout: a fresh worktree has no readiness record,
+    // so `sync` and `session start` below would fail closed.
+    if wt_crosslink.is_dir() {
+        crate::daemon::ensure(&wt_crosslink, true).with_context(|| {
+            format!(
+                "Failed to establish repository readiness in kickoff worktree {}",
+                worktree_dir.display()
+            )
+        })?;
+    }
     if wt_crosslink.exists() && AgentConfig::load(&wt_crosslink)?.is_none() {
         if let Err(e) = super::super::agent::init(
             &wt_crosslink,
