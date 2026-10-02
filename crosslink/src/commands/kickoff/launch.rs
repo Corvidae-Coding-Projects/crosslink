@@ -610,13 +610,28 @@ pub(super) fn init_worktree_agent(
 
     // Readiness is per checkout: a fresh worktree has no readiness record,
     // so `sync` and `session start` below would fail closed.
-    if wt_crosslink.is_dir() {
-        crate::daemon::ensure(&wt_crosslink, true).with_context(|| {
-            format!(
-                "Failed to establish repository readiness in kickoff worktree {}",
-                worktree_dir.display()
-            )
-        })?;
+    if crate::reconcile::readiness::requires_readiness(&wt_crosslink) {
+        let ready = crate::daemon::ensure(&wt_crosslink, true).and_then(|record| {
+            anyhow::ensure!(
+                record.state.grants_mutations(),
+                "worktree is {}{}",
+                record.state.as_str(),
+                record
+                    .reason
+                    .as_deref()
+                    .map_or_else(String::new, |reason| format!(": {reason}"))
+            );
+            Ok(())
+        });
+        if let Err(error) = ready {
+            let _ = crate::daemon::stop(&wt_crosslink);
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed to establish repository readiness in kickoff worktree {}",
+                    worktree_dir.display()
+                )
+            });
+        }
     }
     if wt_crosslink.exists() && AgentConfig::load(&wt_crosslink)?.is_none() {
         if let Err(e) = super::super::agent::init(
@@ -780,6 +795,28 @@ pub(super) fn launch_local(
     Ok(())
 }
 
+/// A linked worktree finds its repository through the path recorded in its
+/// `.git` file. Inside the container only the mounted `.git` path exists, so
+/// a registration spelled differently (a symlinked checkout, a moved
+/// repository) would leave the mounted cache unusable.
+fn worktree_resolves_under(worktree: &Path, git_dir: &Path) -> Result<()> {
+    let Ok(pointer) = std::fs::read_to_string(worktree.join(".git")) else {
+        return Ok(());
+    };
+    let Some(gitdir) = pointer.trim().strip_prefix("gitdir:") else {
+        return Ok(());
+    };
+    let gitdir = Path::new(gitdir.trim());
+    anyhow::ensure!(
+        gitdir.starts_with(git_dir),
+        "{} is registered at {}, which is not under the mounted {}; run `git worktree repair` in the repository first",
+        worktree.display(),
+        gitdir.display(),
+        git_dir.display()
+    );
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
@@ -861,6 +898,7 @@ pub(super) fn launch_container(
     for cache in [".hub-cache", ".knowledge-cache"] {
         let host_cache = host_repo_root.join(".crosslink").join(cache);
         if host_cache.is_dir() {
+            worktree_resolves_under(&host_cache, &host_git_dir)?;
             let cache_path = host_cache.to_string_lossy();
             args.push("-v".to_string());
             args.push(format!("{cache_path}:{cache_path}:rw"));

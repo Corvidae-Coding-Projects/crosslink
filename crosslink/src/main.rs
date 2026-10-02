@@ -918,6 +918,8 @@ enum ContainerAuthCommands {
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
         provider: String,
 
+        /// Container image that hosts the check (default: the published agent image;
+        /// env `CROSSLINK_CONTAINER_IMAGE` overrides the default, this flag overrides both)
         #[arg(long)]
         image: Option<String>,
     },
@@ -926,6 +928,8 @@ enum ContainerAuthCommands {
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
         provider: String,
 
+        /// Container image that hosts the refresh (default: the published agent image;
+        /// env `CROSSLINK_CONTAINER_IMAGE` overrides the default, this flag overrides both)
         #[arg(long)]
         image: Option<String>,
     },

@@ -139,9 +139,14 @@ fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String
 }
 
 /// `resolve_auth_image` over the live `CROSSLINK_CONTAINER_IMAGE` value.
-fn auth_image(explicit: Option<&str>) -> String {
+fn auth_image(explicit: Option<&str>) -> Result<String> {
     let from_env = std::env::var(AUTH_IMAGE_ENV).ok();
-    resolve_auth_image(explicit, from_env.as_deref())
+    let image = resolve_auth_image(explicit, from_env.as_deref());
+    anyhow::ensure!(
+        !image.starts_with('-'),
+        "container image name cannot start with '-': {image}"
+    );
+    Ok(image)
 }
 
 fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Result<()> {
@@ -150,7 +155,7 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     }
     let parsed_provider = provider.parse::<crate::agents::AgentProvider>()?;
     let volume = credential_volume(parsed_provider)?;
-    let image = auth_image(image);
+    let image = auth_image(image)?;
     let mut command = Command::new("docker");
     command.args(["run", "--rm"]);
     if !status {

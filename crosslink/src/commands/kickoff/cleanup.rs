@@ -248,6 +248,12 @@ pub fn cleanup(
         }
 
         if !agent.worktree.is_empty() && std::path::Path::new(&agent.worktree).exists() {
+            let worktree_crosslink = std::path::Path::new(&agent.worktree).join(".crosslink");
+            if crate::reconcile::readiness::requires_readiness(&worktree_crosslink) {
+                if let Err(error) = crate::daemon::stop(&worktree_crosslink) {
+                    tracing::warn!("could not stop the worktree daemon before removal: {error}");
+                }
+            }
             match Command::new("git")
                 .args(["worktree", "remove", "--force", &agent.worktree])
                 .output()

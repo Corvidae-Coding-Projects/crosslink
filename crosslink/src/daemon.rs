@@ -685,7 +685,9 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
         if defer_reconciliation_for_active_mutations(crosslink_dir, &identity)? {
             continue;
         }
-        let Some(mutation_operation) = acquire_housekeeping_unless_expired(crosslink_dir)? else {
+        let Some(mutation_operation) =
+            acquire_housekeeping_unless_expired(crosslink_dir, &identity)?
+        else {
             return Ok(NormalLoopExit::RecordExpired);
         };
         let mut active_issue_id = None;
@@ -729,11 +731,18 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
 
 fn acquire_housekeeping_unless_expired(
     crosslink_dir: &Path,
+    identity: &DaemonIdentity,
 ) -> Result<Option<readiness::MutationOperationPermit>> {
     match acquire_housekeeping_operation(crosslink_dir) {
         Ok(permit) => Ok(Some(permit)),
         Err(error) => match readiness::read_record(crosslink_dir)? {
-            Some(record) if readiness::record_expired(&record)? => Ok(None),
+            Some(record)
+                if (record.daemon_epoch.as_str(), record.daemon_pid)
+                    == (identity.daemon_epoch.as_str(), identity.pid)
+                    && readiness::record_expired(&record)? =>
+            {
+                Ok(None)
+            }
             _ => Err(error),
         },
     }
@@ -1509,13 +1518,13 @@ mod tests {
     fn expired_record_returns_housekeeping_to_reconciliation_and_recovers() {
         let (_work, _remote, crosslink, identity) = ready_connected();
         drop(
-            acquire_housekeeping_unless_expired(&crosslink)
+            acquire_housekeeping_unless_expired(&crosslink, &identity)
                 .unwrap()
                 .unwrap(),
         );
         expire_latest_record(&crosslink);
         assert!(readiness::require_mutation_ready(&crosslink).is_err());
-        assert!(acquire_housekeeping_unless_expired(&crosslink)
+        assert!(acquire_housekeeping_unless_expired(&crosslink, &identity)
             .unwrap()
             .is_none());
         assert!(reconcile_until_ready(&crosslink, &identity, &AtomicBool::new(false)).unwrap());
@@ -1523,6 +1532,17 @@ mod tests {
         assert_eq!(record.daemon_epoch, identity.daemon_epoch);
         readiness::validate_record(&crosslink, &record).unwrap();
         assert!(readiness::require_mutation_ready(&crosslink).is_ok());
+    }
+
+    #[test]
+    fn expired_record_of_another_daemon_is_still_an_error() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        expire_latest_record(&crosslink);
+        let other = DaemonIdentity {
+            daemon_epoch: Uuid::new_v4().to_string(),
+            ..identity
+        };
+        assert!(acquire_housekeeping_unless_expired(&crosslink, &other).is_err());
     }
 
     #[test]
@@ -1540,7 +1560,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(acquire_housekeeping_unless_expired(&crosslink).is_err());
+        assert!(acquire_housekeeping_unless_expired(&crosslink, &identity).is_err());
     }
 
     #[test]

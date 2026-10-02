@@ -754,7 +754,7 @@ pub fn read_record(crosslink_dir: &Path) -> Result<Option<ReadinessRecord>> {
     Ok(Some(record))
 }
 
-pub fn record_expired(record: &ReadinessRecord) -> Result<bool> {
+pub(crate) fn record_expired(record: &ReadinessRecord) -> Result<bool> {
     let updated_at = chrono::DateTime::parse_from_rfc3339(&record.updated_at)
         .context("readiness timestamp is invalid")?
         .with_timezone(&Utc);
