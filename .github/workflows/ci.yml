@@ -407,6 +407,7 @@ jobs:
       DAEMON_TEST_FILTERS: >-
         concurrent_ensure_converges_and_offline_exit_is_structured
         corrupt_projection_exit_is_structured_and_daemon_remains_reportable
+        daemon_recovers_hot_rollback_journal_before_reconciliation
         daemon_status_outside_a_repository_returns_the_closed_error_envelope
         diagnostic_commands_leave_waiting_and_blocked_repositories_byte_unchanged
         fresh_hook_initialized_local_repository_bootstraps_to_ready
@@ -418,7 +419,7 @@ jobs:
       matrix:
         include:
           - shard: convergence
-            filters: concurrent_ensure_converges_and_offline_exit_is_structured
+            filters: concurrent_ensure_converges_and_offline_exit_is_structured daemon_recovers_hot_rollback_journal_before_reconciliation
           - shard: diagnostics
             filters: diagnostic_commands_leave_waiting_and_blocked_repositories_byte_unchanged
           - shard: lifecycle

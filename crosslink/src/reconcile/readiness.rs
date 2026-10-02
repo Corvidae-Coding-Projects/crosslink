@@ -26,7 +26,7 @@ const OPERATION_FILE: &str = "mutation-operation.lock";
 const RECORD_APPEND_FILE: &str = "record-append.lock";
 const MUTATION_PERMITS_DIR: &str = "mutation-permits";
 const MAX_READINESS_RECORDS: usize = 64;
-const MAX_RECORD_AGE_SECONDS: i64 = 90;
+pub(crate) const MAX_RECORD_AGE_SECONDS: i64 = 90;
 const PERMIT_POLL_MILLIS: u64 = 25;
 const MUTATION_TRANSITION_WAIT_SECS: u64 = 120;
 const LIVENESS_SWEEP_POLLS: u8 = 40;
@@ -754,6 +754,17 @@ pub fn read_record(crosslink_dir: &Path) -> Result<Option<ReadinessRecord>> {
     Ok(Some(record))
 }
 
+pub(crate) fn record_expired(record: &ReadinessRecord) -> Result<bool> {
+    let updated_at = chrono::DateTime::parse_from_rfc3339(&record.updated_at)
+        .context("readiness timestamp is invalid")?
+        .with_timezone(&Utc);
+    let age_seconds = Utc::now().signed_duration_since(updated_at).num_seconds();
+    Ok(
+        record.state != ReadinessState::BlockedCorrupt
+            && age_seconds.abs() > MAX_RECORD_AGE_SECONDS,
+    )
+}
+
 pub fn require_mutation_ready(crosslink_dir: &Path) -> Result<()> {
     if !requires_readiness(crosslink_dir) {
         return Ok(());
@@ -1100,16 +1111,7 @@ fn validate_record_with_projection_policy(
         "unsupported readiness protocol {}",
         record.protocol_version
     );
-    let updated_at = chrono::DateTime::parse_from_rfc3339(&record.updated_at)
-        .context("readiness timestamp is invalid")?
-        .with_timezone(&Utc);
-    let age_seconds = Utc::now().signed_duration_since(updated_at).num_seconds();
-    if record.state != ReadinessState::BlockedCorrupt {
-        anyhow::ensure!(
-            age_seconds.abs() <= MAX_RECORD_AGE_SECONDS,
-            "readiness record is stale"
-        );
-    }
+    anyhow::ensure!(!record_expired(record)?, "readiness record is stale");
     anyhow::ensure!(
         record.repository_id == repository_id(crosslink_dir)?,
         "readiness record belongs to a different repository"
