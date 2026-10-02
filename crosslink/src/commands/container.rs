@@ -42,9 +42,13 @@ pub fn run(command: ContainerCommands) -> Result<()> {
         ContainerCommands::Shell { name } => shell(&name),
         ContainerCommands::Snapshot { name, tag } => snapshot(&name, tag.as_deref()),
         ContainerCommands::Auth { action } => match action {
-            crate::ContainerAuthCommands::Login { provider }
-            | crate::ContainerAuthCommands::Refresh { provider } => auth_login(&provider),
-            crate::ContainerAuthCommands::Status { provider } => auth_status(&provider),
+            crate::ContainerAuthCommands::Login { provider, image }
+            | crate::ContainerAuthCommands::Refresh { provider, image } => {
+                auth_login(&provider, image.as_deref())
+            }
+            crate::ContainerAuthCommands::Status { provider, image } => {
+                auth_status(&provider, image.as_deref())
+            }
             crate::ContainerAuthCommands::Logout { provider, force } => {
                 auth_logout(&provider, force)
             }
@@ -115,13 +119,38 @@ fn auth_command(provider: &str, status: bool) -> Vec<&'static str> {
     }
 }
 
-fn run_auth_container(provider: &str, status: bool) -> Result<()> {
+/// Environment override for the image that hosts container account login.
+/// Forks publish the agent image under their own registry path; the login volume
+/// is image-independent, so any image carrying the provider CLI will do.
+const AUTH_IMAGE_ENV: &str = "CROSSLINK_CONTAINER_IMAGE";
+
+/// Pick the login image: an explicit `--image` wins, then the environment
+/// value, then the published default. Blank values count as unset.
+fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String {
+    let non_empty = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(String::from)
+    };
+    non_empty(explicit)
+        .or_else(|| non_empty(env_value))
+        .unwrap_or_else(|| format!("{IMAGE_NAME}:{IMAGE_TAG}"))
+}
+
+/// `resolve_auth_image` over the live `CROSSLINK_CONTAINER_IMAGE` value.
+fn auth_image(explicit: Option<&str>) -> String {
+    let from_env = std::env::var(AUTH_IMAGE_ENV).ok();
+    resolve_auth_image(explicit, from_env.as_deref())
+}
+
+fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available.");
     }
     let parsed_provider = provider.parse::<crate::agents::AgentProvider>()?;
     let volume = credential_volume(parsed_provider)?;
-    let image = format!("{IMAGE_NAME}:{IMAGE_TAG}");
+    let image = auth_image(image);
     let mut command = Command::new("docker");
     command.args(["run", "--rm"]);
     if !status {
@@ -143,7 +172,12 @@ fn run_auth_container(provider: &str, status: bool) -> Result<()> {
             println!("{provider} container account is logged in (account details redacted).");
             return Ok(());
         }
-        bail!("{provider} container account is not logged in; run `crosslink container auth login --provider {provider}`");
+        let image_hint = if image == format!("{IMAGE_NAME}:{IMAGE_TAG}") {
+            String::new()
+        } else {
+            format!(" --image {image}")
+        };
+        bail!("{provider} container account is not logged in; run `crosslink container auth login --provider {provider}{image_hint}`");
     }
     let result = command
         .status()
@@ -157,12 +191,12 @@ fn run_auth_container(provider: &str, status: bool) -> Result<()> {
     Ok(())
 }
 
-fn auth_login(provider: &str) -> Result<()> {
-    run_auth_container(provider, false)
+fn auth_login(provider: &str, image: Option<&str>) -> Result<()> {
+    run_auth_container(provider, false, image)
 }
 
-fn auth_status(provider: &str) -> Result<()> {
-    run_auth_container(provider, true)
+fn auth_status(provider: &str, image: Option<&str>) -> Result<()> {
+    run_auth_container(provider, true, image)
 }
 
 fn auth_logout(provider: &str, force: bool) -> Result<()> {
@@ -817,6 +851,24 @@ pub fn snapshot(name: &str, tag: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_image_resolution_prefers_flag_then_env_then_default() {
+        let default = format!("{IMAGE_NAME}:{IMAGE_TAG}");
+        assert_eq!(resolve_auth_image(None, None), default);
+        assert_eq!(resolve_auth_image(Some("  "), Some("")), default);
+        assert_eq!(
+            resolve_auth_image(None, Some("ghcr.io/fork/crosslink-agent:nightly")),
+            "ghcr.io/fork/crosslink-agent:nightly"
+        );
+        assert_eq!(
+            resolve_auth_image(
+                Some("local/crosslink-agent:dev"),
+                Some("ghcr.io/fork/crosslink-agent:nightly")
+            ),
+            "local/crosslink-agent:dev"
+        );
+    }
 
     #[test]
     fn image_name_is_ghcr_namespaced() {

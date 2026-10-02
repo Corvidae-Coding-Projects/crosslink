@@ -907,16 +907,27 @@ enum ContainerAuthCommands {
     Login {
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
         provider: String,
+
+        /// Container image that hosts the login (default: the published agent image;
+        /// env `CROSSLINK_CONTAINER_IMAGE` overrides the default, this flag overrides both)
+        #[arg(long)]
+        image: Option<String>,
     },
 
     Status {
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
         provider: String,
+
+        #[arg(long)]
+        image: Option<String>,
     },
 
     Refresh {
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
         provider: String,
+
+        #[arg(long)]
+        image: Option<String>,
     },
 
     Logout {
