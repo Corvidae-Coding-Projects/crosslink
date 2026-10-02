@@ -615,7 +615,7 @@ pub(super) fn init_worktree_agent(
     // already reconciled by the driver's checkout, so this only creates the
     // worktree's local projection — seconds, not the first migration.
     if wt_crosslink.is_dir() {
-        crate::daemon::ensure_and_wait(&wt_crosslink).with_context(|| {
+        crate::daemon::ensure(&wt_crosslink, true).with_context(|| {
             format!(
                 "Failed to establish repository readiness in kickoff worktree {}",
                 worktree_dir.display()

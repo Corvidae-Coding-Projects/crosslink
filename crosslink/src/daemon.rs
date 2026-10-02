@@ -20,21 +20,7 @@ use crate::reconcile::readiness::{
 };
 
 const FLUSH_INTERVAL_SECS: u64 = 30;
-/// Default bound for [`ensure`]: how long a caller waits for the daemon to
-/// reach a terminal readiness state before giving up. The loop fails fast
-/// when the daemon process dies, so this only bounds a live, working daemon.
 const ENSURE_DEADLINE_SECS: u64 = 120;
-
-/// Bound for callers that have explicitly chosen to wait for readiness
-/// ([`ensure_and_wait`]: `daemon ensure --wait-ready`, kickoff's worktree
-/// bootstrap). A first reconciliation verifies every hub event signature
-/// through a spawned process per event — ~5 minutes on a hub of ~3,600
-/// events — and the 120 s default made `--wait-ready` report a timeout
-/// while the daemon went on to publish `ready_migrated` minutes later, so
-/// callers had to poll `daemon status` themselves. 30 minutes covers any
-/// hub this process has seen; the durable fix is to cache verified
-/// signatures per hub cache.
-pub const ENSURE_WAIT_READY_DEADLINE_SECS: u64 = 1800;
 const START_LOCK_DEADLINE_SECS: u64 = 5;
 const START_POLL_MILLIS: u64 = 25;
 const READINESS_POLL_MILLIS: u64 = 50;
@@ -80,17 +66,6 @@ pub fn ensure(crosslink_dir: &Path, wait_ready: bool) -> Result<ReadinessRecord>
         crosslink_dir,
         wait_ready,
         Duration::from_secs(ENSURE_DEADLINE_SECS),
-    )
-}
-
-/// [`ensure`] with `wait_ready` and the long bound: for callers that must
-/// have a ready checkout before continuing and can afford a first
-/// reconciliation's full signature verification.
-pub fn ensure_and_wait(crosslink_dir: &Path) -> Result<ReadinessRecord> {
-    ensure_with_deadline(
-        crosslink_dir,
-        true,
-        Duration::from_secs(ENSURE_WAIT_READY_DEADLINE_SECS),
     )
 }
 

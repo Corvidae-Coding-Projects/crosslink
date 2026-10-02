@@ -3290,11 +3290,7 @@ fn run_cli() -> Result<()> {
             }
             DaemonCommands::Ensure { wait_ready } => {
                 let crosslink_dir = find_daemon_crosslink_dir(cli.json)?;
-                let record = match if wait_ready {
-                    daemon::ensure_and_wait(&crosslink_dir)
-                } else {
-                    daemon::ensure(&crosslink_dir, false)
-                } {
+                let record = match daemon::ensure(&crosslink_dir, wait_ready) {
                     Ok(record) => record,
                     Err(error) => {
                         emit_daemon_response(
