@@ -103,8 +103,11 @@ fn ensure_with_deadline(
                 identity.pid,
             ) && (!wait_ready || record.state.is_terminal())
             {
-                readiness::validate_record(crosslink_dir, &record)?;
-                return Ok(record);
+                let republishing = wait_ready && readiness::record_expired(&record)?;
+                if !republishing {
+                    readiness::validate_record(crosslink_dir, &record)?;
+                    return Ok(record);
+                }
             }
         }
         if Instant::now() >= deadline {
@@ -232,9 +235,13 @@ pub fn run_daemon(crosslink_dir: &Path, requested_epoch: Option<&str>) -> Result
             reason: None,
         },
     )?;
-    let ready = reconcile_until_ready(crosslink_dir, &identity, &should_exit)?;
-    if ready {
-        run_normal_loop(crosslink_dir, &should_exit)?;
+    while reconcile_until_ready(crosslink_dir, &identity, &should_exit)? {
+        match run_normal_loop(crosslink_dir, &should_exit)? {
+            NormalLoopExit::Shutdown => break,
+            NormalLoopExit::RecordExpired => {
+                println!("readiness record expired; reconciling again.");
+            }
+        }
     }
     drop(run_lease);
     Ok(())
@@ -663,7 +670,12 @@ fn record_ready(
     )
 }
 
-fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()> {
+enum NormalLoopExit {
+    Shutdown,
+    RecordExpired,
+}
+
+fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<NormalLoopExit> {
     let db_path = crosslink_dir.join("issues.db");
     let session_file = crosslink_dir.join("session.json");
     let mut heartbeat_counter = 0_u64;
@@ -673,7 +685,9 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
         if defer_reconciliation_for_active_mutations(crosslink_dir, &identity)? {
             continue;
         }
-        let mutation_operation = acquire_housekeeping_operation(crosslink_dir)?;
+        let Some(mutation_operation) = acquire_housekeeping_unless_expired(crosslink_dir)? else {
+            return Ok(NormalLoopExit::RecordExpired);
+        };
         let mut active_issue_id = None;
         let db = Database::open(&db_path).context("opening projection for daemon housekeeping")?;
         crate::hydration::maybe_auto_hydrate_under_operation(crosslink_dir, &db)
@@ -710,7 +724,19 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<()>
             }
         }
     }
-    Ok(())
+    Ok(NormalLoopExit::Shutdown)
+}
+
+fn acquire_housekeeping_unless_expired(
+    crosslink_dir: &Path,
+) -> Result<Option<readiness::MutationOperationPermit>> {
+    match acquire_housekeeping_operation(crosslink_dir) {
+        Ok(permit) => Ok(Some(permit)),
+        Err(error) => match readiness::read_record(crosslink_dir)? {
+            Some(record) if readiness::record_expired(&record)? => Ok(None),
+            _ => Err(error),
+        },
+    }
 }
 
 fn acquire_housekeeping_operation(
@@ -1092,6 +1118,22 @@ mod tests {
             .count()
     }
 
+    fn expire_latest_record(crosslink: &Path) {
+        let mut records = fs::read_dir(crosslink.join("readiness"))
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|value| value == "json"))
+            .collect::<Vec<_>>();
+        records.sort();
+        let path = records.last().unwrap();
+        let mut record: ReadinessRecord = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        record.updated_at = (chrono::Utc::now()
+            - chrono::Duration::seconds(readiness::MAX_RECORD_AGE_SECONDS + 1))
+        .to_rfc3339();
+        fs::write(path, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+    }
+
     fn ref_snapshot(crosslink: &Path) -> Vec<u8> {
         let root = crosslink.parent().unwrap();
         let mut snapshot = Command::new("git")
@@ -1461,6 +1503,70 @@ mod tests {
         assert_eq!(maintained.attempt_id, refreshed.attempt_id);
         assert!(!crosslink.join("readiness").join("transition.lock").exists());
         assert!(readiness::require_mutation_ready(&crosslink).is_ok());
+    }
+
+    #[test]
+    fn expired_record_returns_housekeeping_to_reconciliation_and_recovers() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        drop(
+            acquire_housekeeping_unless_expired(&crosslink)
+                .unwrap()
+                .unwrap(),
+        );
+        expire_latest_record(&crosslink);
+        assert!(readiness::require_mutation_ready(&crosslink).is_err());
+        assert!(acquire_housekeeping_unless_expired(&crosslink)
+            .unwrap()
+            .is_none());
+        assert!(reconcile_until_ready(&crosslink, &identity, &AtomicBool::new(false)).unwrap());
+        let record = readiness::read_record(&crosslink).unwrap().unwrap();
+        assert_eq!(record.daemon_epoch, identity.daemon_epoch);
+        readiness::validate_record(&crosslink, &record).unwrap();
+        assert!(readiness::require_mutation_ready(&crosslink).is_ok());
+    }
+
+    #[test]
+    fn housekeeping_failure_with_a_fresh_record_is_still_an_error() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        readiness::write_record(
+            &crosslink,
+            ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: "reconciling",
+                state: ReadinessState::Reconciling,
+                generation_id: None,
+                reason: None,
+            },
+        )
+        .unwrap();
+        assert!(acquire_housekeeping_unless_expired(&crosslink).is_err());
+    }
+
+    #[test]
+    fn wait_ready_outlasts_an_expired_record_until_the_daemon_republishes() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let ready = readiness::read_record(&crosslink).unwrap().unwrap();
+        expire_latest_record(&crosslink);
+        let waited = ensure_with_deadline(&crosslink, true, Duration::from_millis(300))
+            .unwrap_err()
+            .to_string();
+        assert!(waited.contains("timed out waiting for daemon readiness"));
+        let unwaited = ensure_with_deadline(&crosslink, false, Duration::from_millis(300))
+            .unwrap_err()
+            .to_string();
+        assert!(unwaited.contains("readiness record is stale"));
+        record_ready(
+            &crosslink,
+            &identity,
+            "republished",
+            ready.state,
+            ready.generation_id.as_deref().unwrap(),
+        )
+        .unwrap();
+        let record = ensure_with_deadline(&crosslink, true, Duration::from_secs(5)).unwrap();
+        assert!(record.state.grants_mutations());
+        assert_eq!(record.attempt_id, "republished");
     }
 
     #[test]
