@@ -755,19 +755,21 @@ pub fn read_all_agent_requests(
     Ok(out)
 }
 
+/// The highest `agent_seq` ever appended to this agent's ref, read from the
+/// ref's full first-parent history the way the verifier reads it. The tip's
+/// `events.log` alone is not enough: `compact_v3` prunes it to the events
+/// above the checkpoint frontier, so right after a compaction it is empty
+/// while the frontier still covers everything before.
 pub fn read_max_event_seq_from_ref(repo_dir: &Path, agent_id: &str) -> Result<u64> {
+    use crate::hub_source::HubSource;
+
     validate_agent_id(agent_id)?;
     let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
-    let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+    if git_rev_parse_optional(repo_dir, &ref_name)?.is_none() {
         return Ok(0);
-    };
-    let spec = format!("{tip}:events.log");
-    let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
-        return Ok(0);
-    };
-    let events = read_events_from_bytes(&bytes)
-        .with_context(|| format!("failed to parse events.log on '{ref_name}' for seq init"))?;
-    Ok(events.iter().map(|e| e.agent_seq).max().unwrap_or(0))
+    }
+    let source = crate::hub_source::RefHubSource::new(repo_dir)?;
+    Ok(source.read_agent_history(agent_id)?.last_sequence())
 }
 
 fn for_each_agent_ref(repo_dir: &Path) -> Result<Vec<String>> {
@@ -3178,6 +3180,27 @@ mod tests {
     }
 
     #[test]
+    fn write_after_compaction_continues_the_agent_sequence_and_reduces() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "cv3-writer";
+        seed_v3_hub(dir.path(), agent_id, 4);
+
+        let lock = test_hub_lock(dir.path());
+        let result = compact_v3(dir.path(), agent_id, &lock, None).unwrap();
+        drop(lock);
+        assert_eq!(result.events_pruned, 4, "the own ref is pruned to empty");
+
+        let next = read_max_event_seq_from_ref(dir.path(), agent_id).unwrap() + 1;
+        assert_eq!(next, 5, "the writer continues after the compacted prefix");
+        append_event_to_ref(dir.path(), agent_id, &make_envelope(agent_id, next)).unwrap();
+        let outcome =
+            crate::compaction::reduce(&crate::hub_source::RefHubSource::new(dir.path()).unwrap())
+                .unwrap();
+        assert_eq!(outcome.state.issues.len(), 5);
+    }
+
+    #[test]
     fn compact_v3_remote_push_then_prune_and_fresh_reduce_matches() {
         let dir = tempfile::tempdir().unwrap();
         let remote = tempfile::tempdir().unwrap();
@@ -3331,6 +3354,36 @@ mod tests {
         let state_bytes = cat_blob(&repo, &format!("{cp_tip}:state.json")).unwrap();
         let state = crate::checkpoint::CheckpointState::from_slice(&state_bytes).unwrap();
         assert_eq!(state.issues.len(), 3);
+    }
+
+    #[test]
+    fn seq_init_reads_the_full_ref_history_not_only_the_tip() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "agt1";
+        assert_eq!(
+            read_max_event_seq_from_ref(dir.path(), agent_id).unwrap(),
+            0,
+            "an agent with no ref starts at 0"
+        );
+        seed_v3_hub(dir.path(), agent_id, 3);
+        assert_eq!(
+            read_max_event_seq_from_ref(dir.path(), agent_id).unwrap(),
+            3
+        );
+
+        assert_eq!(prune_own_ref(dir.path(), agent_id, 3).unwrap(), 3);
+        let tip = run_git_output(
+            dir.path(),
+            &["rev-parse", &agent_ref_name(agent_id).unwrap()],
+        );
+        let log = cat_blob(dir.path(), &format!("{tip}:events.log")).unwrap();
+        assert!(read_events_from_bytes(&log).unwrap().is_empty());
+        assert_eq!(
+            read_max_event_seq_from_ref(dir.path(), agent_id).unwrap(),
+            3,
+            "a pruned tip does not lower the seed"
+        );
     }
 
     #[test]

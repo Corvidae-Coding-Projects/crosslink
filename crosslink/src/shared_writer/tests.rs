@@ -1172,7 +1172,8 @@ mod integration {
             dir.path(),
             "nonexistent-agent",
             crate::hub_v3::HubMode::V2,
-        );
+        )
+        .unwrap();
         assert_eq!(seq, 0, "Max event seq should be 0 when no log exists");
     }
 
