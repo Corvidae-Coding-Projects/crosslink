@@ -326,17 +326,19 @@ fn park_blocked(
             .map(|_| ())
         },
     )?;
-    readiness::write_record(
-        crosslink_dir,
-        ReadinessDraft {
-            daemon_epoch: &identity.daemon_epoch,
-            daemon_pid: identity.pid,
-            attempt_id: &attempt_id,
-            state: ReadinessState::BlockedCorrupt,
-            generation_id: None,
-            reason: Some(reason),
-        },
-    )?;
+    for state in [ReadinessState::Reconciling, ReadinessState::BlockedCorrupt] {
+        readiness::write_record(
+            crosslink_dir,
+            ReadinessDraft {
+                daemon_epoch: &identity.daemon_epoch,
+                daemon_pid: identity.pid,
+                attempt_id: &attempt_id,
+                state,
+                generation_id: None,
+                reason: Some(reason),
+            },
+        )?;
+    }
     drop(transition);
     while !wait_interruptible(should_exit, Duration::from_secs(1)) {}
     Ok(())
@@ -648,6 +650,7 @@ where
 {
     let mut retry_seconds = 1;
     let mut reconcile_reason = reason.map(str::to_string);
+    let mut stale_retries = 0_u32;
     loop {
         if should_exit.load(Ordering::SeqCst) {
             return Ok(false);
@@ -746,7 +749,17 @@ where
             // so derive it again instead of ending the daemon.
             Err(error) if error.downcast_ref::<readiness::StaleProjection>().is_some() => {
                 drop(transition);
+                stale_retries += 1;
                 let moved = format!("{error:#}");
+                if stale_retries >= MAX_CONSECUTIVE_RECONCILES {
+                    let parked = format!(
+                        "the hub moved under {stale_retries} consecutive reconciliations; last cause: {moved}"
+                    );
+                    tracing::error!("{parked}");
+                    println!("{parked}; parking as blocked_corrupt.");
+                    park_blocked(crosslink_dir, identity, should_exit, &parked)?;
+                    return Ok(false);
+                }
                 tracing::warn!("{moved}; reconciling again");
                 println!("{moved}; reconciling again.");
                 reconcile_reason = Some(moved);
@@ -1840,8 +1853,58 @@ mod tests {
     /// Unix only: the failure is injected through directory permissions.
     #[cfg(unix)]
     #[test]
+    fn a_hub_moving_under_every_reconciliation_write_parks_with_the_cause() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let sync = SyncManager::new(&crosslink).unwrap();
+        let cache = sync.cache_path().to_path_buf();
+        let should_exit = Arc::new(AtomicBool::new(false));
+        let worker_dir = crosslink.clone();
+        let worker_exit = Arc::clone(&should_exit);
+        let worker = thread::spawn(move || {
+            let mut races = 0;
+            reconcile_until_ready_with(&worker_dir, &identity, &worker_exit, None, || {
+                races += 1;
+                publish_as_racing_agent(&cache, races)
+            })
+            .map(|ready| (ready, races))
+        });
+        // 1 + 2 + 4 + 8 s of backoff precede the fifth attempt; allow for the
+        // activations around them on a slow machine.
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let parked = loop {
+            if let Some(record) = readiness::read_record(&crosslink).unwrap() {
+                if record.state == ReadinessState::BlockedCorrupt {
+                    break record;
+                }
+            }
+            assert!(Instant::now() < deadline, "the daemon did not park");
+            thread::sleep(Duration::from_millis(100));
+        };
+        should_exit.store(true, Ordering::SeqCst);
+        let (ready, races) = worker.join().unwrap().unwrap();
+        assert!(!ready);
+        assert_eq!(races, MAX_CONSECUTIVE_RECONCILES as u64);
+        let reason = parked.reason.unwrap_or_default();
+        assert!(reason.contains("consecutive reconciliations"), "{reason}");
+        assert!(
+            reason.contains("refusing to publish ready state for a stale projection"),
+            "{reason}"
+        );
+    }
+
+    #[test]
     fn hydration_failure_during_housekeeping_reconciles_instead_of_failing() {
         use std::os::unix::fs::PermissionsExt;
+        if Command::new("id")
+            .arg("-u")
+            .output()
+            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "0")
+        {
+            eprintln!(
+                "skipped: root ignores directory permissions, so the failure cannot be injected"
+            );
+            return;
+        }
         let (_work, _remote, crosslink, identity) = ready_connected();
         let sync = SyncManager::new(&crosslink).unwrap();
         // The hub moves, so the tick must hydrate, and the hydration cannot
