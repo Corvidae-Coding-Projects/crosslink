@@ -204,17 +204,18 @@ crosslink container auth status --provider github
 ```
 
 **What the login grants.** `gh auth login` stores an OAuth token in plain text
-inside the volume, with the `repo`, `read:org`, `gist` and `workflow` scopes by
-default: write access to every repository the account can write to. The agent
-runs as that account. The repository hooks block history rewrites, not a plain
+inside the volume, with the `repo`, `read:org` and `gist` scopes by default:
+write access to every repository the account can write to. The agent runs as
+that account. The repository hooks block history rewrites, not a plain
 `git push`, `gh pr create` or `gh api`, and the agent can print the token, so
 the login is only as safe as the agent's instructions and the content it
 reads. Prefer a fine-grained personal access token limited to the hub
-repository (Contents: read and write), pasted into `gh auth login --with-token`
-when the login prompt asks, or a dedicated machine account. `auth logout`
-removes the volume but does not revoke the token; revoke it under GitHub
-settings, Applications, GitHub CLI. The login volume is a docker volume; a
-podman kickoff has its own volume store and does not see it.
+repository (Contents: read and write): when `gh auth login` asks how to
+authenticate, choose "Paste an authentication token" and paste it. Or use a
+dedicated machine account. `auth logout` removes the volume but does not
+revoke the token; revoke it under GitHub settings, Applications, GitHub CLI.
+The login volume is a docker volume; a podman kickoff has its own volume store
+and does not see it.
 
 &nbsp;
 

@@ -145,6 +145,7 @@ pub fn plan(crosslink_dir: &Path, db: &impl QueryService, opts: &PlanOpts) -> Re
             &ContainerMode::None,
             &VerifyLevel::Local,
             crosslink_dir,
+            None,
         )?)
     };
 

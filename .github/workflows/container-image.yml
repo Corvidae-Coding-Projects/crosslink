@@ -275,7 +275,7 @@ jobs:
             test "$status" = 124
           done
           if docker inspect crosslink-agent:pr-smoke --format '{{json .Config.Env}}' \
-            | grep -E 'ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|GH_TOKEN|GITHUB_TOKEN'; then
+            | grep -E 'ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|GH_TOKEN|GITHUB_TOKEN|gho_[A-Za-z0-9]|ghp_[A-Za-z0-9]|github_pat_'; then
             echo 'Container image unexpectedly contains an API-key or token environment variable.' >&2
             exit 1
           fi
@@ -295,7 +295,7 @@ jobs:
               status_command='claude auth status'
             fi
             status="$(docker run --rm -v "$volume:/home/agent/.${provider}" crosslink-agent:pr-smoke sh -c "$status_command" 2>&1 || true)"
-            if printf '%s' "$status" | grep -E 'sk-[A-Za-z0-9]|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY'; then
+            if printf '%s' "$status" | grep -E 'sk-[A-Za-z0-9]|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|gho_[A-Za-z0-9]|ghp_[A-Za-z0-9]|github_pat_'; then
               echo 'Provider status exposed key-shaped account data.' >&2
               exit 1
             fi

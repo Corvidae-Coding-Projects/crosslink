@@ -302,13 +302,55 @@ fn missing_github_login_message(runtime: &str, remote: &str, host: &str, volume:
     message
 }
 
+/// Whether the container runtime answers at all, so a missing volume is not
+/// reported as a missing login when the daemon or machine is simply down.
+fn runtime_reachable(runtime: &str) -> bool {
+    Command::new(runtime)
+        .arg("info")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Whether the login volume holds a gh session file, probed with the agent
+/// image's `test` binary (its entrypoint bypassed, so no user remap and no
+/// network). `None` when the probe itself could not run.
+fn login_volume_has_session(runtime: &str, volume: &str, image: &str) -> Option<bool> {
+    let mount = AuthProvider::Github.mount_path();
+    let status = Command::new(runtime)
+        .args([
+            "run",
+            "--rm",
+            "--entrypoint",
+            "test",
+            "-v",
+            &format!("{volume}:{mount}:ro"),
+            image,
+            "-s",
+            &format!("{mount}/hosts.yml"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()?;
+    match status.code() {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    }
+}
+
 /// Check, before a launch has side effects, that the hub's publication needs
 /// are met: the login volume to mount when the hub has an HTTPS remote, `None`
 /// when the hub publishes nothing, and an error naming the missing login or
-/// the unsupported transport otherwise.
+/// the unsupported transport otherwise. With an `image`, the volume is also
+/// probed for a session file, so a login that was interrupted after creating
+/// the volume is caught here rather than by the entrypoint after launch.
 pub(crate) fn github_login_preflight(
     runtime: &str,
     crosslink_dirs: &[&Path],
+    image: Option<&str>,
 ) -> Result<Option<String>> {
     match hub_publication(crosslink_dirs) {
         HubPublication::Local => Ok(None),
@@ -317,11 +359,22 @@ pub(crate) fn github_login_preflight(
         ),
         HubPublication::Https { remote, host } => {
             let volume = github_credential_volume();
-            if volume_exists(runtime, &volume) {
-                Ok(Some(volume))
-            } else {
-                bail!(missing_github_login_message(runtime, &remote, &host, &volume))
+            if !volume_exists(runtime, &volume) {
+                if !runtime_reachable(runtime) {
+                    bail!(
+                        "{runtime} is installed but not reachable (is its daemon or machine running?); start it and retry"
+                    );
+                }
+                bail!(missing_github_login_message(runtime, &remote, &host, &volume));
             }
+            if let Some(image) = image {
+                if login_volume_has_session(runtime, &volume, image) == Some(false) {
+                    bail!(
+                        "the GitHub login volume {volume} holds no gh session (an interrupted login leaves an empty volume); run `crosslink container auth login --provider github` again"
+                    );
+                }
+            }
+            Ok(Some(volume))
         }
     }
 }
@@ -464,7 +517,7 @@ pub(crate) fn github_login_args(
     worktree_crosslink_dir: &Path,
 ) -> Result<Vec<String>> {
     let Some(volume) =
-        github_login_preflight(runtime, &[worktree_crosslink_dir, host_crosslink_dir])?
+        github_login_preflight(runtime, &[worktree_crosslink_dir, host_crosslink_dir], None)?
     else {
         return Ok(Vec::new());
     };
@@ -485,7 +538,7 @@ const CONTAINER_PREFIX: &str = "crosslink-task-";
 const LABEL_AGENT: &str = "crosslink-agent=true";
 
 const DOCKERFILE: &str = include_str!("../../resources/container/Dockerfile");
-const ENTRYPOINT: &str = include_str!("../../resources/container/entrypoint.sh");
+pub(crate) const ENTRYPOINT: &str = include_str!("../../resources/container/entrypoint.sh");
 
 pub fn docker_available() -> bool {
     Command::new("docker")
@@ -1270,23 +1323,63 @@ mod tests {
     }
 
     #[test]
-    fn github_login_preflight_follows_the_hub_transport_and_the_login_volume() {
-        // No hub cache at all: nothing to publish, nothing required, nothing mounted.
+    fn github_login_preflight_needs_nothing_without_a_hub() {
+        // No hub cache at all: nothing to publish, nothing required, nothing
+        // mounted, and the runtime is never asked.
         let bare = tempfile::tempdir().unwrap();
         let bare_crosslink = bare.path().join(".crosslink");
         std::fs::create_dir_all(&bare_crosslink).unwrap();
         assert_eq!(
-            github_login_preflight("false", &[&bare_crosslink]).unwrap(),
+            github_login_preflight("definitely-not-a-runtime", &[&bare_crosslink], None).unwrap(),
             None
         );
-        assert!(github_login_args("true", &bare_crosslink, &bare_crosslink)
-            .unwrap()
-            .is_empty());
+        assert!(
+            github_login_args("definitely-not-a-runtime", &bare_crosslink, &bare_crosslink)
+                .unwrap()
+                .is_empty()
+        );
+        // The login command is docker-only; any other runtime is told so.
+        let docker = missing_github_login_message("docker", "origin", "github.com", "vol");
+        assert!(!docker.contains("volume store is separate"), "{docker}");
+        let podman = missing_github_login_message("podman", "origin", "github.com", "vol");
+        assert!(podman.contains("volume store is separate"), "{podman}");
+        assert!(podman.contains("create `vol` with podman"), "{podman}");
+    }
 
-        // HTTPS remote: a login volume is required. The runtime command stands
-        // in for `volume inspect`: `false` has no volume, `true` has one.
+    /// A stand-in container runtime: `info`, `volume inspect` and `run` exit
+    /// with the given codes, so each preflight branch can be reached without
+    /// a real daemon.
+    #[cfg(unix)]
+    fn fake_runtime(dir: &Path, info_rc: i32, volume_rc: i32, run_rc: i32) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(format!("runtime-{info_rc}{volume_rc}{run_rc}"));
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\ncase \"$1\" in\n  info) exit {info_rc} ;;\n  volume) exit {volume_rc} ;;\n  run) exit {run_rc} ;;\nesac\nexit 1\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn github_login_preflight_follows_the_hub_transport_and_the_login_volume() {
+        let scripts = tempfile::tempdir().unwrap();
+        let down = fake_runtime(scripts.path(), 1, 1, 1);
+        let no_volume = fake_runtime(scripts.path(), 0, 1, 1);
+        let empty_volume = fake_runtime(scripts.path(), 0, 0, 1);
+        let logged_in = fake_runtime(scripts.path(), 0, 0, 0);
+
+        // HTTPS remote: a login volume is required.
         let (_https, crosslink) = hub_with_remote("https://github.com/example/hub.git");
-        let missing = github_login_preflight("false", &[&crosslink])
+        let unreachable = github_login_preflight(&down, &[&crosslink], None)
+            .unwrap_err()
+            .to_string();
+        assert!(unreachable.contains("not reachable"), "{unreachable}");
+        let missing = github_login_preflight(&no_volume, &[&crosslink], None)
             .unwrap_err()
             .to_string();
         assert!(
@@ -1295,13 +1388,21 @@ mod tests {
         );
         assert!(missing.contains("github.com"), "{missing}");
         assert!(!missing.contains("example/hub"), "{missing}");
-        // The login command is docker-only; any other runtime is told so.
-        let docker = missing_github_login_message("docker", "origin", "github.com", "vol");
-        assert!(!docker.contains("volume store is separate"), "{docker}");
-        let podman = missing_github_login_message("podman", "origin", "github.com", "vol");
-        assert!(podman.contains("volume store is separate"), "{podman}");
-        assert!(podman.contains("create `vol` with podman"), "{podman}");
-        let args = github_login_args("true", &crosslink, &crosslink).unwrap();
+        // Without an image to probe with, a present volume is enough; with
+        // one, an empty volume is caught before the launch.
+        assert!(github_login_preflight(&empty_volume, &[&crosslink], None)
+            .unwrap()
+            .is_some());
+        let empty = github_login_preflight(&empty_volume, &[&crosslink], Some("agent:test"))
+            .unwrap_err()
+            .to_string();
+        assert!(empty.contains("holds no gh session"), "{empty}");
+        assert!(
+            github_login_preflight(&logged_in, &[&crosslink], Some("agent:test"))
+                .unwrap()
+                .is_some()
+        );
+        let args = github_login_args(&logged_in, &crosslink, &crosslink).unwrap();
         assert_eq!(args[0], "-v");
         assert!(args[1].starts_with("crosslink-auth-github-"), "{}", args[1]);
         assert!(
@@ -1315,7 +1416,7 @@ mod tests {
 
         // SSH remote: refused before any launch, naming the transport, never the URL.
         let (_ssh, crosslink) = hub_with_remote("git@github.com:example/hub.git");
-        let refused = github_login_preflight("true", &[&crosslink])
+        let refused = github_login_preflight(&logged_in, &[&crosslink], None)
             .unwrap_err()
             .to_string();
         assert!(refused.contains("over ssh"), "{refused}");

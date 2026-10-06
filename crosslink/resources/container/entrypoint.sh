@@ -51,7 +51,7 @@ if [ "${CROSSLINK_REQUIRE_GIT_LOGIN:-0}" = "1" ]; then
     fi
     if ! GH_STATUS=$(gosu agent gh auth status 2>&1); then
         echo "[crosslink-entrypoint] The hub has an HTTPS remote, so publishing needs a GitHub login, but gh cannot confirm the stored one (an expired or revoked token, a login made for another user id, or no route to github.com yet):" >&2
-        printf '%s\n' "$GH_STATUS" >&2
+        printf '%s\n' "$GH_STATUS" | sed -E 's/account [^ ]+/account (redacted)/g' >&2
         echo "[crosslink-entrypoint] If the token is gone or unreadable, run crosslink container auth login --provider github again; if the network is down, retry once it is back." >&2
         exit 78
     fi

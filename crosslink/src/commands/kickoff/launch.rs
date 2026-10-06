@@ -385,6 +385,7 @@ pub(super) fn preflight_check(
     container: &ContainerMode,
     verify: &VerifyLevel,
     crosslink_dir: &Path,
+    image: Option<&str>,
 ) -> Result<PreflightResult> {
     let platform = detect_platform();
     let agent = crate::agents::resolve_agent(crosslink_dir)?;
@@ -462,7 +463,7 @@ pub(super) fn preflight_check(
     // A container publishes hub refs itself. Check its login needs here,
     // before an issue or a worktree exists, rather than at launch.
     if let Some(runtime_cmd) = container_runtime(container) {
-        crate::commands::container::github_login_preflight(runtime_cmd, &[crosslink_dir])?;
+        crate::commands::container::github_login_preflight(runtime_cmd, &[crosslink_dir], image)?;
     }
 
     Ok(PreflightResult {
@@ -996,8 +997,14 @@ pub(super) fn launch_container(
 }
 
 /// How long a detached launch watches the container before reporting it as
-/// started. The entrypoint's login gates fail within this window.
-const EARLY_EXIT_WINDOW: Duration = Duration::from_secs(6);
+/// started. The entrypoint's login gates fail well within this window; a
+/// healthy container ends the watch early by printing the workspace marker.
+const EARLY_EXIT_WINDOW: Duration = Duration::from_secs(15);
+
+/// The entrypoint prints this once every login gate has passed and the
+/// workspace is mounted, before any toolchain setup. Seeing it ends the watch
+/// early; if the wording ever changes the watch just runs to its deadline.
+const ENTRYPOINT_PAST_GATES_MARKER: &str = "[crosslink-entrypoint] Detected workspace";
 
 /// The exit code of a container that has already stopped, from the status
 /// and exit code `inspect` prints.
@@ -1015,9 +1022,24 @@ fn exited_with(inspect_output: &str) -> Option<i32> {
     )
 }
 
+/// The last lines of a container's combined output.
+fn container_log_tail(runtime_cmd: &str, container_id: &str) -> String {
+    Command::new(runtime_cmd)
+        .args(["logs", "--tail", "20", container_id])
+        .output()
+        .map(|output| {
+            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            text
+        })
+        .unwrap_or_default()
+}
+
 /// An agent container that stops within `window` of its launch, as the
 /// entrypoint does when a required login is missing: its exit code and log
-/// tail, or `None` while it keeps running.
+/// tail. `None` once the entrypoint reports it is past its gates, at the
+/// deadline while the container still runs, or when the runtime cannot be
+/// asked (the launch already succeeded; not knowing is not a failure).
 fn early_container_exit(
     runtime_cmd: &str,
     container_id: &str,
@@ -1035,19 +1057,11 @@ fn early_container_exit(
             .output()
             .ok()
             .filter(|output| output.status.success())?;
+        let logs = container_log_tail(runtime_cmd, container_id);
         if let Some(code) = exited_with(&String::from_utf8_lossy(&inspect.stdout)) {
-            let logs = Command::new(runtime_cmd)
-                .args(["logs", "--tail", "20", container_id])
-                .output()
-                .map(|output| {
-                    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-                    text.push_str(&String::from_utf8_lossy(&output.stderr));
-                    text
-                })
-                .unwrap_or_default();
             return Some((code, logs));
         }
-        if Instant::now() >= deadline {
+        if logs.contains(ENTRYPOINT_PAST_GATES_MARKER) || Instant::now() >= deadline {
             return None;
         }
         thread::sleep(Duration::from_millis(500));
@@ -1108,6 +1122,12 @@ mod tests {
         assert!(msg.contains("gate failed"), "{msg}");
         assert!(msg.contains("docker logs abcdef012345"), "{msg}");
         assert!(format_early_exit_error("podman", "id", 1, "").contains("(no output)"));
+        assert!(
+            crate::commands::container::ENTRYPOINT.contains(
+                ENTRYPOINT_PAST_GATES_MARKER.trim_start_matches("[crosslink-entrypoint] ")
+            ),
+            "the entrypoint must still print the marker the launch watch waits for"
+        );
     }
 
     #[test]

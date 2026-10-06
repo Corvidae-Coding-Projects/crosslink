@@ -1772,7 +1772,12 @@ fn test_format_report_all_table() {
 fn test_preflight_check_passes_when_commands_available() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
+    let result = preflight_check(
+        &ContainerMode::Docker,
+        &VerifyLevel::Local,
+        dir.path(),
+        None,
+    );
 
     let _ = result;
 }
@@ -1781,7 +1786,12 @@ fn test_preflight_check_passes_when_commands_available() {
 fn test_preflight_check_missing_command_includes_hint() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    let result = preflight_check(&ContainerMode::Podman, &VerifyLevel::Thorough, dir.path());
+    let result = preflight_check(
+        &ContainerMode::Podman,
+        &VerifyLevel::Thorough,
+        dir.path(),
+        None,
+    );
     if let Err(e) = result {
         let msg = e.to_string();
 
@@ -2270,7 +2280,12 @@ fn test_preflight_check_validates_sandbox_binary() {
     )
     .unwrap();
 
-    let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
+    let result = preflight_check(
+        &ContainerMode::Docker,
+        &VerifyLevel::Local,
+        dir.path(),
+        None,
+    );
     if let Err(e) = result {
         let msg = e.to_string();
         assert!(msg.contains("crosslink_nonexistent_sandbox_xyz"));
