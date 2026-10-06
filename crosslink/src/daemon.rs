@@ -238,8 +238,8 @@ pub fn run_daemon(crosslink_dir: &Path, requested_epoch: Option<&str>) -> Result
     while reconcile_until_ready(crosslink_dir, &identity, &should_exit)? {
         match run_normal_loop(crosslink_dir, &should_exit)? {
             NormalLoopExit::Shutdown => break,
-            NormalLoopExit::RecordExpired => {
-                println!("readiness record expired; reconciling again.");
+            NormalLoopExit::Reconcile(reason) => {
+                println!("{reason}; reconciling again.");
             }
         }
     }
@@ -672,7 +672,12 @@ fn record_ready(
 
 enum NormalLoopExit {
     Shutdown,
-    RecordExpired,
+    Reconcile(String),
+}
+
+enum Housekeeping {
+    Done { active_issue_id: Option<i64> },
+    Reconcile(String),
 }
 
 fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<NormalLoopExit> {
@@ -685,40 +690,16 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
         if defer_reconciliation_for_active_mutations(crosslink_dir, &identity)? {
             continue;
         }
-        let Some(mutation_operation) =
-            acquire_housekeeping_unless_expired(crosslink_dir, &identity)?
-        else {
-            return Ok(NormalLoopExit::RecordExpired);
+        let active_issue_id = match housekeeping_tick(
+            crosslink_dir,
+            &identity,
+            &db_path,
+            &session_file,
+            || Ok(()),
+        )? {
+            Housekeeping::Done { active_issue_id } => active_issue_id,
+            Housekeeping::Reconcile(reason) => return Ok(NormalLoopExit::Reconcile(reason)),
         };
-        let mut active_issue_id = None;
-        let db = Database::open(&db_path).context("opening projection for daemon housekeeping")?;
-        crate::hydration::maybe_auto_hydrate_under_operation(crosslink_dir, &db)
-            .context("hydrating current authority during daemon housekeeping")?;
-        let service = crate::application::RepositoryService::projection(&db);
-        let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
-            .ok()
-            .flatten()
-            .map(|agent| agent.agent_id);
-        if let Ok(Some(session)) =
-            crate::application::LocalStateService::get_current_session_for_agent(
-                &service,
-                agent_id.as_deref(),
-            )
-        {
-            active_issue_id = session.active_issue_id;
-            let data = serde_json::json!({
-                "session_id": session.id,
-                "started_at": session.started_at.to_rfc3339(),
-                "active_issue_id": session.active_issue_id,
-            });
-            if let Ok(bytes) = serde_json::to_vec_pretty(&data) {
-                if let Err(error) = fs::write(&session_file, bytes) {
-                    tracing::warn!("failed to write session file: {error}");
-                }
-            }
-        }
-        refresh_ready_record_with(crosslink_dir, &identity, || Ok(()))?;
-        drop(mutation_operation);
         heartbeat_counter += 1;
         if heartbeat_counter.is_multiple_of(5) {
             if let Err(error) = run_sync_tick(crosslink_dir, &db_path, active_issue_id) {
@@ -727,6 +708,67 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
         }
     }
     Ok(NormalLoopExit::Shutdown)
+}
+
+/// One housekeeping pass under the operation permit. Failures that come from
+/// the projection or the authority moving under the daemon (another checkout
+/// publishing, an expired record, a hydration that cannot complete) are
+/// reported as a reason to reconcile again rather than as errors, because the
+/// reconciliation path already knows how to re-derive readiness from the hub
+/// and to record waiting or blocked states with their cause.
+fn housekeeping_tick<F>(
+    crosslink_dir: &Path,
+    identity: &DaemonIdentity,
+    db_path: &Path,
+    session_file: &Path,
+    before_refresh_write: F,
+) -> Result<Housekeeping>
+where
+    F: FnOnce() -> Result<()>,
+{
+    let Some(mutation_operation) = acquire_housekeeping_unless_expired(crosslink_dir, identity)?
+    else {
+        return Ok(Housekeeping::Reconcile(
+            "readiness record expired".to_string(),
+        ));
+    };
+    let db = Database::open(db_path).context("opening projection for daemon housekeeping")?;
+    if let Err(error) = crate::hydration::maybe_auto_hydrate_under_operation(crosslink_dir, &db) {
+        drop(mutation_operation);
+        return Ok(Housekeeping::Reconcile(format!(
+            "hydrating current authority during daemon housekeeping failed: {error:#}"
+        )));
+    }
+    let service = crate::application::RepositoryService::projection(&db);
+    let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
+        .ok()
+        .flatten()
+        .map(|agent| agent.agent_id);
+    let mut active_issue_id = None;
+    if let Ok(Some(session)) = crate::application::LocalStateService::get_current_session_for_agent(
+        &service,
+        agent_id.as_deref(),
+    ) {
+        active_issue_id = session.active_issue_id;
+        let data = serde_json::json!({
+            "session_id": session.id,
+            "started_at": session.started_at.to_rfc3339(),
+            "active_issue_id": session.active_issue_id,
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&data) {
+            if let Err(error) = fs::write(session_file, bytes) {
+                tracing::warn!("failed to write session file: {error}");
+            }
+        }
+    }
+    if let Err(error) = refresh_ready_record_with(crosslink_dir, identity, before_refresh_write) {
+        drop(mutation_operation);
+        return Ok(Housekeeping::Reconcile(format!(
+            "refreshing the readiness record failed: {error:#}"
+        )));
+    }
+    drop(mutation_operation);
+    Ok(Housekeeping::Done { active_issue_id })
 }
 
 fn acquire_housekeeping_unless_expired(
@@ -1532,6 +1574,66 @@ mod tests {
         assert_eq!(record.daemon_epoch, identity.daemon_epoch);
         readiness::validate_record(&crosslink, &record).unwrap();
         assert!(readiness::require_mutation_ready(&crosslink).is_ok());
+    }
+
+    #[test]
+    fn authority_moving_during_the_record_write_reconciles_instead_of_failing() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let sync = SyncManager::new(&crosslink).unwrap();
+        let cache = sync.cache_path().to_path_buf();
+        let db_path = crosslink.join("issues.db");
+        let session_file = crosslink.join("session.json");
+        // Another checkout publishes between the daemon's validation and its
+        // record write: exactly the race a kickoff worktree produces.
+        let outcome = housekeeping_tick(&crosslink, &identity, &db_path, &session_file, || {
+            crate::hub_v3::append_event_to_ref(
+                &cache,
+                "racing-agent",
+                &crate::events::EventEnvelope {
+                    agent_id: "racing-agent".to_string(),
+                    agent_seq: 1,
+                    timestamp: chrono::Utc::now(),
+                    event: crate::events::Event::LockClaimed {
+                        issue_display_id: 1,
+                        branch: None,
+                    },
+                    signed_by: None,
+                    signature: None,
+                },
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let Housekeeping::Reconcile(reason) = outcome else {
+            panic!("the moved authority must send housekeeping back to reconciliation");
+        };
+        assert!(
+            reason.contains("refusing to publish ready state for a stale projection"),
+            "{reason}"
+        );
+        assert!(reconcile_until_ready(&crosslink, &identity, &AtomicBool::new(false)).unwrap());
+        let record = readiness::read_record(&crosslink).unwrap().unwrap();
+        assert_eq!(record.daemon_epoch, identity.daemon_epoch);
+        readiness::validate_record(&crosslink, &record).unwrap();
+        assert!(readiness::projection_is_current(&crosslink).unwrap());
+    }
+
+    #[test]
+    fn a_quiet_housekeeping_tick_completes_and_keeps_the_record_fresh() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let before = readiness::read_record(&crosslink).unwrap().unwrap();
+        let outcome = housekeeping_tick(
+            &crosslink,
+            &identity,
+            &crosslink.join("issues.db"),
+            &crosslink.join("session.json"),
+            || Ok(()),
+        )
+        .unwrap();
+        assert!(matches!(outcome, Housekeeping::Done { .. }));
+        let after = readiness::read_record(&crosslink).unwrap().unwrap();
+        assert!(after.sequence > before.sequence);
+        assert_eq!(after.attempt_id, before.attempt_id);
     }
 
     #[test]
