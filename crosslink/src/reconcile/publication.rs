@@ -3848,12 +3848,26 @@ fn is_lease_rejection(message: &str) -> bool {
         || (lower.contains("cannot lock ref") && lower.contains("reference already exists"))
 }
 
+/// Whether a git failure is the remote being unreachable rather than the
+/// remote rejecting us. Transport failures retry as `waiting_for_remote`;
+/// everything else is terminal. `fatal: unable to access` is git's prefix for
+/// every curl transport error, so it covers the resets, timeouts and TLS
+/// failures that each have their own wording.
 fn is_remote_unavailable_message(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
-    lower.contains("could not resolve host")
+    lower.contains("unable to access")
+        || lower.contains("could not resolve host")
         || lower.contains("could not read from remote repository")
         || lower.contains("connection timed out")
+        || lower.contains("operation timed out")
         || lower.contains("connection refused")
+        || lower.contains("connection reset")
+        || lower.contains("recv failure")
+        || lower.contains("send failure")
+        || lower.contains("could not connect")
+        || lower.contains("failed to connect")
+        || lower.contains("early eof")
+        || lower.contains("remote end hung up unexpectedly")
         || lower.contains("network is unreachable")
         || lower.contains("no such file or directory")
         || lower.contains("does not appear to be a git repository")
@@ -3882,6 +3896,40 @@ fn is_explicit_atomic_unsupported(output: &Output, message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transport_failures_wait_for_the_remote_instead_of_blocking() {
+        for message in [
+            "fatal: unable to access 'https://github.com/example/repo.git/': Recv failure: Connection reset by peer",
+            "fatal: unable to access 'https://github.com/example/repo.git/': Recv failure: Operation timed out",
+            "fatal: unable to access 'https://github.com/example/repo.git/': Failed to connect to github.com port 443 after 75001 ms: Couldn't connect to server",
+            "fatal: unable to access 'https://github.com/example/repo.git/': OpenSSL SSL_read: error:0A000126:SSL routines::unexpected eof while reading, errno 0",
+            "fatal: the remote end hung up unexpectedly",
+            "fatal: early EOF",
+            "ssh: connect to host github.com port 22: Operation timed out",
+        ] {
+            assert!(
+                matches!(
+                    classify_remote_error("git fetch", message),
+                    RemoteGitError::Unavailable(_)
+                ),
+                "{message}"
+            );
+        }
+        for message in [
+            "! [rejected] refs/heads/crosslink/checkpoint -> refs/heads/crosslink/checkpoint (fetch first)",
+            "error: failed to push some refs to 'origin'",
+            "fatal: couldn't find remote ref refs/heads/crosslink/reconciliation/current",
+        ] {
+            assert!(
+                matches!(
+                    classify_remote_error("git push", message),
+                    RemoteGitError::Rejected(_)
+                ),
+                "{message}"
+            );
+        }
+    }
     use tempfile::TempDir;
 
     const CHECKPOINT: &str = "refs/heads/crosslink/checkpoint";
