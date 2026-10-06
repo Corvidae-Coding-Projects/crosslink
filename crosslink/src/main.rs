@@ -917,6 +917,7 @@ enum ContainerAuthCommands {
     },
 
     Status {
+        /// Account to check: an agent provider, or `github` for the hub login
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
@@ -927,6 +928,7 @@ enum ContainerAuthCommands {
     },
 
     Refresh {
+        /// Account to log in to again: an agent provider, or `github` for the hub login
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
@@ -937,6 +939,8 @@ enum ContainerAuthCommands {
     },
 
     Logout {
+        /// Account whose login volume to remove: an agent provider, or `github`
+        /// (the GitHub token stays valid until revoked on github.com)
         #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 

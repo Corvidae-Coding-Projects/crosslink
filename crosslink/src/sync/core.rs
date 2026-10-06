@@ -105,6 +105,20 @@ impl SyncManager {
         &self.cache_dir
     }
 
+    /// The configured tracker remote's URL, when the remote exists.
+    #[must_use]
+    pub fn remote_url(&self) -> Option<String> {
+        let output = Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(["remote", "get-url", &self.remote])
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
     #[must_use]
     pub fn remote_exists(&self) -> bool {
         Command::new("git")

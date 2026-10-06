@@ -1,7 +1,8 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::agents::{
     build_invocation, render_shell_command, AgentProvider, ApprovalPolicy, ExecutionPolicy,
@@ -458,11 +459,26 @@ pub(super) fn preflight_check(
         crate::agents::verify_account_login(&agent)?;
     }
 
+    // A container publishes hub refs itself. Check its login needs here,
+    // before an issue or a worktree exists, rather than at launch.
+    if let Some(runtime_cmd) = container_runtime(container) {
+        crate::commands::container::github_login_preflight(runtime_cmd, &[crosslink_dir])?;
+    }
+
     Ok(PreflightResult {
         timeout_cmd,
         sandbox_command,
         agent,
     })
+}
+
+/// The CLI a container mode runs, or `None` for local mode.
+pub(super) const fn container_runtime(mode: &ContainerMode) -> Option<&'static str> {
+    match mode {
+        ContainerMode::Docker => Some("docker"),
+        ContainerMode::Podman => Some("podman"),
+        ContainerMode::None => None,
+    }
 }
 
 pub(super) fn repo_root() -> Result<std::path::PathBuf> {
@@ -967,7 +983,88 @@ pub(super) fn launch_container(
     }
 
     let container_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let Some((code, logs)) = early_container_exit(runtime_cmd, &container_id, EARLY_EXIT_WINDOW)
+    {
+        bail!(format_early_exit_error(
+            runtime_cmd,
+            &container_id,
+            code,
+            &logs
+        ));
+    }
     Ok(container_id)
+}
+
+/// How long a detached launch watches the container before reporting it as
+/// started. The entrypoint's login gates fail within this window.
+const EARLY_EXIT_WINDOW: Duration = Duration::from_secs(6);
+
+/// The exit code of a container that has already stopped, from the status
+/// and exit code `inspect` prints.
+fn exited_with(inspect_output: &str) -> Option<i32> {
+    let mut parts = inspect_output.split_whitespace();
+    let status = parts.next()?;
+    if status != "exited" && status != "dead" {
+        return None;
+    }
+    Some(
+        parts
+            .next()
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(-1),
+    )
+}
+
+/// An agent container that stops within `window` of its launch, as the
+/// entrypoint does when a required login is missing: its exit code and log
+/// tail, or `None` while it keeps running.
+fn early_container_exit(
+    runtime_cmd: &str,
+    container_id: &str,
+    window: Duration,
+) -> Option<(i32, String)> {
+    let deadline = Instant::now() + window;
+    loop {
+        let inspect = Command::new(runtime_cmd)
+            .args([
+                "inspect",
+                "--format",
+                "{{.State.Status}} {{.State.ExitCode}}",
+                container_id,
+            ])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())?;
+        if let Some(code) = exited_with(&String::from_utf8_lossy(&inspect.stdout)) {
+            let logs = Command::new(runtime_cmd)
+                .args(["logs", "--tail", "20", container_id])
+                .output()
+                .map(|output| {
+                    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+                    text.push_str(&String::from_utf8_lossy(&output.stderr));
+                    text
+                })
+                .unwrap_or_default();
+            return Some((code, logs));
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
+fn format_early_exit_error(runtime_cmd: &str, container_id: &str, code: i32, logs: &str) -> String {
+    let short_id: String = container_id.chars().take(12).collect();
+    let tail = logs.trim();
+    let tail = if tail.is_empty() {
+        "(no output)".to_string()
+    } else {
+        tail.to_string()
+    };
+    format!(
+        "the agent container exited with code {code} right after launch ({short_id}). Its last lines:\n\n{tail}\n\nThe container is kept for `{runtime_cmd} logs {short_id}`; the issue and worktree created for it remain."
+    )
 }
 
 const AGENT_IMAGE_PACKAGE_URL: &str =
@@ -996,6 +1093,22 @@ fn format_container_launch_error(runtime_cmd: &str, image: &str, stderr: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_exited_container_is_recognized_from_its_inspect_line() {
+        assert_eq!(exited_with("exited 78\n"), Some(78));
+        assert_eq!(exited_with("dead 137"), Some(137));
+        assert_eq!(exited_with("exited"), Some(-1));
+        assert_eq!(exited_with("running 0"), None);
+        assert_eq!(exited_with("created 0"), None);
+        assert_eq!(exited_with(""), None);
+        let msg = format_early_exit_error("docker", "abcdef0123456789", 78, "  gate failed  \n");
+        assert!(msg.contains("exited with code 78"), "{msg}");
+        assert!(msg.contains("abcdef012345"), "{msg}");
+        assert!(msg.contains("gate failed"), "{msg}");
+        assert!(msg.contains("docker logs abcdef012345"), "{msg}");
+        assert!(format_early_exit_error("podman", "id", 1, "").contains("(no output)"));
+    }
 
     #[test]
     fn linked_worktree_resolves_external_git_common_dir() {

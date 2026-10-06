@@ -171,7 +171,7 @@ pub(crate) fn credential_volume(provider: crate::agents::AgentProvider) -> Resul
         crate::agents::AgentProvider::Claude => Ok(AuthProvider::Claude.volume()),
         crate::agents::AgentProvider::Codex => Ok(AuthProvider::Codex.volume()),
         crate::agents::AgentProvider::Custom => {
-            bail!("Container account login supports only claude or codex")
+            bail!("Container account login covers the agent providers claude and codex; a custom agent binary has no login volume")
         }
     }
 }
@@ -192,9 +192,139 @@ pub(crate) fn volume_exists(runtime: &str, volume: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// `HOST_UID`/`HOST_GID` for the entrypoint's user remap, so the files a
+/// login container writes into a volume are owned by the same user an agent
+/// container runs as; agent launches mount the login read-only and cannot
+/// fix ownership themselves. Windows has no uid to forward.
+pub(crate) fn host_identity_args() -> Vec<String> {
+    if cfg!(target_os = "windows") {
+        return Vec::new();
+    }
+    let id = |flag: &str| {
+        Command::new("id")
+            .arg(flag)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    match (id("-u"), id("-g")) {
+        (Some(uid), Some(gid)) => vec![
+            "-e".to_string(),
+            format!("HOST_UID={uid}"),
+            "-e".to_string(),
+            format!("HOST_GID={gid}"),
+        ],
+        _ => Vec::new(),
+    }
+}
+
 /// Environment variable the launchers set when the hub has a remote, so the
 /// entrypoint refuses to start an agent that could not publish.
 pub(crate) const REQUIRE_GIT_LOGIN_ENV: &str = "CROSSLINK_REQUIRE_GIT_LOGIN";
+
+/// What the hub publishes to, as far as a container's credentials go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HubPublication {
+    /// No hub, or a hub with no remote: the container publishes nothing.
+    Local,
+    /// An HTTPS remote, which the GitHub login authenticates through
+    /// `gh auth setup-git`.
+    Https { remote: String, host: String },
+    /// A remote the container holds no credentials for.
+    Unsupported { remote: String, transport: String },
+}
+
+/// Classify a remote URL by the transport git would use for it. The URL
+/// itself is never surfaced: it may carry a token in its userinfo.
+fn classify_remote_url(remote: &str, url: &str) -> HubPublication {
+    let url = url.trim();
+    if let Some(rest) = url.strip_prefix("https://") {
+        let authority = rest.split('/').next().unwrap_or_default();
+        let host = authority.rsplit('@').next().unwrap_or_default();
+        let host = match host.rsplit_once(':') {
+            Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+                name
+            }
+            _ => host,
+        };
+        return HubPublication::Https {
+            remote: remote.to_string(),
+            host: host.to_string(),
+        };
+    }
+    let transport = if let Some((scheme, _)) = url.split_once("://") {
+        scheme.to_string()
+    } else if url.starts_with('/') || url.starts_with('.') || url.starts_with('~') {
+        "a local path".to_string()
+    } else if let Some((before, _)) = url.split_once(':') {
+        if before.len() == 1 || before.contains('/') || before.contains('\\') {
+            "a local path".to_string()
+        } else {
+            "ssh".to_string()
+        }
+    } else {
+        "a local path".to_string()
+    };
+    HubPublication::Unsupported {
+        remote: remote.to_string(),
+        transport,
+    }
+}
+
+/// The hub's publication target, from the first initialized hub among the
+/// given `.crosslink` directories (a worktree resolves to its main repository).
+pub(crate) fn hub_publication(crosslink_dirs: &[&Path]) -> HubPublication {
+    let Some(sync) = crosslink_dirs
+        .iter()
+        .filter_map(|dir| crate::sync::SyncManager::new(dir).ok())
+        .find(crate::sync::SyncManager::is_initialized)
+    else {
+        return HubPublication::Local;
+    };
+    sync.remote_url().map_or(HubPublication::Local, |url| {
+        classify_remote_url(sync.remote(), &url)
+    })
+}
+
+fn missing_github_login_message(runtime: &str, remote: &str, host: &str, volume: &str) -> String {
+    let mut message = format!(
+        "the hub publishes to remote '{remote}' on {host}, which needs a GitHub login inside the container; run `crosslink container auth login --provider github` first"
+    );
+    if runtime != "docker" {
+        use std::fmt::Write as _;
+        let _ = write!(
+            message,
+            " (that command keeps the login in a docker volume; this launch uses {runtime}, whose volume store is separate, so create `{volume}` with {runtime} and run `gh auth login` inside a container that mounts it at {})",
+            AuthProvider::Github.mount_path()
+        );
+    }
+    message
+}
+
+/// Check, before a launch has side effects, that the hub's publication needs
+/// are met: the login volume to mount when the hub has an HTTPS remote, `None`
+/// when the hub publishes nothing, and an error naming the missing login or
+/// the unsupported transport otherwise.
+pub(crate) fn github_login_preflight(
+    runtime: &str,
+    crosslink_dirs: &[&Path],
+) -> Result<Option<String>> {
+    match hub_publication(crosslink_dirs) {
+        HubPublication::Local => Ok(None),
+        HubPublication::Unsupported { remote, transport } => bail!(
+            "the hub publishes to remote '{remote}' over {transport}, which the container cannot authenticate: the GitHub login covers HTTPS remotes only. Point the hub remote at an HTTPS URL (`git remote set-url {remote} https://github.com/<owner>/<repo>.git`), or run kickoff with `--container none`"
+        ),
+        HubPublication::Https { remote, host } => {
+            let volume = github_credential_volume();
+            if volume_exists(runtime, &volume) {
+                Ok(Some(volume))
+            } else {
+                bail!(missing_github_login_message(runtime, &remote, &host, &volume))
+            }
+        }
+    }
+}
 
 /// Environment override for the image that hosts container account login.
 /// Forks publish the agent image under their own registry path; the login volume
@@ -233,12 +363,27 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     let parsed_provider = provider.parse::<AuthProvider>()?;
     let volume = parsed_provider.volume();
     let image = auth_image(image)?;
+    let image_hint = if image == format!("{IMAGE_NAME}:{IMAGE_TAG}") {
+        String::new()
+    } else {
+        format!(" --image {image}")
+    };
+    // A status check must not create the volume as a side effect: docker
+    // creates a missing named volume on `-v`, and an empty volume would then
+    // pass for a login at launch time.
+    if status && !volume_exists("docker", &volume) {
+        bail!("{provider} container account has no login volume ({volume}); run `crosslink container auth login --provider {provider}{image_hint}`");
+    }
+    if !status && !io::stdin().is_terminal() {
+        bail!("{provider} container account login is interactive; run `crosslink container auth login --provider {provider}{image_hint}` from a terminal");
+    }
     let mut command = Command::new("docker");
     command.args(["run", "--rm"]);
     if !status {
         command.arg("-it");
     }
     command.args(["-v", &format!("{volume}:{}", parsed_provider.mount_path())]);
+    command.args(host_identity_args());
     if let Some(agent_provider) = parsed_provider.agent_provider_name() {
         command.args(["-e", &format!("CROSSLINK_AGENT_PROVIDER={agent_provider}")]);
     }
@@ -252,20 +397,17 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
             println!("{provider} container account is logged in (account details redacted).");
             return Ok(());
         }
-        let image_hint = if image == format!("{IMAGE_NAME}:{IMAGE_TAG}") {
-            String::new()
-        } else {
-            format!(" --image {image}")
-        };
         bail!("{provider} container account is not logged in; run `crosslink container auth login --provider {provider}{image_hint}`");
     }
     let result = command
         .status()
         .context("Failed to run container account login command")?;
     if !result.success() {
-        bail!(
-            "{provider} account {} failed",
-            if status { "status" } else { "login" }
+        bail!("{provider} account login failed");
+    }
+    if parsed_provider == AuthProvider::Github {
+        println!(
+            "GitHub login stored in volume {volume}. Agent containers that publish to an HTTPS hub remote mount it read-only, and the agent can read the token, so prefer a fine-grained token limited to the hub repository (see the container guide)."
         );
     }
     Ok(())
@@ -280,7 +422,8 @@ fn auth_status(provider: &str, image: Option<&str>) -> Result<()> {
 }
 
 fn auth_logout(provider: &str, force: bool) -> Result<()> {
-    let volume = provider.parse::<AuthProvider>()?.volume();
+    let parsed_provider = provider.parse::<AuthProvider>()?;
+    let volume = parsed_provider.volume();
     if !force {
         if !io::stdin().is_terminal() {
             bail!("Refusing to remove credential volume {volume} without confirmation; rerun with --force");
@@ -302,39 +445,35 @@ fn auth_logout(provider: &str, force: bool) -> Result<()> {
         bail!("Could not remove credential volume {volume}");
     }
     println!("Removed {provider} container account credentials ({volume}).");
+    if parsed_provider == AuthProvider::Github {
+        println!(
+            "The GitHub token itself stays valid until you revoke it at https://github.com/settings/applications (GitHub CLI)."
+        );
+    }
     Ok(())
 }
 
-/// Docker arguments that give a container the GitHub login it needs to publish
-/// hub refs. The volume is mounted whenever it exists. When the hub has a
-/// remote, the entrypoint is told to require the login, and a missing volume
-/// fails the launch here with the command that creates it.
+/// Docker arguments that give a container the GitHub login it needs to
+/// publish hub refs: nothing when the hub publishes nothing; the login volume,
+/// read-only, plus the entrypoint's requirement when the hub has an HTTPS
+/// remote; and an error naming what is missing otherwise. Kickoff runs the
+/// same check in preflight, before it creates an issue or a worktree.
 pub(crate) fn github_login_args(
     runtime: &str,
     host_crosslink_dir: &Path,
     worktree_crosslink_dir: &Path,
 ) -> Result<Vec<String>> {
-    let hub_remote = [worktree_crosslink_dir, host_crosslink_dir]
-        .into_iter()
-        .filter_map(|dir| crate::sync::SyncManager::new(dir).ok())
-        .find(crate::sync::SyncManager::is_initialized)
-        .filter(crate::sync::SyncManager::remote_exists)
-        .map(|sync| sync.remote().to_string());
-    let volume = github_credential_volume();
-    let mut args = Vec::new();
-    if volume_exists(runtime, &volume) {
-        args.push("-v".to_string());
-        args.push(format!("{volume}:{}", AuthProvider::Github.mount_path()));
-        if hub_remote.is_some() {
-            args.push("-e".to_string());
-            args.push(format!("{REQUIRE_GIT_LOGIN_ENV}=1"));
-        }
-    } else if let Some(remote) = hub_remote {
-        bail!(
-            "the hub publishes to remote '{remote}', which needs a GitHub login inside the container; run `crosslink container auth login --provider github` first"
-        );
-    }
-    Ok(args)
+    let Some(volume) =
+        github_login_preflight(runtime, &[worktree_crosslink_dir, host_crosslink_dir])?
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![
+        "-v".to_string(),
+        format!("{volume}:{}:ro", AuthProvider::Github.mount_path()),
+        "-e".to_string(),
+        format!("{REQUIRE_GIT_LOGIN_ENV}=1"),
+    ])
 }
 
 const IMAGE_NAME: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent";
@@ -1059,6 +1198,7 @@ mod tests {
     #[test]
     fn container_entrypoint_and_image_carry_the_github_login() {
         assert!(ENTRYPOINT.contains(REQUIRE_GIT_LOGIN_ENV));
+        assert!(ENTRYPOINT.contains("hosts.yml"));
         assert!(ENTRYPOINT.contains("gh auth status"));
         assert!(ENTRYPOINT.contains("gh auth setup-git"));
         assert!(ENTRYPOINT.contains("container auth login --provider github"));
@@ -1067,13 +1207,118 @@ mod tests {
     }
 
     #[test]
-    fn github_login_args_without_a_volume_fail_only_when_the_hub_has_a_remote() {
+    fn remote_transports_are_classified_without_exposing_the_url() {
+        for (url, host) in [
+            ("https://github.com/example/hub.git", "github.com"),
+            (
+                "https://user:gho_secret@github.com/example/hub.git",
+                "github.com",
+            ),
+            ("https://ghe.example.com:8443/org/hub", "ghe.example.com"),
+        ] {
+            assert_eq!(
+                classify_remote_url("origin", url),
+                HubPublication::Https {
+                    remote: "origin".to_string(),
+                    host: host.to_string()
+                },
+                "{url}"
+            );
+        }
+        for (url, transport) in [
+            ("git@github.com:example/hub.git", "ssh"),
+            ("ssh://git@github.com/example/hub.git", "ssh"),
+            ("git://github.com/example/hub.git", "git"),
+            ("http://github.com/example/hub.git", "http"),
+            ("file:///srv/hub.git", "file"),
+            ("/srv/hub.git", "a local path"),
+            ("../hub.git", "a local path"),
+            ("C:\\hubs\\hub.git", "a local path"),
+        ] {
+            assert_eq!(
+                classify_remote_url("origin", url),
+                HubPublication::Unsupported {
+                    remote: "origin".to_string(),
+                    transport: transport.to_string()
+                },
+                "{url}"
+            );
+        }
+    }
+
+    /// A repository whose hub cache exists and whose tracker remote has the
+    /// given URL; git never contacts it.
+    fn hub_with_remote(url: &str) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
+        for args in [vec!["init", "-q"], vec!["remote", "add", "origin", url]] {
+            let status = Command::new("git")
+                .current_dir(dir.path())
+                .args(&args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
         let crosslink = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink).unwrap();
-        // No hub cache at all: nothing to publish, nothing required.
-        let args = github_login_args("definitely-not-a-container-runtime", &crosslink, &crosslink)
-            .unwrap();
-        assert!(args.is_empty());
+        std::fs::write(crosslink.join("hook-config.json"), r#"{"remote":"origin"}"#).unwrap();
+        let cache = crate::sync::SyncManager::new(&crosslink)
+            .unwrap()
+            .cache_path()
+            .to_path_buf();
+        std::fs::create_dir_all(cache).unwrap();
+        (dir, crosslink)
+    }
+
+    #[test]
+    fn github_login_preflight_follows_the_hub_transport_and_the_login_volume() {
+        // No hub cache at all: nothing to publish, nothing required, nothing mounted.
+        let bare = tempfile::tempdir().unwrap();
+        let bare_crosslink = bare.path().join(".crosslink");
+        std::fs::create_dir_all(&bare_crosslink).unwrap();
+        assert_eq!(
+            github_login_preflight("false", &[&bare_crosslink]).unwrap(),
+            None
+        );
+        assert!(github_login_args("true", &bare_crosslink, &bare_crosslink)
+            .unwrap()
+            .is_empty());
+
+        // HTTPS remote: a login volume is required. The runtime command stands
+        // in for `volume inspect`: `false` has no volume, `true` has one.
+        let (_https, crosslink) = hub_with_remote("https://github.com/example/hub.git");
+        let missing = github_login_preflight("false", &[&crosslink])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            missing.contains("needs a GitHub login inside the container"),
+            "{missing}"
+        );
+        assert!(missing.contains("github.com"), "{missing}");
+        assert!(!missing.contains("example/hub"), "{missing}");
+        // The login command is docker-only; any other runtime is told so.
+        let docker = missing_github_login_message("docker", "origin", "github.com", "vol");
+        assert!(!docker.contains("volume store is separate"), "{docker}");
+        let podman = missing_github_login_message("podman", "origin", "github.com", "vol");
+        assert!(podman.contains("volume store is separate"), "{podman}");
+        assert!(podman.contains("create `vol` with podman"), "{podman}");
+        let args = github_login_args("true", &crosslink, &crosslink).unwrap();
+        assert_eq!(args[0], "-v");
+        assert!(args[1].starts_with("crosslink-auth-github-"), "{}", args[1]);
+        assert!(
+            args[1].ends_with(":/home/agent/.config/gh:ro"),
+            "{}",
+            args[1]
+        );
+        assert_eq!(args[2], "-e");
+        assert_eq!(args[3], format!("{REQUIRE_GIT_LOGIN_ENV}=1"));
+        assert_eq!(args.len(), 4);
+
+        // SSH remote: refused before any launch, naming the transport, never the URL.
+        let (_ssh, crosslink) = hub_with_remote("git@github.com:example/hub.git");
+        let refused = github_login_preflight("true", &[&crosslink])
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("over ssh"), "{refused}");
+        assert!(!refused.contains("example/hub"), "{refused}");
     }
 }
