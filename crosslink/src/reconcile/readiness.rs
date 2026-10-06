@@ -17,6 +17,20 @@ use uuid::Uuid;
 
 use super::publication::GENERATION_REF;
 
+/// The projection moved under a ready-state write: another checkout published
+/// to the hub between validation and the write. Callers that can re-derive
+/// readiness treat this as "try again", not as a fault.
+#[derive(Debug, Clone, Copy)]
+pub struct StaleProjection;
+
+impl std::fmt::Display for StaleProjection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("refusing to publish ready state for a stale projection")
+    }
+}
+
+impl std::error::Error for StaleProjection {}
+
 pub const READINESS_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_PROTOCOL_VERSION: u32 = 1;
 const READINESS_DIR: &str = "readiness";
@@ -639,10 +653,9 @@ pub fn write_record(crosslink_dir: &Path, draft: ReadinessDraft<'_>) -> Result<R
         Err(error) => return Err(error),
     };
     if draft.state.grants_mutations() {
-        anyhow::ensure!(
-            projection_frontier.is_some() && projection_is_current(crosslink_dir)?,
-            "refusing to publish ready state for a stale projection"
-        );
+        if !(projection_frontier.is_some() && projection_is_current(crosslink_dir)?) {
+            return Err(StaleProjection.into());
+        }
         anyhow::ensure!(
             projection_schema_version == Some(crate::db::SCHEMA_VERSION),
             "refusing to publish ready state for an incompatible projection schema"

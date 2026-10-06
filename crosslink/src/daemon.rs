@@ -25,6 +25,14 @@ const START_LOCK_DEADLINE_SECS: u64 = 5;
 const START_POLL_MILLIS: u64 = 25;
 const READINESS_POLL_MILLIS: u64 = 50;
 const MAX_RETRY_SECS: u64 = 15;
+/// Housekeeping re-hydrates and retries a readiness refresh this many times
+/// within one tick when the hub moves under the write, before handing the
+/// tick back to reconciliation.
+const MAX_RECORD_REFRESH_ATTEMPTS: u32 = 3;
+/// Consecutive housekeeping-triggered reconciliations, without a completed
+/// tick in between, after which the daemon parks as `blocked_corrupt` with the
+/// cause instead of flapping between ready and reconciling.
+const MAX_CONSECUTIVE_RECONCILES: u32 = 5;
 const LEASE_LIVENESS_SWEEP_POLLS: u8 = 40;
 
 pub const WAITING_EXIT_CODE: i32 = 20;
@@ -235,15 +243,102 @@ pub fn run_daemon(crosslink_dir: &Path, requested_epoch: Option<&str>) -> Result
             reason: None,
         },
     )?;
-    while reconcile_until_ready(crosslink_dir, &identity, &should_exit)? {
+    let mut budget = ReconcileBudget::default();
+    let mut reconcile_reason: Option<String> = None;
+    while reconcile_until_ready(
+        crosslink_dir,
+        &identity,
+        &should_exit,
+        reconcile_reason.as_deref(),
+    )? {
         match run_normal_loop(crosslink_dir, &should_exit)? {
             NormalLoopExit::Shutdown => break,
-            NormalLoopExit::Reconcile(reason) => {
+            NormalLoopExit::Reconcile {
+                reason,
+                completed_ticks,
+            } => {
+                if budget.note_reconcile(completed_ticks) {
+                    let parked = format!(
+                        "housekeeping sent the daemon back to reconciliation {} times in a row without completing a tick; last cause: {reason}",
+                        budget.consecutive
+                    );
+                    tracing::error!("{parked}");
+                    println!("{parked}; parking as blocked_corrupt.");
+                    park_blocked(crosslink_dir, &identity, &should_exit, &parked)?;
+                    break;
+                }
+                tracing::warn!("{reason}; reconciling again");
                 println!("{reason}; reconciling again.");
+                reconcile_reason = Some(reason);
             }
         }
     }
     drop(run_lease);
+    Ok(())
+}
+
+/// Consecutive housekeeping-triggered reconciliations. A completed
+/// housekeeping tick in between means the previous reconciliation worked and
+/// resets the count; reaching the limit without one means the fault is
+/// persistent and the daemon should park with the cause.
+#[derive(Default)]
+struct ReconcileBudget {
+    consecutive: u32,
+}
+
+impl ReconcileBudget {
+    /// Record one reconciliation request. Returns true when the budget is spent.
+    const fn note_reconcile(&mut self, completed_ticks_since_last: u64) -> bool {
+        if completed_ticks_since_last > 0 {
+            self.consecutive = 0;
+        }
+        self.consecutive += 1;
+        self.consecutive >= MAX_CONSECUTIVE_RECONCILES
+    }
+}
+
+/// Record `blocked_corrupt` with the cause and hold the daemon there until it
+/// is told to exit, so `daemon status` shows why and `daemon stop` plus
+/// `ensure` recovers, like the reconciliation path's own blocked state.
+fn park_blocked(
+    crosslink_dir: &Path,
+    identity: &DaemonIdentity,
+    should_exit: &AtomicBool,
+    reason: &str,
+) -> Result<()> {
+    let attempt_id = Uuid::new_v4().to_string();
+    let transition = readiness::acquire_transition_permit_observed(
+        crosslink_dir,
+        Some(should_exit),
+        None,
+        || {
+            readiness::write_record(
+                crosslink_dir,
+                ReadinessDraft {
+                    daemon_epoch: &identity.daemon_epoch,
+                    daemon_pid: identity.pid,
+                    attempt_id: &attempt_id,
+                    state: ReadinessState::Reconciling,
+                    generation_id: None,
+                    reason: Some("waiting for active repository mutations to finish"),
+                },
+            )
+            .map(|_| ())
+        },
+    )?;
+    readiness::write_record(
+        crosslink_dir,
+        ReadinessDraft {
+            daemon_epoch: &identity.daemon_epoch,
+            daemon_pid: identity.pid,
+            attempt_id: &attempt_id,
+            state: ReadinessState::BlockedCorrupt,
+            generation_id: None,
+            reason: Some(reason),
+        },
+    )?;
+    drop(transition);
+    while !wait_interruptible(should_exit, Duration::from_secs(1)) {}
     Ok(())
 }
 
@@ -531,16 +626,28 @@ fn reconcile_until_ready(
     crosslink_dir: &Path,
     identity: &DaemonIdentity,
     should_exit: &AtomicBool,
+    reason: Option<&str>,
 ) -> Result<bool> {
-    reconcile_until_ready_loop(crosslink_dir, identity, should_exit)
+    reconcile_until_ready_with(crosslink_dir, identity, should_exit, reason, || Ok(()))
 }
 
-fn reconcile_until_ready_loop(
+/// Reconcile until the repository is ready, waiting or blocked. `reason` is
+/// recorded on the reconciling record so an operator can see why the daemon
+/// left the ready state. `before_record` runs between activation and the
+/// ready-record write; production passes a no-op and tests use it to move the
+/// hub at exactly that point.
+fn reconcile_until_ready_with<F>(
     crosslink_dir: &Path,
     identity: &DaemonIdentity,
     should_exit: &AtomicBool,
-) -> Result<bool> {
+    reason: Option<&str>,
+    mut before_record: F,
+) -> Result<bool>
+where
+    F: FnMut() -> Result<()>,
+{
     let mut retry_seconds = 1;
+    let mut reconcile_reason = reason.map(str::to_string);
     loop {
         if should_exit.load(Ordering::SeqCst) {
             return Ok(false);
@@ -573,7 +680,7 @@ fn reconcile_until_ready_loop(
                 attempt_id: &attempt_id,
                 state: ReadinessState::Reconciling,
                 generation_id: None,
-                reason: None,
+                reason: reconcile_reason.as_deref(),
             },
         )?;
         let activation = match activate_repository(crosslink_dir) {
@@ -582,39 +689,15 @@ fn reconcile_until_ready_loop(
                 reason: format!("{error:#}"),
             },
         };
-        match activation {
+        let (state, generation_id) = match activation {
             RepositoryActivation::ReadyCurrent { generation_id } => {
-                record_ready(
-                    crosslink_dir,
-                    identity,
-                    &attempt_id,
-                    ReadinessState::ReadyCurrent,
-                    &generation_id,
-                )?;
-                drop(transition);
-                return Ok(true);
+                (ReadinessState::ReadyCurrent, generation_id)
             }
             RepositoryActivation::ReadyMigrated { generation_id } => {
-                record_ready(
-                    crosslink_dir,
-                    identity,
-                    &attempt_id,
-                    ReadinessState::ReadyMigrated,
-                    &generation_id,
-                )?;
-                drop(transition);
-                return Ok(true);
+                (ReadinessState::ReadyMigrated, generation_id)
             }
             RepositoryActivation::ReadyAdopted { generation_id } => {
-                record_ready(
-                    crosslink_dir,
-                    identity,
-                    &attempt_id,
-                    ReadinessState::ReadyAdopted,
-                    &generation_id,
-                )?;
-                drop(transition);
-                return Ok(true);
+                (ReadinessState::ReadyAdopted, generation_id)
             }
             RepositoryActivation::WaitingForRemote { reason } => {
                 readiness::write_record(
@@ -633,6 +716,7 @@ fn reconcile_until_ready_loop(
                     return Ok(false);
                 }
                 retry_seconds = (retry_seconds * 2).min(MAX_RETRY_SECS);
+                continue;
             }
             RepositoryActivation::BlockedCorrupt { reason } => {
                 readiness::write_record(
@@ -650,6 +734,28 @@ fn reconcile_until_ready_loop(
                 while !wait_interruptible(should_exit, Duration::from_secs(1)) {}
                 return Ok(false);
             }
+        };
+        before_record()?;
+        match record_ready(crosslink_dir, identity, &attempt_id, state, &generation_id) {
+            Ok(()) => {
+                drop(transition);
+                return Ok(true);
+            }
+            // Another checkout published between activation and the record
+            // write. The activation is still sound; only its currency is gone,
+            // so derive it again instead of ending the daemon.
+            Err(error) if error.downcast_ref::<readiness::StaleProjection>().is_some() => {
+                drop(transition);
+                let moved = format!("{error:#}");
+                tracing::warn!("{moved}; reconciling again");
+                println!("{moved}; reconciling again.");
+                reconcile_reason = Some(moved);
+                if wait_interruptible(should_exit, Duration::from_secs(retry_seconds)) {
+                    return Ok(false);
+                }
+                retry_seconds = (retry_seconds * 2).min(MAX_RETRY_SECS);
+            }
+            Err(error) => return Err(error),
         }
     }
 }
@@ -672,7 +778,10 @@ fn record_ready(
 
 enum NormalLoopExit {
     Shutdown,
-    Reconcile(String),
+    Reconcile {
+        reason: String,
+        completed_ticks: u64,
+    },
 }
 
 enum Housekeeping {
@@ -684,6 +793,7 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
     let db_path = crosslink_dir.join("issues.db");
     let session_file = crosslink_dir.join("session.json");
     let mut heartbeat_counter = 0_u64;
+    let mut completed_ticks = 0_u64;
     while !wait_interruptible(should_exit, Duration::from_secs(FLUSH_INTERVAL_SECS)) {
         let identity = readiness::read_daemon_identity(crosslink_dir)?
             .ok_or_else(|| anyhow::anyhow!("daemon identity disappeared"))?;
@@ -698,8 +808,14 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
             || Ok(()),
         )? {
             Housekeeping::Done { active_issue_id } => active_issue_id,
-            Housekeeping::Reconcile(reason) => return Ok(NormalLoopExit::Reconcile(reason)),
+            Housekeeping::Reconcile(reason) => {
+                return Ok(NormalLoopExit::Reconcile {
+                    reason,
+                    completed_ticks,
+                })
+            }
         };
+        completed_ticks += 1;
         heartbeat_counter += 1;
         if heartbeat_counter.is_multiple_of(5) {
             if let Err(error) = run_sync_tick(crosslink_dir, &db_path, active_issue_id) {
@@ -715,16 +831,19 @@ fn run_normal_loop(crosslink_dir: &Path, should_exit: &AtomicBool) -> Result<Nor
 /// publishing, an expired record, a hydration that cannot complete) are
 /// reported as a reason to reconcile again rather than as errors, because the
 /// reconciliation path already knows how to re-derive readiness from the hub
-/// and to record waiting or blocked states with their cause.
+/// and to record waiting or blocked states with their cause. A hub that moves
+/// under the record write is first absorbed in place: hydrate again and
+/// refresh again, a bounded number of times, under the same permit. Identity
+/// and lease failures, and a projection that cannot be opened, stay errors.
 fn housekeeping_tick<F>(
     crosslink_dir: &Path,
     identity: &DaemonIdentity,
     db_path: &Path,
     session_file: &Path,
-    before_refresh_write: F,
+    mut before_refresh_write: F,
 ) -> Result<Housekeeping>
 where
-    F: FnOnce() -> Result<()>,
+    F: FnMut() -> Result<()>,
 {
     let Some(mutation_operation) = acquire_housekeeping_unless_expired(crosslink_dir, identity)?
     else {
@@ -733,11 +852,33 @@ where
         ));
     };
     let db = Database::open(db_path).context("opening projection for daemon housekeeping")?;
-    if let Err(error) = crate::hydration::maybe_auto_hydrate_under_operation(crosslink_dir, &db) {
-        drop(mutation_operation);
-        return Ok(Housekeeping::Reconcile(format!(
-            "hydrating current authority during daemon housekeeping failed: {error:#}"
-        )));
+    let mut attempts = 0_u32;
+    loop {
+        attempts += 1;
+        if let Err(error) = crate::hydration::maybe_auto_hydrate_under_operation(crosslink_dir, &db)
+        {
+            drop(mutation_operation);
+            return Ok(Housekeeping::Reconcile(format!(
+                "hydrating current authority during daemon housekeeping failed: {error:#}"
+            )));
+        }
+        match refresh_ready_record_with(crosslink_dir, identity, &mut before_refresh_write) {
+            Ok(_) => break,
+            Err(error)
+                if attempts < MAX_RECORD_REFRESH_ATTEMPTS
+                    && error.downcast_ref::<readiness::StaleProjection>().is_some() =>
+            {
+                tracing::debug!(
+                    "the hub moved during the readiness refresh (attempt {attempts}); hydrating again: {error:#}"
+                );
+            }
+            Err(error) => {
+                drop(mutation_operation);
+                return Ok(Housekeeping::Reconcile(format!(
+                    "refreshing the readiness record failed after {attempts} attempt(s): {error:#}"
+                )));
+            }
+        }
     }
     let service = crate::application::RepositoryService::projection(&db);
     let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
@@ -760,12 +901,6 @@ where
                 tracing::warn!("failed to write session file: {error}");
             }
         }
-    }
-    if let Err(error) = refresh_ready_record_with(crosslink_dir, identity, before_refresh_write) {
-        drop(mutation_operation);
-        return Ok(Housekeeping::Reconcile(format!(
-            "refreshing the readiness record failed: {error:#}"
-        )));
     }
     drop(mutation_operation);
     Ok(Housekeeping::Done { active_issue_id })
@@ -809,7 +944,7 @@ fn defer_reconciliation_for_active_mutations_with<F>(
     before_refresh_write: F,
 ) -> Result<bool>
 where
-    F: FnOnce() -> Result<()>,
+    F: FnMut() -> Result<()>,
 {
     if !readiness::has_active_mutation_permits(crosslink_dir)? {
         return Ok(false);
@@ -823,10 +958,10 @@ where
 fn refresh_ready_record_with<F>(
     crosslink_dir: &Path,
     identity: &DaemonIdentity,
-    before_write: F,
+    mut before_write: F,
 ) -> Result<bool>
 where
-    F: FnOnce() -> Result<()>,
+    F: FnMut() -> Result<()>,
 {
     let Some(record) = readiness::read_record(crosslink_dir)? else {
         return Ok(false);
@@ -1122,7 +1257,7 @@ mod tests {
         let worker_identity = identity;
         let worker_exit = Arc::clone(&should_exit);
         let worker = thread::spawn(move || {
-            reconcile_until_ready_loop(&worker_dir, &worker_identity, &worker_exit)
+            reconcile_until_ready(&worker_dir, &worker_identity, &worker_exit, None)
         });
         let deadline = Instant::now() + Duration::from_secs(5);
         let first = loop {
@@ -1569,41 +1704,53 @@ mod tests {
         assert!(acquire_housekeeping_unless_expired(&crosslink, &identity)
             .unwrap()
             .is_none());
-        assert!(reconcile_until_ready(&crosslink, &identity, &AtomicBool::new(false)).unwrap());
+        assert!(
+            reconcile_until_ready(&crosslink, &identity, &AtomicBool::new(false), None).unwrap()
+        );
         let record = readiness::read_record(&crosslink).unwrap().unwrap();
         assert_eq!(record.daemon_epoch, identity.daemon_epoch);
         readiness::validate_record(&crosslink, &record).unwrap();
         assert!(readiness::require_mutation_ready(&crosslink).is_ok());
     }
 
+    /// Publish one event to the hub as another checkout would, with its own
+    /// sequence so repeated races stay valid.
+    fn publish_as_racing_agent(cache: &Path, agent_seq: u64) -> Result<()> {
+        crate::hub_v3::append_event_to_ref(
+            cache,
+            "racing-agent",
+            &crate::events::EventEnvelope {
+                agent_id: "racing-agent".to_string(),
+                agent_seq,
+                timestamp: chrono::Utc::now(),
+                event: crate::events::Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+                signed_by: None,
+                signature: None,
+            },
+        )?;
+        Ok(())
+    }
+
     #[test]
-    fn authority_moving_during_the_record_write_reconciles_instead_of_failing() {
+    fn authority_moving_during_every_record_write_reconciles_instead_of_failing() {
         let (_work, _remote, crosslink, identity) = ready_connected();
         let sync = SyncManager::new(&crosslink).unwrap();
         let cache = sync.cache_path().to_path_buf();
         let db_path = crosslink.join("issues.db");
         let session_file = crosslink.join("session.json");
         // Another checkout publishes between the daemon's validation and its
-        // record write: exactly the race a kickoff worktree produces.
+        // record write, every time the daemon tries: the race a busy hub of
+        // kickoff worktrees produces.
+        let mut races = 0;
         let outcome = housekeeping_tick(&crosslink, &identity, &db_path, &session_file, || {
-            crate::hub_v3::append_event_to_ref(
-                &cache,
-                "racing-agent",
-                &crate::events::EventEnvelope {
-                    agent_id: "racing-agent".to_string(),
-                    agent_seq: 1,
-                    timestamp: chrono::Utc::now(),
-                    event: crate::events::Event::LockClaimed {
-                        issue_display_id: 1,
-                        branch: None,
-                    },
-                    signed_by: None,
-                    signature: None,
-                },
-            )?;
-            Ok(())
+            races += 1;
+            publish_as_racing_agent(&cache, races)
         })
         .unwrap();
+        assert_eq!(races, u64::from(MAX_RECORD_REFRESH_ATTEMPTS));
         let Housekeeping::Reconcile(reason) = outcome else {
             panic!("the moved authority must send housekeeping back to reconciliation");
         };
@@ -1611,11 +1758,136 @@ mod tests {
             reason.contains("refusing to publish ready state for a stale projection"),
             "{reason}"
         );
-        assert!(reconcile_until_ready(&crosslink, &identity, &AtomicBool::new(false)).unwrap());
+        assert!(reason.contains("after 3 attempt"), "{reason}");
+        assert!(reconcile_until_ready(
+            &crosslink,
+            &identity,
+            &AtomicBool::new(false),
+            Some(&reason)
+        )
+        .unwrap());
         let record = readiness::read_record(&crosslink).unwrap().unwrap();
         assert_eq!(record.daemon_epoch, identity.daemon_epoch);
         readiness::validate_record(&crosslink, &record).unwrap();
         assert!(readiness::projection_is_current(&crosslink).unwrap());
+    }
+
+    #[test]
+    fn a_single_race_during_the_record_write_is_absorbed_within_the_tick() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let sync = SyncManager::new(&crosslink).unwrap();
+        let cache = sync.cache_path().to_path_buf();
+        let before = readiness::read_record(&crosslink).unwrap().unwrap();
+        let mut calls = 0;
+        let outcome = housekeeping_tick(
+            &crosslink,
+            &identity,
+            &crosslink.join("issues.db"),
+            &crosslink.join("session.json"),
+            || {
+                calls += 1;
+                if calls == 1 {
+                    publish_as_racing_agent(&cache, 1)
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, 2, "the tick hydrates again and refreshes once more");
+        assert!(matches!(outcome, Housekeeping::Done { .. }));
+        let after = readiness::read_record(&crosslink).unwrap().unwrap();
+        assert!(after.sequence > before.sequence);
+        assert_eq!(after.attempt_id, before.attempt_id);
+        assert!(readiness::projection_is_current(&crosslink).unwrap());
+    }
+
+    #[test]
+    fn authority_moving_during_the_reconciliation_record_write_reconciles_again() {
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let sync = SyncManager::new(&crosslink).unwrap();
+        let cache = sync.cache_path().to_path_buf();
+        // Another checkout publishes between activation and the ready-record
+        // write of the reconciliation path itself.
+        let mut calls = 0;
+        let ready = reconcile_until_ready_with(
+            &crosslink,
+            &identity,
+            &AtomicBool::new(false),
+            None,
+            || {
+                calls += 1;
+                if calls == 1 {
+                    publish_as_racing_agent(&cache, 1)
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap();
+        assert!(ready);
+        assert_eq!(
+            calls, 2,
+            "the first write is refused and activation runs again"
+        );
+        let record = readiness::read_record(&crosslink).unwrap().unwrap();
+        assert!(record.state.grants_mutations());
+        assert_eq!(record.daemon_epoch, identity.daemon_epoch);
+        readiness::validate_record(&crosslink, &record).unwrap();
+        assert!(readiness::projection_is_current(&crosslink).unwrap());
+    }
+
+    /// Unix only: the failure is injected through directory permissions.
+    #[cfg(unix)]
+    #[test]
+    fn hydration_failure_during_housekeeping_reconciles_instead_of_failing() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_work, _remote, crosslink, identity) = ready_connected();
+        let sync = SyncManager::new(&crosslink).unwrap();
+        // The hub moves, so the tick must hydrate, and the hydration cannot
+        // record the new frontier because its directory is not writable.
+        publish_as_racing_agent(sync.cache_path(), 1).unwrap();
+        let frontier_dir = crosslink.join(crate::hydration::HYDRATED_FRONTIER_DIR);
+        fs::set_permissions(&frontier_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let outcome = housekeeping_tick(
+            &crosslink,
+            &identity,
+            &crosslink.join("issues.db"),
+            &crosslink.join("session.json"),
+            || Ok(()),
+        );
+        fs::set_permissions(&frontier_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let Housekeeping::Reconcile(reason) = outcome.unwrap() else {
+            panic!(
+                "a hydration that cannot complete must send housekeeping back to reconciliation"
+            );
+        };
+        assert!(
+            reason.contains("hydrating current authority during daemon housekeeping failed"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn the_reconcile_budget_parks_persistent_faults_and_resets_on_a_completed_tick() {
+        let mut budget = ReconcileBudget::default();
+        for _ in 1..MAX_CONSECUTIVE_RECONCILES {
+            assert!(!budget.note_reconcile(0));
+        }
+        assert!(
+            budget.note_reconcile(0),
+            "the limit is reached without a completed tick"
+        );
+
+        let mut budget = ReconcileBudget::default();
+        for _ in 1..MAX_CONSECUTIVE_RECONCILES {
+            assert!(!budget.note_reconcile(0));
+        }
+        assert!(
+            !budget.note_reconcile(1),
+            "a completed tick resets the count"
+        );
+        assert_eq!(budget.consecutive, 1);
     }
 
     #[test]
@@ -1796,7 +2068,7 @@ mod tests {
         let worker_exit = Arc::clone(&should_exit);
         let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
         let worker = thread::spawn(move || {
-            let result = reconcile_until_ready(&worker_dir, &worker_identity, &worker_exit);
+            let result = reconcile_until_ready(&worker_dir, &worker_identity, &worker_exit, None);
             let _ = done_tx.send(result);
         });
         let deadline = Instant::now() + Duration::from_secs(5);

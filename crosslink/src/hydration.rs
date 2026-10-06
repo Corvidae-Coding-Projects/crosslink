@@ -1338,7 +1338,7 @@ fn hydrate_relations(
 }
 
 const LAST_HYDRATED_REF_FILE: &str = ".last-hydrated-ref";
-const HYDRATED_FRONTIER_DIR: &str = "hydrated-frontiers";
+pub(crate) const HYDRATED_FRONTIER_DIR: &str = "hydrated-frontiers";
 const MAX_HYDRATED_FRONTIERS: usize = 64;
 
 pub fn hydrate_current_authority_under_operation(
