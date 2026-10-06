@@ -882,6 +882,11 @@ pub(super) fn launch_container(
         "-e".to_string(),
         "CROSSLINK_REQUIRE_LOGIN=1".to_string(),
     ]);
+    args.extend(crate::commands::container::github_login_args(
+        runtime_cmd,
+        &host_repo_root.join(".crosslink"),
+        &worktree_dir.join(".crosslink"),
+    )?);
 
     let host_git_dir = host_repo_root.join(".git");
     if host_git_dir.exists() {

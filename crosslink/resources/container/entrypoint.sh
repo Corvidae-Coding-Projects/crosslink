@@ -20,8 +20,8 @@ fi
 
 
 PROVIDER="${CROSSLINK_AGENT_PROVIDER:-claude}"
-mkdir -p "/home/agent/.${PROVIDER}"
-chown -R agent:agent "/home/agent/.${PROVIDER}" 2>/dev/null || true
+mkdir -p "/home/agent/.${PROVIDER}" /home/agent/.config/gh
+chown -R agent:agent "/home/agent/.${PROVIDER}" /home/agent/.config 2>/dev/null || true
 export HOME=/home/agent
 export PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:/usr/local/go/bin:$PATH"
 
@@ -40,6 +40,13 @@ if [ "${CROSSLINK_REQUIRE_LOGIN:-0}" = "1" ]; then
     fi
 fi
 
+if [ "${CROSSLINK_REQUIRE_GIT_LOGIN:-0}" = "1" ]; then
+    if ! gosu agent gh auth status >/dev/null 2>&1; then
+        echo "[crosslink-entrypoint] GitHub login is not ready, so hub refs cannot be published; run crosslink container auth login --provider github" >&2
+        exit 78
+    fi
+fi
+
 
 AGENT_ID="${AGENT_ID:-container-agent}"
 AGENT_HOME=$(getent passwd agent | cut -d: -f6)
@@ -52,6 +59,9 @@ cat > "$GIT_CONFIG" <<GITEOF
     directory = *
 GITEOF
 chown agent:agent "$GIT_CONFIG"
+if gosu agent gh auth status >/dev/null 2>&1; then
+    gosu agent gh auth setup-git >/dev/null 2>&1 || echo "[crosslink-entrypoint] WARNING: gh auth setup-git failed; hub publication over HTTPS will not authenticate." >&2
+fi
 
 
 

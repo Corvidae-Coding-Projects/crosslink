@@ -905,7 +905,9 @@ enum ContainerCommands {
 #[derive(Subcommand)]
 enum ContainerAuthCommands {
     Login {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        /// Account to log in to: an agent provider, or `github` for publishing
+        /// hub refs from inside the container
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         /// Container image that hosts the login (default: the published agent image;
@@ -915,7 +917,7 @@ enum ContainerAuthCommands {
     },
 
     Status {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         /// Container image that hosts the check (default: the published agent image;
@@ -925,7 +927,7 @@ enum ContainerAuthCommands {
     },
 
     Refresh {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         /// Container image that hosts the refresh (default: the published agent image;
@@ -935,7 +937,7 @@ enum ContainerAuthCommands {
     },
 
     Logout {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         #[arg(long)]

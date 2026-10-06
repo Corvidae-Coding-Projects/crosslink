@@ -260,6 +260,7 @@ jobs:
           set -euo pipefail
           docker run --rm -e CROSSLINK_AGENT_PROVIDER=claude crosslink-agent:pr-smoke bash -c 'test "$(id -u)" != 0 && claude --version'
           docker run --rm -e CROSSLINK_AGENT_PROVIDER=codex crosslink-agent:pr-smoke bash -c 'test "$(id -u)" != 0 && codex --version'
+          docker run --rm crosslink-agent:pr-smoke bash -c 'gh --version'
       - name: Verify timeout parity and no key environment
         run: |
           set -euo pipefail

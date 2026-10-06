@@ -185,6 +185,20 @@ crosslink container auth refresh --provider claude
 crosslink container auth logout --provider codex
 ```
 
+A container publishes the agent's hub refs itself, so when the hub has a
+remote it also needs a GitHub login. `github` is a third provider on the same
+commands: `login` runs `gh auth login` in a throwaway container and keeps the
+session in the `crosslink-auth-github-<uid>` volume, which kickoff and
+`container start` mount at `/home/agent/.config/gh`. The entrypoint runs
+`gh auth setup-git` so git authenticates through `gh`, and when the hub has a
+remote it refuses to start an agent whose GitHub login is missing. A hub with
+no remote needs none of this.
+
+```bash
+crosslink container auth login --provider github
+crosslink container auth status --provider github
+```
+
 &nbsp;
 
 ---
