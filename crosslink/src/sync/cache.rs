@@ -777,6 +777,9 @@ fn git_is_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> Resul
 mod tests {
     use super::*;
 
+    use std::process::Command;
+    use tempfile::tempdir;
+
     #[test]
     fn reconciliation_transport_failures_are_unavailable_not_rejected() {
         for message in [
@@ -806,8 +809,6 @@ mod tests {
             );
         }
     }
-    use std::process::Command;
-    use tempfile::tempdir;
 
     fn checkpoint_with_sequences(sequences: &[(&str, u64)]) -> crate::checkpoint::CheckpointState {
         let mut state = crate::checkpoint::CheckpointState::default();
