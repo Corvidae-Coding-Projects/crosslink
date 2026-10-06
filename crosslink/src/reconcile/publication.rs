@@ -3851,10 +3851,19 @@ fn is_lease_rejection(message: &str) -> bool {
 /// Whether a git failure is the remote being unreachable rather than the
 /// remote rejecting us. Transport failures retry as `waiting_for_remote`;
 /// everything else is terminal. `fatal: unable to access` is git's prefix for
-/// every curl transport error, so it covers the resets, timeouts and TLS
-/// failures that each have their own wording.
-fn is_remote_unavailable_message(message: &str) -> bool {
+/// curl failures, so it covers the resets, timeouts and TLS failures that each
+/// have their own wording. The same prefix carries HTTP status rejections: a
+/// 4xx there is the remote refusing us (revoked token, missing repository, no
+/// permission) and stays terminal, while 429 and 5xx mean the remote cannot
+/// serve us right now and retry like a transport failure.
+///
+/// Shared with the sync cache, whose reconciliation fetch and ls-remote run
+/// before publication and classify their failures the same way.
+pub(crate) fn is_remote_unavailable_message(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
+    if let Some(status) = http_status_in_message(&lower) {
+        return status == 429 || (500..600).contains(&status);
+    }
     lower.contains("unable to access")
         || lower.contains("could not resolve host")
         || lower.contains("could not read from remote repository")
@@ -3871,6 +3880,19 @@ fn is_remote_unavailable_message(message: &str) -> bool {
         || lower.contains("network is unreachable")
         || lower.contains("no such file or directory")
         || lower.contains("does not appear to be a git repository")
+}
+
+/// The HTTP status git reports as `The requested URL returned error: NNN`,
+/// when the lowercased message carries one.
+fn http_status_in_message(lower: &str) -> Option<u16> {
+    let marker = "requested url returned error:";
+    let start = lower.find(marker)? + marker.len();
+    lower[start..]
+        .trim_start()
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .filter(|digits| !digits.is_empty())
+        .and_then(|digits| digits.parse().ok())
 }
 
 fn classify_remote_error(operation: &str, message: &str) -> RemoteGitError {
@@ -3896,6 +3918,7 @@ fn is_explicit_atomic_unsupported(output: &Output, message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn transport_failures_wait_for_the_remote_instead_of_blocking() {
@@ -3904,6 +3927,9 @@ mod tests {
             "fatal: unable to access 'https://github.com/example/repo.git/': Recv failure: Operation timed out",
             "fatal: unable to access 'https://github.com/example/repo.git/': Failed to connect to github.com port 443 after 75001 ms: Couldn't connect to server",
             "fatal: unable to access 'https://github.com/example/repo.git/': OpenSSL SSL_read: error:0A000126:SSL routines::unexpected eof while reading, errno 0",
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 502",
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 503",
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 429",
             "fatal: the remote end hung up unexpectedly",
             "fatal: early EOF",
             "ssh: connect to host github.com port 22: Operation timed out",
@@ -3920,6 +3946,10 @@ mod tests {
             "! [rejected] refs/heads/crosslink/checkpoint -> refs/heads/crosslink/checkpoint (fetch first)",
             "error: failed to push some refs to 'origin'",
             "fatal: couldn't find remote ref refs/heads/crosslink/reconciliation/current",
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 401",
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 403",
+            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 404",
+            "remote: Repository not found.\nfatal: Authentication failed for 'https://github.com/example/repo.git/'",
         ] {
             assert!(
                 matches!(
@@ -3930,7 +3960,6 @@ mod tests {
             );
         }
     }
-    use tempfile::TempDir;
 
     const CHECKPOINT: &str = "refs/heads/crosslink/checkpoint";
     const META: &str = "refs/heads/crosslink/meta";
