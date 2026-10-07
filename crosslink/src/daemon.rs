@@ -1850,8 +1850,6 @@ mod tests {
         assert!(readiness::projection_is_current(&crosslink).unwrap());
     }
 
-    /// Unix only: the failure is injected through directory permissions.
-    #[cfg(unix)]
     #[test]
     fn a_hub_moving_under_every_reconciliation_write_parks_with_the_cause() {
         let (_work, _remote, crosslink, identity) = ready_connected();
@@ -1892,6 +1890,8 @@ mod tests {
         );
     }
 
+    /// Unix only: the failure is injected through directory permissions.
+    #[cfg(unix)]
     #[test]
     fn hydration_failure_during_housekeeping_reconciles_instead_of_failing() {
         use std::os::unix::fs::PermissionsExt;
