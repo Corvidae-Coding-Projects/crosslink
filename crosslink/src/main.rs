@@ -905,7 +905,9 @@ enum ContainerCommands {
 #[derive(Subcommand)]
 enum ContainerAuthCommands {
     Login {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        /// Account to log in to: an agent provider, or `github` for publishing
+        /// hub refs from inside the container
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         /// Container image that hosts the login (default: the published agent image;
@@ -915,7 +917,8 @@ enum ContainerAuthCommands {
     },
 
     Status {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        /// Account to check: an agent provider, or `github` for the hub login
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         /// Container image that hosts the check (default: the published agent image;
@@ -925,7 +928,8 @@ enum ContainerAuthCommands {
     },
 
     Refresh {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        /// Account to log in to again: an agent provider, or `github` for the hub login
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         /// Container image that hosts the refresh (default: the published agent image;
@@ -935,7 +939,9 @@ enum ContainerAuthCommands {
     },
 
     Logout {
-        #[arg(long, default_value = "codex", value_parser = ["claude", "codex"])]
+        /// Account whose login volume to remove: an agent provider, or `github`
+        /// (the GitHub token stays valid until revoked on github.com)
+        #[arg(long, default_value = "codex", value_parser = ["claude", "codex", "github"])]
         provider: String,
 
         #[arg(long)]

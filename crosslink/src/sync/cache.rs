@@ -57,20 +57,16 @@ impl std::fmt::Display for ReconciliationRemoteError {
 
 impl std::error::Error for ReconciliationRemoteError {}
 
+/// Classify a failed reconciliation fetch or ls-remote the same way
+/// publication classifies its remote failures, so a transport error on the
+/// first network touch of an activation waits for the remote instead of
+/// parking the daemon as corrupt.
 fn classify_reconciliation_remote_error(
     operation: &str,
     message: &str,
 ) -> ReconciliationRemoteError {
     let reason = format!("{operation} failed: {message}");
-    let lower = message.to_ascii_lowercase();
-    if lower.contains("could not resolve host")
-        || lower.contains("could not read from remote repository")
-        || lower.contains("connection timed out")
-        || lower.contains("connection refused")
-        || lower.contains("network is unreachable")
-        || lower.contains("no such file or directory")
-        || lower.contains("does not appear to be a git repository")
-    {
+    if crate::reconcile::publication::is_remote_unavailable_message(message) {
         ReconciliationRemoteError::Unavailable(reason)
     } else {
         ReconciliationRemoteError::Rejected(reason)
@@ -780,8 +776,39 @@ fn git_is_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::process::Command;
     use tempfile::tempdir;
+
+    #[test]
+    fn reconciliation_transport_failures_are_unavailable_not_rejected() {
+        for message in [
+            "fatal: unable to access 'https://github.com/example/hub.git/': Recv failure: Connection reset by peer",
+            "fatal: unable to access 'https://github.com/example/hub.git/': Recv failure: Operation timed out",
+            "fatal: unable to access 'https://github.com/example/hub.git/': The requested URL returned error: 503",
+            "fatal: could not read from remote repository",
+        ] {
+            assert!(
+                matches!(
+                    classify_reconciliation_remote_error("git ls-remote", message),
+                    ReconciliationRemoteError::Unavailable(_)
+                ),
+                "{message}"
+            );
+        }
+        for message in [
+            "fatal: unable to access 'https://github.com/example/hub.git/': The requested URL returned error: 403",
+            "fatal: couldn't find remote ref refs/heads/crosslink/reconciliation/current",
+        ] {
+            assert!(
+                matches!(
+                    classify_reconciliation_remote_error("git ls-remote", message),
+                    ReconciliationRemoteError::Rejected(_)
+                ),
+                "{message}"
+            );
+        }
+    }
 
     fn checkpoint_with_sequences(sequences: &[(&str, u64)]) -> crate::checkpoint::CheckpointState {
         let mut state = crate::checkpoint::CheckpointState::default();

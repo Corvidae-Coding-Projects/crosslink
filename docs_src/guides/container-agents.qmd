@@ -162,7 +162,7 @@ crosslink container rm my-feature
 
 The same Crosslink repository hooks used in local sessions also run inside containers:
 
-- **Git mutations blocked** -- `git push`, `git merge`, `git rebase` are blocked by hooks
+- **History rewrites blocked** -- `git push --force`, `git merge`, `git rebase`, `git reset` and similar are blocked by hooks; a plain `git push` is not
 - **Commits gated** -- `git commit` requires an active crosslink issue
 - **Stub detection** -- post-edit hooks catch TODOs and incomplete code
 - **Session state** -- active issue and heartbeat data remain available
@@ -184,6 +184,38 @@ crosslink container auth status --provider codex
 crosslink container auth refresh --provider claude
 crosslink container auth logout --provider codex
 ```
+
+A container publishes the agent's hub refs itself, so when the hub has a
+remote it also needs a GitHub login. `github` is a third provider on the same
+commands: `login` runs `gh auth login` in a throwaway container and keeps the
+session in the `crosslink-auth-github-<uid>` volume. When the hub remote is an
+HTTPS URL, kickoff and `container start` mount that volume read-only at
+`/home/agent/.config/gh`, the entrypoint runs `gh auth setup-git` so git
+authenticates through `gh`, and an agent whose login is missing is refused
+before kickoff creates an issue or a worktree. A hub with no remote needs none
+of this and mounts nothing. SSH, local-path and other non-HTTPS remotes are
+refused for container launches, because the container holds no credentials for
+them: point the hub remote at an HTTPS URL, and choose HTTPS when `gh auth
+login` asks.
+
+```bash
+crosslink container auth login --provider github
+crosslink container auth status --provider github
+```
+
+**What the login grants.** `gh auth login` stores an OAuth token in plain text
+inside the volume, with the `repo`, `read:org` and `gist` scopes by default:
+write access to every repository the account can write to. The agent runs as
+that account. The repository hooks block history rewrites, not a plain
+`git push`, `gh pr create` or `gh api`, and the agent can print the token, so
+the login is only as safe as the agent's instructions and the content it
+reads. Prefer a fine-grained personal access token limited to the hub
+repository (Contents: read and write): when `gh auth login` asks how to
+authenticate, choose "Paste an authentication token" and paste it. Or use a
+dedicated machine account. `auth logout` removes the volume but does not
+revoke the token; revoke it under GitHub settings, Applications, GitHub CLI.
+The login volume is a docker volume; a podman kickoff has its own volume store
+and does not see it.
 
 &nbsp;
 
