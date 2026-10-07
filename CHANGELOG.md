@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `crosslink container auth login|status|refresh|logout --provider github`
+  keeps a GitHub CLI login in a per-user docker volume so container agents
+  can publish hub refs over HTTPS (gh#109). Kickoff and `container start`
+  mount it read-only when the hub remote is an HTTPS URL, refuse non-HTTPS
+  remotes up front, and the entrypoint requires a working login before the
+  agent starts.
 - First-class Claude and Codex provider support. `agent.provider` now selects
   protocol semantics independently from the optional `agent.binary` override;
   kickoff, design, orchestrator, swarm, Sentinel, status, usage, and containers

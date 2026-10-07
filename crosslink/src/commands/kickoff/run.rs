@@ -39,6 +39,7 @@ pub fn run(crosslink_dir: &Path, db: &Database, opts: &KickoffOpts) -> Result<St
             &opts.container,
             &opts.verify,
             crosslink_dir,
+            Some(opts.image),
         )?)
     };
 

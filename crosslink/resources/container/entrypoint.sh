@@ -20,10 +20,14 @@ fi
 
 
 PROVIDER="${CROSSLINK_AGENT_PROVIDER:-claude}"
-mkdir -p "/home/agent/.${PROVIDER}"
-chown -R agent:agent "/home/agent/.${PROVIDER}" 2>/dev/null || true
+mkdir -p "/home/agent/.${PROVIDER}" /home/agent/.config/gh
+chown -R agent:agent "/home/agent/.${PROVIDER}" /home/agent/.config 2>/dev/null || true
 export HOME=/home/agent
 export PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:/usr/local/go/bin:$PATH"
+# The GitHub login volume is mounted read-only in agent containers; keep gh
+# from trying to write update-check state into it.
+export GH_NO_UPDATE_NOTIFIER=1
+GH_HOSTS=/home/agent/.config/gh/hosts.yml
 
 if [ "${CROSSLINK_REQUIRE_LOGIN:-0}" = "1" ]; then
     case "$PROVIDER" in
@@ -40,6 +44,19 @@ if [ "${CROSSLINK_REQUIRE_LOGIN:-0}" = "1" ]; then
     fi
 fi
 
+if [ "${CROSSLINK_REQUIRE_GIT_LOGIN:-0}" = "1" ]; then
+    if [ ! -s "$GH_HOSTS" ]; then
+        echo "[crosslink-entrypoint] The hub has an HTTPS remote, so publishing needs a GitHub login, but the login volume holds no gh session; run crosslink container auth login --provider github" >&2
+        exit 78
+    fi
+    if ! GH_STATUS=$(gosu agent gh auth status 2>&1); then
+        echo "[crosslink-entrypoint] The hub has an HTTPS remote, so publishing needs a GitHub login, but gh cannot confirm the stored one (an expired or revoked token, a login made for another user id, or no route to github.com yet):" >&2
+        printf '%s\n' "$GH_STATUS" | sed -E 's/account [^ ]+/account (redacted)/g' >&2
+        echo "[crosslink-entrypoint] If the token is gone or unreadable, run crosslink container auth login --provider github again; if the network is down, retry once it is back." >&2
+        exit 78
+    fi
+fi
+
 
 AGENT_ID="${AGENT_ID:-container-agent}"
 AGENT_HOME=$(getent passwd agent | cut -d: -f6)
@@ -52,6 +69,9 @@ cat > "$GIT_CONFIG" <<GITEOF
     directory = *
 GITEOF
 chown agent:agent "$GIT_CONFIG"
+if [ -s "$GH_HOSTS" ]; then
+    gosu agent gh auth setup-git >/dev/null 2>&1 || echo "[crosslink-entrypoint] WARNING: gh auth setup-git failed; hub publication over HTTPS will not authenticate." >&2
+fi
 
 
 
