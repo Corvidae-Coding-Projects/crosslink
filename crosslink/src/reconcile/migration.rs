@@ -97,24 +97,29 @@ pub(crate) fn write_ready_activation(
         },
     )?;
     anyhow::ensure!(
-        readiness::projection_frontier(crosslink_dir)?.is_some()
-            && readiness::projection_is_current(crosslink_dir)?,
+        readiness::projection_frontier(crosslink_dir)?.is_some(),
         "reconciliation completed without a projection frontier"
     );
+    if !readiness::projection_is_current(crosslink_dir)? {
+        return Err(anyhow::Error::new(readiness::StaleProjection)
+            .context("the hub moved while reconciliation completed"));
+    }
     anyhow::ensure!(
         readiness::projection_schema_version(crosslink_dir)? == Some(crate::db::SCHEMA_VERSION),
         "reconciliation completed without a current projection schema"
     );
     let sync = SyncManager::new(crosslink_dir)?;
-    anyhow::ensure!(
-        crate::reconcile::publication::generation_id_at_ref(
-            sync.cache_path(),
-            crate::reconcile::publication::GENERATION_REF,
-        )?
-        .as_deref()
-            == Some(generation_id),
-        "reconciliation generation identifier does not match the verified descriptor"
-    );
+    if crate::reconcile::publication::generation_id_at_ref(
+        sync.cache_path(),
+        crate::reconcile::publication::GENERATION_REF,
+    )?
+    .as_deref()
+        != Some(generation_id)
+    {
+        return Err(anyhow::Error::new(readiness::StaleProjection).context(
+            "the hub generation moved while reconciliation completed, so the verified descriptor is no longer current",
+        ));
+    }
     readiness::write_record(
         crosslink_dir,
         ReadinessDraft {
