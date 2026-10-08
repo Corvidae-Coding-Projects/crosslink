@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 28,
-        "tip_oid": "e444b349d66cb12f7dcbfbb3d88cedae9c92961c",
-        "prefix_sha256": "89fc4d2911ed9263830ba90286cf6743ddc1814abc8a50376d427ff3213048b1"
+        "sequence": 29,
+        "tip_oid": "8bb64ccb7801fc4515cf3f7acdd5496d93120e59",
+        "prefix_sha256": "2c67f4b81ee6d3cfc12bdd5e6bc68d8822d4268ff8f20159b68c11c9bad1567c"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 808,
+  "next_display_id": 809,
   "next_comment_id": 1271,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -428,6 +428,7 @@
     "765bb74f-4ffd-4c72-ad5c-d12fd8f1c16c": 329,
     "767dc709-fecc-438e-a31e-9b4f06993bb1": 380,
     "76e11ad3-e953-4a5c-bb9c-67aa4c135ef1": 183,
+    "7737f1ae-534a-44cd-829b-c7880380a33f": 808,
     "7776c07d-0638-48f0-b239-bfcf8ddaac46": 438,
     "781606a3-280a-4849-8c59-a8f289805ae0": 106,
     "783db1cd-dcbf-4fb0-bb28-74bb09872ad0": 372,
@@ -12377,6 +12378,17 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIGKxPz4UdZmM6iJ2JKm+JCG6ai1WGrRiAXCqc68uyw5hd1ke7ihmKq5nTKDRk8kdWBYoh5kMZODmNyta9lMBAQ=="
         }
       }
+    },
+    "7737f1ae-534a-44cd-829b-c7880380a33f": {
+      "uuid": "7737f1ae-534a-44cd-829b-c7880380a33f",
+      "display_id": 808,
+      "title": "PE review of the publishing plan (vsdd Phase 3, Platform Engineer only)",
+      "description": "Single cold-session Platform Engineer review (vsdd Phase 3 primer, operator-scoped to PE only on 2026-10-08) of the publishing plan: tracker #801-#807, Corvidae-Coding-Projects/crosslink#120-#124, the publishing workflows, kickoff default-image code and release docs at develop 388bed89f.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:16:23.531366Z",
+      "updated_at": "2026-10-08T03:16:23.531366Z"
     },
     "7776c07d-0638-48f0-b239-bfcf8ddaac46": {
       "uuid": "7776c07d-0638-48f0-b239-bfcf8ddaac46",
@@ -27321,6 +27333,11 @@
       "agent_id": "ldsw",
       "agent_seq": 28,
       "timestamp": "2026-10-08T03:05:34.762272Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 29,
+      "timestamp": "2026-10-08T03:16:23.531366Z"
     }
   ],
   "watermark": {
