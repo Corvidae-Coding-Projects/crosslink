@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 37,
-        "tip_oid": "09dd1c95b7195de26fcce4f8d09c941a733e76a8",
-        "prefix_sha256": "cb4c8b2e20a2684bbc6dbe728b2f44015835f33d4a6c162e2ef659792a76e02f"
+        "sequence": 38,
+        "tip_oid": "cc5f081933de6d1fbfd0b29f98898f11e317e098",
+        "prefix_sha256": "44db7c8276669d51a61a1542ef8045736f702904c94afe233c0bd9ed7f83bcc7"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 810,
+  "next_display_id": 811,
   "next_comment_id": 1277,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -755,6 +755,7 @@
     "dc1f4872-07f8-4622-aa7f-3429501b0391": 120,
     "dd1202c5-651d-4596-b25d-65378d4e1812": 739,
     "dd1de3f5-0a7b-4f8f-884c-f99285c8831b": 793,
+    "dec5acf0-dd1b-4540-9e9d-b70bea8ca777": 810,
     "dee26255-71db-4be3-aace-6375cbc837ee": 100,
     "dee298fa-1dea-49b9-911b-5476cb695e0b": 194,
     "dfebabfa-a1b9-4368-8305-9a7d8bdc51c9": 413,
@@ -22474,6 +22475,17 @@
         }
       }
     },
+    "dec5acf0-dd1b-4540-9e9d-b70bea8ca777": {
+      "uuid": "dec5acf0-dd1b-4540-9e9d-b70bea8ca777",
+      "display_id": 810,
+      "title": "Host/container version-skew check never fires",
+      "description": "External: Corvidae-Coding-Projects/crosslink#127. From PE review #808 (PE-01). check_staleness() reads a crosslink-binary-hash label only set by local container build (:local); CI images have no labels; it hashes a host Mach-O against a Linux musl binary; kickoff runs no version check. Replace with a crosslink --version or OCI version-label comparison.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:33:54.247014Z",
+      "updated_at": "2026-10-08T03:33:54.247014Z"
+    },
     "dee26255-71db-4be3-aace-6375cbc837ee": {
       "uuid": "dee26255-71db-4be3-aace-6375cbc837ee",
       "display_id": 100,
@@ -27458,6 +27470,11 @@
       "agent_id": "ldsw",
       "agent_seq": 37,
       "timestamp": "2026-10-08T03:33:17.653542Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 38,
+      "timestamp": "2026-10-08T03:33:54.247014Z"
     }
   ],
   "watermark": {
