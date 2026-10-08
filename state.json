@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 67,
-        "tip_oid": "1ea6f93a90bc58f70b4ed6ef3cf10ea90e670e24",
-        "prefix_sha256": "19dbf27298b60c3c87ad125699dd10ad2d3058adf01f7904c4ba51152c6ab8ff"
+        "sequence": 68,
+        "tip_oid": "54c594edb763c42a7838451e55ef9f0f648fd31b",
+        "prefix_sha256": "68583608b08134e29025cc24513b5ff58fd525bcc9e19f2963e151dbe6b1ab86"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 815,
-  "next_comment_id": 1293,
+  "next_comment_id": 1294,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -2468,7 +2468,18 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T19:20:09.088796Z",
-      "updated_at": "2026-10-08T19:20:09.088796Z"
+      "updated_at": "2026-10-08T22:25:18.339466Z",
+      "comments": {
+        "97666da2-d457-4032-b637-23651a82e6a9": {
+          "display_id": 1293,
+          "author": "ldsw",
+          "content": "Narrowed item 5: Write is refused only for out-of-root paths (scratchpad), works in-repo; posted on GH#104.",
+          "created_at": "2026-10-08T22:25:18.302816Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAoteoHBwHX/iCPI39UALrGij47DnIzhiv+jWdRIJzVkXf7xPjRb9o4k90CiErk0mavH/3DcCowSWa7p6l6uz8Dg=="
+        }
+      }
     },
     "11e05eec-12e5-4f01-9c31-30ffbb64c9cc": {
       "uuid": "11e05eec-12e5-4f01-9c31-30ffbb64c9cc",
@@ -27845,6 +27856,11 @@
       "agent_id": "ldsw",
       "agent_seq": 67,
       "timestamp": "2026-10-08T20:36:04.218914Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 68,
+      "timestamp": "2026-10-08T22:25:18.339466Z"
     }
   ],
   "watermark": {
