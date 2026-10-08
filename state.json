@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 49,
-        "tip_oid": "eed9486d85b5700195c6d2fa458bcac7c2298f83",
-        "prefix_sha256": "cc5d56549cf7dc7829ca7895245a0c035c57d4dec02c50ccc908d9cb7f2be8a8"
+        "sequence": 50,
+        "tip_oid": "fb7ac4f23d8666ad4d3408655ba7ee6c4bbe6aa8",
+        "prefix_sha256": "f992ba233dc2699e396c4335ae3e64873c5b7535d3599e5c4a3f81b07cc15798"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 812,
-  "next_comment_id": 1283,
+  "next_comment_id": 1284,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -4666,7 +4666,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:52.610682Z",
-      "updated_at": "2026-10-08T16:08:25.188119Z",
+      "updated_at": "2026-10-08T17:13:40.630506Z",
       "comments": {
         "03e020e6-f38b-437e-9995-8d4807e23bc5": {
           "display_id": 1270,
@@ -4703,6 +4703,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAN4y6TNc4FJmiUH8q8DYgRnDc18zI3hAh/jKVgaRTOr5d7gO0yaomTA4LA7aSkjKmCvZRULPDEmIq7VO84NJ5Bw=="
+        },
+        "eccd97f5-1193-4b4e-9574-fe132b08870b": {
+          "display_id": 1283,
+          "author": "ldsw",
+          "content": "PR #129 CI: first run failed Windows readiness (lifecycle) - build.rs watched ../.git/packed-refs, which shallow CI checkouts lack, so cargo rebuilt on every invocation and could not replace crosslink.exe held by a running daemon. Fixed in 643c0ca1 (watch packed-refs only when present), reproduced and verified in a shallow clone without packed-refs. Rerun on 643c0ca1: 34 pass, 4 skipped.",
+          "created_at": "2026-10-08T17:13:40.591311Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA83esSwIBsjIMALxiOLsDLMp3M/SH2kzIQr6eA/dBfT9Hky1k7kdxheUB7GY9CjDJWfuRMyCP9sKW4/sI9aZYBw=="
         }
       }
     },
@@ -27603,6 +27612,11 @@
       "agent_id": "ldsw",
       "agent_seq": 49,
       "timestamp": "2026-10-08T16:08:25.188119Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 50,
+      "timestamp": "2026-10-08T17:13:40.630506Z"
     }
   ],
   "watermark": {
