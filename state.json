@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 56,
-        "tip_oid": "5808fa6b421fae1c2574521823d8c2c1dac527e3",
-        "prefix_sha256": "6fd8fde8fb4252e2d94fcbc3afe547578c8be6870e3cb2d546a92c81d836adc1"
+        "sequence": 57,
+        "tip_oid": "8864be9f0e08f621d1f7b8f822bba2450d16b9da",
+        "prefix_sha256": "f2ae3fe5ce90e06653cc0a89778e54d68d987a847c07c8af580968cc6aca238a"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 813,
-  "next_comment_id": 1289,
+  "next_comment_id": 1290,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22616,7 +22616,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:33:54.247014Z",
-      "updated_at": "2026-10-08T03:33:54.247014Z"
+      "updated_at": "2026-10-08T18:40:45.036760Z",
+      "comments": {
+        "7c657174-4491-4e9e-9fe3-59c45f99b906": {
+          "display_id": 1289,
+          "author": "ldsw",
+          "content": "From PR #129 review (#812): takes ARCH-02/SEC-03 (dev builds run develop's image, not 'the same crosslink'; add a launch-time version comparison between host and container) and ARCH-10/IMPL-11 (check_staleness inspects the default image rather than the resolved --image/env one, and runs before the pull).",
+          "created_at": "2026-10-08T18:40:44.992053Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfVDykpa/t80fJ5H2uJYBEhTQu/WoflyMGITqzSDRuVDkEypF9L53yue/LgqGVvN/3eTc3uIaLYlCu0IlQLGlBA=="
+        }
+      }
     },
     "dee26255-71db-4be3-aace-6375cbc837ee": {
       "uuid": "dee26255-71db-4be3-aace-6375cbc837ee",
@@ -27706,6 +27717,11 @@
       "agent_id": "ldsw",
       "agent_seq": 56,
       "timestamp": "2026-10-08T18:39:47.972122Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 57,
+      "timestamp": "2026-10-08T18:40:45.036760Z"
     }
   ],
   "watermark": {
