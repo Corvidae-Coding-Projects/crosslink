@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 45,
-        "tip_oid": "d08d78bd2974bb56fc74552094eb0d8452c29a9e",
-        "prefix_sha256": "298a8888f9d00f98597a592f7fc667eff2bea22de9b594311e33ebc237d72627"
+        "sequence": 46,
+        "tip_oid": "5889ac8d372f6057f4d5e31933e4f53bce1cd15d",
+        "prefix_sha256": "3106ed9f8b936de01c0e4b508d73cf3b50f6209443864e10219240b87df7d5f5"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 812,
-  "next_comment_id": 1279,
+  "next_comment_id": 1280,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -5043,7 +5043,18 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:33:17.653542Z",
-      "updated_at": "2026-10-08T03:33:17.653542Z"
+      "updated_at": "2026-10-08T04:06:19.248594Z",
+      "comments": {
+        "37d40bcd-2af4-41fe-b0bb-b892e8b397a2": {
+          "display_id": 1279,
+          "author": "ldsw",
+          "content": "Image half implemented on feat/version-matched-agent-image, commit 5f435bed: tag must match Cargo.toml before push; tag push publishes :<version> only; smoke-verify no longer logs in and checks every pushed tag anonymously; promote-latest job moves :latest by verified digest for stable releases only; workflow_dispatch publishes only from develop; release binaries bake CROSSLINK_AGENT_IMAGE_TAG (passed through cross). actionlint clean; compute-tags and anonymous-check scripts exercised locally against simulated events and the live registry. Still open: repository settings (tag ruleset, main/develop protection) need an owner decision; crates.io ordering waits on #802.",
+          "created_at": "2026-10-08T04:06:19.213734Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3CUIXXMGyXxVQhAboPC8FwjUS+MMdj4+hLAc0TKpwXBr8sZl1Kngp09+rw3iOtVXBxsC/3d2AitGI9G9Me46Aw=="
+        }
+      }
     },
     "2d091dfe-5952-440a-9147-2f79394436d7": {
       "uuid": "2d091dfe-5952-440a-9147-2f79394436d7",
@@ -27545,6 +27556,11 @@
       "agent_id": "ldsw",
       "agent_seq": 45,
       "timestamp": "2026-10-08T04:05:37.358873Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 46,
+      "timestamp": "2026-10-08T04:06:19.248594Z"
     }
   ],
   "watermark": {
