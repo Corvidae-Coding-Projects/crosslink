@@ -11,6 +11,7 @@ updated: 2026-10-08
 ---
 
 
+
 # Git Flow Branch Strategy
 
 Crosslink uses a tiered git flow pattern to balance agent autonomy with quality gates.
@@ -54,11 +55,13 @@ main is the default branch of Corvidae-Coding-Projects/crosslink (since the 2026
 
 ## GitHub Rulesets (configured)
 
-- main -- strict production protection: PR required, CI (Lint + Tests x2), no force push, no deletion
-- develop -- integration branch protection: PR required, CI (Lint + Tests x2), no force push, no deletion
-- release/* -- release candidate protection: CI (Lint + Tests x2), no force push, no deletion
-- hotfix/* -- emergency fix protection: CI (Lint + Tests x2), no force push, no deletion
-- feature/*: No rules (agents push freely)
+The rulesets below were configured on forecast-bio/crosslink (2026-03-02). As of 2026-10-08 Corvidae-Coding-Projects/crosslink has no rulesets and no branch protection; RELEASING.md lists the intended settings (maintainer-only, immutable v* tags; pull requests and CI required on main and develop).
+
+- main: PR required, CI (Lint + Tests x2), no force push, no deletion
+- develop: PR required, CI (Lint + Tests x2), no force push, no deletion
+- release/*: CI (Lint + Tests x2), no force push, no deletion
+- hotfix/*: CI (Lint + Tests x2), no force push, no deletion
+- feature/*: no rules (agents push freely)
 
 ## Reference
 
