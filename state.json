@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 35,
-        "tip_oid": "c40c01eb868cdb2c310a57be256501b5356fbb43",
-        "prefix_sha256": "6fd7301504887b55b9aca5721866121a7b48a40c2eca84275004c9fccd5a4eb0"
+        "sequence": 36,
+        "tip_oid": "57d4a32ca66a23dd8ef52228e5c7377960a28478",
+        "prefix_sha256": "4df76800045f97d7bb6bcf350e0371158f4d08d23c217edf9835b54744b2d4a3"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 809,
-  "next_comment_id": 1276,
+  "next_comment_id": 1277,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -4659,7 +4659,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:52.610682Z",
-      "updated_at": "2026-10-08T03:05:34.762272Z",
+      "updated_at": "2026-10-08T03:32:39.746866Z",
       "comments": {
         "03e020e6-f38b-437e-9995-8d4807e23bc5": {
           "display_id": 1270,
@@ -4669,6 +4669,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGOdvoh0hgdYoNY1ypXQtewMdTgrRYMlcTnBElwwJ+dVJjgSiCE/D1TfjoIdjSJ9C8VoAEfw9PVv/OYoyhwTKDw=="
+        },
+        "0472dcd7-7075-4186-9267-9e21890d1b98": {
+          "display_id": 1276,
+          "author": "ldsw",
+          "content": "DECISION (operator, 2026-10-08): default to the image matching the CLI's own build - release builds pull :<version>, develop builds pull :nightly; :latest stays available via --image. External: Corvidae-Coding-Projects/crosslink#125. Requirements from the PE review (#808, PE-01/03): cover every call site (container.rs IMAGE_TAG, container start with no --image/env override, auth fallback, swarm lifecycle.rs:709, sentinel engine.rs:455); bake the channel in at build time because build.rs appends +hash to every git build; --pull=always for :nightly; name the computed tag in the pull-failure hint; bump the version before the first Corvidae tag; never backfill :latest from v0.9.0-beta.1.",
+          "created_at": "2026-10-08T03:32:39.703812Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKOUrb3eqHPQ28kzORWXOT6O/IrYCIOvkSO4zdiv6uM/bgD/0VESE4S9eJIBHg59j0GVjUx5WLQAnWKIgBdQVDw=="
         }
       }
     },
@@ -27427,6 +27436,11 @@
       "agent_id": "ldsw",
       "agent_seq": 35,
       "timestamp": "2026-10-08T03:31:47.629968Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 36,
+      "timestamp": "2026-10-08T03:32:39.746866Z"
     }
   ],
   "watermark": {
