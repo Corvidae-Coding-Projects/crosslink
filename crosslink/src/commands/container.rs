@@ -1464,6 +1464,27 @@ mod tests {
     }
 
     /// A stand-in runtime whose `image inspect` prints the given label value.
+    /// Wait until a freshly written fake runtime script can be executed. On
+    /// Linux, another test thread forking a process while the script was open
+    /// for writing keeps a write handle alive in that child until it execs,
+    /// and executing the script meanwhile fails with ETXTBSY.
+    #[cfg(unix)]
+    fn wait_until_spawnable(path: &Path) {
+        for _ in 0..500 {
+            match Command::new(path)
+                .arg("--crosslink-test-probe")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+            {
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                _ => return,
+            }
+        }
+    }
+
     #[cfg(unix)]
     fn fake_inspect_runtime(dir: &Path, label: Option<&str>) -> String {
         use std::os::unix::fs::PermissionsExt;
@@ -1485,6 +1506,7 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_spawnable(&path);
         path.to_string_lossy().into_owned()
     }
 
@@ -1567,6 +1589,7 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_spawnable(&path);
         path.to_string_lossy().into_owned()
     }
 
@@ -1634,6 +1657,7 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_spawnable(&path);
         path.to_string_lossy().into_owned()
     }
 
