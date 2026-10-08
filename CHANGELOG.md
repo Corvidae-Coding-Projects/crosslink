@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   checks, anonymously, `:nightly`, every release's `:<version>` and
   `:latest`, and that the frozen `ghcr.io/forecast-bio/crosslink-agent:latest`
   0.9.0-beta.1 uses still names the same image.
+- `RELEASING.md`: the release runbook (what a tag publishes and in which order, rollback, image guarantees, required repository settings) and a checklist for moving the repository or owner (gh#124).
 - The agent image pins its base image by digest and its tools by version
   (GitHub CLI, Codex, Claude Code, uv, gosu), and verifies gosu by checksum, so
   two builds of the same commit contain the same tools (gh#128).
