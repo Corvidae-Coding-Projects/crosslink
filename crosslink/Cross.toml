@@ -1,3 +1,7 @@
+[build.env]
+# The default agent image tag release builds bake in (see build.rs).
+passthrough = ["CROSSLINK_AGENT_IMAGE_TAG"]
+
 
 
 

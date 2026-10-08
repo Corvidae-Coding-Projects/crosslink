@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and honours `CROSSLINK_CONTAINER_IMAGE`, and swarm, sentinel and the auth
   commands share the same default. Release builds can set
   `CROSSLINK_AGENT_IMAGE_TAG` at build time to choose the tag explicitly.
+- Release image publishing is gated (gh#126, gh#122). A `v*` tag must match
+  `crosslink/Cargo.toml` before anything is pushed; the tag push publishes only
+  `:<version>`; the smoke test pulls every pushed tag anonymously, so a private
+  package or a missing tag fails CI; and `:latest` moves afterwards, by digest,
+  for stable releases only. Manual image publishes run only from `develop`.
+  Release binaries bake their version in as the default agent image tag, and a
+  daily canary checks that the images released builds default to, including
+  the frozen `ghcr.io/forecast-bio/crosslink-agent:latest` that
+  0.9.0-beta.1 uses, can still be pulled anonymously.
 
 - `crosslink container auth login|status|refresh|logout --provider github`
   keeps a GitHub CLI login in a per-user docker volume so container agents

@@ -75,7 +75,8 @@ The default image used by `--container docker|podman` is published to GitHub Con
 built for both `linux/amd64` and `linux/arm64`. Published tags:
 
 - `:<version>` (e.g. `:0.10.0`) — the image built for that release
-- `:latest` — the most recent tagged release
+- `:latest` — the most recent stable (non-prerelease) release; it moves only after
+  that release's image has passed an anonymous pull and smoke test
 - `:nightly` — floating tag tracking `develop`
 - `:nightly-<short-sha>` — the nightly built from that `develop` commit
 

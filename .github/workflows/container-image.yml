@@ -107,6 +107,10 @@ jobs:
             crosslink/target/
           key: ${{ runner.os }}-cargo-container-${{ matrix.target }}-${{ hashFiles('crosslink/Cargo.lock') }}
 
+      - name: Pin the default agent image tag (release tags only)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: echo "CROSSLINK_AGENT_IMAGE_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - name: Build release binary (native)
         if: matrix.use_cross == false
         run: cargo build --locked --release --target ${{ matrix.target }}
@@ -134,6 +138,11 @@ jobs:
       primary_tag: ${{ steps.tags.outputs.primary_tag }}
       version: ${{ steps.tags.outputs.version }}
       pushed: ${{ steps.tags.outputs.pushed }}
+      tags: ${{ steps.tags.outputs.tags_line }}
+      base: ${{ steps.tags.outputs.base }}
+      release: ${{ steps.tags.outputs.release }}
+      prerelease: ${{ steps.tags.outputs.prerelease }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
@@ -170,23 +179,39 @@ jobs:
           PUSH=false
           PRIMARY=""
           VERSION=""
+          RELEASE=false
+          PRERELEASE=false
 
           if [ "$EVENT" = "pull_request" ]; then
 
             TAGS=("${BASE}:pr-${{ github.event.pull_request.number }}")
             PRIMARY="${BASE}:pr-${{ github.event.pull_request.number }}"
             VERSION="pr-${{ github.event.pull_request.number }}"
-          elif [[ "$REF" == refs/tags/v* ]]; then
+          elif [ "$EVENT" = "push" ] && [[ "$REF" == refs/tags/v* ]]; then
             VERSION="${REF#refs/tags/v}"
-            TAGS=("${BASE}:${VERSION}" "${BASE}:latest")
+            CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' crosslink/Cargo.toml | head -n 1)"
+            if [ "$VERSION" != "$CARGO_VERSION" ]; then
+              echo "::error::Tag v${VERSION} does not match crosslink/Cargo.toml version ${CARGO_VERSION}; nothing was published"
+              exit 1
+            fi
+            # Only the versioned tag is pushed here. :latest moves later, by
+            # digest, after the anonymous smoke test passes, and never for a
+            # prerelease (promote-latest).
+            TAGS=("${BASE}:${VERSION}")
             PRIMARY="${BASE}:${VERSION}"
             PUSH=true
+            RELEASE=true
+            case "$VERSION" in *-*) PRERELEASE=true ;; esac
           elif [ "$REF" = "refs/heads/develop" ]; then
             VERSION="nightly-${SHORT_SHA}"
             TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
             PRIMARY="${BASE}:nightly"
             PUSH=true
           elif [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$REF" != "refs/heads/develop" ]; then
+              echo "::error::Manual image publishes run only from develop (got ${REF}); releases publish from their v* tag push"
+              exit 1
+            fi
             VERSION="manual-${SHORT_SHA}"
             TAGS=("${BASE}:nightly" "${BASE}:manual-${SHORT_SHA}")
             PRIMARY="${BASE}:nightly"
@@ -205,6 +230,10 @@ jobs:
             echo "version=${VERSION}"
             echo "pushed=${PUSH}"
             echo "cache_ref=${BASE}:buildcache"
+            echo "tags_line=${TAGS[*]}"
+            echo "base=${BASE}"
+            echo "release=${RELEASE}"
+            echo "prerelease=${PRERELEASE}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
@@ -224,6 +253,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: crosslink/resources/container
@@ -331,12 +361,33 @@ jobs:
 
 
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # No login: the smoke test pulls exactly as a user does, so a private
+      # package or a tag that did not land fails here instead of in the field.
+      - name: Every pushed tag is pullable anonymously
+        if: matrix.platform == 'linux/amd64'
+        env:
+          BASE: ${{ needs.publish-image.outputs.base }}
+          TAGS: ${{ needs.publish-image.outputs.tags }}
+        run: |
+          set -euo pipefail
+          repo="${BASE#"${REGISTRY}"/}"
+          token="$(curl -fsS "https://${REGISTRY}/token?scope=repository:${repo}:pull" | jq -r '.token // empty')"
+          if [ -z "$token" ]; then
+            echo "::error::${BASE} refuses anonymous pulls; make the package public in its package settings"
+            exit 1
+          fi
+          for ref in $TAGS; do
+            tag="${ref##*:}"
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              "https://${REGISTRY}/v2/${repo}/manifests/${tag}")"
+            if [ "$code" != 200 ]; then
+              echo "::error::${ref} is not pullable anonymously (HTTP ${code})"
+              exit 1
+            fi
+            echo "anonymous pull OK: ${ref}"
+          done
 
       - name: Pull image
         run: docker pull --platform ${{ matrix.platform }} ${{ needs.publish-image.outputs.primary_tag }}
@@ -377,3 +428,36 @@ jobs:
             exit 1
           fi
           echo "Version match: $EXPECTED"
+
+  # :latest is the most recent stable release. It moves only after the
+  # versioned image has passed the anonymous smoke test on both platforms, by
+  # digest, so it always names an image that was verified, and never for a
+  # prerelease. Re-pointing it to an older version's digest is the rollback.
+  promote-latest:
+    name: Promote :latest (stable releases only)
+    needs: [publish-image, smoke-verify]
+    if: >-
+      needs.publish-image.outputs.release == 'true' &&
+      needs.publish-image.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point :latest at the verified digest
+        env:
+          BASE: ${{ needs.publish-image.outputs.base }}
+          DIGEST: ${{ needs.publish-image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test -n "$DIGEST"
+          docker buildx imagetools create --tag "${BASE}:latest" "${BASE}@${DIGEST}"
+          docker buildx imagetools inspect "${BASE}:latest" --format '{{json .Manifest.Digest}}' | grep -F "$DIGEST"
+

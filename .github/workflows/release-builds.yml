@@ -102,6 +102,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Pin the default agent image tag (release tags only)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "CROSSLINK_AGENT_IMAGE_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - name: Build release
         run: cargo build --locked --release --target ${{ matrix.target }}
 

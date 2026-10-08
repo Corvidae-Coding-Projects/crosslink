@@ -1,0 +1,68 @@
+name: Agent Image Canary
+
+# Checks, as an anonymous user would, that the agent images released crosslink
+# builds default to can still be pulled. A private package, a missing tag or a
+# deleted old-owner image fails here instead of in users' kickoffs.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Default images are pullable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect the image references released builds use
+        id: refs
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          refs="ghcr.io/${owner}/crosslink-agent:nightly"
+          # Builds released before the build-matched default (v0.9.0-beta.1
+          # and earlier) pull the frozen forecast-bio image; keep it alive.
+          refs="${refs} ghcr.io/forecast-bio/crosslink-agent:latest"
+          # Newer releases default to their own version tag.
+          newest="$(git tag --list 'v*' --sort=-version:refname | head -n 1)"
+          if [ -n "$newest" ] && [ "$(printf '%s\n%s\n' v0.9.0-beta.1 "$newest" | sort -V | tail -n 1)" = "$newest" ] && [ "$newest" != v0.9.0-beta.1 ]; then
+            refs="${refs} ghcr.io/${owner}/crosslink-agent:${newest#v}"
+            case "$newest" in *-*) ;; *) refs="${refs} ghcr.io/${owner}/crosslink-agent:latest" ;; esac
+          fi
+          echo "refs=${refs}" >> "$GITHUB_OUTPUT"
+
+      - name: Pull each reference anonymously
+        env:
+          REFS: ${{ steps.refs.outputs.refs }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for ref in $REFS; do
+            image="${ref#ghcr.io/}"
+            repo="${image%:*}"
+            tag="${image##*:}"
+            token="$(curl -fsS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
+            if [ -z "$token" ]; then
+              echo "::error::${ref}: anonymous pull refused (package private or missing)"
+              failed=1
+              continue
+            fi
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/${repo}/manifests/${tag}")"
+            if [ "$code" = 200 ]; then
+              echo "OK ${ref}"
+            else
+              echo "::error::${ref}: manifest HTTP ${code}"
+              failed=1
+            fi
+          done
+          exit "$failed"
