@@ -1,21 +1,17 @@
 name: Container Image
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# Builds the agent image and, for releases, the whole release:
+#
+#   gate -> build-binary -> publish-image -> smoke-verify -> promote-latest
+#                                                       \-> publish-release
+#        \-> release-binaries (release tags) -------------/
+#
+# A v* tag must match crosslink/Cargo.toml and must not already be published.
+# It pushes only :<version>; the anonymous smoke test runs that exact digest;
+# :latest then moves to the verified digest, serialized across runs and only
+# for the highest stable release; the GitHub release with binaries is created
+# only after the image passed. Pushes to develop publish :nightly. crates.io
+# publishing (publish.yml) is not part of this flow yet.
 
 on:
   push:
@@ -25,51 +21,140 @@ on:
     paths:
       - 'crosslink/resources/container/**'
       - '.github/workflows/container-image.yml'
+      - '.github/workflows/release-builds.yml'
       - 'crosslink/Cargo.toml'
       - 'crosslink/Cargo.lock'
-
-
-
+      - 'crosslink/Cross.toml'
+      - 'crosslink/build.rs'
   workflow_dispatch:
+    inputs:
+      rehearse_promotion:
+        description: >-
+          After the smoke test, promote this develop build to :promotion-rehearsal
+          (exercises the promote-latest path without touching :latest)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a release run part-way through publishing.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   REGISTRY: ghcr.io
-
-
   IMAGE_NAME: crosslink-agent
 
 jobs:
-
-
+  gate:
+    name: Release gate
+    runs-on: ubuntu-latest
+    outputs:
+      push: ${{ steps.plan.outputs.push }}
+      tags: ${{ steps.plan.outputs.tags }}
+      primary_tag: ${{ steps.plan.outputs.primary_tag }}
+      base: ${{ steps.plan.outputs.base }}
+      version: ${{ steps.plan.outputs.version }}
+      release: ${{ steps.plan.outputs.release }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      rehearsal: ${{ steps.plan.outputs.rehearsal }}
+      agent_image_tag: ${{ steps.plan.outputs.agent_image_tag }}
+      cache_ref: ${{ steps.plan.outputs.cache_ref }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Decide what this run may publish
+        id: plan
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REHEARSE: ${{ github.event.inputs.rehearse_promotion }}
+        run: |
+          set -euo pipefail
+          OWNER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          BASE="${REGISTRY}/${OWNER}/${IMAGE_NAME}"
+          REPO_PATH="${OWNER}/${IMAGE_NAME}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          CARGO_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("crosslink/Cargo.toml", "rb"))["package"]["version"])')"
+          PUSH=false RELEASE=false PRERELEASE=false REHEARSAL=false
+          AGENT_IMAGE_TAG=nightly
+          case "${GITHUB_EVENT_NAME}:${GITHUB_REF}" in
+            pull_request:*)
+              VERSION="pr-${PR_NUMBER}"
+              TAGS=("${BASE}:pr-${PR_NUMBER}")
+              ;;
+            push:refs/tags/v*)
+              VERSION="${GITHUB_REF#refs/tags/v}"
+              if [ "$VERSION" != "$CARGO_VERSION" ]; then
+                echo "::error::Tag v${VERSION} does not match crosslink/Cargo.toml version ${CARGO_VERSION}; nothing was published"
+                exit 1
+              fi
+              # A published version is never replaced: pinned tags are pulled
+              # once and cached, so a second image under the same tag would
+              # split users across two builds.
+              token="$(curl -sS "https://${REGISTRY}/token?scope=repository:${REPO_PATH}:pull" | jq -r '.token // empty' || true)"
+              if [ -n "$token" ]; then
+                code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+                  -H "Authorization: Bearer ${token}" \
+                  -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+                  "https://${REGISTRY}/v2/${REPO_PATH}/manifests/${VERSION}")"
+                if [ "$code" = 200 ]; then
+                  echo "::error::${BASE}:${VERSION} is already published; versions are never republished. Release a new version instead."
+                  exit 1
+                fi
+              fi
+              TAGS=("${BASE}:${VERSION}")
+              PUSH=true RELEASE=true AGENT_IMAGE_TAG="${VERSION}"
+              case "$VERSION" in *-*) PRERELEASE=true ;; esac
+              ;;
+            push:refs/heads/develop|workflow_dispatch:refs/heads/develop)
+              VERSION="nightly-${SHORT_SHA}"
+              TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
+              PUSH=true
+              if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ] && [ "${REHEARSE:-false}" = true ]; then
+                REHEARSAL=true
+              fi
+              ;;
+            workflow_dispatch:*)
+              echo "::error::Manual image publishes run only from develop (got ${GITHUB_REF}); releases publish from their v* tag push"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected event/ref: ${GITHUB_EVENT_NAME} ${GITHUB_REF}"
+              exit 1
+              ;;
+          esac
+          {
+            echo "push=${PUSH}"
+            echo "tags<<EOF"
+            printf '%s\n' "${TAGS[@]}"
+            echo "EOF"
+            echo "primary_tag=${TAGS[0]}"
+            echo "base=${BASE}"
+            echo "version=${VERSION}"
+            echo "release=${RELEASE}"
+            echo "prerelease=${PRERELEASE}"
+            echo "rehearsal=${REHEARSAL}"
+            echo "agent_image_tag=${AGENT_IMAGE_TAG}"
+            echo "cache_ref=${BASE}:buildcache"
+          } >> "$GITHUB_OUTPUT"
+          echo "Plan: push=${PUSH} release=${RELEASE} prerelease=${PRERELEASE} rehearsal=${REHEARSAL} tags=${TAGS[*]}"
 
   build-binary:
     name: Build binary (${{ matrix.arch }})
+    needs: gate
     runs-on: ubuntu-latest
+    env:
+      # The default agent image the binaries in this image will use: the
+      # release version on a tag, nightly otherwise. Set explicitly, never inferred.
+      CROSSLINK_AGENT_IMAGE_TAG: ${{ needs.gate.outputs.agent_image_tag }}
     strategy:
       fail-fast: true
       matrix:
         include:
-
-
           - arch: amd64
             target: x86_64-unknown-linux-musl
             use_cross: false
-
-
-
-
-
-
-
-
           - arch: arm64
             target: aarch64-unknown-linux-musl
             use_cross: true
@@ -107,10 +192,6 @@ jobs:
             crosslink/target/
           key: ${{ runner.os }}-cargo-container-${{ matrix.target }}-${{ hashFiles('crosslink/Cargo.lock') }}
 
-      - name: Pin the default agent image tag (release tags only)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        run: echo "CROSSLINK_AGENT_IMAGE_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-
       - name: Build release binary (native)
         if: matrix.use_cross == false
         run: cargo build --locked --release --target ${{ matrix.target }}
@@ -127,33 +208,29 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-
-
-
   publish-image:
     name: Build & publish image
-    needs: build-binary
+    needs: [gate, build-binary]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     outputs:
-      primary_tag: ${{ steps.tags.outputs.primary_tag }}
-      version: ${{ steps.tags.outputs.version }}
-      pushed: ${{ steps.tags.outputs.pushed }}
-      tags: ${{ steps.tags.outputs.tags_line }}
-      base: ${{ steps.tags.outputs.base }}
-      release: ${{ steps.tags.outputs.release }}
-      prerelease: ${{ steps.tags.outputs.prerelease }}
       digest: ${{ steps.build.outputs.digest }}
+      crosslink_version: ${{ steps.label.outputs.crosslink_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download amd64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: crosslink-amd64
           path: artifacts/amd64
 
       - name: Download arm64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: crosslink-arm64
           path: artifacts/arm64
@@ -164,89 +241,26 @@ jobs:
           cp artifacts/arm64/crosslink crosslink/resources/container/crosslink-arm64
           chmod +x crosslink/resources/container/crosslink-amd64
           chmod +x crosslink/resources/container/crosslink-arm64
-          ls -lah crosslink/resources/container/
 
-      - name: Compute tags
-        id: tags
+      - name: Read the crosslink version the image will contain
+        id: label
         run: |
           set -euo pipefail
-          REF="${GITHUB_REF}"
-          EVENT="${GITHUB_EVENT_NAME}"
-          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          OWNER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          BASE="${REGISTRY}/${OWNER}/${IMAGE_NAME}"
-          TAGS=()
-          PUSH=false
-          PRIMARY=""
-          VERSION=""
-          RELEASE=false
-          PRERELEASE=false
-
-          if [ "$EVENT" = "pull_request" ]; then
-
-            TAGS=("${BASE}:pr-${{ github.event.pull_request.number }}")
-            PRIMARY="${BASE}:pr-${{ github.event.pull_request.number }}"
-            VERSION="pr-${{ github.event.pull_request.number }}"
-          elif [ "$EVENT" = "push" ] && [[ "$REF" == refs/tags/v* ]]; then
-            VERSION="${REF#refs/tags/v}"
-            CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' crosslink/Cargo.toml | head -n 1)"
-            if [ "$VERSION" != "$CARGO_VERSION" ]; then
-              echo "::error::Tag v${VERSION} does not match crosslink/Cargo.toml version ${CARGO_VERSION}; nothing was published"
-              exit 1
-            fi
-            # Only the versioned tag is pushed here. :latest moves later, by
-            # digest, after the anonymous smoke test passes, and never for a
-            # prerelease (promote-latest).
-            TAGS=("${BASE}:${VERSION}")
-            PRIMARY="${BASE}:${VERSION}"
-            PUSH=true
-            RELEASE=true
-            case "$VERSION" in *-*) PRERELEASE=true ;; esac
-          elif [ "$REF" = "refs/heads/develop" ]; then
-            VERSION="nightly-${SHORT_SHA}"
-            TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
-            PRIMARY="${BASE}:nightly"
-            PUSH=true
-          elif [ "$EVENT" = "workflow_dispatch" ]; then
-            if [ "$REF" != "refs/heads/develop" ]; then
-              echo "::error::Manual image publishes run only from develop (got ${REF}); releases publish from their v* tag push"
-              exit 1
-            fi
-            VERSION="manual-${SHORT_SHA}"
-            TAGS=("${BASE}:nightly" "${BASE}:manual-${SHORT_SHA}")
-            PRIMARY="${BASE}:nightly"
-            PUSH=true
-          else
-            echo "::error::Unexpected ref/event combination: ref=${REF} event=${EVENT}"
-            exit 1
-          fi
-
-          {
-            echo "tags<<EOF"
-            for t in "${TAGS[@]}"; do echo "$t"; done
-            echo "EOF"
-            echo "push=${PUSH}"
-            echo "primary_tag=${PRIMARY}"
-            echo "version=${VERSION}"
-            echo "pushed=${PUSH}"
-            echo "cache_ref=${BASE}:buildcache"
-            echo "tags_line=${TAGS[*]}"
-            echo "base=${BASE}"
-            echo "release=${RELEASE}"
-            echo "prerelease=${PRERELEASE}"
-          } >> "$GITHUB_OUTPUT"
+          out="$(crosslink/resources/container/crosslink-amd64 --version)"
+          echo "crosslink_version=${out#crosslink }" >> "$GITHUB_OUTPUT"
+          echo "$out"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: linux/amd64,linux/arm64
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        if: steps.tags.outputs.push == 'true'
-        uses: docker/login-action@v3
+        if: needs.gate.outputs.push == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -254,23 +268,32 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: crosslink/resources/container
           file: crosslink/resources/container/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ steps.tags.outputs.push == 'true' }}
-          tags: ${{ steps.tags.outputs.tags }}
+          push: ${{ needs.gate.outputs.push == 'true' }}
+          tags: ${{ needs.gate.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.label.outputs.crosslink_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           provenance: false
+          cache-from: type=registry,ref=${{ needs.gate.outputs.cache_ref }}
+          cache-to: ${{ needs.gate.outputs.push == 'true' && format('type=registry,ref={0},mode=max', needs.gate.outputs.cache_ref) || '' }}
 
-          cache-from: type=registry,ref=${{ steps.tags.outputs.cache_ref }}
-          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0},mode=max', steps.tags.outputs.cache_ref) || '' }}
-
-
+      - name: Attest the image build
+        if: needs.gate.outputs.push == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ${{ needs.gate.outputs.base }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   container-pr-smoke:
     name: Provider smoke (PR)
-    needs: build-binary
+    needs: [gate, build-binary]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -336,128 +359,229 @@ jobs:
             fi
           done
 
-
-
-
-
   smoke-verify:
     name: Smoke verify (${{ matrix.platform }})
-    needs: publish-image
-    if: needs.publish-image.outputs.pushed == 'true'
+    needs: [gate, publish-image]
+    if: needs.gate.outputs.push == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         platform: [linux/amd64, linux/arm64]
+    env:
+      BASE: ${{ needs.gate.outputs.base }}
+      DIGEST: ${{ needs.publish-image.outputs.digest }}
     steps:
       - name: Set up QEMU (for non-native arch)
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
 
-
-
-
-
-
-
       # No login: the smoke test pulls exactly as a user does, so a private
       # package or a tag that did not land fails here instead of in the field.
-      - name: Every pushed tag is pullable anonymously
+      - name: Every pushed tag resolves anonymously to the built digest
         if: matrix.platform == 'linux/amd64'
         env:
-          BASE: ${{ needs.publish-image.outputs.base }}
-          TAGS: ${{ needs.publish-image.outputs.tags }}
+          TAGS: ${{ needs.gate.outputs.tags }}
         run: |
           set -euo pipefail
+          test -n "$DIGEST"
           repo="${BASE#"${REGISTRY}"/}"
-          token="$(curl -fsS "https://${REGISTRY}/token?scope=repository:${repo}:pull" | jq -r '.token // empty')"
+          token="$(curl -sS "https://${REGISTRY}/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
           if [ -z "$token" ]; then
             echo "::error::${BASE} refuses anonymous pulls; make the package public in its package settings"
             exit 1
           fi
           for ref in $TAGS; do
             tag="${ref##*:}"
-            code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+            headers="$(curl -sS -o /dev/null -D - -I \
               -H "Authorization: Bearer ${token}" \
-              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
               "https://${REGISTRY}/v2/${repo}/manifests/${tag}")"
-            if [ "$code" != 200 ]; then
-              echo "::error::${ref} is not pullable anonymously (HTTP ${code})"
+            status="$(printf '%s' "$headers" | head -n 1 | awk '{print $2}')"
+            got="$(printf '%s' "$headers" | tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')"
+            if [ "$status" != 200 ]; then
+              echo "::error::${ref} is not pullable anonymously (HTTP ${status})"
               exit 1
             fi
-            echo "anonymous pull OK: ${ref}"
+            if [ "$got" != "$DIGEST" ]; then
+              echo "::error::${ref} resolves to ${got}, not the built digest ${DIGEST}"
+              exit 1
+            fi
+            echo "anonymous pull OK: ${ref} -> ${got}"
           done
 
-      - name: Pull image
-        run: docker pull --platform ${{ matrix.platform }} ${{ needs.publish-image.outputs.primary_tag }}
+      - name: Pull the built digest
+        run: docker pull --platform ${{ matrix.platform }} "${BASE}@${DIGEST}"
 
-      - name: Inspect manifest covers both arches (once per matrix is fine)
+      - name: Manifest covers both architectures (once)
         if: matrix.platform == 'linux/amd64'
         run: |
-          docker manifest inspect ${{ needs.publish-image.outputs.primary_tag }} \
-            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | sort | . == ["linux/amd64","linux/arm64"]'
+          docker manifest inspect "${BASE}@${DIGEST}" \
+            | jq -e '[.manifests[].platform | select(.os != "unknown") | "\(.os)/\(.architecture)"] | sort | . == ["linux/amd64","linux/arm64"]'
 
-      - name: Run crosslink --version
-        id: version
+      - name: Run crosslink --version and check the image's version label
+        env:
+          LABEL_VERSION: ${{ needs.publish-image.outputs.crosslink_version }}
+          RELEASE: ${{ needs.gate.outputs.release }}
+          VERSION: ${{ needs.gate.outputs.version }}
         run: |
           set -euo pipefail
-
-
-          OUT=$(docker run --rm --platform ${{ matrix.platform }} \
-            --entrypoint /usr/local/bin/crosslink \
-            ${{ needs.publish-image.outputs.primary_tag }} --version)
-          echo "version output: $OUT"
-          echo "out=$OUT" >> "$GITHUB_OUTPUT"
-
-          echo "$OUT" | grep -E '^crosslink [0-9]+\.[0-9]+\.[0-9]+'
-
-      - name: Verify version matches tag (release tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          EXPECTED="${{ needs.publish-image.outputs.version }}"
-
-
-
-
-
-
-          ACTUAL=$(echo "${{ steps.version.outputs.out }}" | awk '{print $2}' | sed 's/+.*//')
-          if [ "$EXPECTED" != "$ACTUAL" ]; then
-            echo "::error::Tag version ($EXPECTED) does not match binary version ($ACTUAL)"
+          out="$(docker run --rm --platform ${{ matrix.platform }} --entrypoint /usr/local/bin/crosslink "${BASE}@${DIGEST}" --version)"
+          echo "version output: $out"
+          echo "$out" | grep -E '^crosslink [0-9]+\.[0-9]+\.[0-9]+'
+          label="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${BASE}@${DIGEST}")"
+          if [ "crosslink ${label}" != "$out" ] || [ "$label" != "$LABEL_VERSION" ]; then
+            echo "::error::image label '${label}' does not match its binary '${out}'"
             exit 1
           fi
-          echo "Version match: $EXPECTED"
+          if [ "$RELEASE" = true ]; then
+            actual="$(echo "$out" | awk '{print $2}' | sed 's/+.*//')"
+            if [ "$VERSION" != "$actual" ]; then
+              echo "::error::Tag version ($VERSION) does not match binary version ($actual)"
+              exit 1
+            fi
+          fi
 
-  # :latest is the most recent stable release. It moves only after the
-  # versioned image has passed the anonymous smoke test on both platforms, by
-  # digest, so it always names an image that was verified, and never for a
-  # prerelease. Re-pointing it to an older version's digest is the rollback.
+  # :latest is the most recent stable release. It moves only to the digest the
+  # smoke test ran, only when that version is the highest stable v* tag (a
+  # backport or a re-run of an older release never moves it backwards), and one
+  # promotion at a time across runs. Re-pointing it to an older version's
+  # digest by hand is the rollback. A develop dispatch with
+  # rehearse_promotion exercises this job against :promotion-rehearsal.
   promote-latest:
-    name: Promote :latest (stable releases only)
-    needs: [publish-image, smoke-verify]
+    name: Promote ${{ needs.gate.outputs.rehearsal == 'true' && ':promotion-rehearsal' || ':latest' }}
+    needs: [gate, publish-image, smoke-verify]
     if: >-
-      needs.publish-image.outputs.release == 'true' &&
-      needs.publish-image.outputs.prerelease == 'false'
+      (needs.gate.outputs.release == 'true' && needs.gate.outputs.prerelease == 'false') ||
+      needs.gate.outputs.rehearsal == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: promote-latest-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      BASE: ${{ needs.gate.outputs.base }}
+      DIGEST: ${{ needs.publish-image.outputs.digest }}
+      VERSION: ${{ needs.gate.outputs.version }}
+      REHEARSAL: ${{ needs.gate.outputs.rehearsal }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide the target tag
+        id: target
+        run: |
+          set -euo pipefail
+          if [ "$REHEARSAL" = true ]; then
+            echo "tag=promotion-rehearsal" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          highest="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-version:refname | grep -v -- '-' | head -n 1)"
+          if [ "$highest" != "v${VERSION}" ]; then
+            echo "::notice::v${VERSION} is not the highest stable release (${highest}); :latest stays where it is"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=latest" >> "$GITHUB_OUTPUT"
+
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        if: steps.target.outputs.tag != ''
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        if: steps.target.outputs.tag != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Point :latest at the verified digest
+      - name: Point the tag at the verified digest
+        if: steps.target.outputs.tag != ''
         env:
-          BASE: ${{ needs.publish-image.outputs.base }}
-          DIGEST: ${{ needs.publish-image.outputs.digest }}
+          TARGET: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
           test -n "$DIGEST"
-          docker buildx imagetools create --tag "${BASE}:latest" "${BASE}@${DIGEST}"
-          docker buildx imagetools inspect "${BASE}:latest" --format '{{json .Manifest.Digest}}' | grep -F "$DIGEST"
+          # The source must exist before anything moves.
+          docker buildx imagetools inspect "${BASE}@${DIGEST}" > /dev/null
+          docker buildx imagetools create --tag "${BASE}:${TARGET}" "${BASE}@${DIGEST}"
+          repo="${BASE#"${REGISTRY}"/}"
+          token="$(curl -sS "https://${REGISTRY}/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
+          got="$(curl -sS -o /dev/null -D - -I -H "Authorization: Bearer ${token}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://${REGISTRY}/v2/${repo}/manifests/${TARGET}" | tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')"
+          if [ "$got" != "$DIGEST" ]; then
+            echo "::error::${BASE}:${TARGET} resolves to '${got}', not ${DIGEST}; re-point it by hand"
+            exit 1
+          fi
+          echo "${BASE}:${TARGET} -> ${DIGEST}"
 
+  release-binaries:
+    name: Release binaries
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
+    uses: ./.github/workflows/release-builds.yml
+    with:
+      agent_image_tag: ${{ needs.gate.outputs.version }}
+
+  # The GitHub release is created only after the image for this version passed
+  # its anonymous smoke test, because every attached binary defaults to it.
+  publish-release:
+    name: Publish GitHub release
+    needs: [gate, smoke-verify, release-binaries]
+    if: needs.gate.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+      PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          pattern: release-*
+
+      - name: Collect assets and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for dir in dist/release-*/; do
+            name="$(basename "$dir")"
+            name="${name#release-}"
+            for file in "$dir"*; do
+              case "$file" in
+                *.tar.gz) cp "$file" release/ ;;
+                *) cp "$file" "release/${name}" ;;
+              esac
+            done
+          done
+          (cd release && sha256sum -- * > SHA256SUMS)
+          cat release/SHA256SUMS
+
+      - name: Attest the release binaries
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: release/*
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "v${VERSION}" release/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "v${VERSION}" \
+            --generate-notes \
+            "${flags[@]}"

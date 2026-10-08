@@ -3,22 +3,31 @@ name: Release Builds
 
 
 
+# Builds the release binaries and Codex plugin archives. Pull requests to main
+# build them as a check; releases run this as a reusable workflow from
+# container-image.yml, which attaches the results to the GitHub release only
+# after the release's agent image has passed its smoke test.
 on:
-  push:
-    tags:
-      - 'v*'
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      agent_image_tag:
+        description: The default agent image tag the binaries bake in (the release version)
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: release-builds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
+  # Release runs pass the version; pull-request check builds are development builds.
+  CROSSLINK_AGENT_IMAGE_TAG: ${{ inputs.agent_image_tag || 'nightly' }}
 
 jobs:
   package-codex-plugin:
@@ -66,7 +75,7 @@ jobs:
       - name: Upload plugin release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: crosslink-codex-plugin
+          name: release-crosslink-codex-plugin
           path: |
             crosslink/crosslink-codex-plugin-*.tar.gz
             crosslink/crosslink-codex-marketplace-*.tar.gz
@@ -83,18 +92,29 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            artifact: crosslink-linux
+            artifact: release-crosslink-linux-x86_64
+            use_cross: false
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact: release-crosslink-linux-aarch64
+            use_cross: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: release-crosslink-macos-aarch64
+            use_cross: false
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: crosslink-macos
+            artifact: release-crosslink-macos-x86_64
+            use_cross: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: crosslink-win.exe
+            artifact: release-crosslink-windows-x86_64.exe
+            use_cross: false
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install musl-tools (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install musl-tools (Linux native only)
+        if: matrix.os == 'ubuntu-latest' && matrix.use_cross == false
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install Rust toolchain
@@ -102,13 +122,19 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Pin the default agent image tag (release tags only)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: echo "CROSSLINK_AGENT_IMAGE_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Install cross (Linux aarch64 only)
+        if: matrix.use_cross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
-      - name: Build release
+      - name: Build release (native)
+        if: matrix.use_cross == false
         run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Build release (cross)
+        if: matrix.use_cross == true
+        run: cross build --locked --release --target ${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

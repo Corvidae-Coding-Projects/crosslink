@@ -26,17 +26,29 @@ jobs:
         run: |
           set -euo pipefail
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          refs="ghcr.io/${owner}/crosslink-agent:nightly"
-          # Builds released before the build-matched default (v0.9.0-beta.1
-          # and earlier) pull the frozen forecast-bio image; keep it alive.
-          refs="${refs} ghcr.io/forecast-bio/crosslink-agent:latest"
-          # Newer releases default to their own version tag.
-          newest="$(git tag --list 'v*' --sort=-version:refname | head -n 1)"
-          if [ -n "$newest" ] && [ "$(printf '%s\n%s\n' v0.9.0-beta.1 "$newest" | sort -V | tail -n 1)" = "$newest" ] && [ "$newest" != v0.9.0-beta.1 ]; then
-            refs="${refs} ghcr.io/${owner}/crosslink-agent:${newest#v}"
-            case "$newest" in *-*) ;; *) refs="${refs} ghcr.io/${owner}/crosslink-agent:latest" ;; esac
+          base="ghcr.io/${owner}/crosslink-agent"
+          # ref[@expected digest]: a digest means the tag must still name exactly
+          # that image (it is outside this repository's control).
+          refs="${base}:nightly"
+          # Releases up to v0.9.0-beta.1 default to the frozen forecast-bio
+          # image; it must stay pullable and unchanged.
+          refs="${refs} ghcr.io/forecast-bio/crosslink-agent:latest@sha256:5f93d5509aecbc5d05c88e9836b62014de7acc754e93605bfe67319e388ccb60"
+          # Every later release defaults to its own version tag. versionsort.suffix
+          # ranks a prerelease below its release (v0.10.0-rc.1 < v0.10.0).
+          stable=""
+          after_scheme=false
+          for tag in $(git -c versionsort.suffix=- tag --list 'v*' --sort=version:refname); do
+            if [ "$after_scheme" = true ]; then
+              refs="${refs} ${base}:${tag#v}"
+              case "$tag" in *-*) ;; *) stable="$tag" ;; esac
+            fi
+            if [ "$tag" = v0.9.0-beta.1 ]; then after_scheme=true; fi
+          done
+          if [ -n "$stable" ]; then
+            refs="${refs} ${base}:latest"
           fi
           echo "refs=${refs}" >> "$GITHUB_OUTPUT"
+          echo "checking: ${refs}"
 
       - name: Pull each reference anonymously
         env:
@@ -44,25 +56,33 @@ jobs:
         run: |
           set -euo pipefail
           failed=0
-          for ref in $REFS; do
+          for entry in $REFS; do
+            ref="${entry%@*}"
+            expected=""
+            if [ "$entry" != "$ref" ]; then expected="${entry#*@}"; fi
             image="${ref#ghcr.io/}"
             repo="${image%:*}"
             tag="${image##*:}"
-            token="$(curl -fsS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
+            token="$(curl -sS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
             if [ -z "$token" ]; then
               echo "::error::${ref}: anonymous pull refused (package private or missing)"
               failed=1
               continue
             fi
-            code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+            headers="$(curl -sS -o /dev/null -D - -I \
               -H "Authorization: Bearer ${token}" \
               -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
               "https://ghcr.io/v2/${repo}/manifests/${tag}")"
-            if [ "$code" = 200 ]; then
-              echo "OK ${ref}"
-            else
-              echo "::error::${ref}: manifest HTTP ${code}"
+            status="$(printf '%s' "$headers" | head -n 1 | awk '{print $2}')"
+            got="$(printf '%s' "$headers" | tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')"
+            if [ "$status" != 200 ]; then
+              echo "::error::${ref}: manifest HTTP ${status}"
               failed=1
+            elif [ -n "$expected" ] && [ "$got" != "$expected" ]; then
+              echo "::error::${ref} now resolves to ${got}, not ${expected}: the image installed releases pull has changed"
+              failed=1
+            else
+              echo "OK ${ref} ${got}"
             fi
           done
           exit "$failed"
