@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 53,
-        "tip_oid": "450b006a50ad843a120fe4266699cb9df6d7b8a2",
-        "prefix_sha256": "37dd3307727bee166497237e1fb4fe011650030e9b05fd175bb272f5c4646759"
+        "sequence": 54,
+        "tip_oid": "6f760f49e6578af1fb94e0f8fe7eaa58c22337bd",
+        "prefix_sha256": "f063c404793ca373ab4f3e8800fbaafea55ad87bbfe15d3f0c4d99177a9ad922"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 813,
-  "next_comment_id": 1286,
+  "next_comment_id": 1287,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -15627,8 +15627,17 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:02:47.113958Z",
-      "updated_at": "2026-10-08T03:30:57.580239Z",
+      "updated_at": "2026-10-08T18:37:48.468585Z",
       "comments": {
+        "96bca902-f6e4-4f3e-9066-d9b8b673cc64": {
+          "display_id": 1286,
+          "author": "ldsw",
+          "content": "From PR #129 review (#812, ARCH-01/SEC-07): release-builds gets the tag-vs-Cargo.toml gate in the PR #129 fix pass; attaching assets must also wait for image verification, since each binary bakes in its version's image tag.",
+          "created_at": "2026-10-08T18:37:48.405548Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvs3bOS/7MnCliiGmSYGSu7Ei9S4PCj46+tG0VfRgzonQBBkEM8DvBYnkGBuoLW2kyN9RfpjpSTbc6grPX+1bDA=="
+        },
         "de7855a6-88c8-4503-b330-bca12aa25d5f": {
           "display_id": 1274,
           "author": "ldsw",
@@ -27664,6 +27673,11 @@
       "agent_id": "ldsw",
       "agent_seq": 53,
       "timestamp": "2026-10-08T18:36:58.968614Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 54,
+      "timestamp": "2026-10-08T18:37:48.468585Z"
     }
   ],
   "watermark": {
