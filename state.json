@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 23,
-        "tip_oid": "fddd8f2385f171ccafbabbe931b8f38ee1e12bcd",
-        "prefix_sha256": "580ae1007d60a63fe41c4e191d7791f2d6d55f79c6cb7726935be83928a35b9e"
+        "sequence": 24,
+        "tip_oid": "71df5e8f298b39211636449d0d8cafaa53ed17a0",
+        "prefix_sha256": "2086539cd80fcc3bc8e726ece988937e53c9089ce1850a53a5b79e7b6b32bcc3"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 804,
+  "next_display_id": 805,
   "next_comment_id": 1270,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -529,6 +529,7 @@
     "9448fd71-bc44-4152-8299-367abaca496f": 722,
     "9460fd4a-7e67-49ac-830e-0be55597c9b5": 541,
     "94bda4b1-1175-436b-9b0c-899fa3567ca6": 36,
+    "94d22d44-00b9-421f-a38d-0cd6faab04e8": 804,
     "963050a6-7b16-447a-a2a2-d3e9b52d35e9": 772,
     "963c1073-1ada-4893-ade7-97130da2c405": 476,
     "964693d1-765b-4a66-9906-87731d50f3e2": 167,
@@ -15394,6 +15395,17 @@
         }
       }
     },
+    "94d22d44-00b9-421f-a38d-0cd6faab04e8": {
+      "uuid": "94d22d44-00b9-421f-a38d-0cd6faab04e8",
+      "display_id": 804,
+      "title": "Release binaries: attach release-builds output to a GitHub Release or stop promising it",
+      "description": "External: Corvidae-Coding-Projects/crosslink#123. release-builds.yml uploads Actions artifacts only; no release has ever had assets (forecast-bio's 12 were empty, Corvidae has none) while the git-flow knowledge page and dev-release skill say tags create releases with binaries. macOS build is x86_64 only.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:02:47.113958Z",
+      "updated_at": "2026-10-08T03:02:47.113958Z"
+    },
     "963050a6-7b16-447a-a2a2-d3e9b52d35e9": {
       "uuid": "963050a6-7b16-447a-a2a2-d3e9b52d35e9",
       "display_id": 772,
@@ -27237,6 +27249,11 @@
       "agent_id": "ldsw",
       "agent_seq": 23,
       "timestamp": "2026-10-08T03:02:14.366945Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 24,
+      "timestamp": "2026-10-08T03:02:47.113958Z"
     }
   ],
   "watermark": {
