@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Container commands default to the agent image that matches the crosslink
+  build: released versions use `ghcr.io/corvidae-coding-projects/crosslink-agent:<version>`
+  and development builds use `:nightly`, replacing the `:latest` default that
+  could lag behind or run ahead of the CLI (gh#125). `:nightly` and `:latest`
+  are re-pulled on every launch. `crosslink container start` accepts `--image`
+  and honours `CROSSLINK_CONTAINER_IMAGE`, and swarm, sentinel and the auth
+  commands share the same default. Release builds can set
+  `CROSSLINK_AGENT_IMAGE_TAG` at build time to choose the tag explicitly.
+
 - `crosslink container auth login|status|refresh|logout --provider github`
   keeps a GitHub CLI login in a per-user docker volume so container agents
   can publish hub refs over HTTPS (gh#109). Kickoff and `container start`

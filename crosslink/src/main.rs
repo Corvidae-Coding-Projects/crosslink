@@ -859,6 +859,11 @@ enum ContainerCommands {
 
         #[arg(long)]
         memory: Option<String>,
+
+        /// Agent image (default: env `CROSSLINK_CONTAINER_IMAGE`, then the
+        /// published image matching this crosslink build)
+        #[arg(long)]
+        image: Option<String>,
     },
 
     Ps,
@@ -1435,10 +1440,9 @@ enum KickoffCommands {
         #[arg(long, default_value = "standard")]
         model: String,
 
-        #[arg(
-            long,
-            default_value = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest"
-        )]
+        /// Agent image (default: the published image matching this crosslink
+        /// build — `:<version>` for releases, `:nightly` for development builds)
+        #[arg(long, default_value = commands::kickoff::DEFAULT_AGENT_IMAGE)]
         image: String,
 
         #[arg(long, default_value = "1h")]

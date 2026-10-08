@@ -3,7 +3,49 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
-pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest";
+/// The published agent image repository.
+macro_rules! agent_image_repository {
+    () => {
+        "ghcr.io/corvidae-coding-projects/crosslink-agent"
+    };
+}
+
+/// The published agent image repository, without a tag.
+pub const AGENT_IMAGE_REPOSITORY: &str = agent_image_repository!();
+
+/// The tag this build defaults to, chosen at build time (see `build.rs`): the
+/// release version for release builds, `nightly` for development builds, so
+/// the container runs the same crosslink as the CLI that launches it.
+pub const AGENT_IMAGE_TAG: &str = env!("CROSSLINK_AGENT_IMAGE_TAG");
+
+/// The image kickoff, swarm, sentinel and `container` commands use unless an
+/// image is given explicitly.
+pub const DEFAULT_AGENT_IMAGE: &str = concat!(
+    agent_image_repository!(),
+    ":",
+    env!("CROSSLINK_AGENT_IMAGE_TAG")
+);
+
+/// Tags that move to a new build without a version change. A local copy of
+/// one of these is re-pulled on every launch, so it cannot go stale.
+const FLOATING_IMAGE_TAGS: [&str; 2] = ["nightly", "latest"];
+
+/// Container-runtime arguments that keep a floating tag current: `--pull=always`
+/// for `:nightly` and `:latest`, nothing for a pinned tag or a digest.
+pub fn image_pull_args(image: &str) -> Vec<String> {
+    if image.contains('@') {
+        return Vec::new();
+    }
+    let tag = image
+        .rsplit_once(':')
+        .filter(|(_, tag)| !tag.contains('/'))
+        .map_or("latest", |(_, tag)| tag);
+    if FLOATING_IMAGE_TAGS.contains(&tag) {
+        vec!["--pull=always".to_string()]
+    } else {
+        Vec::new()
+    }
+}
 
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 

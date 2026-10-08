@@ -74,12 +74,20 @@ The default image used by `--container docker|podman` is published to GitHub Con
 [`ghcr.io/corvidae-coding-projects/crosslink-agent`](https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent),
 built for both `linux/amd64` and `linux/arm64`. Published tags:
 
+- `:<version>` (e.g. `:0.10.0`) — the image built for that release
 - `:latest` — the most recent tagged release
-- `:<version>` (e.g. `:0.5.2`) — pinned release
 - `:nightly` — floating tag tracking `develop`
-- `:nightly-<short-sha>` — immutable nightly snapshots
+- `:nightly-<short-sha>` — the nightly built from that `develop` commit
 
-The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/corvidae-coding-projects/crosslink-agent:<version>` for reproducible runs.
+By default, crosslink uses the image that matches its own build, so the
+crosslink inside the container is the same as the one that launches it: a
+released crosslink (installed from crates.io or built at its `v<version>` tag)
+uses `:<version>`, and a development build uses `:nightly`. `:nightly` and
+`:latest` are re-pulled on every launch so a cached copy never goes stale;
+pinned tags are pulled once and then reused. Pass `--image` (or set
+`CROSSLINK_CONTAINER_IMAGE` for `container start` and `container auth`) to use
+another image. Registry tags can be moved; for a byte-for-byte reproducible
+run, pin the image by digest (`--image ghcr.io/corvidae-coding-projects/crosslink-agent@sha256:<digest>`).
 
 ### Building the image locally
 

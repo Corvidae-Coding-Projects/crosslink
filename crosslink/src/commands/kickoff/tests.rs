@@ -3392,3 +3392,42 @@ fn test_resolve_kickoff_template_none_without_flag_or_config() {
         None
     );
 }
+
+#[test]
+fn default_agent_image_matches_this_build() {
+    assert_eq!(
+        DEFAULT_AGENT_IMAGE,
+        format!("{AGENT_IMAGE_REPOSITORY}:{AGENT_IMAGE_TAG}")
+    );
+    assert!(
+        AGENT_IMAGE_TAG == "nightly"
+            || AGENT_IMAGE_TAG == env!("CARGO_PKG_VERSION")
+            || std::env::var("CROSSLINK_AGENT_IMAGE_TAG").is_ok(),
+        "default tag must be nightly or this build's version, got {AGENT_IMAGE_TAG}"
+    );
+    assert_ne!(
+        AGENT_IMAGE_TAG, "latest",
+        "the default must never float to :latest"
+    );
+}
+
+#[test]
+fn floating_image_tags_are_always_pulled_and_pinned_ones_are_not() {
+    let repo = AGENT_IMAGE_REPOSITORY;
+    for floating in [
+        format!("{repo}:nightly"),
+        format!("{repo}:latest"),
+        repo.to_string(),
+        "localhost:5000/crosslink-agent".to_string(),
+    ] {
+        assert_eq!(image_pull_args(&floating), ["--pull=always"], "{floating}");
+    }
+    for pinned in [
+        format!("{repo}:0.10.0"),
+        format!("{repo}:nightly-388bed8"),
+        format!("{repo}@sha256:{}", "a".repeat(64)),
+        "localhost:5000/crosslink-agent:local".to_string(),
+    ] {
+        assert!(image_pull_args(&pinned).is_empty(), "{pinned}");
+    }
+}

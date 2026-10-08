@@ -5,6 +5,12 @@ use std::path::Path;
 fn main() {
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/refs/");
+    println!("cargo:rerun-if-changed=../.git/packed-refs");
+    println!("cargo:rerun-if-env-changed={AGENT_IMAGE_TAG_ENV}");
+    println!(
+        "cargo:rustc-env={AGENT_IMAGE_TAG_ENV}={}",
+        agent_image_tag(env!("CARGO_PKG_VERSION"))
+    );
     if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
@@ -79,6 +85,78 @@ the design; GH #429 tracks the broader feature.</p>
                 dashboard_index.display()
             );
         }
+    }
+}
+
+/// Build-time override for the agent image tag, and the compile-time variable
+/// that carries the chosen tag into the binary.
+const AGENT_IMAGE_TAG_ENV: &str = "CROSSLINK_AGENT_IMAGE_TAG";
+
+/// The agent image tag this build defaults to, so the container runs the same
+/// crosslink as the host CLI that launches it:
+///
+/// - an explicit `CROSSLINK_AGENT_IMAGE_TAG` at build time wins;
+/// - a build from crosslink's own git checkout uses the release tag
+///   `<version>` when HEAD is exactly `v<version>` with a clean tree, and
+///   `nightly` (the image built from `develop`) otherwise;
+/// - any other build (a crates.io source install, a vendored copy) is a
+///   released version and uses `<version>`.
+fn agent_image_tag(version: &str) -> String {
+    if let Ok(tag) = std::env::var(AGENT_IMAGE_TAG_ENV) {
+        let tag = tag.trim();
+        let valid = !tag.is_empty()
+            && tag.len() <= 128
+            && tag
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        if valid {
+            return tag.to_string();
+        }
+        println!("cargo:warning=ignoring invalid {AGENT_IMAGE_TAG_ENV}={tag:?}");
+    }
+    if !in_own_git_checkout() {
+        return version.to_string();
+    }
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    let at_release_tag = git(&["tag", "--points-at", "HEAD"])
+        .is_some_and(|tags| tags.lines().any(|tag| tag == format!("v{version}")));
+    let clean = git(&["status", "--porcelain"]).is_some_and(|status| status.is_empty());
+    if at_release_tag && clean {
+        version.to_string()
+    } else {
+        "nightly".to_string()
+    }
+}
+
+/// Whether this build runs inside crosslink's own repository, rather than a
+/// source tree that merely sits inside some other git repository.
+fn in_own_git_checkout() -> bool {
+    let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let toplevel = Path::new(String::from_utf8_lossy(&output.stdout).trim()).join("crosslink");
+    let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return false;
+    };
+    match (
+        fs::canonicalize(&toplevel),
+        fs::canonicalize(Path::new(&manifest_dir)),
+    ) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
     }
 }
 

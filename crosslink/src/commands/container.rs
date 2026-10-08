@@ -24,6 +24,7 @@ pub fn run(command: ContainerCommands) -> Result<()> {
             prompt,
             issue,
             memory,
+            image,
         } => {
             let path = PathBuf::from(&worktree);
             start(
@@ -32,6 +33,7 @@ pub fn run(command: ContainerCommands) -> Result<()> {
                 prompt.as_deref(),
                 issue,
                 memory.as_deref(),
+                image.as_deref(),
             )
         }
         ContainerCommands::Ps => ps(),
@@ -379,13 +381,15 @@ pub(crate) fn github_login_preflight(
     }
 }
 
-/// Environment override for the image that hosts container account login.
-/// Forks publish the agent image under their own registry path; the login volume
-/// is image-independent, so any image carrying the provider CLI will do.
+/// Environment override for the image that `container start` and container
+/// account login run. Forks publish the agent image under their own registry
+/// path; the login volume is image-independent, so any image carrying the
+/// provider CLI will do.
 const AUTH_IMAGE_ENV: &str = "CROSSLINK_CONTAINER_IMAGE";
 
-/// Pick the login image: an explicit `--image` wins, then the environment
-/// value, then the published default. Blank values count as unset.
+/// Pick the image: an explicit `--image` wins, then the environment value,
+/// then this build's default (the image matching the CLI's own version).
+/// Blank values count as unset.
 fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String {
     let non_empty = |value: Option<&str>| {
         value
@@ -395,7 +399,7 @@ fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String
     };
     non_empty(explicit)
         .or_else(|| non_empty(env_value))
-        .unwrap_or_else(|| format!("{IMAGE_NAME}:{IMAGE_TAG}"))
+        .unwrap_or_else(|| DEFAULT_IMAGE.to_string())
 }
 
 /// `resolve_auth_image` over the live `CROSSLINK_CONTAINER_IMAGE` value.
@@ -416,7 +420,7 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     let parsed_provider = provider.parse::<AuthProvider>()?;
     let volume = parsed_provider.volume();
     let image = auth_image(image)?;
-    let image_hint = if image == format!("{IMAGE_NAME}:{IMAGE_TAG}") {
+    let image_hint = if image == DEFAULT_IMAGE {
         String::new()
     } else {
         format!(" --image {image}")
@@ -440,6 +444,7 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     if let Some(agent_provider) = parsed_provider.agent_provider_name() {
         command.args(["-e", &format!("CROSSLINK_AGENT_PROVIDER={agent_provider}")]);
     }
+    command.args(crate::commands::kickoff::image_pull_args(&image));
     command.arg(&image);
     command.args(parsed_provider.command(status));
     if status {
@@ -529,9 +534,13 @@ pub(crate) fn github_login_args(
     ])
 }
 
-const IMAGE_NAME: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent";
+const IMAGE_NAME: &str = crate::commands::kickoff::AGENT_IMAGE_REPOSITORY;
 
-const IMAGE_TAG: &str = "latest";
+const IMAGE_TAG: &str = crate::commands::kickoff::AGENT_IMAGE_TAG;
+
+/// This build's default image: the published image matching the CLI's own
+/// version (`:<version>` for releases, `:nightly` for development builds).
+const DEFAULT_IMAGE: &str = crate::commands::kickoff::DEFAULT_AGENT_IMAGE;
 
 const BUILD_DEFAULT_TAG: &str = "local";
 const CONTAINER_PREFIX: &str = "crosslink-task-";
@@ -764,10 +773,12 @@ pub fn start(
     prompt_file: Option<&str>,
     issue_id: Option<i64>,
     memory: Option<&str>,
+    image: Option<&str>,
 ) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available. Install Docker and ensure the daemon is running.");
     }
+    let image = auth_image(image)?;
 
     check_staleness();
 
@@ -845,13 +856,12 @@ pub fn start(
 
     let agent_id = format!("container--{worktree_slug}");
 
-    let image = format!("{IMAGE_NAME}:{IMAGE_TAG}");
-
     println!("Starting task container: {container_name}");
     println!("  Worktree: {}", worktree_abs.display());
     println!("  Memory:   {memory_limit}");
     println!("  Agent:    {agent_id}");
     println!("  Provider: {}", resolved.provider);
+    println!("  Image:    {image}");
 
     let mut cmd = Command::new("docker");
     cmd.args(["run", "-d"]);
@@ -952,6 +962,7 @@ pub fn start(
         }
     }
 
+    cmd.args(crate::commands::kickoff::image_pull_args(&image));
     cmd.arg(&image);
     let workspace_arg = crate::utils::shell_escape_arg(&container_workspace.to_string_lossy());
     let runtime_dir = crate::utils::shell_escape_arg(

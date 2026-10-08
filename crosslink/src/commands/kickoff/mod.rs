@@ -14,8 +14,8 @@ mod wizard;
 mod tests;
 
 pub use types::{
-    ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel,
-    DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
+    image_pull_args, ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat,
+    VerifyLevel, AGENT_IMAGE_REPOSITORY, AGENT_IMAGE_TAG, DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
 };
 
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
