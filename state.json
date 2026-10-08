@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 66,
-        "tip_oid": "029820aca2f7b52a098a9e965023bf0d0950c4c4",
-        "prefix_sha256": "a2eabf46ce4653bffb6e9512d82061cec5c1286d8412cd710c58efdc4921fd48"
+        "sequence": 67,
+        "tip_oid": "1ea6f93a90bc58f70b4ed6ef3cf10ea90e670e24",
+        "prefix_sha256": "19dbf27298b60c3c87ad125699dd10ad2d3058adf01f7904c4ba51152c6ab8ff"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 815,
-  "next_comment_id": 1292,
+  "next_comment_id": 1293,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -7315,7 +7315,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T18:25:40.199127Z",
-      "updated_at": "2026-10-08T18:46:13.400894Z",
+      "updated_at": "2026-10-08T20:36:04.218914Z",
       "comments": {
         "08df1ae7-0297-41f3-a39f-0856952bf3e1": {
           "display_id": 1284,
@@ -7334,6 +7334,15 @@
           "kind": "decision",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkvdsshwtjG6siIBG91HzdQoYYt6G3MDRbNdhvokMEFZsvSQxgA+yklJp5iMKRrOeV87Tv1NYv+A8gwL/6w45AA=="
+        },
+        "9d624543-e029-4bad-a4d9-f086494dc63e": {
+          "display_id": 1292,
+          "author": "ldsw",
+          "content": "Round 1 actuals: 3 agents (model opus named), 40-41 tool uses each, ~5.5 min each; 34 findings (ARCH 13, SEC 10, IMPL 11), 0 blockers; consolidated to 14 themes A-N. False positive: IMPL-01's arm64 premise (nightly arm64 binary reports +388bed8, so cross sees .git). Fix pass (orchestrator), commits on the PR branch: 9a326eac (positive-evidence tag choice, hard-fail overrides, worktree-safe watches, offline refresh fallback, tests), dc02df11 (one resolver, #813), 5c8eecca (version-label check, #810), 4b9f988c (gate job, per-job permissions + SHA pins, digest smoke, highest-stable serialized promotion with pre/post checks, rehearsal, GitHub release with binaries/SHA256SUMS/attestations, canary rework, pinned Dockerfile; #809/#804/#811), 0679fb7c (RELEASING.md, #805). Routed: K/M to #810 (done in 5c8eecca), settings to #809 (operator decision), crates ordering to #802 (held). Round 2 (terminal verify, same clusters, fresh agents, condensed round-1 findings without dispositions) launches after CI on 0679fb7c.",
+          "created_at": "2026-10-08T20:36:04.174168Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZZYljTSiJa5rTS1NQE8Gm5+YihSY4PTxK9Mfcgo+aQ5aVYtTOSXgG2zcmIuq1VJxg6d3jv4uDOamASBIZQypDQ=="
         }
       }
     },
@@ -27831,6 +27840,11 @@
       "agent_id": "ldsw",
       "agent_seq": 66,
       "timestamp": "2026-10-08T19:26:08.328044Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 67,
+      "timestamp": "2026-10-08T20:36:04.218914Z"
     }
   ],
   "watermark": {
