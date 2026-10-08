@@ -11,11 +11,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Container commands default to the agent image that matches the crosslink
   build: released versions use `ghcr.io/corvidae-coding-projects/crosslink-agent:<version>`
   and development builds use `:nightly`, replacing the `:latest` default that
-  could lag behind or run ahead of the CLI (gh#125). `:nightly` and `:latest`
-  are re-pulled on every launch. `crosslink container start` accepts `--image`
-  and honours `CROSSLINK_CONTAINER_IMAGE`, and swarm, sentinel and the auth
-  commands share the same default. Release builds can set
-  `CROSSLINK_AGENT_IMAGE_TAG` at build time to choose the tag explicitly.
+  could lag behind or run ahead of the CLI (gh#125). A build counts as a
+  release only on positive evidence: a published package, a checkout at its
+  `v<version>` tag, or an explicit `CROSSLINK_AGENT_IMAGE_TAG`, which must be a
+  valid tag or the build fails. `CROSSLINK_AGENT_IMAGE_REPOSITORY` lets fork
+  builds default to their own registry. `:nightly` and `:latest` are refreshed
+  before every launch, falling back to a local copy with a warning when the
+  registry is unreachable. `crosslink container start` accepts `--image` and
+  honours `CROSSLINK_CONTAINER_IMAGE`, and swarm, sentinel and the auth commands
+  share the same default.
 - Release image publishing is gated (gh#126, gh#122). A `v*` tag must match
   `crosslink/Cargo.toml` before anything is pushed; the tag push publishes only
   `:<version>`; the smoke test pulls every pushed tag anonymously, so a private

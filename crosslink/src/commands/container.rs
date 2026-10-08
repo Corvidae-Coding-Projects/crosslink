@@ -381,6 +381,46 @@ pub(crate) fn github_login_preflight(
     }
 }
 
+/// Bring a floating tag (`:nightly`, `:latest`) up to date before a launch.
+/// When the registry cannot be reached, an existing local copy is used with a
+/// warning, so an offline launch keeps working; without a local copy the error
+/// names the reason. Pinned tags and digests are left to the runtime, which
+/// pulls them once.
+pub(crate) fn refresh_floating_image(runtime: &str, image: &str) -> Result<()> {
+    if !crate::commands::kickoff::is_floating_image(image) {
+        return Ok(());
+    }
+    let pull = Command::new(runtime)
+        .args(["pull", "--quiet", image])
+        .output()
+        .with_context(|| format!("Failed to run {runtime} pull"))?;
+    if pull.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&pull.stderr);
+    let reason = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("no error output")
+        .to_string();
+    let cached = Command::new(runtime)
+        .args(["image", "inspect", image])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if cached {
+        eprintln!(
+            "warning: could not refresh {image} ({reason}); using the local copy, which may be out of date"
+        );
+        return Ok(());
+    }
+    bail!(
+        "could not pull {image}: {reason}\nCheck network and registry access, or pass --image with an image you have locally (`just build-image` tags :local)."
+    )
+}
+
 /// Environment override for the image that `container start` and container
 /// account login run. Forks publish the agent image under their own registry
 /// path; the login volume is image-independent, so any image carrying the
@@ -444,7 +484,7 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     if let Some(agent_provider) = parsed_provider.agent_provider_name() {
         command.args(["-e", &format!("CROSSLINK_AGENT_PROVIDER={agent_provider}")]);
     }
-    command.args(crate::commands::kickoff::image_pull_args(&image));
+    refresh_floating_image("docker", &image)?;
     command.arg(&image);
     command.args(parsed_provider.command(status));
     if status {
@@ -856,6 +896,8 @@ pub fn start(
 
     let agent_id = format!("container--{worktree_slug}");
 
+    refresh_floating_image("docker", &image)?;
+
     println!("Starting task container: {container_name}");
     println!("  Worktree: {}", worktree_abs.display());
     println!("  Memory:   {memory_limit}");
@@ -962,7 +1004,6 @@ pub fn start(
         }
     }
 
-    cmd.args(crate::commands::kickoff::image_pull_args(&image));
     cmd.arg(&image);
     let workspace_arg = crate::utils::shell_escape_arg(&container_workspace.to_string_lossy());
     let runtime_dir = crate::utils::shell_escape_arg(
@@ -1193,19 +1234,13 @@ mod tests {
 
     #[test]
     fn image_name_is_ghcr_namespaced() {
-        assert_eq!(
-            IMAGE_NAME,
-            "ghcr.io/corvidae-coding-projects/crosslink-agent"
-        );
-        assert_eq!(
-            IMAGE_NAME,
-            crate::commands::kickoff::DEFAULT_AGENT_IMAGE
-                .rsplit_once(':')
-                .map_or(IMAGE_NAME, |(name, _)| name),
-            "container.rs IMAGE_NAME diverged from kickoff DEFAULT_AGENT_IMAGE — \
-             re-opens the GH#576 compose-failure between `crosslink container build` \
-             and `crosslink kickoff run --container …`"
-        );
+        // Fork builds may override the repository at build time.
+        if std::env::var("CROSSLINK_AGENT_IMAGE_REPOSITORY").is_err() {
+            assert_eq!(
+                IMAGE_NAME,
+                "ghcr.io/corvidae-coding-projects/crosslink-agent"
+            );
+        }
     }
 
     #[test]
@@ -1355,6 +1390,55 @@ mod tests {
         let podman = missing_github_login_message("podman", "origin", "github.com", "vol");
         assert!(podman.contains("volume store is separate"), "{podman}");
         assert!(podman.contains("create `vol` with podman"), "{podman}");
+    }
+
+    /// A stand-in runtime for the refresh: `pull` and `image inspect` exit
+    /// with the given codes, and every call is appended to `calls.log`.
+    #[cfg(unix)]
+    fn fake_pull_runtime(dir: &Path, pull_rc: i32, inspect_rc: i32) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(format!("pull-{pull_rc}{inspect_rc}"));
+        let log = dir.join("calls.log");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1\" in\n  pull) echo 'dial tcp: lookup ghcr.io: no such host' >&2; exit {pull_rc} ;;\n  image) exit {inspect_rc} ;;\nesac\nexit 1\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn floating_images_are_refreshed_and_fall_back_to_a_local_copy_offline() {
+        let dir = tempfile::tempdir().unwrap();
+        let nightly = format!("{IMAGE_NAME}:nightly");
+        // Registry reachable: refreshed.
+        refresh_floating_image(&fake_pull_runtime(dir.path(), 0, 1), &nightly).unwrap();
+        // Registry unreachable, local copy present: launch continues.
+        refresh_floating_image(&fake_pull_runtime(dir.path(), 1, 0), &nightly).unwrap();
+        // Unreachable and nothing local: the error carries the runtime's reason.
+        let error = refresh_floating_image(&fake_pull_runtime(dir.path(), 1, 1), &nightly)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no such host"), "{error}");
+        assert!(error.contains("--image"), "{error}");
+        // A pinned tag is never pulled here.
+        let calls_before = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
+        refresh_floating_image(
+            &fake_pull_runtime(dir.path(), 1, 1),
+            &format!("{IMAGE_NAME}:0.10.0"),
+        )
+        .unwrap();
+        let calls_after = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
+        assert_eq!(calls_before, calls_after);
+        assert!(
+            calls_after.contains(&format!("pull --quiet {nightly}")),
+            "{calls_after}"
+        );
     }
 
     /// A stand-in container runtime: `info`, `volume inspect` and `run` exit

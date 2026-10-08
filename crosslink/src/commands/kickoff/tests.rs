@@ -3393,26 +3393,118 @@ fn test_resolve_kickoff_template_none_without_flag_or_config() {
     );
 }
 
-#[test]
-fn default_agent_image_matches_this_build() {
-    assert_eq!(
-        DEFAULT_AGENT_IMAGE,
-        format!("{AGENT_IMAGE_REPOSITORY}:{AGENT_IMAGE_TAG}")
-    );
-    assert!(
-        AGENT_IMAGE_TAG == "nightly"
-            || AGENT_IMAGE_TAG == env!("CARGO_PKG_VERSION")
-            || std::env::var("CROSSLINK_AGENT_IMAGE_TAG").is_ok(),
-        "default tag must be nightly or this build's version, got {AGENT_IMAGE_TAG}"
-    );
-    assert_ne!(
-        AGENT_IMAGE_TAG, "latest",
-        "the default must never float to :latest"
-    );
+/// The build script's image rules (`src/build_support/agent_image.rs`),
+/// compiled here so they can be tested directly.
+#[allow(dead_code)]
+mod agent_image_rules {
+    include!("../../build_support/agent_image.rs");
+
+    #[test]
+    fn this_builds_default_image_follows_the_rules() {
+        use super::{AGENT_IMAGE_REPOSITORY, AGENT_IMAGE_TAG, DEFAULT_AGENT_IMAGE};
+        assert_eq!(
+            DEFAULT_AGENT_IMAGE,
+            format!("{AGENT_IMAGE_REPOSITORY}:{AGENT_IMAGE_TAG}")
+        );
+        validate_agent_image_tag(AGENT_IMAGE_TAG).unwrap();
+        validate_agent_image_repository(AGENT_IMAGE_REPOSITORY).unwrap();
+    }
+
+    fn build(
+        override_tag: Option<&'static str>,
+        packaged: bool,
+        own_checkout: bool,
+        release_tag_at_head: bool,
+    ) -> Result<String, String> {
+        choose_agent_image_tag(&AgentImageBuild {
+            override_tag,
+            packaged,
+            own_checkout,
+            release_tag_at_head,
+            version: "0.10.0",
+        })
+    }
+
+    #[test]
+    fn only_positive_evidence_yields_the_release_tag() {
+        // (override, packaged, own checkout, v<version> at HEAD) -> tag
+        let cases: [(Option<&'static str>, bool, bool, bool, &str); 8] = [
+            (None, true, false, false, "0.10.0"),  // cargo install crosslink
+            (None, false, true, true, "0.10.0"),   // checkout at the release tag
+            (None, false, true, false, "nightly"), // develop or a feature branch
+            (None, false, false, false, "nightly"), // no git, not a package: a guess, not evidence
+            (None, false, false, true, "nightly"), // a tag in some other repository
+            (None, true, true, false, "0.10.0"),   // a package is a release wherever it sits
+            (Some("0.10.1"), false, true, false, "0.10.1"), // release CI override
+            (Some("nightly"), true, false, false, "nightly"), // override beats evidence
+        ];
+        for (override_tag, packaged, own, at_tag, expected) in cases {
+            assert_eq!(
+                build(override_tag, packaged, own, at_tag).unwrap(),
+                expected,
+                "override={override_tag:?} packaged={packaged} own={own} at_tag={at_tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_override_is_an_error_not_a_fallback() {
+        for bad in [
+            "latest",
+            "local",
+            ".hidden",
+            "-x",
+            "1.0.0+build",
+            "has space",
+            "",
+        ] {
+            let error = build(Some(bad), false, true, false).unwrap_err();
+            assert!(
+                error.contains("CROSSLINK_AGENT_IMAGE_TAG"),
+                "{bad:?}: {error}"
+            );
+        }
+        let too_long = "a".repeat(129);
+        assert!(validate_agent_image_tag(&too_long).is_err());
+        for good in [
+            "0.10.0",
+            "0.10.0-beta.1",
+            "nightly",
+            "_x",
+            "a".repeat(128).as_str(),
+        ] {
+            validate_agent_image_tag(good).unwrap();
+        }
+    }
+
+    #[test]
+    fn repository_overrides_must_be_plain_lowercase_repositories() {
+        assert_eq!(
+            choose_agent_image_repository(None).unwrap(),
+            DEFAULT_AGENT_IMAGE_REPOSITORY
+        );
+        for good in [
+            "ghcr.io/example/crosslink-agent",
+            "localhost:5000/crosslink-agent",
+            "registry.example.com/team/sub/agent_image",
+        ] {
+            assert_eq!(choose_agent_image_repository(Some(good)).unwrap(), good);
+        }
+        for bad in [
+            "ghcr.io/Example/agent",
+            "ghcr.io/example/agent:tag",
+            "ghcr.io/example/agent@sha256:abc",
+            "crosslink-agent",
+            "ghcr.io//agent",
+            "ghcr.io/example/agent/",
+        ] {
+            assert!(choose_agent_image_repository(Some(bad)).is_err(), "{bad}");
+        }
+    }
 }
 
 #[test]
-fn floating_image_tags_are_always_pulled_and_pinned_ones_are_not() {
+fn floating_tags_are_refreshed_and_pinned_ones_are_not() {
     let repo = AGENT_IMAGE_REPOSITORY;
     for floating in [
         format!("{repo}:nightly"),
@@ -3420,7 +3512,7 @@ fn floating_image_tags_are_always_pulled_and_pinned_ones_are_not() {
         repo.to_string(),
         "localhost:5000/crosslink-agent".to_string(),
     ] {
-        assert_eq!(image_pull_args(&floating), ["--pull=always"], "{floating}");
+        assert!(is_floating_image(&floating), "{floating}");
     }
     for pinned in [
         format!("{repo}:0.10.0"),
@@ -3428,6 +3520,6 @@ fn floating_image_tags_are_always_pulled_and_pinned_ones_are_not() {
         format!("{repo}@sha256:{}", "a".repeat(64)),
         "localhost:5000/crosslink-agent:local".to_string(),
     ] {
-        assert!(image_pull_args(&pinned).is_empty(), "{pinned}");
+        assert!(!is_floating_image(&pinned), "{pinned}");
     }
 }

@@ -14,7 +14,7 @@ mod wizard;
 mod tests;
 
 pub use types::{
-    image_pull_args, ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat,
+    is_floating_image, ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat,
     VerifyLevel, AGENT_IMAGE_REPOSITORY, AGENT_IMAGE_TAG, DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
 };
 

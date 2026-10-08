@@ -80,15 +80,27 @@ built for both `linux/amd64` and `linux/arm64`. Published tags:
 - `:nightly` — floating tag tracking `develop`
 - `:nightly-<short-sha>` — the nightly built from that `develop` commit
 
-By default, crosslink uses the image that matches its own build, so the
-crosslink inside the container is the same as the one that launches it: a
-released crosslink (installed from crates.io or built at its `v<version>` tag)
-uses `:<version>`, and a development build uses `:nightly`. `:nightly` and
-`:latest` are re-pulled on every launch so a cached copy never goes stale;
-pinned tags are pulled once and then reused. Pass `--image` (or set
+By default, crosslink uses the image that matches its own build. A released
+crosslink (installed from crates.io, or built from a checkout at its
+`v<version>` tag) uses `:<version>`, so the crosslink inside the container is
+the one it was released with. Every other build, such as `develop` or a feature
+branch, uses `:nightly`, the image built from the tip of `develop`: its
+crosslink can differ from your branch's code, so when you change hub or
+readiness code, build your own image (`just build-image`) and pass
+`--image ghcr.io/corvidae-coding-projects/crosslink-agent:local`. Builds from
+`cargo install --git` cannot see their release tag and also use `:nightly`;
+pass `--image` with the version you installed. Release CI sets the tag
+explicitly with `CROSSLINK_AGENT_IMAGE_TAG`, and fork builds can point at their
+own registry with `CROSSLINK_AGENT_IMAGE_REPOSITORY`.
+
+`:nightly` and `:latest` are refreshed before every launch. If the registry
+cannot be reached and a local copy exists, crosslink warns and uses it; pinned
+tags are pulled once and then reused. Because `:nightly` follows `develop`,
+anything merged there runs in every development build's next container, which
+mounts your provider and GitHub logins. Pass `--image` (or set
 `CROSSLINK_CONTAINER_IMAGE` for `container start` and `container auth`) to use
-another image. Registry tags can be moved; for a byte-for-byte reproducible
-run, pin the image by digest (`--image ghcr.io/corvidae-coding-projects/crosslink-agent@sha256:<digest>`).
+another image. Registry tags can be moved; for a byte-for-byte reproducible run,
+pin the image by digest (`--image ghcr.io/corvidae-coding-projects/crosslink-agent@sha256:<digest>`).
 
 ### Building the image locally
 

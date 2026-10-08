@@ -3,19 +3,8 @@ use std::io::Write;
 use std::path::Path;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../.git/HEAD");
-    println!("cargo:rerun-if-changed=../.git/refs/");
-    // Cargo treats a watched path that does not exist as changed, which would
-    // rerun this script and rebuild the binary on every invocation; shallow CI
-    // checkouts have no packed-refs. Watch it only when it is there.
-    if Path::new("../.git/packed-refs").exists() {
-        println!("cargo:rerun-if-changed=../.git/packed-refs");
-    }
-    println!("cargo:rerun-if-env-changed={AGENT_IMAGE_TAG_ENV}");
-    println!(
-        "cargo:rustc-env={AGENT_IMAGE_TAG_ENV}={}",
-        agent_image_tag(env!("CARGO_PKG_VERSION"))
-    );
+    emit_agent_image();
+
     if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
@@ -93,76 +82,116 @@ the design; GH #429 tracks the broader feature.</p>
     }
 }
 
-/// Build-time override for the agent image tag, and the compile-time variable
-/// that carries the chosen tag into the binary.
-const AGENT_IMAGE_TAG_ENV: &str = "CROSSLINK_AGENT_IMAGE_TAG";
+include!("src/build_support/agent_image.rs");
 
-/// The agent image tag this build defaults to, so the container runs the same
-/// crosslink as the host CLI that launches it:
-///
-/// - an explicit `CROSSLINK_AGENT_IMAGE_TAG` at build time wins;
-/// - a build from crosslink's own git checkout uses the release tag
-///   `<version>` when HEAD is exactly `v<version>` with a clean tree, and
-///   `nightly` (the image built from `develop`) otherwise;
-/// - any other build (a crates.io source install, a vendored copy) is a
-///   released version and uses `<version>`.
-fn agent_image_tag(version: &str) -> String {
-    if let Ok(tag) = std::env::var(AGENT_IMAGE_TAG_ENV) {
-        let tag = tag.trim();
-        let valid = !tag.is_empty()
-            && tag.len() <= 128
-            && tag
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-        if valid {
-            return tag.to_string();
-        }
-        println!("cargo:warning=ignoring invalid {AGENT_IMAGE_TAG_ENV}={tag:?}");
-    }
-    if !in_own_git_checkout() {
-        return version.to_string();
-    }
-    let git = |args: &[&str]| {
-        std::process::Command::new("git")
-            .args(args)
-            .output()
+/// Build-time overrides, and the compile-time variables that carry the chosen
+/// repository and tag into the binary.
+const AGENT_IMAGE_TAG_ENV: &str = "CROSSLINK_AGENT_IMAGE_TAG";
+const AGENT_IMAGE_REPOSITORY_ENV: &str = "CROSSLINK_AGENT_IMAGE_REPOSITORY";
+
+/// Choose the default agent image (see `src/build_support/agent_image.rs`),
+/// pass it to the compiler, and tell cargo when to choose again. An invalid
+/// explicit override fails the build rather than falling back silently.
+fn emit_agent_image() {
+    println!("cargo:rerun-if-env-changed={AGENT_IMAGE_TAG_ENV}");
+    println!("cargo:rerun-if-env-changed={AGENT_IMAGE_REPOSITORY_ENV}");
+    let env_override = |name: &str| {
+        std::env::var(name)
             .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
     };
-    let at_release_tag = git(&["tag", "--points-at", "HEAD"])
-        .is_some_and(|tags| tags.lines().any(|tag| tag == format!("v{version}")));
-    let clean = git(&["status", "--porcelain"]).is_some_and(|status| status.is_empty());
-    if at_release_tag && clean {
-        version.to_string()
-    } else {
-        "nightly".to_string()
+    let version = env!("CARGO_PKG_VERSION");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+    let packaged = Path::new(&manifest_dir)
+        .join(".cargo_vcs_info.json")
+        .is_file();
+    let git_dirs = own_checkout_git_dirs(&manifest_dir);
+    if let Some((git_dir, common_dir)) = &git_dirs {
+        // Watch only paths that exist: cargo treats a missing watched path
+        // as changed and would rebuild on every invocation (shallow CI
+        // checkouts have no packed-refs; a worktree's HEAD lives in its own
+        // git dir).
+        for path in [
+            git_dir.join("HEAD"),
+            common_dir.join("refs"),
+            common_dir.join("packed-refs"),
+        ] {
+            if path.exists() {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
     }
+    let release_tag = format!("v{version}");
+    let release_tag_at_head = git_dirs.is_some()
+        && git_output(&manifest_dir, &["tag", "--points-at", "HEAD"])
+            .is_some_and(|tags| tags.lines().any(|tag| tag.trim() == release_tag));
+    let tag_override = env_override(AGENT_IMAGE_TAG_ENV);
+    let tag = choose_agent_image_tag(&AgentImageBuild {
+        override_tag: tag_override.as_deref(),
+        packaged,
+        own_checkout: git_dirs.is_some(),
+        release_tag_at_head,
+        version,
+    })
+    .unwrap_or_else(|error| panic!("{error}"));
+    let repository =
+        choose_agent_image_repository(env_override(AGENT_IMAGE_REPOSITORY_ENV).as_deref())
+            .unwrap_or_else(|error| panic!("{error}"));
+    println!("cargo:rustc-env={AGENT_IMAGE_TAG_ENV}={tag}");
+    println!("cargo:rustc-env={AGENT_IMAGE_REPOSITORY_ENV}={repository}");
 }
 
-/// Whether this build runs inside crosslink's own repository, rather than a
-/// source tree that merely sits inside some other git repository.
-fn in_own_git_checkout() -> bool {
-    let Ok(output) = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
+fn git_output(dir: &str, args: &[&str]) -> Option<String> {
+    std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
         .output()
-    else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// The git dir and common git dir of crosslink's own checkout, when the
+/// build runs inside one (not merely inside some other repository, as a
+/// vendored or packaged copy might be). Works in linked worktrees, where
+/// `.git` is a file.
+fn own_checkout_git_dirs(manifest_dir: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let toplevel = git_output(manifest_dir, &["rev-parse", "--show-toplevel"])?;
+    let own = fs::canonicalize(Path::new(&toplevel).join("crosslink")).ok()?
+        == fs::canonicalize(manifest_dir).ok()?;
+    if !own {
+        return None;
     }
-    let toplevel = Path::new(String::from_utf8_lossy(&output.stdout).trim()).join("crosslink");
-    let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
-        return false;
+    // `--path-format=absolute` needs git 2.31; older gits (as in some cross
+    // images) print paths relative to the working directory instead.
+    let dirs = git_output(
+        manifest_dir,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ],
+    )
+    .or_else(|| {
+        git_output(
+            manifest_dir,
+            &["rev-parse", "--git-dir", "--git-common-dir"],
+        )
+    })?;
+    let mut lines = dirs.lines();
+    let resolve = |line: &str| {
+        let path = Path::new(line.trim());
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            Path::new(manifest_dir).join(path)
+        }
     };
-    match (
-        fs::canonicalize(&toplevel),
-        fs::canonicalize(Path::new(&manifest_dir)),
-    ) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
+    let git_dir = resolve(lines.next()?);
+    let common_dir = resolve(lines.next()?);
+    Some((git_dir, common_dir))
 }
 
 fn generate_commands_file(commands_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {

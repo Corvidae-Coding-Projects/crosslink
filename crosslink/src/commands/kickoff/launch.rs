@@ -968,7 +968,7 @@ pub(super) fn launch_container(
         Path::new("/workspaces/repo"),
         policy,
     )?;
-    args.extend(super::types::image_pull_args(image));
+    crate::commands::container::refresh_floating_image(runtime_cmd, image)?;
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
