@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 34,
-        "tip_oid": "7527e49da753e0c3753c5b75654b38860b683392",
-        "prefix_sha256": "78c3268ba3fdc9ab28523c433ff972af30b90645ed075f9f780f5a847034e797"
+        "sequence": 35,
+        "tip_oid": "c40c01eb868cdb2c310a57be256501b5356fbb43",
+        "prefix_sha256": "6fd7301504887b55b9aca5721866121a7b48a40c2eca84275004c9fccd5a4eb0"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 809,
-  "next_comment_id": 1275,
+  "next_comment_id": 1276,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -12661,7 +12661,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:20.311461Z",
-      "updated_at": "2026-10-08T03:03:20.311461Z"
+      "updated_at": "2026-10-08T03:31:47.629968Z",
+      "comments": {
+        "1f0c7056-3b31-4810-b50e-bbad7afb6ea7": {
+          "display_id": 1275,
+          "author": "ldsw",
+          "content": "PE review (#808, PE-04/09/10): never delete or privatize old-owner images, because released 0.9.0-beta.1 binaries default to ghcr.io/forecast-bio/crosslink-agent:latest; keep them public and frozen, mark deprecated, and record each release's default image ref in RELEASING.md. Docs call mutable tags immutable (only digests are); add nightly-* retention; scope docs.yml pages/id-token permissions to the deploy job. Mirrored on GH#124.",
+          "created_at": "2026-10-08T03:31:47.558110Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsi0rhN9H0rooo2hDbywXeyTt7kqsHtR5K8UrltyyTZd8nEYB3MsWg48YehYD+V7/rsrjm2liQqfyP1hNL+b/CQ=="
+        }
+      }
     },
     "79805808-20a3-49a1-a89c-f3a12bf6323a": {
       "uuid": "79805808-20a3-49a1-a89c-f3a12bf6323a",
@@ -27411,6 +27422,11 @@
       "agent_id": "ldsw",
       "agent_seq": 34,
       "timestamp": "2026-10-08T03:30:57.580239Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 35,
+      "timestamp": "2026-10-08T03:31:47.629968Z"
     }
   ],
   "watermark": {
