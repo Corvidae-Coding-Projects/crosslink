@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 38,
-        "tip_oid": "cc5f081933de6d1fbfd0b29f98898f11e317e098",
-        "prefix_sha256": "44db7c8276669d51a61a1542ef8045736f702904c94afe233c0bd9ed7f83bcc7"
+        "sequence": 39,
+        "tip_oid": "6dc972df35a828ae75fdf96f97cb579eb19d1d16",
+        "prefix_sha256": "4fb4d30fd442594dbf0b0c2c318f54f0be7c02b1c372a76e42193570b55a5c8d"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 811,
+  "next_display_id": 812,
   "next_comment_id": 1277,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -230,6 +230,7 @@
     "35ea0190-c4a5-4ab7-99fe-49fdb1d84fcc": 139,
     "360a2038-6517-4f16-b958-5a988566054d": 263,
     "36c733a2-70b9-40ff-8d93-94b1b403f0a9": 412,
+    "3722e81c-19d2-4bd4-9bc0-9a844065db09": 811,
     "37be9503-4de3-4771-a629-83b1c9f1a982": 441,
     "38bc1311-3a71-43e3-a36b-0e24772143ac": 567,
     "38eba189-3317-4f52-95c9-17aedd07faea": 414,
@@ -6200,6 +6201,17 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlSDT1/Ft+n1/uQyQgw663bZ2mUKlGUjqYdpv8p2W5LLA5B7DYBcpBoIxK0rrUS05YoMSkS7KsSZ2PaWOmceTDw=="
         }
       }
+    },
+    "3722e81c-19d2-4bd4-9bc0-9a844065db09": {
+      "uuid": "3722e81c-19d2-4bd4-9bc0-9a844065db09",
+      "display_id": 811,
+      "title": "Agent image is not reproducible or attested",
+      "description": "External: Corvidae-Coding-Projects/crosslink#128. From PE review #808 (PE-06). curl|bash installers (Claude, uv), unpinned codex, gosu without checksum, base image by tag, provenance false, no signing/SBOM, mode=max buildcache freezes CLI versions, unpinned runners/toolchain/actions. Pin, verify, attest, and define a rebuild policy for release images.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:34:32.537759Z",
+      "updated_at": "2026-10-08T03:34:32.537759Z"
     },
     "37be9503-4de3-4771-a629-83b1c9f1a982": {
       "uuid": "37be9503-4de3-4771-a629-83b1c9f1a982",
@@ -27475,6 +27487,11 @@
       "agent_id": "ldsw",
       "agent_seq": 38,
       "timestamp": "2026-10-08T03:33:54.247014Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 39,
+      "timestamp": "2026-10-08T03:34:32.537759Z"
     }
   ],
   "watermark": {
