@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 4,
-        "tip_oid": "d8c56cc4d886815bb1ab497ebe4e319449dcc08e",
-        "prefix_sha256": "739235572965f954873601a8839b07d48135ae0e73c480ccace1b6ba2caf6eed"
+        "sequence": 5,
+        "tip_oid": "20d23ea0a67ea6ab9a525ffcc82814345aaa5f40",
+        "prefix_sha256": "17507bd0d125077ce1e41d0ae5832a91f049c34a46e12669e6198cb8f019ef59"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 800,
-  "next_comment_id": 1264,
+  "next_comment_id": 1265,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -18803,11 +18803,20 @@
       "priority": "low",
       "created_by": "ldsw",
       "created_at": "2026-10-08T02:11:56.147532Z",
-      "updated_at": "2026-10-08T02:15:08.867159Z",
+      "updated_at": "2026-10-08T02:17:13.610653Z",
       "labels": [
         "chore"
       ],
       "comments": {
+        "53668672-9fa6-4816-ae97-a5f5a01f01b8": {
+          "display_id": 1264,
+          "author": "ldsw",
+          "content": "Retired checkout and its old build worktree deleted after confirming every local-only branch was superseded upstream; crosslink-pristine recreated from this checkout.",
+          "created_at": "2026-10-08T02:17:13.574545Z",
+          "kind": "resolution",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6RX9gFf5/+mN/IxLZUqNXBm/LXnSoc+do+dI7scu10hF8WU8PK3G3SCDDJVthOh6FBIPO3hKGpRxOjfTQjK9Bw=="
+        },
         "92d7c785-7423-45d4-a352-0feade159615": {
           "display_id": 1263,
           "author": "ldsw",
@@ -27029,6 +27038,11 @@
       "agent_id": "ldsw",
       "agent_seq": 4,
       "timestamp": "2026-10-08T02:15:08.867159Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 5,
+      "timestamp": "2026-10-08T02:17:13.610653Z"
     }
   ],
   "watermark": {
