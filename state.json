@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 52,
-        "tip_oid": "678e0eed82ed298f38c64069b8d9d4eb6daefad9",
-        "prefix_sha256": "b32b5666819b01bbadb8de0cd0c87edac95809e4119b33bfc4fdf1b1e93c696e"
+        "sequence": 53,
+        "tip_oid": "450b006a50ad843a120fe4266699cb9df6d7b8a2",
+        "prefix_sha256": "37dd3307727bee166497237e1fb4fe011650030e9b05fd175bb272f5c4646759"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 813,
-  "next_comment_id": 1285,
+  "next_comment_id": 1286,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -25180,7 +25180,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:01:40.829391Z",
-      "updated_at": "2026-10-08T03:29:22.275154Z",
+      "updated_at": "2026-10-08T18:36:58.968614Z",
       "comments": {
         "3a7074d5-093f-41e4-8b6c-e292ddf89d92": {
           "display_id": 1272,
@@ -25190,6 +25190,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnm1tq5M4zHzQzd1ktYWhU2flYTyWM3vZ4u6I0YeOdi3no2gpOCBbMt6CAmnvlD5u9/g+D23TjS+/HQVaCvXHDA=="
+        },
+        "9878cfae-9f37-4041-a3d4-8b71451572fd": {
+          "display_id": 1285,
+          "author": "ldsw",
+          "content": "From PR #129 review (#812, ARCH-01): when this resumes, cargo publish must run only after the release image has passed anonymous verification (ordering tracked on #809); crates.io versions are immutable, so the 'never republish' guard added for images needs no counterpart here.",
+          "created_at": "2026-10-08T18:36:58.926919Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJbLFA7oVCtCVqOkXCRbV1UdLrn44jqRoCAb+iWh1UNUz4wjSCh0aQ8ieqjpJccP6AEdtbFJ0icGIJlawqsI/CQ=="
         }
       }
     },
@@ -27650,6 +27659,11 @@
       "agent_id": "ldsw",
       "agent_seq": 52,
       "timestamp": "2026-10-08T18:26:58.296937Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 53,
+      "timestamp": "2026-10-08T18:36:58.968614Z"
     }
   ],
   "watermark": {
