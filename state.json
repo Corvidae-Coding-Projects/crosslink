@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 32,
-        "tip_oid": "69830828478ee6bd65b2d1e9560734bad1612859",
-        "prefix_sha256": "1797bae71186d14015c3b9ec96434744a6d757e3c54b2cac7b1248669f9d3420"
+        "sequence": 33,
+        "tip_oid": "3ffba7dd52ae9bec29a42142ad168a4567bb812d",
+        "prefix_sha256": "08dcd76faaf128ec5a095c145483a2f9b20305213fa733499270f553e52e0e92"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 809,
-  "next_comment_id": 1273,
+  "next_comment_id": 1274,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -8897,7 +8897,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:02:14.366945Z",
-      "updated_at": "2026-10-08T03:02:14.366945Z"
+      "updated_at": "2026-10-08T03:30:09.758783Z",
+      "comments": {
+        "8418c60e-3014-4c62-8813-0c1f5c6d38e4": {
+          "display_id": 1273,
+          "author": "ldsw",
+          "content": "PE review (#808, PE-05): the anonymous token check proves visibility, not that a tag exists. HEAD every pushed tag anonymously, and add a scheduled canary on the image ref the released CLI defaults to (would have caught GH#101 and the missing :latest). Mirrored on GH#122.",
+          "created_at": "2026-10-08T03:30:09.719406Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcMpVemgzpUjAhT2l+7QlMuT2gKEgrB1jQgekhHTtvtFhSwzWWXVELbsRRQGPdjkb//Wf/8yYwzO7678Zz+KnBQ=="
+        }
+      }
     },
     "562ecb52-d472-4f77-a8b3-f3aee7c21e59": {
       "uuid": "562ecb52-d472-4f77-a8b3-f3aee7c21e59",
@@ -27379,6 +27390,11 @@
       "agent_id": "ldsw",
       "agent_seq": 32,
       "timestamp": "2026-10-08T03:29:22.275154Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 33,
+      "timestamp": "2026-10-08T03:30:09.758783Z"
     }
   ],
   "watermark": {
