@@ -1,4 +1,54 @@
 {
+  "checkpoint_schema_version": 2,
+  "frontier": {
+    "agents": {
+      "anon-396e79b5": {
+        "sequence": 8,
+        "tip_oid": "d2a866aaffa710a4cdc93a7b4574e194f71d629d",
+        "prefix_sha256": "0c49aba325e38e15af24ed42e2b232bb81bb61f7f94834de1c25413bafbeb5fd"
+      },
+      "anon-62b057cf": {
+        "sequence": 35,
+        "tip_oid": "abebd7ad62232fea8563fd5388c2e874cdeef8cf",
+        "prefix_sha256": "fce6990978b1e537331e0bdbec911e6d2c2c2526f87f043feeccbfac5dcedc75"
+      },
+      "anon-6aac1553": {
+        "sequence": 1,
+        "tip_oid": "529a92cf02abfda6d520a2f61449265157729ba5",
+        "prefix_sha256": "1a4d046e70e08070ad3449a61bbb00724143418e9982f514a054633aad3d3d3f"
+      },
+      "anon-ab6221f8": {
+        "sequence": 72,
+        "tip_oid": "1b868b756f660eef3b047b008a58350d21f715d9",
+        "prefix_sha256": "5e0e6e5fcf790a96aa7c260e670c74682b49d09d7eff33a758be9340bc5f7762"
+      },
+      "anon-aeb72d19": {
+        "sequence": 2,
+        "tip_oid": "a5f1a114ea08499a9794e867d5676f38101e2520",
+        "prefix_sha256": "b269aef6b2451f29b6ffc542411c5ce93ac9d70a010e24bac0599e7e958aa567"
+      },
+      "dashboard-bootstrap": {
+        "sequence": 228,
+        "tip_oid": "f13c5a50fc07ca99fd8d7e33320d8bab06c71b45",
+        "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
+      },
+      "sQl8": {
+        "sequence": 35,
+        "tip_oid": "280d5719f42f62c5fb61b0b5957f76d34b78d7c4",
+        "prefix_sha256": "69ad6b193ae18bef04e1c6b38cb474c144a493636472cff7bff136d9c89f2dd5"
+      },
+      "w4c5": {
+        "sequence": 62,
+        "tip_oid": "33260e35cd3ca77502ac57851590ab4ca029b87b",
+        "prefix_sha256": "7b5e29ce0c849973a90194295ce9d3f41992474f9bbd8753f0a1ae289ebe28d1"
+      },
+      "xXMe": {
+        "sequence": 8,
+        "tip_oid": "b0264cd314f62429628cb7ea36f20a7c0dbcd43c",
+        "prefix_sha256": "c797629450a98e850a6051bdfc2166336c5b0262b80afaa6120f6210f20f0ceb"
+      }
+    }
+  },
   "next_display_id": 799,
   "next_comment_id": 1263,
   "display_id_map": {
@@ -26928,8 +26978,6 @@
     }
   ],
   "watermark": {
-    "timestamp": "2026-09-04T02:38:02.819761928Z",
-    "agent_id": "w4c5",
-    "agent_seq": 62
+    "unsupported_checkpoint_schema": 2
   }
 }
