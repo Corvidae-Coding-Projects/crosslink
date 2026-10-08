@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 44,
-        "tip_oid": "60e0ddcf10abb7bbf237ebfa23a96ecd39a54c71",
-        "prefix_sha256": "c9f403d4f2966cae945146268bc3dc351fdff44b8aa0192648e9a52fb380bed7"
+        "sequence": 45,
+        "tip_oid": "d08d78bd2974bb56fc74552094eb0d8452c29a9e",
+        "prefix_sha256": "298a8888f9d00f98597a592f7fc667eff2bea22de9b594311e33ebc237d72627"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 812,
-  "next_comment_id": 1278,
+  "next_comment_id": 1279,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -4666,7 +4666,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:52.610682Z",
-      "updated_at": "2026-10-08T03:32:39.746866Z",
+      "updated_at": "2026-10-08T04:05:37.358873Z",
       "comments": {
         "03e020e6-f38b-437e-9995-8d4807e23bc5": {
           "display_id": 1270,
@@ -4685,6 +4685,15 @@
           "kind": "decision",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKOUrb3eqHPQ28kzORWXOT6O/IrYCIOvkSO4zdiv6uM/bgD/0VESE4S9eJIBHg59j0GVjUx5WLQAnWKIgBdQVDw=="
+        },
+        "2412ca27-18e5-44ba-a97b-bae8a1740e11": {
+          "display_id": 1278,
+          "author": "ldsw",
+          "content": "Implemented on branch feat/version-matched-agent-image, commit fa066bc6: build.rs picks the tag (explicit CROSSLINK_AGENT_IMAGE_TAG; own checkout exactly at clean v<version> -> <version>; other git builds -> nightly; non-git builds such as crates.io source installs -> <version>); one constant used by kickoff --image, container start (now with --image and CROSSLINK_CONTAINER_IMAGE), auth fallback, swarm, sentinel; --pull=always for nightly/latest; pull hint explains the build-matched tag. Verified: dev build -> :nightly, override -> :0.10.0, packaged crate built outside git -> :0.9.0-beta.1; docker run --pull=always on the public :nightly works; clippy/fmt clean; 18 targeted tests pass. Not pushed yet.",
+          "created_at": "2026-10-08T04:05:37.320157Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAZRyNWhUB/fSwcKmL1pw+dxd6anvsUvUAMsk9virihZwcKQ+Qj+K34zYYAJmQJmmBHcEWIq3vDNfXccH9RgbbBg=="
         }
       }
     },
@@ -27531,6 +27540,11 @@
       "agent_id": "ldsw",
       "agent_seq": 44,
       "timestamp": "2026-10-08T04:01:10.188256Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 45,
+      "timestamp": "2026-10-08T04:05:37.358873Z"
     }
   ],
   "watermark": {
