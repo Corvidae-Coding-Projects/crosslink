@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 31,
-        "tip_oid": "b70406fee816fb76786bc7ae5303267d67bb0990",
-        "prefix_sha256": "cf8236822762c3052fd1817970816fdc8caa0a4beea5e600d92ef66e0e45be81"
+        "sequence": 32,
+        "tip_oid": "69830828478ee6bd65b2d1e9560734bad1612859",
+        "prefix_sha256": "1797bae71186d14015c3b9ec96434744a6d757e3c54b2cac7b1248669f9d3420"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 809,
-  "next_comment_id": 1272,
+  "next_comment_id": 1273,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -25009,7 +25009,18 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:01:40.829391Z",
-      "updated_at": "2026-10-08T03:01:40.829391Z"
+      "updated_at": "2026-10-08T03:29:22.275154Z",
+      "comments": {
+        "3a7074d5-093f-41e4-8b6c-e292ddf89d92": {
+          "display_id": 1272,
+          "author": "ldsw",
+          "content": "PE review (#808, PE-07): prefer trusted publishing over a stored token; tag-only deployment policy on the cargo environment; add --locked to the real cargo publish (publish.yml:68); cargo install crosslink resolves 0.8.0; publish only after the versioned image passes its smoke test (release orchestration, new item). Mirrored on GH#121.",
+          "created_at": "2026-10-08T03:29:22.235469Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnm1tq5M4zHzQzd1ktYWhU2flYTyWM3vZ4u6I0YeOdi3no2gpOCBbMt6CAmnvlD5u9/g+D23TjS+/HQVaCvXHDA=="
+        }
+      }
     },
     "f6a460c3-342e-44ae-8216-5ecc9392fcbe": {
       "uuid": "f6a460c3-342e-44ae-8216-5ecc9392fcbe",
@@ -27363,6 +27374,11 @@
       "agent_id": "ldsw",
       "agent_seq": 31,
       "timestamp": "2026-10-08T03:24:18.769551Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 32,
+      "timestamp": "2026-10-08T03:29:22.275154Z"
     }
   ],
   "watermark": {
