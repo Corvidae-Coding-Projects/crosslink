@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 19,
-        "tip_oid": "bbf24e6f4d971c181a4821e58560dab700d2532b",
-        "prefix_sha256": "aa45670e4eac7ebb304ad0e01b7eb795aa2412f4835fa06ef898797adce01fa3"
+        "sequence": 20,
+        "tip_oid": "518fbc76a22a3bb4e427670668e48b47541b1d36",
+        "prefix_sha256": "ffcb743d4ab07d15f40e23609dbe26ea21cce34788b515e66a93f7847d0d2cf2"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 802,
-  "next_comment_id": 1269,
+  "next_comment_id": 1270,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -25583,7 +25583,7 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-05-04T21:24:32.054397978Z",
-      "updated_at": "2026-05-04T21:24:33.529876633Z",
+      "updated_at": "2026-10-08T03:00:08.939036Z",
       "labels": [
         "bug"
       ],
@@ -25603,6 +25603,15 @@
           "kind": "handoff",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYMrEHwa+jubCylX34Rx4kN6DGbxnN9XAXF1q5HJz3d1oBNEPsmD35Z35UUSKcrEot8rmeAPhrYXOmVMQZjAVDQ=="
+        },
+        "d810c4ac-bbec-40b5-b238-794aaee8fc22": {
+          "display_id": 1269,
+          "author": "ldsw",
+          "content": "Package made public by an owner on 2026-10-08 (anonymous pull verified); tracked upstream as Corvidae-Coding-Projects/crosslink#101, now closed. Smoke-verify still cannot detect privacy: Corvidae-Coding-Projects/crosslink#122.",
+          "created_at": "2026-10-08T03:00:08.904068Z",
+          "kind": "resolution",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbqL1J1PsBJHmeHcohycLaMH94xzx81H2xF8hiasiR6JS28LfAukM55ROSOflbc+ObwFWyIZaImTbrsJEwbfGBg=="
         },
         "ed58961c-cf35-44dc-96b7-07c45daee1b7": {
           "author": "dashboard-bootstrap",
@@ -27183,6 +27192,11 @@
       "agent_id": "ldsw",
       "agent_seq": 19,
       "timestamp": "2026-10-08T02:51:13.629168Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 20,
+      "timestamp": "2026-10-08T03:00:08.939036Z"
     }
   ],
   "watermark": {
