@@ -493,7 +493,7 @@ jobs:
   # digest by hand is the rollback. A develop dispatch with
   # rehearse_promotion exercises this job against :promotion-rehearsal.
   promote-latest:
-    name: Promote ${{ needs.gate.outputs.rehearsal == 'true' && ':promotion-rehearsal' || ':latest' }}
+    name: Promote verified image (:latest or rehearsal)
     needs: [gate, publish-image, smoke-verify]
     if: >-
       (needs.gate.outputs.release == 'true' && needs.gate.outputs.prerelease == 'false') ||
