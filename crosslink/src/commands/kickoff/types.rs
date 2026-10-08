@@ -76,6 +76,22 @@ pub fn resolve_agent_image_from(
     Ok((image, source))
 }
 
+/// The agent image for a launch in `mode`: resolved as for every container
+/// command when a container is used, and this build's default otherwise (a
+/// local launch never reads the image settings, so they cannot fail it).
+pub fn agent_image_for(
+    mode: &ContainerMode,
+    explicit: Option<&str>,
+) -> Result<(String, AgentImageSource)> {
+    if *mode == ContainerMode::None {
+        return Ok((
+            DEFAULT_AGENT_IMAGE.to_string(),
+            AgentImageSource::BuildDefault,
+        ));
+    }
+    resolve_agent_image(explicit)
+}
+
 /// `resolve_agent_image_from` over the live `CROSSLINK_CONTAINER_IMAGE`.
 pub fn resolve_agent_image(explicit: Option<&str>) -> Result<(String, AgentImageSource)> {
     resolve_agent_image_from(explicit, std::env::var(AGENT_IMAGE_ENV).ok().as_deref())

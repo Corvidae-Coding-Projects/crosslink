@@ -14,8 +14,9 @@ mod wizard;
 mod tests;
 
 pub use types::{
-    is_floating_image, resolve_agent_image, ContainerMode, KickoffOpts, KickoffReport, PlanOpts,
-    ReportFormat, VerifyLevel, AGENT_IMAGE_REPOSITORY, DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
+    agent_image_for, is_floating_image, resolve_agent_image, ContainerMode, KickoffOpts,
+    KickoffReport, PlanOpts, ReportFormat, VerifyLevel, AGENT_IMAGE_REPOSITORY,
+    DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
 };
 
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
@@ -78,7 +79,7 @@ pub fn dispatch(
                 None
             };
             let parsed_container = parse_container_mode(&container)?;
-            let (image, image_source) = resolve_agent_image(image.as_deref())?;
+            let (image, image_source) = agent_image_for(&parsed_container, image.as_deref())?;
             if parsed_container != ContainerMode::None && !quiet {
                 println!("Agent image: {image} (from {image_source})");
             }
@@ -315,7 +316,7 @@ fn dispatch_launch(
             (parsed_container != ContainerMode::None)
                 .then_some(crate::agents::SandboxPosture::ExternalIsolation),
         )?;
-        let (agent_image, _) = resolve_agent_image(None)?;
+        let (agent_image, _) = agent_image_for(&parsed_container, None)?;
         let opts = KickoffOpts {
             description: &description,
             issue,
@@ -421,7 +422,7 @@ fn dispatch_launch(
                 (parsed_container != ContainerMode::None)
                     .then_some(crate::agents::SandboxPosture::ExternalIsolation),
             )?;
-            let (agent_image, _) = resolve_agent_image(None)?;
+            let (agent_image, _) = agent_image_for(&parsed_container, None)?;
             let opts = KickoffOpts {
                 description: &description,
                 issue: config.issue,

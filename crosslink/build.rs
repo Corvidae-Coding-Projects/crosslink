@@ -5,7 +5,26 @@ use std::path::Path;
 fn main() {
     emit_agent_image();
 
-    if let Ok(output) = std::process::Command::new("git")
+    // CI passes the version string explicitly so every architecture reports
+    // the same one; cross-compile containers may not see the repository's git
+    // metadata. Otherwise derive it from git.
+    println!("cargo:rerun-if-env-changed=CROSSLINK_VERSION");
+    let explicit_version = std::env::var("CROSSLINK_VERSION")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(version) = explicit_version {
+        let valid = version.starts_with(env!("CARGO_PKG_VERSION"))
+            && version
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
+        assert!(
+            valid,
+            "CROSSLINK_VERSION={version:?} must start with the crate version {} and use only [A-Za-z0-9.+-]",
+            env!("CARGO_PKG_VERSION")
+        );
+        println!("cargo:rustc-env=CROSSLINK_VERSION={version}");
+    } else if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
     {

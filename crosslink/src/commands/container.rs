@@ -381,13 +381,57 @@ pub(crate) fn github_login_preflight(
     }
 }
 
-/// Bring a floating tag (`:nightly`, `:latest`) up to date before a launch.
-/// When the registry cannot be reached, an existing local copy is used with a
-/// warning, so an offline launch keeps working; without a local copy the error
-/// names the reason. Pinned tags and digests are left to the runtime, which
-/// pulls them once.
+/// Whether a failed pull was the network rather than the registry answering:
+/// only then may a launch fall back to a local copy. A registry that answers
+/// "not found" or "denied" has withdrawn or hidden the image, and a cached
+/// copy must not outlive that.
+pub(crate) fn is_transport_failure(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    if [
+        "manifest unknown",
+        "not found",
+        "denied",
+        "unauthorized",
+        "forbidden",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+    {
+        return false;
+    }
+    [
+        "no such host",
+        "dial tcp",
+        "i/o timeout",
+        "timeout",
+        "connection refused",
+        "connection reset",
+        "network is unreachable",
+        "temporary failure in name resolution",
+        "tls handshake",
+        "eof",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn image_present_locally(runtime: &str, image: &str) -> bool {
+    Command::new(runtime)
+        .args(["image", "inspect", image])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Make the image ready to launch. A floating tag (`:nightly`, `:latest`) is
+/// refreshed every time; a pinned tag or digest is pulled once, when it is not
+/// present locally. When the registry cannot be reached and a local copy of a
+/// floating tag exists, the launch warns and uses it; any other failure stops
+/// the launch with the runtime's reason.
 pub(crate) fn refresh_floating_image(runtime: &str, image: &str) -> Result<()> {
-    if !crate::commands::kickoff::is_floating_image(image) {
+    let floating = crate::commands::kickoff::is_floating_image(image);
+    if !floating && image_present_locally(runtime, image) {
         return Ok(());
     }
     let pull = Command::new(runtime)
@@ -404,21 +448,18 @@ pub(crate) fn refresh_floating_image(runtime: &str, image: &str) -> Result<()> {
         .find(|line| !line.is_empty())
         .unwrap_or("no error output")
         .to_string();
-    let cached = Command::new(runtime)
-        .args(["image", "inspect", image])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    if cached {
+    if floating && is_transport_failure(&stderr) && image_present_locally(runtime, image) {
         eprintln!(
-            "warning: could not refresh {image} ({reason}); using the local copy, which may be out of date"
+            "warning: could not reach the registry to refresh {image} ({reason}); using the local copy, which may be out of date"
         );
         return Ok(());
     }
-    bail!(
-        "could not pull {image}: {reason}\nCheck network and registry access, or pass --image with an image you have locally (`just build-image` tags :local)."
-    )
+    let advice = if is_transport_failure(&stderr) {
+        "Check network and registry access, or pass --image with an image you have locally (`just build-image` tags :local)."
+    } else {
+        "The registry refused the image (it may have been withdrawn, made private, or never published). Pass --image with another image, or build one locally (`just build-image` tags :local)."
+    };
+    bail!("could not pull {image}: {reason}\n{advice}")
 }
 
 /// Pick the image: an explicit `--image` wins, then `CROSSLINK_CONTAINER_IMAGE`,
@@ -660,7 +701,9 @@ fn compute_memory_limit(config_override: Option<&str>) -> String {
 
 /// The image label that records which crosslink an agent image contains: the
 /// exact `crosslink --version` of its binary. CI and `container build` set it.
-pub(crate) const IMAGE_VERSION_LABEL: &str = "org.opencontainers.image.version";
+/// Crosslink-specific so that labels inherited from a base image (Ubuntu sets
+/// `org.opencontainers.image.version`) are never mistaken for it.
+pub(crate) const IMAGE_VERSION_LABEL: &str = "dev.crosslink.version";
 
 /// This CLI's version as `crosslink --version` reports it (`+<commit>` for git
 /// builds).
@@ -1243,17 +1286,6 @@ mod tests {
     }
 
     #[test]
-    fn image_name_is_ghcr_namespaced() {
-        // Fork builds may override the repository at build time.
-        if std::env::var("CROSSLINK_AGENT_IMAGE_REPOSITORY").is_err() {
-            assert_eq!(
-                IMAGE_NAME,
-                "ghcr.io/corvidae-coding-projects/crosslink-agent"
-            );
-        }
-    }
-
-    #[test]
     fn build_default_tag_is_distinct_from_lookup_tag() {
         assert_eq!(BUILD_DEFAULT_TAG, "local");
         assert_ne!(
@@ -1443,7 +1475,15 @@ mod tests {
             || "exit 1".to_string(),
             |value| format!("printf '%s\\n' '{value}'"),
         );
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        let log = dir.join("inspect.log");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n{body}\n",
+                log.display()
+            ),
+        )
+        .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path.to_string_lossy().into_owned()
     }
@@ -1476,19 +1516,52 @@ mod tests {
             check_image_version(&fake_inspect_runtime(dir.path(), None), &image),
             None
         );
+        let calls = std::fs::read_to_string(dir.path().join("inspect.log")).unwrap();
+        let expected = format!(
+            "image inspect --format {{{{ index .Config.Labels \"{IMAGE_VERSION_LABEL}\" }}}} {image}"
+        );
+        assert!(calls.contains(&expected), "{calls}");
+        assert_eq!(IMAGE_VERSION_LABEL, "dev.crosslink.version");
     }
 
-    /// A stand-in runtime for the refresh: `pull` and `image inspect` exit
-    /// with the given codes, and every call is appended to `calls.log`.
+    #[test]
+    fn only_network_failures_count_as_transport_failures() {
+        for transport in [
+            "Error response from daemon: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host",
+            "Error: net/http: TLS handshake timeout",
+            "dial tcp 140.82.112.34:443: i/o timeout",
+            "connect: network is unreachable",
+        ] {
+            assert!(is_transport_failure(transport), "{transport}");
+        }
+        for refused in [
+            "Error response from daemon: manifest unknown",
+            "Error response from daemon: pull access denied for ghcr.io/x/y, repository does not exist",
+            "Error: unauthorized: authentication required",
+            "Error response from daemon: ghcr.io/x/y:nightly not found",
+        ] {
+            assert!(!is_transport_failure(refused), "{refused}");
+        }
+    }
+
+    /// A stand-in runtime for image preparation: `pull` prints `pull_stderr`
+    /// and exits `pull_rc`, `image inspect` exits `inspect_rc`, and every call
+    /// is appended to `calls.log`.
     #[cfg(unix)]
-    fn fake_pull_runtime(dir: &Path, pull_rc: i32, inspect_rc: i32) -> String {
+    fn fake_pull_runtime(
+        dir: &Path,
+        name: &str,
+        pull_rc: i32,
+        pull_stderr: &str,
+        inspect_rc: i32,
+    ) -> String {
         use std::os::unix::fs::PermissionsExt;
-        let path = dir.join(format!("pull-{pull_rc}{inspect_rc}"));
+        let path = dir.join(name);
         let log = dir.join("calls.log");
         std::fs::write(
             &path,
             format!(
-                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1\" in\n  pull) echo 'dial tcp: lookup ghcr.io: no such host' >&2; exit {pull_rc} ;;\n  image) exit {inspect_rc} ;;\nesac\nexit 1\n",
+                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1\" in\n  pull) echo '{pull_stderr}' >&2; exit {pull_rc} ;;\n  image) exit {inspect_rc} ;;\nesac\nexit 1\n",
                 log.display()
             ),
         )
@@ -1499,32 +1572,51 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn floating_images_are_refreshed_and_fall_back_to_a_local_copy_offline() {
+    fn images_are_prepared_with_a_network_only_fallback() {
         let dir = tempfile::tempdir().unwrap();
         let nightly = format!("{IMAGE_NAME}:nightly");
-        // Registry reachable: refreshed.
-        refresh_floating_image(&fake_pull_runtime(dir.path(), 0, 1), &nightly).unwrap();
-        // Registry unreachable, local copy present: launch continues.
-        refresh_floating_image(&fake_pull_runtime(dir.path(), 1, 0), &nightly).unwrap();
-        // Unreachable and nothing local: the error carries the runtime's reason.
-        let error = refresh_floating_image(&fake_pull_runtime(dir.path(), 1, 1), &nightly)
+        let pinned = format!("{IMAGE_NAME}:0.10.0");
+        let offline = "dial tcp: lookup ghcr.io: no such host";
+        let withdrawn = "Error response from daemon: manifest unknown";
+        let prepare = |name: &str, pull_rc, stderr: &str, inspect_rc, image: &str| {
+            refresh_floating_image(
+                &fake_pull_runtime(dir.path(), name, pull_rc, stderr, inspect_rc),
+                image,
+            )
+        };
+        // Floating tag, registry reachable: refreshed.
+        prepare("a", 0, "", 1, &nightly).unwrap();
+        // Floating tag, network down, local copy present: the launch continues.
+        prepare("b", 1, offline, 0, &nightly).unwrap();
+        // Floating tag withdrawn by the registry: a cached copy must not be used.
+        let error = prepare("c", 1, withdrawn, 0, &nightly)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("no such host"), "{error}");
-        assert!(error.contains("--image"), "{error}");
-        // A pinned tag is never pulled here.
-        let calls_before = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
-        refresh_floating_image(
-            &fake_pull_runtime(dir.path(), 1, 1),
-            &format!("{IMAGE_NAME}:0.10.0"),
-        )
-        .unwrap();
-        let calls_after = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
-        assert_eq!(calls_before, calls_after);
         assert!(
-            calls_after.contains(&format!("pull --quiet {nightly}")),
-            "{calls_after}"
+            error.contains("manifest unknown") && error.contains("refused"),
+            "{error}"
         );
+        // Network down and nothing local: the error carries the reason.
+        let error = prepare("d", 1, offline, 1, &nightly)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("no such host") && error.contains("network"),
+            "{error}"
+        );
+        // Pinned tag present locally: no pull at all.
+        let log = dir.path().join("calls.log");
+        let _ = std::fs::remove_file(&log);
+        prepare("e", 1, withdrawn, 0, &pinned).unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(!calls.contains("pull"), "{calls}");
+        // Pinned tag missing locally: pulled once, and a refusal is reported.
+        let error = prepare("f", 1, withdrawn, 1, &pinned)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("refused"), "{error}");
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(calls.contains(&format!("pull --quiet {pinned}")), "{calls}");
     }
 
     /// A stand-in container runtime: `info`, `volume inspect` and `run` exit

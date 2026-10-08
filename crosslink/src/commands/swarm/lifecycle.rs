@@ -700,7 +700,7 @@ pub fn launch(crosslink_dir: &Path, db: &Database, phase_slug: &str, quiet: bool
             timeout,
             None,
         )?;
-        let (agent_image, _) = kickoff::resolve_agent_image(None)?;
+        let (agent_image, _) = kickoff::agent_image_for(&ContainerMode::None, None)?;
         let opts = KickoffOpts {
             description: &description,
             issue: issue_id,

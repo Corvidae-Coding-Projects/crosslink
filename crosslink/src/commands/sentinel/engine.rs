@@ -446,7 +446,7 @@ fn spawn_agent(
         None,
     )?;
 
-    let (agent_image, _) = crate::commands::kickoff::resolve_agent_image(None)?;
+    let (agent_image, _) = crate::commands::kickoff::agent_image_for(&ContainerMode::None, None)?;
     let opts = KickoffOpts {
         description: &scoped_description,
         issue: Some(issue_id),
