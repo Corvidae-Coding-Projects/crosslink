@@ -5,7 +5,12 @@ use std::path::Path;
 fn main() {
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/refs/");
-    println!("cargo:rerun-if-changed=../.git/packed-refs");
+    // Cargo treats a watched path that does not exist as changed, which would
+    // rerun this script and rebuild the binary on every invocation; shallow CI
+    // checkouts have no packed-refs. Watch it only when it is there.
+    if Path::new("../.git/packed-refs").exists() {
+        println!("cargo:rerun-if-changed=../.git/packed-refs");
+    }
     println!("cargo:rerun-if-env-changed={AGENT_IMAGE_TAG_ENV}");
     println!(
         "cargo:rustc-env={AGENT_IMAGE_TAG_ENV}={}",
