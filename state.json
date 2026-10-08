@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 58,
-        "tip_oid": "60cde0176a6748ebb3a380a20c1f926095514683",
-        "prefix_sha256": "aca311c760fbf7a63141a58cf4d35a3dfa8b26e67cb7e9be3475fbbdfb6a5d3f"
+        "sequence": 59,
+        "tip_oid": "8b727cbd6fa8090654ea561adf1398e6aea20efc",
+        "prefix_sha256": "d436d9c390714db2953e03525c19b12df1e9c451a7173b4ae18d18868a8b0ae9"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 813,
+  "next_display_id": 814,
   "next_comment_id": 1291,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -757,6 +757,7 @@
     "dc1f4872-07f8-4622-aa7f-3429501b0391": 120,
     "dd1202c5-651d-4596-b25d-65378d4e1812": 739,
     "dd1de3f5-0a7b-4f8f-884c-f99285c8831b": 793,
+    "dd7e3e04-c9da-42cb-9317-22f3d4fb6a30": 813,
     "dec5acf0-dd1b-4540-9e9d-b70bea8ca777": 810,
     "dee26255-71db-4be3-aace-6375cbc837ee": 100,
     "dee298fa-1dea-49b9-911b-5476cb695e0b": 194,
@@ -22618,6 +22619,17 @@
         }
       }
     },
+    "dd7e3e04-c9da-42cb-9317-22f3d4fb6a30": {
+      "uuid": "dd7e3e04-c9da-42cb-9317-22f3d4fb6a30",
+      "display_id": 813,
+      "title": "One image resolver for every container command, and fork-aware image repository",
+      "description": "From PR #129 review (#812, ARCH-08/SEC-10). CROSSLINK_CONTAINER_IMAGE is honoured only by container start and container auth; kickoff (clap default), swarm (lifecycle.rs) and sentinel (engine.rs) ignore it, and swarm and sentinel have no override at all. The image repository is hard-coded to ghcr.io/corvidae-coding-projects/crosslink-agent, so a fork's release binaries default to Corvidae's image at the fork's version, while the workflows derive the repository from the owner. Proposal: one resolver (flag, then env, then build default) used at every call site, print where the image came from, and an optional build-time repository override.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T18:42:19.834645Z",
+      "updated_at": "2026-10-08T18:42:19.834645Z"
+    },
     "dec5acf0-dd1b-4540-9e9d-b70bea8ca777": {
       "uuid": "dec5acf0-dd1b-4540-9e9d-b70bea8ca777",
       "display_id": 810,
@@ -27738,6 +27750,11 @@
       "agent_id": "ldsw",
       "agent_seq": 58,
       "timestamp": "2026-10-08T18:41:36.660504Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 59,
+      "timestamp": "2026-10-08T18:42:19.834645Z"
     }
   ],
   "watermark": {
