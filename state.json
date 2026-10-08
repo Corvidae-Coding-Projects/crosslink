@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 21,
-        "tip_oid": "8a80b98f17e44e6abdd46ec20fd9397b076a45d5",
-        "prefix_sha256": "cfa1ca95ed12060bc3c962ca8deeac24c7ed06b876c83ae0b3b4c23ab15768e4"
+        "sequence": 22,
+        "tip_oid": "938f4e4627092d5919f339c1b7c6d12d98e47239",
+        "prefix_sha256": "243eb84b6928127fde437a6b26d53c4608a176c95017fd8cb0a3f1da2683b0c8"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 802,
+  "next_display_id": 803,
   "next_comment_id": 1270,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -824,6 +824,7 @@
     "f53221e9-4ffa-47b6-8e65-348fdd111b95": 294,
     "f55aaea6-a210-43d3-ae09-a77b1505e720": 689,
     "f5bedeac-9fb3-49b7-8034-793590415ad2": 571,
+    "f67091ae-6600-4a35-aaa5-9e7c9d6d8075": 802,
     "f6a460c3-342e-44ae-8216-5ecc9392fcbe": 1,
     "f6ee2d1b-ea10-4059-91d8-a1a0fd1ac09a": 171,
     "f8614df4-3699-4465-9cc5-17540faa054d": 626,
@@ -24901,6 +24902,17 @@
         "enhancement"
       ]
     },
+    "f67091ae-6600-4a35-aaa5-9e7c9d6d8075": {
+      "uuid": "f67091ae-6600-4a35-aaa5-9e7c9d6d8075",
+      "display_id": 802,
+      "title": "crates.io publishing: give the crate a Corvidae owner and a CI credential",
+      "description": "External: Corvidae-Coding-Projects/crosslink#121. Crate owners are dollspace-gay and maxine-at-forecast (all versions published by maxine-at-forecast, last 0.9.0-beta.1 on 2026-06-13); crate metadata still says forecast-bio. Repo has no CARGO_REGISTRY_TOKEN and no 'cargo' environment, so publish.yml fails on the next v* tag. Decide ownership (add a Corvidae team or maintainers) and auth (scoped token in a cargo environment, or crates.io trusted publishing), then dry-run before tagging. Research: #801.",
+      "status": "open",
+      "priority": "high",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:01:40.829391Z",
+      "updated_at": "2026-10-08T03:01:40.829391Z"
+    },
     "f6a460c3-342e-44ae-8216-5ecc9392fcbe": {
       "uuid": "f6a460c3-342e-44ae-8216-5ecc9392fcbe",
       "display_id": 1,
@@ -27203,6 +27215,11 @@
       "agent_id": "ldsw",
       "agent_seq": 21,
       "timestamp": "2026-10-08T03:00:48.034144Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 22,
+      "timestamp": "2026-10-08T03:01:40.829391Z"
     }
   ],
   "watermark": {
