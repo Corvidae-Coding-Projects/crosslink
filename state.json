@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 27,
-        "tip_oid": "2da6b19d5e759b944766616e84ff4bf50a0d8e77",
-        "prefix_sha256": "b84d1b156f1424d71ec3db481a432c163fdb1a90227b8606e6ad13a2a016cada"
+        "sequence": 28,
+        "tip_oid": "e444b349d66cb12f7dcbfbb3d88cedae9c92961c",
+        "prefix_sha256": "89fc4d2911ed9263830ba90286cf6743ddc1814abc8a50376d427ff3213048b1"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 808,
-  "next_comment_id": 1270,
+  "next_comment_id": 1271,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -4654,7 +4654,18 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:52.610682Z",
-      "updated_at": "2026-10-08T03:03:52.610682Z"
+      "updated_at": "2026-10-08T03:05:34.762272Z",
+      "comments": {
+        "03e020e6-f38b-437e-9995-8d4807e23bc5": {
+          "display_id": 1270,
+          "author": "ldsw",
+          "content": "Verified 2026-10-08: forecast-bio :latest and :0.9.0-beta.1 share digest sha256:5f93d5509aec... (the v0.9.0-beta.1 tag build); :nightly differs. dollspace-gay, magnificentlycursed and corvidae images only ever had :nightly. Kickoff has defaulted to crosslink-agent:latest since before GHCR (local builds); 725e5542 (2026-05-04, #727) repointed it to the GHCR name. #727's 'NO :latest as workflow input default' concerns the workflow's dispatch inputs, not kickoff. Every v* tag moves :latest, prereleases included.",
+          "created_at": "2026-10-08T03:05:34.726299Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGOdvoh0hgdYoNY1ypXQtewMdTgrRYMlcTnBElwwJ+dVJjgSiCE/D1TfjoIdjSJ9C8VoAEfw9PVv/OYoyhwTKDw=="
+        }
+      }
     },
     "2948f012-a7de-4349-878a-8f6ccb27b3e3": {
       "uuid": "2948f012-a7de-4349-878a-8f6ccb27b3e3",
@@ -27305,6 +27316,11 @@
       "agent_id": "ldsw",
       "agent_seq": 27,
       "timestamp": "2026-10-08T03:04:25.238465Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 28,
+      "timestamp": "2026-10-08T03:05:34.762272Z"
     }
   ],
   "watermark": {
