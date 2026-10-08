@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 20,
-        "tip_oid": "518fbc76a22a3bb4e427670668e48b47541b1d36",
-        "prefix_sha256": "ffcb743d4ab07d15f40e23609dbe26ea21cce34788b515e66a93f7847d0d2cf2"
+        "sequence": 21,
+        "tip_oid": "8a80b98f17e44e6abdd46ec20fd9397b076a45d5",
+        "prefix_sha256": "cfa1ca95ed12060bc3c962ca8deeac24c7ed06b876c83ae0b3b4c23ab15768e4"
       },
       "sQl8": {
         "sequence": 35,
@@ -25579,11 +25579,12 @@
       "uuid": "fd51a35b-3ed1-4dd3-a59d-5bda2e0e95f9",
       "display_id": 728,
       "title": "Fix smoke-verify auth + ensure GHCR package is publicly pullable (post-merge of #578)",
-      "status": "open",
+      "status": "closed",
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-05-04T21:24:32.054397978Z",
-      "updated_at": "2026-10-08T03:00:08.939036Z",
+      "updated_at": "2026-10-08T03:00:48.034144Z",
+      "closed_at": "2026-10-08T03:00:48.010384Z",
       "labels": [
         "bug"
       ],
@@ -27197,6 +27198,11 @@
       "agent_id": "ldsw",
       "agent_seq": 20,
       "timestamp": "2026-10-08T03:00:08.939036Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 21,
+      "timestamp": "2026-10-08T03:00:48.034144Z"
     }
   ],
   "watermark": {
