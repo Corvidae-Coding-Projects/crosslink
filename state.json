@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 60,
-        "tip_oid": "1e5e5c2fea555dcaedcf9c642187c51752cfc37c",
-        "prefix_sha256": "39700c5cf91f7210462444a2522f0921e627079c9e98d12b009edd0424422ca0"
+        "sequence": 61,
+        "tip_oid": "456a9fd8e451afc07e62ac8e376192dfe70cbe68",
+        "prefix_sha256": "df3dba5182cb43bdec7ce0d5ab59e15b918bb3556aa968554b6cb41becb63b51"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 814,
-  "next_comment_id": 1291,
+  "next_comment_id": 1292,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -7287,7 +7287,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T18:25:40.199127Z",
-      "updated_at": "2026-10-08T18:26:58.296937Z",
+      "updated_at": "2026-10-08T18:46:13.400894Z",
       "comments": {
         "08df1ae7-0297-41f3-a39f-0856952bf3e1": {
           "display_id": 1284,
@@ -7297,6 +7297,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA09UvRdTgRkJ4O5768wEiuD2f2GEOxCzMXHge2OejRHDEb1WBNad5i3AIJegEMKZuFZnVvkd7lSHeLFeit6RdCg=="
+        },
+        "213fffdc-9834-4ceb-993e-4ba3b440fbf8": {
+          "display_id": 1291,
+          "author": "ldsw",
+          "content": "Scope widened by operator 2026-10-08: PR #129 also takes #804, #805, #810, #811, #813 and the non-crates.io parts of #809; #802 stays separate; #807 stays parked. Default for the #811/SEC-01 conflict: release images immutable, refreshed provider CLIs ship in a patch release (pending operator confirmation).",
+          "created_at": "2026-10-08T18:46:13.350454Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkvdsshwtjG6siIBG91HzdQoYYt6G3MDRbNdhvokMEFZsvSQxgA+yklJp5iMKRrOeV87Tv1NYv+A8gwL/6w45AA=="
         }
       }
     },
@@ -27764,6 +27773,11 @@
       "agent_id": "ldsw",
       "agent_seq": 60,
       "timestamp": "2026-10-08T18:43:31.728986Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 61,
+      "timestamp": "2026-10-08T18:46:13.400894Z"
     }
   ],
   "watermark": {
