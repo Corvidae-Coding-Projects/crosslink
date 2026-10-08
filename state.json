@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 3,
-        "tip_oid": "b0237ff9af98ea051b026f7a67f9d691e6e0686b",
-        "prefix_sha256": "67a1a5d64d083153a581bd6f1b9526b3e5202ab23b894b4befb5995df5dee721"
+        "sequence": 4,
+        "tip_oid": "d8c56cc4d886815bb1ab497ebe4e319449dcc08e",
+        "prefix_sha256": "739235572965f954873601a8839b07d48135ae0e73c480ccace1b6ba2caf6eed"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 800,
-  "next_comment_id": 1263,
+  "next_comment_id": 1264,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -18803,10 +18803,21 @@
       "priority": "low",
       "created_by": "ldsw",
       "created_at": "2026-10-08T02:11:56.147532Z",
-      "updated_at": "2026-10-08T02:12:35.059353Z",
+      "updated_at": "2026-10-08T02:15:08.867159Z",
       "labels": [
         "chore"
-      ]
+      ],
+      "comments": {
+        "92d7c785-7423-45d4-a352-0feade159615": {
+          "display_id": 1263,
+          "author": "ldsw",
+          "content": "Replaced the magnificentlycursed fork checkout in place with a clone of upstream develop (388bed89f); the old checkout and its tracker are kept at crosslink-fork-retired. init ran with defaults; init's changes to hook-config.json (agent cargo test), both .gitignore files and AGENTS.md were restored to keep tracked files stock. First daemon activation took about 3 minutes and reported ready_migrated: it published reconciliation generation c462f2e63caac81932e848d1ca71f075 (12 generation refs, 33 archive refs) and moved reconciliation/current from 027dcd4a87f7645740f3ea73fc57faaf, which stays archived. Its first lock confirmation took 37 s against the 30 s bound (#118 write cost).",
+          "created_at": "2026-10-08T02:15:08.830461Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAfHh5ybMNfiiO3lmXR5viaKaGzRldM5q1nH8GG9nqEXhV19hlsnCimxgKS9mjbNQbc1TDMirO02U40TBQhIKaAQ=="
+        }
+      }
     },
     "b519e946-9899-4024-9335-f229c903b612": {
       "uuid": "b519e946-9899-4024-9335-f229c903b612",
@@ -27013,6 +27024,11 @@
       "agent_id": "ldsw",
       "agent_seq": 3,
       "timestamp": "2026-10-08T02:13:06.096027Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 4,
+      "timestamp": "2026-10-08T02:15:08.867159Z"
     }
   ],
   "watermark": {
