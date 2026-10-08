@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 16,
-        "tip_oid": "de6d22cb1011de1119f856b124888a5a6b397494",
-        "prefix_sha256": "4a1629f3d157769fa5b7d6122f06842b5b9375ec307583211960f67879a5c934"
+        "sequence": 17,
+        "tip_oid": "4ab17ec40af573797bbaee8bda5cc8bb8881f0cd",
+        "prefix_sha256": "697b16429031e84d8ad52c5e8d8c186ed779c73a2ed9cf93056c50a80c9363ad"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 802,
-  "next_comment_id": 1266,
+  "next_comment_id": 1267,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -15021,10 +15021,21 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T02:37:58.932248Z",
-      "updated_at": "2026-10-08T02:38:28.312544Z",
+      "updated_at": "2026-10-08T02:41:08.535341Z",
       "labels": [
         "research"
-      ]
+      ],
+      "comments": {
+        "a6b9bffc-9c02-4512-9f8f-f2f750eeae82": {
+          "display_id": 1266,
+          "author": "ldsw",
+          "content": "CI/CD state 2026-10-08: Corvidae repo created 2026-06-25 (default main, public). No repo or org Actions secrets visible (no CARGO_REGISTRY_TOKEN) and no 'cargo' environment (only github-pages), so publish.yml would fail on the next v* tag. No GitHub Releases exist; release-builds.yml only uploads workflow artifacts. Tags: v0.9.0-beta.1 (2026-06-12) newest. publish/release-builds have only run as PR dry runs here. docs.yml last ran 2026-08-17 on main and failed (Pages deployment 404); Pages now reports build_type workflow. container-image.yml pushes ghcr.io/<owner>/crosslink-agent:nightly(+sha) on develop and :<ver>+:latest on v* tags with GITHUB_TOKEN; smoke-verify logs in first, so it cannot detect a private package.",
+          "created_at": "2026-10-08T02:41:08.500524Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWueKBI1Y00U/ox587oPMdKkTus9EjlpTZEiCXAjt9UmAuP6fnppAWH2h/y4jL329lSVUbhrojCNDRD7SVahBCA=="
+        }
+      }
     },
     "90a3b9d8-4dc0-4e6f-ae2e-850e6bcd9f9b": {
       "uuid": "90a3b9d8-4dc0-4e6f-ae2e-850e6bcd9f9b",
@@ -27139,6 +27150,11 @@
       "agent_id": "ldsw",
       "agent_seq": 16,
       "timestamp": "2026-10-08T02:38:58.028608Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 17,
+      "timestamp": "2026-10-08T02:41:08.535341Z"
     }
   ],
   "watermark": {
