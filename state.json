@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 13,
-        "tip_oid": "b8809e6b2c16c5d1df23bde61d3f19c8b378e9e6",
-        "prefix_sha256": "ab5830e5baac45ff17efbe5f0a423105d779a9cd02159332e3379f6164a320f0"
+        "sequence": 14,
+        "tip_oid": "ef3ecfa6f4d7d22d1904862f719fba233650b9ad",
+        "prefix_sha256": "aecce4b525efd4fc2bf386c1af55859367ff25a2fe598b9402d3ab0765cb9bc6"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 801,
+  "next_display_id": 802,
   "next_comment_id": 1266,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -514,6 +514,7 @@
     "8fba265f-9857-4498-847b-ee5db8dd898f": 619,
     "8fd25405-bc68-4031-9bdf-a0b6749e1465": 319,
     "900879f0-724a-482f-bdf0-fc2e92f51bcc": 566,
+    "90981875-101f-4f9d-a0e3-44aaf953761c": 801,
     "90a3b9d8-4dc0-4e6f-ae2e-850e6bcd9f9b": 459,
     "90ffe048-d646-4c19-94b9-3545f1cda67c": 97,
     "913ad52d-11c4-44fd-9b1d-5a77c11d1e5a": 631,
@@ -15008,6 +15009,16 @@
         "enhancement"
       ]
     },
+    "90981875-101f-4f9d-a0e3-44aaf953761c": {
+      "uuid": "90981875-101f-4f9d-a0e3-44aaf953761c",
+      "display_id": 801,
+      "title": "Research crosslink's repo moves and package/image publishing history before fixing GH#101",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T02:37:58.932248Z",
+      "updated_at": "2026-10-08T02:37:58.932248Z"
+    },
     "90a3b9d8-4dc0-4e6f-ae2e-850e6bcd9f9b": {
       "uuid": "90a3b9d8-4dc0-4e6f-ae2e-850e6bcd9f9b",
       "display_id": 459,
@@ -27106,6 +27117,11 @@
       "agent_id": "ldsw",
       "agent_seq": 13,
       "timestamp": "2026-10-08T02:28:38.317875Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 14,
+      "timestamp": "2026-10-08T02:37:58.932248Z"
     }
   ],
   "watermark": {
