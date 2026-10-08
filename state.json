@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 63,
-        "tip_oid": "29cfbf0b87bf6e59cc641aa3aa2c06007cd9ceaa",
-        "prefix_sha256": "47d76a71c9d60522efb70df9c4df8c6401a219663af49f766c1343128e8c62ed"
+        "sequence": 64,
+        "tip_oid": "d5db2eae1181ab998480d74290772da022c3914b",
+        "prefix_sha256": "8dc8da23d8ac50ef7e68c71f64cf339e7bcfa491870976cc8650a37e032e7d6f"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 814,
+  "next_display_id": 815,
   "next_comment_id": 1292,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -106,6 +106,7 @@
     "10eaf6ad-0cd1-4ac5-9087-aeb7b8c2b211": 80,
     "11606c23-fc2f-44f2-992f-9ebb05950955": 417,
     "1165df13-3294-4c44-8615-ef7226aa03fa": 389,
+    "11d3c48a-8fb6-409f-9eae-60ac56cbb3e7": 814,
     "11e05eec-12e5-4f01-9c31-30ffbb64c9cc": 449,
     "12614095-9614-4da5-9215-ad3a029525bf": 553,
     "135aa6c0-bf14-4adc-9bc8-48ef375ebbac": 782,
@@ -2449,6 +2450,17 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABqZlObiKKT3PpeYAu5wvx5XzvlnsL/LJOv0/Diu8auATP17KGZn2WSvNNCtQ/ekwtMi46ZvnHP2n1RFV0XjEDg=="
         }
       }
+    },
+    "11d3c48a-8fb6-409f-9eae-60ac56cbb3e7": {
+      "uuid": "11d3c48a-8fb6-409f-9eae-60ac56cbb3e7",
+      "display_id": 814,
+      "title": "Commit gate and work-check hook misfires (upstream #104 item 2 and related)",
+      "description": "External: Corvidae-Coding-Projects/crosslink#104 (evidence comment 2026-10-08). Next up after PR #129. Observed this session: the commit gate refuses commits while .crosslink/.active-issue is set (session status ~2.5 s vs the hook's 3 s timeout; the gate never reads the sentinel); chained commands are judged before they run (session work N && commit refused); read-only git subcommands blocked by prefix (git tag --points-at/--sort, git stash list); Edit/Write refused with 'failed to parse stdin' in a Claude Code build; readiness windows block all Bash including diagnostics; the commit matcher fires on the words 'git commit' anywhere in the command text (a gh issue comment body). Compounded by #118 (lock confirmation 34-48 s vs 30 s). Related: #120.",
+      "status": "open",
+      "priority": "high",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T19:20:09.088796Z",
+      "updated_at": "2026-10-08T19:20:09.088796Z"
     },
     "11e05eec-12e5-4f01-9c31-30ffbb64c9cc": {
       "uuid": "11e05eec-12e5-4f01-9c31-30ffbb64c9cc",
@@ -27796,6 +27808,11 @@
       "agent_id": "ldsw",
       "agent_seq": 63,
       "timestamp": "2026-10-08T19:13:26.007781Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 64,
+      "timestamp": "2026-10-08T19:20:09.088796Z"
     }
   ],
   "watermark": {
