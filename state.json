@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 46,
-        "tip_oid": "5889ac8d372f6057f4d5e31933e4f53bce1cd15d",
-        "prefix_sha256": "3106ed9f8b936de01c0e4b508d73cf3b50f6209443864e10219240b87df7d5f5"
+        "sequence": 47,
+        "tip_oid": "51919401efffb3325dc0da188ff48ada1ba0a0f9",
+        "prefix_sha256": "e4fa96ccd590fe3751d7fcc2868f7e65be635c16a603cfd3c68028cdd6670ada"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 812,
-  "next_comment_id": 1280,
+  "next_comment_id": 1281,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -8955,7 +8955,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:02:14.366945Z",
-      "updated_at": "2026-10-08T03:30:09.758783Z",
+      "updated_at": "2026-10-08T04:07:16.512498Z",
       "comments": {
         "8418c60e-3014-4c62-8813-0c1f5c6d38e4": {
           "display_id": 1273,
@@ -8965,6 +8965,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcMpVemgzpUjAhT2l+7QlMuT2gKEgrB1jQgekhHTtvtFhSwzWWXVELbsRRQGPdjkb//Wf/8yYwzO7678Zz+KnBQ=="
+        },
+        "a0840ace-722c-48af-832d-f69322860a88": {
+          "display_id": 1280,
+          "author": "ldsw",
+          "content": "Done in 5f435bed (branch feat/version-matched-agent-image): smoke-verify checks every pushed tag with an anonymous manifest request before pulling without login; new image-canary.yml runs daily and on demand, anonymously checking :nightly, the newest release's :<version> (+ :latest when stable) and the frozen forecast-bio :latest. Canary run locally against GHCR: current refs OK, a missing tag fails with HTTP 404.",
+          "created_at": "2026-10-08T04:07:16.397085Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA5IM5FlMo4l4DoG0NaJOmNmMeLDOIgK7YHl4H7Bp3PyClWnK5vFR2Kah3ZIgZIOPgQWFuU70GwJfz/H7BcDrGDA=="
         }
       }
     },
@@ -27561,6 +27570,11 @@
       "agent_id": "ldsw",
       "agent_seq": 46,
       "timestamp": "2026-10-08T04:06:19.248594Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 47,
+      "timestamp": "2026-10-08T04:07:16.512498Z"
     }
   ],
   "watermark": {
