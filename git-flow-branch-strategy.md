@@ -12,6 +12,7 @@ updated: 2026-10-08
 
 
 
+
 # Git Flow Branch Strategy
 
 Crosslink uses a tiered git flow pattern to balance agent autonomy with quality gates.
@@ -49,9 +50,10 @@ main is the default branch of Corvidae-Coding-Projects/crosslink (since the 2026
 
 ## CI Tiering
 
-- Feature branches (ci-feature.yml): Build + unit tests only (~2 min)
-- develop/release/hotfix (ci.yml): Full suite -- lint, security audit, tests on ubuntu + macos, proptests, fuzz, release builds
-- main + tags (publish.yml): Full suite + crates.io publish + GitHub release with binary artifacts
+- Feature branches (ci-feature.yml): build + unit tests only.
+- develop and pull requests (ci.yml): full suite - lint, security audit, tests on Linux, macOS and Windows, proptests, fuzz.
+- Container Image (container-image.yml): develop pushes publish :nightly; a v* tag on main runs the gated release flow - version gate, :<version> image, anonymous smoke test by digest, :latest promotion for the highest stable release, then the GitHub release with Linux/macOS/Windows binaries, SHA256SUMS and attestations (release-builds.yml is called from it). See RELEASING.md.
+- crates.io (publish.yml) still runs independently on tags and needs the crate's ownership and credential set up for this repository (2026-10-08).
 
 ## GitHub Rulesets (configured)
 
