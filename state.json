@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 18,
-        "tip_oid": "cf6615f4857d6b62bf23713370bdb77d2379837a",
-        "prefix_sha256": "75eda8b3e0aba3ac17c26f47b42083e9bfe0fa77a4f33f2c7f4a8bda83234ee6"
+        "sequence": 19,
+        "tip_oid": "bbf24e6f4d971c181a4821e58560dab700d2532b",
+        "prefix_sha256": "aa45670e4eac7ebb304ad0e01b7eb795aa2412f4835fa06ef898797adce01fa3"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 802,
-  "next_comment_id": 1268,
+  "next_comment_id": 1269,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -15021,7 +15021,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T02:37:58.932248Z",
-      "updated_at": "2026-10-08T02:43:51.757449Z",
+      "updated_at": "2026-10-08T02:51:13.629168Z",
       "labels": [
         "research"
       ],
@@ -15043,6 +15043,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtCmMta41v1oQQdlL3HTb84fe9B3Wcpf9FsPHmNGGVsPFTk1EeQGx9i2OfudG2Zcsy1CgCZ5vKFRl21YVyiKKAQ=="
+        },
+        "e550b55c-0fa4-4e5c-8296-38fc33dbe13f": {
+          "display_id": 1268,
+          "author": "ldsw",
+          "content": "Side finding filed as Corvidae-Coding-Projects/crosslink#120: since 0a2ac701 nothing creates or refreshes the knowledge cache (init and daemon never do; reads no longer sync). Only knowledge is affected: hub cache, auto-hydrate, dashboard poll and hub readers all got replacements in the same commit.",
+          "created_at": "2026-10-08T02:51:13.595533Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAyVPtfpMg1sk+GkefH1ESxEq22uo52qB39brgwXia9xfJckjcK71x5pRftAdkwi9bp/OhMUFR4uKZc4mLVuZlDQ=="
         }
       }
     },
@@ -27169,6 +27178,11 @@
       "agent_id": "ldsw",
       "agent_seq": 18,
       "timestamp": "2026-10-08T02:43:51.757449Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 19,
+      "timestamp": "2026-10-08T02:51:13.629168Z"
     }
   ],
   "watermark": {
