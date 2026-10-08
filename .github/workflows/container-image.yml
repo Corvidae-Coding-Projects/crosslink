@@ -39,7 +39,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.inputs.rehearse_promotion == 'true' && '-rehearsal' || '' }}
   # Never cancel a release run part-way through publishing.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
@@ -61,9 +61,12 @@ jobs:
       prerelease: ${{ steps.plan.outputs.prerelease }}
       rehearsal: ${{ steps.plan.outputs.rehearsal }}
       agent_image_tag: ${{ steps.plan.outputs.agent_image_tag }}
+      crosslink_version: ${{ steps.plan.outputs.crosslink_version }}
       cache_ref: ${{ steps.plan.outputs.cache_ref }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - name: Decide what this run may publish
         id: plan
         env:
@@ -89,20 +92,35 @@ jobs:
                 echo "::error::Tag v${VERSION} does not match crosslink/Cargo.toml version ${CARGO_VERSION}; nothing was published"
                 exit 1
               fi
+              # Releases come from main: a tag on any other commit publishes nothing.
+              if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+                echo "::error::v${VERSION} points at ${GITHUB_SHA}, which is not on main; releases are tagged on main"
+                exit 1
+              fi
               # A published version is never replaced: pinned tags are pulled
               # once and cached, so a second image under the same tag would
-              # split users across two builds.
+              # split users across two builds. Only an explicit "not found"
+              # lets the release proceed; anything else fails closed.
               token="$(curl -sS "https://${REGISTRY}/token?scope=repository:${REPO_PATH}:pull" | jq -r '.token // empty' || true)"
-              if [ -n "$token" ]; then
-                code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
-                  -H "Authorization: Bearer ${token}" \
-                  -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
-                  "https://${REGISTRY}/v2/${REPO_PATH}/manifests/${VERSION}")"
-                if [ "$code" = 200 ]; then
+              if [ -z "$token" ]; then
+                echo "::error::cannot confirm ${BASE}:${VERSION} is unpublished: no anonymous registry token (package private, missing, or registry unavailable)"
+                exit 1
+              fi
+              code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+                -H "Authorization: Bearer ${token}" \
+                -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+                "https://${REGISTRY}/v2/${REPO_PATH}/manifests/${VERSION}" || true)"
+              case "$code" in
+                404) ;;
+                200)
                   echo "::error::${BASE}:${VERSION} is already published; versions are never republished. Release a new version instead."
                   exit 1
-                fi
-              fi
+                  ;;
+                *)
+                  echo "::error::cannot confirm ${BASE}:${VERSION} is unpublished (registry answered HTTP ${code:-none}); retry when the registry is healthy"
+                  exit 1
+                  ;;
+              esac
               TAGS=("${BASE}:${VERSION}")
               PUSH=true RELEASE=true AGENT_IMAGE_TAG="${VERSION}"
               case "$VERSION" in *-*) PRERELEASE=true ;; esac
@@ -136,6 +154,7 @@ jobs:
             echo "prerelease=${PRERELEASE}"
             echo "rehearsal=${REHEARSAL}"
             echo "agent_image_tag=${AGENT_IMAGE_TAG}"
+            echo "crosslink_version=${CARGO_VERSION}+${SHORT_SHA}"
             echo "cache_ref=${BASE}:buildcache"
           } >> "$GITHUB_OUTPUT"
           echo "Plan: push=${PUSH} release=${RELEASE} prerelease=${PRERELEASE} rehearsal=${REHEARSAL} tags=${TAGS[*]}"
@@ -148,6 +167,9 @@ jobs:
       # The default agent image the binaries in this image will use: the
       # release version on a tag, nightly otherwise. Set explicitly, never inferred.
       CROSSLINK_AGENT_IMAGE_TAG: ${{ needs.gate.outputs.agent_image_tag }}
+      CROSSLINK_AGENT_IMAGE_REPOSITORY: ${{ needs.gate.outputs.base }}
+      # One version string for every architecture (cross cannot see .git).
+      CROSSLINK_VERSION: ${{ needs.gate.outputs.crosslink_version }}
     strategy:
       fail-fast: true
       matrix:
@@ -242,13 +264,18 @@ jobs:
           chmod +x crosslink/resources/container/crosslink-amd64
           chmod +x crosslink/resources/container/crosslink-arm64
 
-      - name: Read the crosslink version the image will contain
+      - name: Check the binary reports the gate's version
         id: label
+        env:
+          EXPECTED: ${{ needs.gate.outputs.crosslink_version }}
         run: |
           set -euo pipefail
           out="$(crosslink/resources/container/crosslink-amd64 --version)"
-          echo "crosslink_version=${out#crosslink }" >> "$GITHUB_OUTPUT"
-          echo "$out"
+          if [ "$out" != "crosslink ${EXPECTED}" ]; then
+            echo "::error::amd64 binary reports '${out}', expected 'crosslink ${EXPECTED}'"
+            exit 1
+          fi
+          echo "crosslink_version=${EXPECTED}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -276,12 +303,16 @@ jobs:
           push: ${{ needs.gate.outputs.push == 'true' }}
           tags: ${{ needs.gate.outputs.tags }}
           labels: |
+            dev.crosslink.version=${{ steps.label.outputs.crosslink_version }}
             org.opencontainers.image.version=${{ steps.label.outputs.crosslink_version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           provenance: false
-          cache-from: type=registry,ref=${{ needs.gate.outputs.cache_ref }}
-          cache-to: ${{ needs.gate.outputs.push == 'true' && format('type=registry,ref={0},mode=max', needs.gate.outputs.cache_ref) || '' }}
+          # Releases build without the registry cache that develop pushes
+          # write, so a release image follows only from its tagged source.
+          no-cache: ${{ needs.gate.outputs.release == 'true' }}
+          cache-from: ${{ needs.gate.outputs.release != 'true' && format('type=registry,ref={0}', needs.gate.outputs.cache_ref) || '' }}
+          cache-to: ${{ needs.gate.outputs.push == 'true' && needs.gate.outputs.release != 'true' && format('type=registry,ref={0},mode=max', needs.gate.outputs.cache_ref) || '' }}
 
       - name: Attest the image build
         if: needs.gate.outputs.push == 'true'
@@ -414,6 +445,11 @@ jobs:
       - name: Pull the built digest
         run: docker pull --platform ${{ matrix.platform }} "${BASE}@${DIGEST}"
 
+      - name: The image's tools run on this platform
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} "${BASE}@${DIGEST}" \
+            bash -c 'set -e; claude --version; codex --version; gh --version | head -n 1; uv --version'
+
       - name: Manifest covers both architectures (once)
         if: matrix.platform == 'linux/amd64'
         run: |
@@ -423,6 +459,7 @@ jobs:
       - name: Run crosslink --version and check the image's version label
         env:
           LABEL_VERSION: ${{ needs.publish-image.outputs.crosslink_version }}
+          AGENT_IMAGE_TAG: ${{ needs.gate.outputs.agent_image_tag }}
           RELEASE: ${{ needs.gate.outputs.release }}
           VERSION: ${{ needs.gate.outputs.version }}
         run: |
@@ -430,9 +467,15 @@ jobs:
           out="$(docker run --rm --platform ${{ matrix.platform }} --entrypoint /usr/local/bin/crosslink "${BASE}@${DIGEST}" --version)"
           echo "version output: $out"
           echo "$out" | grep -E '^crosslink [0-9]+\.[0-9]+\.[0-9]+'
-          label="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${BASE}@${DIGEST}")"
+          label="$(docker image inspect --format '{{ index .Config.Labels "dev.crosslink.version" }}' "${BASE}@${DIGEST}")"
           if [ "crosslink ${label}" != "$out" ] || [ "$label" != "$LABEL_VERSION" ]; then
             echo "::error::image label '${label}' does not match its binary '${out}'"
+            exit 1
+          fi
+          # The binary must default to this image: the build-matched contract.
+          expected_default="${BASE}:${AGENT_IMAGE_TAG}"
+          if ! docker run --rm --platform ${{ matrix.platform }} --entrypoint grep "${BASE}@${DIGEST}" -aqF "$expected_default" /usr/local/bin/crosslink; then
+            echo "::error::the ${{ matrix.platform }} binary does not default to ${expected_default}"
             exit 1
           fi
           if [ "$RELEASE" = true ]; then
@@ -528,6 +571,8 @@ jobs:
     uses: ./.github/workflows/release-builds.yml
     with:
       agent_image_tag: ${{ needs.gate.outputs.version }}
+      agent_image_repository: ${{ needs.gate.outputs.base }}
+      crosslink_version: ${{ needs.gate.outputs.crosslink_version }}
 
   # The GitHub release is created only after the image for this version passed
   # its anonymous smoke test, because every attached binary defaults to it.

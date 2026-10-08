@@ -17,13 +17,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   valid tag or the build fails. `CROSSLINK_AGENT_IMAGE_REPOSITORY` lets fork
   builds default to their own registry. `:nightly` and `:latest` are refreshed
   before every launch, falling back to a local copy with a warning when the
-  registry is unreachable. Every container command (kickoff, `container
+  registry cannot be reached (but not when the registry refuses the image).
+  Every container command (kickoff, `container
   start`, `container auth`, swarm and sentinel) resolves its image the same
   way: `--image`, then `CROSSLINK_CONTAINER_IMAGE`, then the build default, and
   reports where the image came from.
 - Releases are one gated flow (gh#126, gh#122, gh#123). A `v*` tag must match
-  `crosslink/Cargo.toml` and must not already be published (versions are never
-  republished). It pushes only `:<version>`; the smoke test pulls that exact
+  `crosslink/Cargo.toml`, must be on `main`, and the registry must confirm the
+  version is unpublished (versions are never republished; anything but an
+  explicit "not found" stops the release). Release images build without the
+  registry cache that `develop` pushes write, every binary reports one
+  version string set by the gate, and the smoke test also checks that the
+  binaries default to `:<version>` and that the bundled tools run on both
+  architectures. It pushes only `:<version>`; the smoke test pulls that exact
   digest anonymously and checks that every pushed tag resolves to it, so a
   private package or a missing tag fails CI; `:latest` then moves to the
   verified digest, one promotion at a time, and only when the version is the
@@ -38,12 +44,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `:latest`, and that the frozen `ghcr.io/forecast-bio/crosslink-agent:latest`
   0.9.0-beta.1 uses still names the same image.
 - `RELEASING.md`: the release runbook (what a tag publishes and in which order, rollback, image guarantees, required repository settings) and a checklist for moving the repository or owner (gh#124).
-- The agent image pins its base image by digest and its tools by version
-  (GitHub CLI, Codex, Claude Code, uv, gosu), and verifies gosu by checksum, so
-  two builds of the same commit contain the same tools (gh#128).
+- The agent image pins its base image by digest and its agent tools by version
+  (GitHub CLI, Codex, Claude Code, uv, gosu), verifies gosu by checksum, and
+  fails the build when a piped installer download fails (gh#128). Ubuntu's apt
+  packages and the installer scripts still float.
 - Kickoff and `container start` compare the crosslink version an agent image
-  carries (its `org.opencontainers.image.version` label, set by CI and
-  `container build`) with the CLI's, warning when they differ, since both write
+  carries (its `dev.crosslink.version` label, set by CI, `container build` and
+  `just build-image`) with the CLI's, warning when they differ, since both write
   the same hub (gh#127). The old binary-hash staleness check, which never fired
   for published images, is removed.
 - `crosslink container auth login|status|refresh|logout --provider github`

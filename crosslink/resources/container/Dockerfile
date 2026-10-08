@@ -6,9 +6,14 @@
 
 
 
-# Everything the image installs is pinned, so two builds of the same commit
-# contain the same tools. Bump a version (and its checksum) deliberately.
+# The base image is pinned by digest and the agent tools by version (gosu also
+# by checksum); bump them deliberately. Still floating: Ubuntu's apt packages,
+# the gh apt keyring, Codex's npm dependencies, and the Claude Code and uv
+# installer scripts (the installers fetch the pinned versions).
 FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+
+# A failed download in a piped install must fail the build.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG TARGETARCH=amd64
 ARG GH_VERSION=2.102.0
@@ -48,7 +53,7 @@ USER agent
 WORKDIR /home/agent
 
 
-SHELL ["/bin/bash", "-c"]
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 
 # The installer verifies the checksum of the Claude Code binary it downloads.

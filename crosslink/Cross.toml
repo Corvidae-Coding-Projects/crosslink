@@ -1,6 +1,10 @@
 [build.env]
-# The default agent image tag release builds bake in (see build.rs).
-passthrough = ["CROSSLINK_AGENT_IMAGE_TAG"]
+# The agent image defaults and version string CI bakes in (see build.rs).
+passthrough = [
+    "CROSSLINK_AGENT_IMAGE_TAG",
+    "CROSSLINK_AGENT_IMAGE_REPOSITORY",
+    "CROSSLINK_VERSION",
+]
 
 
 

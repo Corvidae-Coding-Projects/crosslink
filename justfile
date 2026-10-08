@@ -162,7 +162,9 @@ build-image tag="local":
         aarch64|arm64) RUST_TARGET=aarch64-unknown-linux-musl; DOCKER_ARCH=arm64; PLATFORM=linux/arm64 ;;
         *) echo "Unsupported host arch: $HOST_ARCH"; exit 1 ;;
     esac
-    echo "==> Building crosslink for ${RUST_TARGET}"
+    CRATE_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' crosslink/Cargo.toml | head -n 1)"
+    export CROSSLINK_VERSION="${CRATE_VERSION}+$(git rev-parse --short=7 HEAD)"
+    echo "==> Building crosslink ${CROSSLINK_VERSION} for ${RUST_TARGET}"
     rustup target add "${RUST_TARGET}" >/dev/null
     cd crosslink && cargo build --locked --release --target "${RUST_TARGET}"
     cd ..
@@ -172,6 +174,7 @@ build-image tag="local":
     docker buildx build \
         --platform "${PLATFORM}" \
         --build-arg "TARGETARCH=${DOCKER_ARCH}" \
+        --label "dev.crosslink.version=${CROSSLINK_VERSION}" \
         --load \
         -t "ghcr.io/corvidae-coding-projects/crosslink-agent:{{tag}}" \
         crosslink/resources/container

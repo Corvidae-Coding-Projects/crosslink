@@ -11,11 +11,11 @@ A `v<version>` tag pushed to `main` starts the release flow in
 
 | Stage | Job | What happens | Fails when |
 |---|---|---|---|
-| Gate | `gate` | Decides what the run may publish. | The tag does not match `crosslink/Cargo.toml`, or `:<version>` is already published. |
-| Image | `build-binary`, `publish-image` | Builds Linux amd64/arm64 binaries that default to `:<version>`, pushes `ghcr.io/<owner>/crosslink-agent:<version>` with version, revision and source labels, and attests the build. | The build fails. |
-| Smoke test | `smoke-verify` | Without logging in, checks that every pushed tag resolves to the built digest, pulls that digest on both architectures, runs `crosslink --version`, and checks the version label. | The package is private, a tag did not land, or the binary is not the tagged version. |
+| Gate | `gate` | Decides what the run may publish and the version string every binary reports. | The tag does not match `crosslink/Cargo.toml`, the tagged commit is not on `main`, or the registry does not confirm `:<version>` is unpublished (only an explicit "not found" proceeds). |
+| Image | `build-binary`, `publish-image` | Builds Linux amd64/arm64 binaries that default to `:<version>`, pushes `ghcr.io/<owner>/crosslink-agent:<version>` built without the registry cache (which `develop` pushes write), with `dev.crosslink.version`, revision and source labels, and attests the build. | The build fails. |
+| Smoke test | `smoke-verify` | Without logging in, checks that every pushed tag resolves to the built digest, pulls that digest on both architectures, runs `crosslink --version` and the bundled tools, and checks the version label and that the binary defaults to `:<version>`. | The package is private, a tag did not land, a tool is missing, or the binary is not the tagged version. |
 | `:latest` | `promote-latest` | Points `:latest` at the verified digest. One promotion runs at a time. | Skipped for prereleases and for any version that is not the highest stable `v*` tag. |
-| Binaries | `release-binaries` (`release-builds.yml`) | Builds Linux x86_64/aarch64, macOS aarch64/x86_64 and Windows x86_64 binaries plus the Codex plugin archives, all defaulting to `:<version>`. | A build fails. |
+| Binaries | `release-binaries` (`release-builds.yml`) | Builds Linux x86_64/aarch64, macOS aarch64/x86_64 and Windows x86_64 binaries plus the Codex plugin archives, and checks each binary defaults to `:<version>` and reports the gate's version. | A build or a check fails. |
 | GitHub release | `publish-release` | Creates the release with the binaries, plugin archives, `SHA256SUMS` and build attestations. Prereleases are marked as such. | The smoke test or a build failed. |
 
 The tag push also runs `publish.yml` (crates.io). That workflow is not part of
@@ -55,8 +55,13 @@ Then merge `main` back into `develop` so the next release does not conflict
 
 ## If something fails
 
-- **Gate fails:** nothing was published. Fix the tag or the version and tag
-  again. Delete a wrong tag only if nothing was published from it.
+- **Gate fails:** nothing was published. Fix the version or the commit and tag
+  again. Delete the failed tag (an admin can, even once tags are protected):
+  promotion takes "highest stable" from git tags, so a stray higher tag would
+  stop `:latest` from moving and turn the canary red.
+- **A later stage fails for a transient reason:** use **Re-run failed jobs**.
+  Re-running all jobs starts at the gate again, which refuses because
+  `:<version>` now exists.
 - **Smoke test fails:** `:<version>` exists but `:latest` did not move and no
   GitHub release was created. Find the cause, fix it, and release the next
   patch version. Do not republish the same version: the gate refuses, on
@@ -76,7 +81,7 @@ Then merge `main` back into `develop` so the next release does not conflict
 
 | Tag | Moves? | Who uses it |
 |---|---|---|
-| `:<version>` | Never (the gate refuses to republish) | Released builds of that version |
+| `:<version>` | Not by the release flow (the gate refuses to republish); only someone with package write access acting outside it | Released builds of that version |
 | `:latest` | To each stable release, after its smoke test | Anyone who asks for it with `--image` |
 | `:nightly` | On every push to `develop` | Development builds; refreshed before each launch |
 | `:nightly-<sha>` | Not by design, but registry tags can be moved | Pinning a development build |
@@ -100,10 +105,12 @@ make private an image that a released version defaults to.
 ## Updating pinned tools in the image
 
 `crosslink/resources/container/Dockerfile` pins the base image by digest and gh,
-Codex, Claude Code, uv and gosu by version (gosu by checksum too). To update one,
-change its `ARG` (and checksum) in a pull request; the new tools reach users in
-the next `:nightly` and the next release. Released `:<version>` images are not
-rebuilt with newer tools: ship a patch release instead.
+Codex, Claude Code, uv and gosu by version (gosu by checksum too). Still
+floating: Ubuntu's apt packages, the gh apt keyring, Codex's npm dependencies,
+and the Claude Code and uv installer scripts. To update a pin, change its `ARG`
+(and checksum) in a pull request; the new tools reach users in the next
+`:nightly` and the next release. Released `:<version>` images are not rebuilt
+with newer tools: ship a patch release instead.
 
 ## Required repository settings
 
@@ -115,9 +122,12 @@ rebuilt with newer tools: ship a patch release instead.
   `attestations: write` themselves.
 - **Environments:** `github-pages` for the docs; `cargo` (tag-only deployment
   policy) once crates.io publishing is wired up.
-- **Rulesets:** `v*` tags may be created only by maintainers and never moved or
-  deleted; `main` and `develop` require pull requests and passing CI and refuse
-  force pushes and deletion.
+- **Rulesets (intended; not configured as of 2026-10-08):** `v*` tags may be
+  created only by maintainers and never moved (deletion by an admin only, for
+  tags whose release failed at the gate); `main` and `develop` require pull
+  requests and passing CI and refuse force pushes and deletion. Until they
+  exist, anyone with write access can push to `develop` (which every
+  development build's `:nightly` follows) and tag a commit on `main`.
 
 ## Moving the repository or owner
 
