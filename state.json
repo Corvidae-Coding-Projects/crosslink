@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 33,
-        "tip_oid": "3ffba7dd52ae9bec29a42142ad168a4567bb812d",
-        "prefix_sha256": "08dcd76faaf128ec5a095c145483a2f9b20305213fa733499270f553e52e0e92"
+        "sequence": 34,
+        "tip_oid": "7527e49da753e0c3753c5b75654b38860b683392",
+        "prefix_sha256": "78c3268ba3fdc9ab28523c433ff972af30b90645ed075f9f780f5a847034e797"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 809,
-  "next_comment_id": 1274,
+  "next_comment_id": 1275,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -15489,7 +15489,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:02:47.113958Z",
-      "updated_at": "2026-10-08T03:02:47.113958Z"
+      "updated_at": "2026-10-08T03:30:57.580239Z",
+      "comments": {
+        "de7855a6-88c8-4503-b330-bca12aa25d5f": {
+          "display_id": 1274,
+          "author": "ldsw",
+          "content": "PE review (#808, PE-08): add Linux aarch64 and macOS arm64 builds (macos-latest is arm64 but builds x86_64 only); publish checksums and attestations; attach assets behind the shared release gate. Mirrored on GH#123.",
+          "created_at": "2026-10-08T03:30:57.525638Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA37ulHeBv9cOb5gjaVhFMxB5viSZVknggbaumPKM2nZPAmGJgtLh0JFfJJB0rZq82tVV2UOwxlzhOpdicWxz2CA=="
+        }
+      }
     },
     "963050a6-7b16-447a-a2a2-d3e9b52d35e9": {
       "uuid": "963050a6-7b16-447a-a2a2-d3e9b52d35e9",
@@ -27395,6 +27406,11 @@
       "agent_id": "ldsw",
       "agent_seq": 33,
       "timestamp": "2026-10-08T03:30:09.758783Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 34,
+      "timestamp": "2026-10-08T03:30:57.580239Z"
     }
   ],
   "watermark": {
