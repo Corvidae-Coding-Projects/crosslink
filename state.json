@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 30,
-        "tip_oid": "ce20155c08b6c069d353159be2c63e5010fe5dee",
-        "prefix_sha256": "81996662fd653dd1514fa2cd4601ffb4a02938f181f8c87ecdecf2b6a6df589c"
+        "sequence": 31,
+        "tip_oid": "b70406fee816fb76786bc7ae5303267d67bb0990",
+        "prefix_sha256": "cf8236822762c3052fd1817970816fdc8caa0a4beea5e600d92ef66e0e45be81"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 809,
-  "next_comment_id": 1271,
+  "next_comment_id": 1272,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -12392,7 +12392,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:16:23.531366Z",
-      "updated_at": "2026-10-08T03:16:23.531366Z"
+      "updated_at": "2026-10-08T03:24:18.769551Z",
+      "comments": {
+        "af21d571-93c4-447e-97a1-c7e63c01e245": {
+          "display_id": 1271,
+          "author": "ldsw",
+          "content": "PE review (1 cold agent, primer + platform-engineer + 6 supplements, 60/60 advisory tool uses, ~5 min, model inherited). Findings: PE-01 blocker - :latest also hard-coded in container.rs IMAGE_TAG; 'container start' has no --image/env override; swarm lifecycle.rs:709 and sentinel engine.rs:455 use DEFAULT_AGENT_IMAGE; check_staleness() never fires (label only on local :local builds, and hashes a host Mach-O against a Linux binary). PE-02 blocker - three workflows fire independently on v* tags: :latest moves before smoke-verify and before crates.io, no rollback; no rulesets or main protection (verified); workflow_dispatch from any branch overwrites :nightly. PE-03 should-fix - option 3 (version-matched image) is right but needs an explicit build-time channel because build.rs appends +hash to every git build; :nightly needs --pull=always; bump version before the first Corvidae tag; never backfill :latest from v0.9.0-beta.1. PE-04 - shipped 0.9.0-beta.1 binaries default to ghcr.io/forecast-bio/crosslink-agent:latest, so old-owner images must stay public and frozen. PE-05 - anonymous token check proves visibility, not that a tag exists: HEAD each pushed tag, plus a scheduled canary on the shipped default ref. PE-06 - image not reproducible or attested (curl|bash installers, unpinned codex, gosu without checksum, base by tag, provenance false). PE-07 - prefer trusted publishing; add --locked to the real publish; cargo install resolves 0.8.0. PE-08 - no linux aarch64 or macOS arm64 binaries; checksums/attestations. PE-09 - docs call mutable tags immutable; nightly retention. PE-10 - docs.yml permissions at workflow level. Spot-verified by orchestrator: PE-01 call sites and staleness label, build.rs suffix, no rulesets/protection.",
+          "created_at": "2026-10-08T03:24:18.733848Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAE/sWm6QICcu/v2/CBYrafMjR1k/xHSpUmif7yssMzYeDUa6D6IYtHDtx8noS2yZeynjP1gg6bnbDbN5ySX+3Cw=="
+        }
+      }
     },
     "7776c07d-0638-48f0-b239-bfcf8ddaac46": {
       "uuid": "7776c07d-0638-48f0-b239-bfcf8ddaac46",
@@ -27347,6 +27358,11 @@
       "agent_id": "ldsw",
       "agent_seq": 30,
       "timestamp": "2026-10-08T03:17:19.013330Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 31,
+      "timestamp": "2026-10-08T03:24:18.769551Z"
     }
   ],
   "watermark": {
