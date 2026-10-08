@@ -32,6 +32,11 @@
         "tip_oid": "f13c5a50fc07ca99fd8d7e33320d8bab06c71b45",
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
+      "ldsw": {
+        "sequence": 1,
+        "tip_oid": "247f45362a3591b2652a1523002a891c5741ef17",
+        "prefix_sha256": "ef750cb8260c55440bbbb13bf3bfeb8bf456337a33e7884e1f760d77f3b34726"
+      },
       "sQl8": {
         "sequence": 35,
         "tip_oid": "280d5719f42f62c5fb61b0b5957f76d34b78d7c4",
@@ -49,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 799,
+  "next_display_id": 800,
   "next_comment_id": 1263,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -624,6 +629,7 @@
     "b4cca5be-98c4-46f7-ad1d-91f8bac09e45": 44,
     "b4fbb16a-8b9a-4cc5-a153-ac34dc4cbe67": 600,
     "b50bb010-ac0d-42b7-abe0-32ecb43b54f7": 467,
+    "b518bf4a-9256-4cd0-a3fa-4a8aab640b8f": 799,
     "b519e946-9899-4024-9335-f229c903b612": 439,
     "b60908ce-3b37-4a6e-851f-b0b626471ab1": 675,
     "b6976c66-52a6-41b6-a8f9-ebc8d27d84f5": 795,
@@ -18785,6 +18791,16 @@
         }
       }
     },
+    "b518bf4a-9256-4cd0-a3fa-4a8aab640b8f": {
+      "uuid": "b518bf4a-9256-4cd0-a3fa-4a8aab640b8f",
+      "display_id": 799,
+      "title": "Maintainer checkout: replace the fork mirror with an upstream clone and verify the hub join",
+      "status": "open",
+      "priority": "low",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T02:11:56.147532Z",
+      "updated_at": "2026-10-08T02:11:56.147532Z"
+    },
     "b519e946-9899-4024-9335-f229c903b612": {
       "uuid": "b519e946-9899-4024-9335-f229c903b612",
       "display_id": 439,
@@ -26975,6 +26991,11 @@
       "agent_id": "w4c5",
       "agent_seq": 62,
       "timestamp": "2026-09-04T02:38:02.819761928Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 1,
+      "timestamp": "2026-10-08T02:11:56.147532Z"
     }
   ],
   "watermark": {
