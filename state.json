@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 17,
-        "tip_oid": "4ab17ec40af573797bbaee8bda5cc8bb8881f0cd",
-        "prefix_sha256": "697b16429031e84d8ad52c5e8d8c186ed779c73a2ed9cf93056c50a80c9363ad"
+        "sequence": 18,
+        "tip_oid": "cf6615f4857d6b62bf23713370bdb77d2379837a",
+        "prefix_sha256": "75eda8b3e0aba3ac17c26f47b42083e9bfe0fa77a4f33f2c7f4a8bda83234ee6"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 802,
-  "next_comment_id": 1267,
+  "next_comment_id": 1268,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -15021,7 +15021,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T02:37:58.932248Z",
-      "updated_at": "2026-10-08T02:41:08.535341Z",
+      "updated_at": "2026-10-08T02:43:51.757449Z",
       "labels": [
         "research"
       ],
@@ -15034,6 +15034,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWueKBI1Y00U/ox587oPMdKkTus9EjlpTZEiCXAjt9UmAuP6fnppAWH2h/y4jL329lSVUbhrojCNDRD7SVahBCA=="
+        },
+        "b3c237c6-5e75-4613-beff-7aa6d9470c95": {
+          "display_id": 1267,
+          "author": "ldsw",
+          "content": "Research synthesis. Moves: dollspace-gay/chainlink (2025-12-27, crate chainlink-tracker) -> forecast-bio/crosslink fork + rebrand (2026-02-24) -> dollspace-gay/crosslink manual copy (2026-06-25, #785/8e93e11f) -> transferred to Corvidae-Coding-Projects (by 2026-08-16, URL rewrite in dd0b7173; GHCR lowercasing 54cadd3c); forecast-bio archived 2026-09-01. Channels now: crates.io crosslink 0.9.0-beta.1 (2026-06-13, published by maxine-at-forecast; owners dollspace-gay + maxine-at-forecast; metadata still forecast-bio; Corvidae has no CARGO_REGISTRY_TOKEN or cargo environment). GitHub Releases: forecast-bio had 12, all without assets; Corvidae has none; release-builds.yml only uploads Actions artifacts. GHCR: anonymous pull verified 2026-10-08 - corvidae-coding-projects/crosslink-agent DENIED, forecast-bio/dollspace-gay/magnificentlycursed images public but stale; corvidae has no :latest (no v* tag since move) while DEFAULT_AGENT_IMAGE is :latest; smoke-verify logs in before pulling so it cannot catch privacy. Pages: docs.yml last run 2026-08-17 failed (deployment 404). Docs: RELEASING.md claimed by #170/CHANGELOG 0.5.2 but absent; knowledge git-flow-branch-strategy says develop is default and tags create GitHub releases with binaries (neither true now). Tracker: #728 (make GHCR public) open; #779/#785/#786 done in code but open. No record anywhere of how forecast-bio's package was made public, of package-repo linking, or of a publishing PAT.",
+          "created_at": "2026-10-08T02:43:51.715525Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtCmMta41v1oQQdlL3HTb84fe9B3Wcpf9FsPHmNGGVsPFTk1EeQGx9i2OfudG2Zcsy1CgCZ5vKFRl21YVyiKKAQ=="
         }
       }
     },
@@ -27155,6 +27164,11 @@
       "agent_id": "ldsw",
       "agent_seq": 17,
       "timestamp": "2026-10-08T02:41:08.535341Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 18,
+      "timestamp": "2026-10-08T02:43:51.757449Z"
     }
   ],
   "watermark": {
