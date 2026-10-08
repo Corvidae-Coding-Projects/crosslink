@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 36,
-        "tip_oid": "57d4a32ca66a23dd8ef52228e5c7377960a28478",
-        "prefix_sha256": "4df76800045f97d7bb6bcf350e0371158f4d08d23c217edf9835b54744b2d4a3"
+        "sequence": 37,
+        "tip_oid": "09dd1c95b7195de26fcce4f8d09c941a733e76a8",
+        "prefix_sha256": "cb4c8b2e20a2684bbc6dbe728b2f44015835f33d4a6c162e2ef659792a76e02f"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 809,
+  "next_display_id": 810,
   "next_comment_id": 1277,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -192,6 +192,7 @@
     "2c1d8bb0-5820-40cf-a273-b8d5d618e456": 560,
     "2c589820-01ae-4264-ae8f-31a508e8d163": 410,
     "2c5de3eb-70fa-4e4a-b8e5-fa979db325eb": 204,
+    "2ce78c5a-060d-45ba-b635-1a188eff5acd": 809,
     "2d091dfe-5952-440a-9147-2f79394436d7": 448,
     "2d1eb1e6-538e-4aa3-8172-b389f2fab798": 421,
     "2db15662-bd6e-4dbd-99d6-bd5539305762": 457,
@@ -5017,6 +5018,17 @@
           "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgew4ZDnHSCGhyV9xr0E81oy5bzwWp1I7BDyxsZ0oJ6bEAAAAgSyfF+xUN45kmkihEHWkQQGeqUg0phQur1Dg2tfJVJDQ="
         }
       }
+    },
+    "2ce78c5a-060d-45ba-b635-1a188eff5acd": {
+      "uuid": "2ce78c5a-060d-45ba-b635-1a188eff5acd",
+      "display_id": 809,
+      "title": "Release orchestration: order and gate tag publishing, protect tags and branches",
+      "description": "External: Corvidae-Coding-Projects/crosslink#126. From PE review #808 (PE-02). A v* tag fires container-image, publish and release-builds independently: :latest moves before smoke-verify and crates.io, no rollback, prereleases move :latest, no rulesets or main protection (verified), workflow_dispatch from any branch overwrites :nightly. Proposal: one gated release flow (verify version, push :<ver>, anonymous smoke by digest, crate + assets, then promote :latest by digest for non-prereleases), tag ruleset, branch protection, cargo environment tag policy, dispatch restricted to develop.",
+      "status": "open",
+      "priority": "high",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:33:17.653542Z",
+      "updated_at": "2026-10-08T03:33:17.653542Z"
     },
     "2d091dfe-5952-440a-9147-2f79394436d7": {
       "uuid": "2d091dfe-5952-440a-9147-2f79394436d7",
@@ -27441,6 +27453,11 @@
       "agent_id": "ldsw",
       "agent_seq": 36,
       "timestamp": "2026-10-08T03:32:39.746866Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 37,
+      "timestamp": "2026-10-08T03:33:17.653542Z"
     }
   ],
   "watermark": {
