@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 10,
-        "tip_oid": "a7c7de5aec68864aa8f7c9fd64d2d6a40ad56513",
-        "prefix_sha256": "60d51dea2f3d000dfe4f495bfb723ae10dda2521124685535dd56e826e54c0e2"
+        "sequence": 11,
+        "tip_oid": "fd7abb0e16a647dc41151d736a9c8fc705a7e368",
+        "prefix_sha256": "a85498cea007e2ccd70fba341803b59d4fed417819434dd2b908f3c7fe886a4a"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 801,
-  "next_comment_id": 1265,
+  "next_comment_id": 1266,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -14001,10 +14001,21 @@
       "priority": "low",
       "created_by": "ldsw",
       "created_at": "2026-10-08T02:24:04.835146Z",
-      "updated_at": "2026-10-08T02:24:33.825302Z",
+      "updated_at": "2026-10-08T02:27:30.442645Z",
       "labels": [
         "chore"
-      ]
+      ],
+      "comments": {
+        "337e8b55-8966-4194-b542-761f4c6c3526": {
+          "display_id": 1265,
+          "author": "ldsw",
+          "content": "None of the 62 GitHub issues filed by magnificentlycursed (Corvidae #9-#118) has a tracker issue citing it. The four explicit 'GH #60/#62/#105/#106' references in tracker #16, #18, #37, #88 (Feb-Mar 2026) use the older forecast-bio/crosslink numbering and are unrelated. Topical overlaps: GH#101 (agent image private) = tracker #728 (ensure GHCR package publicly pullable, open since May); GH#105 (init --update never reconciles .gitignore) overlaps tracker #778 (init .gitignore template omits runtime files), whose template half is already fixed on develop (a fresh init now writes those entries); GH#118 (write cost) is adjacent to tracker #798 (per-agent causal frontiers) but distinct. The tracker's newest issue before #799 dates from 2026-09-03; GitHub issues are the live record.",
+          "created_at": "2026-10-08T02:27:30.406011Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4ezIdNL7zvaGiaKySrdujhojAu8W2Muo8xBL89gs9rcXy7o5/nSds/S6xf5SDuj+wSVSguWeOdnunRXctv/+AQ=="
+        }
+      }
     },
     "88b95d60-d967-44d3-aba7-b9abeb4c54e4": {
       "uuid": "88b95d60-d967-44d3-aba7-b9abeb4c54e4",
@@ -27083,6 +27094,11 @@
       "agent_id": "ldsw",
       "agent_seq": 10,
       "timestamp": "2026-10-08T02:25:02.126261Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 11,
+      "timestamp": "2026-10-08T02:27:30.442645Z"
     }
   ],
   "watermark": {
