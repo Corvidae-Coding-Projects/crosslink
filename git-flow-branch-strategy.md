@@ -1,14 +1,15 @@
 ---
-title: Git Flow Branch Strategy
-tags: [git, workflow, ci-cd, branching]
+title: "Git Flow Branch Strategy"
+tags: ["git", "workflow", "ci-cd", "branching"]
 sources:
-  - url: https://github.com/forecast-bio/crosslink/issues/129
-    title: 
-    accessed_at: 2026-03-02
-contributors: [maxine-at-forecast--noether--ci-cd-restructure]
+  - url: "https://github.com/forecast-bio/crosslink/issues/129"
+    title: ""
+    accessed_at: "2026-03-02"
+contributors: ["maxine-at-forecast--noether--ci-cd-restructure", "magnificentlycursed"]
 created: 2026-03-02
-updated: 2026-03-02
+updated: 2026-10-08
 ---
+
 
 # Git Flow Branch Strategy
 
@@ -34,7 +35,7 @@ main <---- release/v0.x.y <---- develop <---- feature/some-work
 
 ## Default Branch
 
-develop is the default branch. All PRs target develop unless explicitly targeting main (releases/hotfixes).
+main is the default branch of Corvidae-Coding-Projects/crosslink (since the 2026 repository moves; forecast-bio used develop). Feature pull requests still target develop; releases go develop -> release/vX.Y.Z -> main. See RELEASING.md at the repository root for the release runbook (updated 2026-10-08).
 
 ## Agent Workflow
 
