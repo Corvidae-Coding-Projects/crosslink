@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 22,
-        "tip_oid": "938f4e4627092d5919f339c1b7c6d12d98e47239",
-        "prefix_sha256": "243eb84b6928127fde437a6b26d53c4608a176c95017fd8cb0a3f1da2683b0c8"
+        "sequence": 23,
+        "tip_oid": "fddd8f2385f171ccafbabbe931b8f38ee1e12bcd",
+        "prefix_sha256": "580ae1007d60a63fe41c4e191d7791f2d6d55f79c6cb7726935be83928a35b9e"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 803,
+  "next_display_id": 804,
   "next_comment_id": 1270,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -323,6 +323,7 @@
     "5350c817-a87c-42d1-9552-6857f49d1b9c": 198,
     "53a437e2-55d2-47ad-befb-cd347711267e": 747,
     "54943d56-4c53-4683-8369-8095a71849da": 764,
+    "55a791e2-7ce5-4c6c-95a8-76df4453aaf8": 803,
     "562ecb52-d472-4f77-a8b3-f3aee7c21e59": 618,
     "56b53269-6a34-4f77-9e2c-b9461c0657cb": 282,
     "57235bc0-132b-4184-ba86-7b1b5b20419c": 572,
@@ -8855,6 +8856,17 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA7pRE2qpAB3CsOMug/wZtJHoGycWjap2IYsmU3VIEGUSs6y7Uzy7fuaKThGLTW90liU2Yt1sqEkMIuz6ikbIMDw=="
         }
       }
+    },
+    "55a791e2-7ce5-4c6c-95a8-76df4453aaf8": {
+      "uuid": "55a791e2-7ce5-4c6c-95a8-76df4453aaf8",
+      "display_id": 803,
+      "title": "Container smoke-verify: check anonymous pull before logging in",
+      "description": "External: Corvidae-Coding-Projects/crosslink#122. smoke-verify in .github/workflows/container-image.yml logs in with GITHUB_TOKEN before pulling, so a private package passes CI (how GH#101 went unnoticed). Request an anonymous ghcr.io pull token for <owner>/crosslink-agent and fail if refused.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-08T03:02:14.366945Z",
+      "updated_at": "2026-10-08T03:02:14.366945Z"
     },
     "562ecb52-d472-4f77-a8b3-f3aee7c21e59": {
       "uuid": "562ecb52-d472-4f77-a8b3-f3aee7c21e59",
@@ -27220,6 +27232,11 @@
       "agent_id": "ldsw",
       "agent_seq": 22,
       "timestamp": "2026-10-08T03:01:40.829391Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 23,
+      "timestamp": "2026-10-08T03:02:14.366945Z"
     }
   ],
   "watermark": {
