@@ -26,6 +26,61 @@ pub const DEFAULT_AGENT_IMAGE: &str = concat!(
     env!("CROSSLINK_AGENT_IMAGE_TAG")
 );
 
+/// Environment override for the agent image, honoured by every container
+/// command. Forks publish the agent image under their own registry path.
+pub const AGENT_IMAGE_ENV: &str = "CROSSLINK_CONTAINER_IMAGE";
+
+/// Where the agent image a command uses came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentImageSource {
+    Flag,
+    Environment,
+    BuildDefault,
+}
+
+impl std::fmt::Display for AgentImageSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Flag => "--image",
+            Self::Environment => AGENT_IMAGE_ENV,
+            Self::BuildDefault => "this build's default",
+        })
+    }
+}
+
+/// The agent image every container command uses: an explicit `--image` wins,
+/// then `CROSSLINK_CONTAINER_IMAGE`, then this build's default. Blank values
+/// count as unset.
+pub fn resolve_agent_image_from(
+    explicit: Option<&str>,
+    env_value: Option<&str>,
+) -> Result<(String, AgentImageSource)> {
+    let non_empty = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(String::from)
+    };
+    let (image, source) = non_empty(explicit)
+        .map(|image| (image, AgentImageSource::Flag))
+        .or_else(|| non_empty(env_value).map(|image| (image, AgentImageSource::Environment)))
+        .unwrap_or_else(|| {
+            (
+                DEFAULT_AGENT_IMAGE.to_string(),
+                AgentImageSource::BuildDefault,
+            )
+        });
+    if image.starts_with('-') {
+        bail!("container image name cannot start with '-': {image}");
+    }
+    Ok((image, source))
+}
+
+/// `resolve_agent_image_from` over the live `CROSSLINK_CONTAINER_IMAGE`.
+pub fn resolve_agent_image(explicit: Option<&str>) -> Result<(String, AgentImageSource)> {
+    resolve_agent_image_from(explicit, std::env::var(AGENT_IMAGE_ENV).ok().as_deref())
+}
+
 /// Tags that move to a new build without a version change. A local copy of
 /// one of these is re-pulled on every launch, so it cannot go stale.
 const FLOATING_IMAGE_TAGS: [&str; 2] = ["nightly", "latest"];

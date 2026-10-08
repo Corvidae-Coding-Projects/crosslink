@@ -14,10 +14,13 @@ mod wizard;
 mod tests;
 
 pub use types::{
-    is_floating_image, ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat,
-    VerifyLevel, AGENT_IMAGE_REPOSITORY, AGENT_IMAGE_TAG, DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
+    is_floating_image, resolve_agent_image, ContainerMode, KickoffOpts, KickoffReport, PlanOpts,
+    ReportFormat, VerifyLevel, AGENT_IMAGE_REPOSITORY, AGENT_IMAGE_TAG, DEFAULT_AGENT_IMAGE,
+    EFFORT_LEVELS,
 };
 
+#[cfg(test)]
+pub use types::resolve_agent_image_from;
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
 
 pub use cleanup::cleanup;
@@ -76,6 +79,10 @@ pub fn dispatch(
                 None
             };
             let parsed_container = parse_container_mode(&container)?;
+            let (image, image_source) = resolve_agent_image(image.as_deref())?;
+            if parsed_container != ContainerMode::None && !quiet {
+                println!("Agent image: {image} (from {image_source})");
+            }
             let parsed_timeout = parse_duration(&timeout)?;
             let agent = crate::agents::resolve_agent(crosslink_dir)?;
             let policy = resolve_execution_policy(
@@ -309,13 +316,14 @@ fn dispatch_launch(
             (parsed_container != ContainerMode::None)
                 .then_some(crate::agents::SandboxPosture::ExternalIsolation),
         )?;
+        let (agent_image, _) = resolve_agent_image(None)?;
         let opts = KickoffOpts {
             description: &description,
             issue,
             container: parsed_container,
             verify: parse_verify_level(verify)?,
             model,
-            image: types::DEFAULT_AGENT_IMAGE,
+            image: &agent_image,
             timeout: parsed_timeout,
             dry_run,
             branch: None,
@@ -414,13 +422,14 @@ fn dispatch_launch(
                 (parsed_container != ContainerMode::None)
                     .then_some(crate::agents::SandboxPosture::ExternalIsolation),
             )?;
+            let (agent_image, _) = resolve_agent_image(None)?;
             let opts = KickoffOpts {
                 description: &description,
                 issue: config.issue,
                 container: parsed_container,
                 verify: parse_verify_level(&config.verify)?,
                 model: &config.model,
-                image: types::DEFAULT_AGENT_IMAGE,
+                image: &agent_image,
                 timeout: parsed_timeout,
                 dry_run: false,
                 branch: None,

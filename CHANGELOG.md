@@ -17,9 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   valid tag or the build fails. `CROSSLINK_AGENT_IMAGE_REPOSITORY` lets fork
   builds default to their own registry. `:nightly` and `:latest` are refreshed
   before every launch, falling back to a local copy with a warning when the
-  registry is unreachable. `crosslink container start` accepts `--image` and
-  honours `CROSSLINK_CONTAINER_IMAGE`, and swarm, sentinel and the auth commands
-  share the same default.
+  registry is unreachable. Every container command (kickoff, `container
+  start`, `container auth`, swarm and sentinel) resolves its image the same
+  way: `--image`, then `CROSSLINK_CONTAINER_IMAGE`, then the build default, and
+  reports where the image came from.
 - Release image publishing is gated (gh#126, gh#122). A `v*` tag must match
   `crosslink/Cargo.toml` before anything is pushed; the tag push publishes only
   `:<version>`; the smoke test pulls every pushed tag anonymously, so a private

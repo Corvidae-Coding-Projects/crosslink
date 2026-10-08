@@ -421,36 +421,18 @@ pub(crate) fn refresh_floating_image(runtime: &str, image: &str) -> Result<()> {
     )
 }
 
-/// Environment override for the image that `container start` and container
-/// account login run. Forks publish the agent image under their own registry
-/// path; the login volume is image-independent, so any image carrying the
-/// provider CLI will do.
-const AUTH_IMAGE_ENV: &str = "CROSSLINK_CONTAINER_IMAGE";
-
-/// Pick the image: an explicit `--image` wins, then the environment value,
+/// Pick the image: an explicit `--image` wins, then `CROSSLINK_CONTAINER_IMAGE`,
 /// then this build's default (the image matching the CLI's own version).
-/// Blank values count as unset.
+/// Blank values count as unset. See `kickoff::resolve_agent_image_from`.
+#[cfg(test)]
 fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String {
-    let non_empty = |value: Option<&str>| {
-        value
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(String::from)
-    };
-    non_empty(explicit)
-        .or_else(|| non_empty(env_value))
-        .unwrap_or_else(|| DEFAULT_IMAGE.to_string())
+    crate::commands::kickoff::resolve_agent_image_from(explicit, env_value)
+        .map_or_else(|_| DEFAULT_IMAGE.to_string(), |(image, _)| image)
 }
 
-/// `resolve_auth_image` over the live `CROSSLINK_CONTAINER_IMAGE` value.
+/// The image a container command uses, and where it came from.
 fn auth_image(explicit: Option<&str>) -> Result<String> {
-    let from_env = std::env::var(AUTH_IMAGE_ENV).ok();
-    let image = resolve_auth_image(explicit, from_env.as_deref());
-    anyhow::ensure!(
-        !image.starts_with('-'),
-        "container image name cannot start with '-': {image}"
-    );
-    Ok(image)
+    crate::commands::kickoff::resolve_agent_image(explicit).map(|(image, _)| image)
 }
 
 fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Result<()> {
@@ -818,7 +800,7 @@ pub fn start(
     if !docker_available() {
         bail!("Docker is not available. Install Docker and ensure the daemon is running.");
     }
-    let image = auth_image(image)?;
+    let (image, image_source) = crate::commands::kickoff::resolve_agent_image(image)?;
 
     check_staleness();
 
@@ -903,7 +885,7 @@ pub fn start(
     println!("  Memory:   {memory_limit}");
     println!("  Agent:    {agent_id}");
     println!("  Provider: {}", resolved.provider);
-    println!("  Image:    {image}");
+    println!("  Image:    {image} (from {image_source})");
 
     let mut cmd = Command::new("docker");
     cmd.args(["run", "-d"]);

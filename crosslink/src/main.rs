@@ -1440,10 +1440,11 @@ enum KickoffCommands {
         #[arg(long, default_value = "standard")]
         model: String,
 
-        /// Agent image (default: the published image matching this crosslink
-        /// build — `:<version>` for releases, `:nightly` for development builds)
-        #[arg(long, default_value = commands::kickoff::DEFAULT_AGENT_IMAGE)]
-        image: String,
+        /// Agent image (default: env `CROSSLINK_CONTAINER_IMAGE`, then the
+        /// published image matching this crosslink build — `:<version>` for
+        /// releases, `:nightly` for development builds)
+        #[arg(long)]
+        image: Option<String>,
 
         #[arg(long, default_value = "1h")]
         timeout: String,

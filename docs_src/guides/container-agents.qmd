@@ -97,9 +97,11 @@ own registry with `CROSSLINK_AGENT_IMAGE_REPOSITORY`.
 cannot be reached and a local copy exists, crosslink warns and uses it; pinned
 tags are pulled once and then reused. Because `:nightly` follows `develop`,
 anything merged there runs in every development build's next container, which
-mounts your provider and GitHub logins. Pass `--image` (or set
-`CROSSLINK_CONTAINER_IMAGE` for `container start` and `container auth`) to use
-another image. Registry tags can be moved; for a byte-for-byte reproducible run,
+mounts your provider and GitHub logins. To use another image, pass `--image`
+or set `CROSSLINK_CONTAINER_IMAGE`; every container command (kickoff,
+`container start`, `container auth`, swarm and sentinel launches) resolves the
+image the same way, flag first, then the variable, then the build default, and
+reports which one it used. Registry tags can be moved; for a byte-for-byte reproducible run,
 pin the image by digest (`--image ghcr.io/corvidae-coding-projects/crosslink-agent@sha256:<digest>`).
 
 ### Building the image locally
