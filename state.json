@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 51,
-        "tip_oid": "e7c2a620cc7ed4f326818ea05901d49da79fb57f",
-        "prefix_sha256": "06da5c6097ff1c18c0648d250c0350d70e8e1254a15881b9dc36e37812ff535b"
+        "sequence": 52,
+        "tip_oid": "678e0eed82ed298f38c64069b8d9d4eb6daefad9",
+        "prefix_sha256": "b32b5666819b01bbadb8de0cd0c87edac95809e4119b33bfc4fdf1b1e93c696e"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 813,
-  "next_comment_id": 1284,
+  "next_comment_id": 1285,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -7262,7 +7262,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T18:25:40.199127Z",
-      "updated_at": "2026-10-08T18:25:40.199127Z"
+      "updated_at": "2026-10-08T18:26:58.296937Z",
+      "comments": {
+        "08df1ae7-0297-41f3-a39f-0856952bf3e1": {
+          "display_id": 1284,
+          "author": "ldsw",
+          "content": "Artifact pinned: PR #129 head 643c0ca1c, base develop 388bed89f (from git rev-parse). Launched 3 clusters.",
+          "created_at": "2026-10-08T18:26:58.242411Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA09UvRdTgRkJ4O5768wEiuD2f2GEOxCzMXHge2OejRHDEb1WBNad5i3AIJegEMKZuFZnVvkd7lSHeLFeit6RdCg=="
+        }
+      }
     },
     "40ac2ede-6eee-4b4c-a1b7-e199abfe690d": {
       "uuid": "40ac2ede-6eee-4b4c-a1b7-e199abfe690d",
@@ -27634,6 +27645,11 @@
       "agent_id": "ldsw",
       "agent_seq": 51,
       "timestamp": "2026-10-08T18:25:40.199127Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 52,
+      "timestamp": "2026-10-08T18:26:58.296937Z"
     }
   ],
   "watermark": {
