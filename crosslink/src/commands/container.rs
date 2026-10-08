@@ -558,8 +558,6 @@ pub(crate) fn github_login_args(
 
 const IMAGE_NAME: &str = crate::commands::kickoff::AGENT_IMAGE_REPOSITORY;
 
-const IMAGE_TAG: &str = crate::commands::kickoff::AGENT_IMAGE_TAG;
-
 /// This build's default image: the published image matching the CLI's own
 /// version (`:<version>` for releases, `:nightly` for development builds).
 const DEFAULT_IMAGE: &str = crate::commands::kickoff::DEFAULT_AGENT_IMAGE;
@@ -582,22 +580,6 @@ pub fn docker_available() -> bool {
 
 fn find_crosslink_binary() -> Result<PathBuf> {
     std::env::current_exe().context("Could not determine crosslink binary path")
-}
-
-fn file_hash(path: &Path) -> Result<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)?;
-
-    let mut buf = vec![0u8; 65536];
-    let n = file.read(&mut buf)?;
-    buf.truncate(n);
-
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for &byte in &buf {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    Ok(format!("{hash:016x}"))
 }
 
 fn resolve_repo_root() -> Result<PathBuf> {
@@ -676,37 +658,83 @@ fn compute_memory_limit(config_override: Option<&str>) -> String {
     )
 }
 
-fn get_image_hash() -> Option<String> {
-    let output = Command::new("docker")
-        .args([
-            "inspect",
-            "--format",
-            "{{index .Config.Labels \"crosslink-binary-hash\"}}",
-            &format!("{IMAGE_NAME}:{IMAGE_TAG}"),
-        ])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        let hash = String::from_utf8(output.stdout).ok()?.trim().to_string();
-        if !hash.is_empty() && hash != "<no value>" {
-            return Some(hash);
-        }
-    }
-    None
+/// The image label that records which crosslink an agent image contains: the
+/// exact `crosslink --version` of its binary. CI and `container build` set it.
+pub(crate) const IMAGE_VERSION_LABEL: &str = "org.opencontainers.image.version";
+
+/// This CLI's version as `crosslink --version` reports it (`+<commit>` for git
+/// builds).
+pub(crate) fn cli_version() -> &'static str {
+    option_env!("CROSSLINK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
-fn check_staleness() {
-    let Ok(binary_hash) = find_crosslink_binary().and_then(|p| file_hash(&p)) else {
-        return;
+/// How the crosslink inside an image relates to this CLI's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImageVersionMatch {
+    /// Same version and build.
+    Same,
+    /// Same release version, built from a different commit: the normal case
+    /// for a development build against `:nightly`.
+    SameReleaseDifferentBuild,
+    /// A different version: the container and the CLI write the same hub, and
+    /// their formats may disagree.
+    Different,
+}
+
+/// Compare two `crosslink --version` strings (`<semver>[+<build>]`).
+pub(crate) fn compare_crosslink_versions(cli: &str, image: &str) -> ImageVersionMatch {
+    let core = |version: &str| {
+        version
+            .split_once('+')
+            .map_or(version, |(core, _)| core)
+            .to_string()
     };
-    if let Some(image_hash) = get_image_hash() {
-        if image_hash != binary_hash {
-            tracing::warn!(
-                "container image {IMAGE_NAME}:{IMAGE_TAG} is stale relative to your installed crosslink binary. \
-                 Pull the latest published image (`docker pull {IMAGE_NAME}:{IMAGE_TAG}`) or rebuild locally (`just build-image` or `crosslink container build`)."
-            );
-        }
+    if cli == image {
+        ImageVersionMatch::Same
+    } else if core(cli) == core(image) {
+        ImageVersionMatch::SameReleaseDifferentBuild
+    } else {
+        ImageVersionMatch::Different
     }
+}
+
+/// Compare the crosslink an image contains with this CLI's, using the image's
+/// version label, and say so when they differ. Nothing is printed when the
+/// image is not available locally yet or carries no label (images built before
+/// the label existed).
+pub(crate) fn check_image_version(runtime: &str, image: &str) -> Option<ImageVersionMatch> {
+    let output = Command::new(runtime)
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            &format!("{{{{ index .Config.Labels \"{IMAGE_VERSION_LABEL}\" }}}}"),
+            image,
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    let image_version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if image_version.is_empty() || image_version == "<no value>" {
+        tracing::debug!(
+            "{image} carries no {IMAGE_VERSION_LABEL} label; skipping the version check"
+        );
+        return None;
+    }
+    let verdict = compare_crosslink_versions(cli_version(), &image_version);
+    match verdict {
+        ImageVersionMatch::Same => {}
+        ImageVersionMatch::SameReleaseDifferentBuild => tracing::info!(
+            "{image} contains crosslink {image_version}; this CLI is {}",
+            cli_version()
+        ),
+        ImageVersionMatch::Different => eprintln!(
+            "warning: {image} contains crosslink {image_version}, but this CLI is {}. Both write the same hub; \
+             use the image matching this build, or pass --image with one built from your code (`just build-image`).",
+            cli_version()
+        ),
+    }
+    Some(verdict)
 }
 
 struct BuildDirCleanup(PathBuf);
@@ -763,8 +791,6 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     std::fs::copy(&binary, build_path.join(&staged_binary))
         .context("Failed to copy crosslink binary to build context")?;
 
-    let binary_hash = file_hash(&binary).unwrap_or_else(|_| "unknown".to_string());
-
     println!("Building container image: {image}");
 
     let mut cmd = Command::new("docker");
@@ -772,7 +798,10 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
 
     cmd.args(["--build-arg", &format!("TARGETARCH={docker_arch}")]);
     cmd.args(["--label", LABEL_AGENT]);
-    cmd.args(["--label", &format!("crosslink-binary-hash={binary_hash}")]);
+    cmd.args([
+        "--label",
+        &format!("{IMAGE_VERSION_LABEL}={}", cli_version()),
+    ]);
     if force {
         cmd.arg("--no-cache");
     }
@@ -785,7 +814,7 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     }
 
     println!("Image built successfully: {image}");
-    println!("Binary hash: {binary_hash}");
+    println!("crosslink version: {}", cli_version());
     Ok(())
 }
 
@@ -801,8 +830,6 @@ pub fn start(
         bail!("Docker is not available. Install Docker and ensure the daemon is running.");
     }
     let (image, image_source) = crate::commands::kickoff::resolve_agent_image(image)?;
-
-    check_staleness();
 
     let worktree_abs = std::fs::canonicalize(worktree_path)
         .with_context(|| format!("Worktree not found: {}", worktree_path.display()))?;
@@ -879,6 +906,7 @@ pub fn start(
     let agent_id = format!("container--{worktree_slug}");
 
     refresh_floating_image("docker", &image)?;
+    check_image_version("docker", &image);
 
     println!("Starting task container: {container_name}");
     println!("  Worktree: {}", worktree_abs.display());
@@ -1198,7 +1226,7 @@ mod tests {
 
     #[test]
     fn auth_image_resolution_prefers_flag_then_env_then_default() {
-        let default = format!("{IMAGE_NAME}:{IMAGE_TAG}");
+        let default = DEFAULT_IMAGE.to_string();
         assert_eq!(resolve_auth_image(None, None), default);
         assert_eq!(resolve_auth_image(Some("  "), Some("")), default);
         assert_eq!(
@@ -1229,8 +1257,8 @@ mod tests {
     fn build_default_tag_is_distinct_from_lookup_tag() {
         assert_eq!(BUILD_DEFAULT_TAG, "local");
         assert_ne!(
-            BUILD_DEFAULT_TAG, IMAGE_TAG,
-            "BUILD_DEFAULT_TAG and IMAGE_TAG must differ — otherwise `crosslink container build` \
+            BUILD_DEFAULT_TAG, crate::commands::kickoff::AGENT_IMAGE_TAG,
+            "BUILD_DEFAULT_TAG and crate::commands::kickoff::AGENT_IMAGE_TAG must differ — otherwise `crosslink container build` \
              clobbers the published `:latest` users pulled from GHCR"
         );
     }
@@ -1372,6 +1400,82 @@ mod tests {
         let podman = missing_github_login_message("podman", "origin", "github.com", "vol");
         assert!(podman.contains("volume store is separate"), "{podman}");
         assert!(podman.contains("create `vol` with podman"), "{podman}");
+    }
+
+    #[test]
+    fn image_versions_compare_on_release_and_build() {
+        use ImageVersionMatch::{Different, Same, SameReleaseDifferentBuild};
+        let cases = [
+            ("0.10.0", "0.10.0", Same),
+            ("0.10.0+abc1234", "0.10.0+abc1234", Same),
+            (
+                "0.10.0+abc1234",
+                "0.10.0+def5678",
+                SameReleaseDifferentBuild,
+            ),
+            (
+                "0.10.0+abc1234-dirty",
+                "0.10.0+abc1234",
+                SameReleaseDifferentBuild,
+            ),
+            ("0.10.0", "0.10.0+def5678", SameReleaseDifferentBuild),
+            ("0.10.0", "0.9.0", Different),
+            ("0.10.0-beta.1+abc", "0.10.0+abc", Different),
+        ];
+        for (cli, image, expected) in cases {
+            assert_eq!(
+                compare_crosslink_versions(cli, image),
+                expected,
+                "{cli} vs {image}"
+            );
+        }
+    }
+
+    /// A stand-in runtime whose `image inspect` prints the given label value.
+    #[cfg(unix)]
+    fn fake_inspect_runtime(dir: &Path, label: Option<&str>) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(format!(
+            "inspect-{}",
+            label.unwrap_or("missing").replace(['+', '.'], "_")
+        ));
+        let body = label.map_or_else(
+            || "exit 1".to_string(),
+            |value| format!("printf '%s\\n' '{value}'"),
+        );
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_reads_the_images_version_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = format!("{IMAGE_NAME}:nightly");
+        assert_eq!(
+            check_image_version(
+                &fake_inspect_runtime(dir.path(), Some(cli_version())),
+                &image
+            ),
+            Some(ImageVersionMatch::Same)
+        );
+        assert_eq!(
+            check_image_version(&fake_inspect_runtime(dir.path(), Some("0.0.1")), &image),
+            Some(ImageVersionMatch::Different)
+        );
+        // No label (older images) or no local image: nothing to compare.
+        assert_eq!(
+            check_image_version(
+                &fake_inspect_runtime(dir.path(), Some("<no value>")),
+                &image
+            ),
+            None
+        );
+        assert_eq!(
+            check_image_version(&fake_inspect_runtime(dir.path(), None), &image),
+            None
+        );
     }
 
     /// A stand-in runtime for the refresh: `pull` and `image inspect` exit

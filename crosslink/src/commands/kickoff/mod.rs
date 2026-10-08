@@ -15,13 +15,12 @@ mod tests;
 
 pub use types::{
     is_floating_image, resolve_agent_image, ContainerMode, KickoffOpts, KickoffReport, PlanOpts,
-    ReportFormat, VerifyLevel, AGENT_IMAGE_REPOSITORY, AGENT_IMAGE_TAG, DEFAULT_AGENT_IMAGE,
-    EFFORT_LEVELS,
+    ReportFormat, VerifyLevel, AGENT_IMAGE_REPOSITORY, DEFAULT_AGENT_IMAGE, EFFORT_LEVELS,
 };
 
-#[cfg(test)]
-pub use types::resolve_agent_image_from;
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
+#[cfg(test)]
+pub use types::{resolve_agent_image_from, AGENT_IMAGE_TAG};
 
 pub use cleanup::cleanup;
 pub use graph::graph;

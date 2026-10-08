@@ -969,6 +969,7 @@ pub(super) fn launch_container(
         policy,
     )?;
     crate::commands::container::refresh_floating_image(runtime_cmd, image)?;
+    crate::commands::container::check_image_version(runtime_cmd, image);
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
