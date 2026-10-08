@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 55,
-        "tip_oid": "2b368939e1d847c14c957a16dad6cf7bd155566f",
-        "prefix_sha256": "9c60eea940717fb95f21f2b5d6521032c6681f714b71daf7cb03592f3db58b14"
+        "sequence": 56,
+        "tip_oid": "5808fa6b421fae1c2574521823d8c2c1dac527e3",
+        "prefix_sha256": "6fd8fde8fb4252e2d94fcbc3afe547578c8be6870e3cb2d546a92c81d836adc1"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 813,
-  "next_comment_id": 1288,
+  "next_comment_id": 1289,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -5062,7 +5062,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:33:17.653542Z",
-      "updated_at": "2026-10-08T16:07:32.431059Z",
+      "updated_at": "2026-10-08T18:39:47.972122Z",
       "comments": {
         "37d40bcd-2af4-41fe-b0bb-b892e8b397a2": {
           "display_id": 1279,
@@ -5081,6 +5081,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAiqNlO8cfGPSsADIlc7je51td6tVXL7hzYzlby4b9OZ9fTB7zj+7MQuM8qe5YbGvFyD3Uich+rFb1s+fznjhMBw=="
+        },
+        "fcb6eac7-fe6e-4f95-a889-89105485a9f0": {
+          "display_id": 1288,
+          "author": "ldsw",
+          "content": "From PR #129 review (#812, SEC-01/SEC-03): the tag ruleset (admins create v*, no update/delete) and develop/main protection are now security-relevant: with :nightly + --pull=always, any push to develop reaches every dev build's credential-mounting containers, and kickoff agents carry a gh login that could push tags. Ordering of crate publish and asset upload after image verification (ARCH-01) remains here, blocked on #802.",
+          "created_at": "2026-10-08T18:39:47.935820Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApFdOYeatpY1vKJQP6tH06tKYWZpmwZYP+il4LmMfCc0/tjEr+wZxJC5oxSqDsr8aFjH0Bf+hwErMDqMFFsh0BQ=="
         }
       }
     },
@@ -27692,6 +27701,11 @@
       "agent_id": "ldsw",
       "agent_seq": 55,
       "timestamp": "2026-10-08T18:38:49.947031Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 56,
+      "timestamp": "2026-10-08T18:39:47.972122Z"
     }
   ],
   "watermark": {
