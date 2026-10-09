@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 90,
-        "tip_oid": "6e487318471d3fa4060a65388d0a2e0a04ff9aba",
-        "prefix_sha256": "13d8e9ec26c730b00e851ba4db7b4b1693a36abe06a8a26d764a6e2227f2bc57"
+        "sequence": 91,
+        "tip_oid": "1003814e00925245254ee71456696a763de000af",
+        "prefix_sha256": "6cf5ae3f3a12b33f66a7b5f65efb466e56a95b6e63d006663855b4f3f62368ea"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 816,
-  "next_comment_id": 1303,
+  "next_comment_id": 1304,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -5097,7 +5097,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:33:17.653542Z",
-      "updated_at": "2026-10-08T18:39:47.972122Z",
+      "updated_at": "2026-10-09T01:47:25.802348Z",
       "comments": {
         "37d40bcd-2af4-41fe-b0bb-b892e8b397a2": {
           "display_id": 1279,
@@ -5116,6 +5116,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAiqNlO8cfGPSsADIlc7je51td6tVXL7hzYzlby4b9OZ9fTB7zj+7MQuM8qe5YbGvFyD3Uich+rFb1s+fznjhMBw=="
+        },
+        "f24f79c7-77f4-4e30-b330-770e257103a5": {
+          "display_id": 1303,
+          "author": "ldsw",
+          "content": "Image and release half delivered in #129 (3440c0d05). Remaining: crates.io ordering after image verification (blocked on #802) and the operator decision on repository settings (v* tag ruleset; main/develop protection), which RELEASING.md names as the only control against a writer publishing a release.",
+          "created_at": "2026-10-09T01:47:25.766132Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqo190Ke4xoVjMFj0iIvDYIInoeSF+ds9VnEE1FT3LU54IEv7hBul5AD6WxOXC/rLHgrNvWpeCOuep4Lrjd8sAg=="
         },
         "fcb6eac7-fe6e-4f95-a889-89105485a9f0": {
           "display_id": 1288,
@@ -28053,6 +28062,11 @@
       "agent_id": "ldsw",
       "agent_seq": 90,
       "timestamp": "2026-10-09T01:46:33.390512Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 91,
+      "timestamp": "2026-10-09T01:47:25.802348Z"
     }
   ],
   "watermark": {
