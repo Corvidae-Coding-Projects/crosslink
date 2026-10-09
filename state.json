@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 110,
-        "tip_oid": "eb4cc12564a22ae688e9c338de89821256be9170",
-        "prefix_sha256": "d6ce2291fe3dc849299983e12c98b5a39a168e9f3bf1a70a87b8d9a4760e3ed8"
+        "sequence": 111,
+        "tip_oid": "4aa24e3c732681dbc3d1aa3470709e37982b48dc",
+        "prefix_sha256": "05d2b9d45db730d0fe2eddadaafcc6396f251f98ff1cb96b2fe12e87e9afbe4e"
       },
       "sQl8": {
         "sequence": 35,
@@ -1045,6 +1045,10 @@
     "817": {
       "agent_id": "ldsw",
       "claimed_at": "2026-10-09T02:00:15.002245Z"
+    },
+    "818": {
+      "agent_id": "ldsw",
+      "claimed_at": "2026-10-09T05:07:44.246316Z"
     },
     "820": {
       "agent_id": "ldsw",
@@ -28339,6 +28343,11 @@
       "agent_id": "ldsw",
       "agent_seq": 110,
       "timestamp": "2026-10-09T04:18:13.920587Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 111,
+      "timestamp": "2026-10-09T05:07:44.246316Z"
     }
   ],
   "watermark": {
