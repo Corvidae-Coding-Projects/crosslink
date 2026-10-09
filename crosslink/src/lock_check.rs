@@ -183,7 +183,14 @@ pub enum ClaimResult {
 
     AlreadyHeld,
 
-    Contended { winner_agent_id: String },
+    Contended {
+        winner_agent_id: String,
+    },
+
+    /// Published but not confirmed; not ownership.
+    Unconfirmed {
+        cause: String,
+    },
 
     NotConfigured,
 }
@@ -199,6 +206,9 @@ pub fn try_claim_lock(
             crate::shared_writer::LockClaimResult::AlreadyHeld => Ok(ClaimResult::AlreadyHeld),
             crate::shared_writer::LockClaimResult::Contended { winner_agent_id } => {
                 Ok(ClaimResult::Contended { winner_agent_id })
+            }
+            crate::shared_writer::LockClaimResult::Unconfirmed { cause } => {
+                Ok(ClaimResult::Unconfirmed { cause })
             }
         },
         Err(error) if error.to_string().contains("locks require configured") => {

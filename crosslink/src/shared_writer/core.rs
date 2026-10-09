@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::db::Database;
@@ -28,6 +29,37 @@ pub enum PushOutcome {
     LocalOnly,
 }
 
+/// Failure and delay injection for claim tests, in the style of the
+/// reconciliation `FailureController`. Each field is consulted at one point.
+#[cfg(test)]
+#[allow(dead_code)] // scaffold: the deadline fields are read by the bounded confirmation
+#[derive(Debug, Default)]
+pub(crate) struct ClaimFailpoints {
+    /// Added to the measured publication time of a lock claim.
+    pub(crate) extra_publish_elapsed: Duration,
+    /// Makes the lock-confirmation fetch fail.
+    pub(crate) fail_confirm_fetch: bool,
+    /// Fails the first step after a successful push.
+    pub(crate) fail_after_push: bool,
+    /// Overrides the confirmation deadline.
+    pub(crate) confirm_deadline: Option<Duration>,
+    /// Replaces the confirmation fetch command (program and arguments).
+    pub(crate) confirm_fetch_command: Option<Vec<String>>,
+    /// Delays the reduce that follows the confirmation fetch.
+    pub(crate) slow_confirm_reduce: Duration,
+}
+
+/// The result of committing events once publication was attempted. An `Err`
+/// from the commit means nothing was published; this type means the events
+/// reached the remote, possibly followed by a failure in a later step.
+#[allow(dead_code)] // scaffold: constructed by the implementation commit
+#[derive(Debug)]
+pub(crate) struct Published {
+    pub(crate) outcome: PushOutcome,
+    /// An error from adopt, reduce, checkpoint or hydration after the push.
+    pub(crate) after_push_error: Option<anyhow::Error>,
+}
+
 pub struct SharedWriter {
     pub(super) sync: SyncManager,
     pub(super) agent: AgentConfig,
@@ -37,6 +69,9 @@ pub struct SharedWriter {
     pub(super) event_seq: Cell<u64>,
 
     pub(super) last_v3_state: std::cell::RefCell<Option<crate::checkpoint::CheckpointState>>,
+
+    #[cfg(test)]
+    pub(crate) failpoints: std::cell::RefCell<ClaimFailpoints>,
 }
 
 impl SharedWriter {
@@ -97,6 +132,8 @@ impl SharedWriter {
             readiness_dir: crosslink_dir.to_path_buf(),
             event_seq,
             last_v3_state: std::cell::RefCell::new(None),
+            #[cfg(test)]
+            failpoints: std::cell::RefCell::new(ClaimFailpoints::default()),
         }))
     }
 
@@ -571,6 +608,11 @@ impl SharedWriter {
             return Err(error);
         }
 
+        #[cfg(test)]
+        if self.failpoints.borrow().fail_after_push {
+            bail!("injected failure after push");
+        }
+
         if self.sync.remote_exists() {
             self.sync.fetch_and_adopt_v3_refs();
         }
@@ -680,10 +722,30 @@ impl SharedWriter {
     }
 
     pub(super) fn confirm_v3_locks(&self) -> Result<()> {
-        if let Err(e) = self.sync.fetch() {
+        #[cfg(test)]
+        let fetched = if self.failpoints.borrow().fail_confirm_fetch {
+            Err(anyhow::anyhow!("injected confirmation fetch failure"))
+        } else {
+            self.sync.fetch()
+        };
+        #[cfg(not(test))]
+        let fetched = self.sync.fetch();
+        if let Err(e) = fetched {
             tracing::warn!("v3 lock confirm: fetch failed ({e}); confirming against local view");
         }
+        #[cfg(test)]
+        std::thread::sleep(self.failpoints.borrow().slow_confirm_reduce);
         self.refresh_v3_state()
+    }
+
+    /// Confirms lock state against a fresh fetch. The hub-lock wait and the
+    /// fetch share `deadline`; the reduce of the fetched snapshot is not
+    /// bounded. Every failure is returned, never confirmed against the local
+    /// view. See `.design/lock-claim-outcome-and-kickoff-rollback.md`.
+    #[allow(dead_code)] // scaffold: called by the implementation commit
+    pub(super) fn confirm_v3_locks_bounded(&self, deadline: Duration) -> Result<()> {
+        let _ = deadline;
+        unimplemented!("scaffold: bounded lock confirmation")
     }
 
     pub(super) fn v3_assigned_display_id(&self, uuid: &Uuid) -> Option<i64> {

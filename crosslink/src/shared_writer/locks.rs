@@ -8,7 +8,15 @@ pub enum LockClaimResult {
 
     AlreadyHeld,
 
-    Contended { winner_agent_id: String },
+    Contended {
+        winner_agent_id: String,
+    },
+
+    /// The claim was published, but confirmation against a fresh fetch did not
+    /// complete. Not ownership: a rerun confirms it without publishing again.
+    Unconfirmed {
+        cause: String,
+    },
 }
 
 impl SharedWriter {
@@ -39,6 +47,8 @@ impl SharedWriter {
         let start = std::time::Instant::now();
         self.emit_compact_push_inner(event, &format!("claim lock on #{issue_display_id}"))?;
         let elapsed = start.elapsed();
+        #[cfg(test)]
+        let elapsed = elapsed + self.failpoints.borrow().extra_publish_elapsed;
         if elapsed > std::time::Duration::from_secs(LOCK_CONFIRM_TIMEOUT_SECS) {
             bail!(
                 "Lock confirmation timed out after {}s (threshold {}s) -- \

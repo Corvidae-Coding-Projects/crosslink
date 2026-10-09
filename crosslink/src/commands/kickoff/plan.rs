@@ -225,6 +225,7 @@ pub fn plan(crosslink_dir: &Path, db: &impl QueryService, opts: &PlanOpts) -> Re
         model: validation_agent.resolve_model(Some(opts.model)),
         effort: opts.policy.effort.clone(),
         budget_usd: opts.policy.monetary_budget_usd.clone(),
+        base_commit: None,
     };
     std::fs::write(
         worktree_dir.join(".kickoff-metadata.json"),

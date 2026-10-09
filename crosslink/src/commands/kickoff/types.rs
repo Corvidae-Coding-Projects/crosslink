@@ -170,6 +170,12 @@ pub struct KickoffMetadata {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_usd: Option<String>,
+
+    /// The commit the worktree's branch was created from. Absent when the
+    /// branch was reused, or in metadata written before it was recorded;
+    /// cleanup then keeps the branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_commit: Option<String>,
 }
 
 impl KickoffMetadata {
@@ -181,6 +187,7 @@ impl KickoffMetadata {
             model: Some(opts.model.to_string()),
             effort: opts.policy.effort.clone(),
             budget_usd: opts.policy.monetary_budget_usd.clone(),
+            base_commit: None,
         }
     }
 }
