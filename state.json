@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 97,
-        "tip_oid": "bbb66b30acde9a1c02c6cbbfbbae3d62f453c1ed",
-        "prefix_sha256": "6bd7550875c360722db6fffb52e804c8d24a1ad7b5bad680b538cd4b73c3461a"
+        "sequence": 98,
+        "tip_oid": "0b97260b48bb9a4b9d5394255bd5cb2457610af8",
+        "prefix_sha256": "6323aa354468edd0703204929106e099b3452561a181df11a8d03a16c2edfc82"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 818,
+  "next_display_id": 819,
   "next_comment_id": 1306,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -169,6 +169,7 @@
     "23cf06cf-4b58-4905-98d3-3e446ce7af96": 529,
     "23d3d359-4c6e-43bd-99cb-64c789a585ed": 485,
     "23d5ce28-3473-4b93-84cd-94277cb689d4": 443,
+    "2426f9e3-80d4-424d-92a9-21e9255e9f06": 818,
     "2445a0e5-ac0d-4112-82c0-fe45ae4e12fa": 137,
     "24496b7b-a0cd-40df-b203-4c329bd5d2ab": 709,
     "24ae91f9-5542-4e6a-91bf-d4249697bd78": 4,
@@ -4357,6 +4358,17 @@
       "labels": [
         "enhancement"
       ]
+    },
+    "2426f9e3-80d4-424d-92a9-21e9255e9f06": {
+      "uuid": "2426f9e3-80d4-424d-92a9-21e9255e9f06",
+      "display_id": 818,
+      "title": "v3 hubs cannot steal or force-release another agent's lock",
+      "description": "Found while designing #817 (2026-10-09), from code; not yet reproduced by a failing test. apply_lock_event (crosslink/src/compaction.rs:1075) ignores LockClaimed and LockReleased from any agent other than the current holder. steal_lock_v2 and force_release_lock_v2 (crosslink/src/shared_writer/locks.rs:89-133) first run clear_stale_lock_state, which edits the file checkpoint, events.log and locks/ under cache_dir, but a v3 reduce reads the checkpoint ref (RefHubSource::read_checkpoint, hub_source.rs:534) and replays agent refs, so the edits have no effect: steal returns Contended, force-release publishes a LockReleased the reducer drops. auto_steal_if_configured ignores the claim result (lock_check.rs:106). tests/smoke/coordination.rs test_adversarial_stale_lock_steal_audit passes either way (its else branch accepts a failed steal; its assertion matches 'Locked' for agent A). Consistent with the ~35 dashboard-bootstrap locks from May 2026 still listed STALE on the shared hub. Kickoff cleanup (upstream #110 item 2) depends on a working release path for another agent's lock. Fix designed in #817.",
+      "status": "open",
+      "priority": "high",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T02:08:18.702774Z",
+      "updated_at": "2026-10-09T02:08:18.702774Z"
     },
     "2445a0e5-ac0d-4112-82c0-fe45ae4e12fa": {
       "uuid": "2445a0e5-ac0d-4112-82c0-fe45ae4e12fa",
@@ -28147,6 +28159,11 @@
       "agent_id": "ldsw",
       "agent_seq": 97,
       "timestamp": "2026-10-09T02:00:15.002245Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 98,
+      "timestamp": "2026-10-09T02:08:18.702774Z"
     }
   ],
   "watermark": {
