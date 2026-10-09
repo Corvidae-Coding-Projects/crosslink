@@ -183,6 +183,17 @@ Not covered by automated tests:
 
 These are checked by hand on this Mac before merge.
 
+Manual checks, 2026-10-09, macOS, installed builds of this branch:
+
+- **New claim.** With `dcbe2bd9`, `session work` on an unheld issue succeeded in 302 s, and `locks check` agreed. A stack sample showed the confirmation spending most of its time verifying the fetched remote checkpoint. `signing::verify_content` polls `ssh-keygen` with a 50 ms sleep per event. `f60712ed` confirms against agent refs without adopting the checkpoint. With it, a new claim took 85 s and an already-held lock 34 s. The remaining time is the publication's own cost (the write-cost increment).
+- **Activation failure.** The kickoff aimed at an issue another agent held. The undo released, ended the session and removed the worktree and branch, and the other agent's lock was untouched. Two defects were found and fixed:
+  - the undo now brings stale worktree readiness up before releasing (`444f28bf`);
+  - the daemon stop reported a zombie as alive, because the spawning kickoff never reaped it; spawned daemons are now reaped (`73ed70db`).
+
+  After the fixes, the undo reported "removed everything this kickoff created".
+- **Cleanup of a stopped agent.** A local kickoff was stopped at the trust prompt, and `kickoff cleanup --force` ran on it. It stopped the daemon, released the agent's lock, removed the worktree and deleted the unchanged branch. The issue then read "not locked".
+- **Observed, out of scope.** The host daemon exited, as `running: false`, after writes that held permits for more than 90 s: the 130 s cleanup, and the kickoff runs. It also parked once as `blocked_corrupt` after repeated record expiries. These are tracked on #816 and #817, for the heartbeat and write-cost increments.
+
 ## Data and compatibility
 
 - **One additive field.** `base_commit` in kickoff metadata, optional, with a default. Metadata without it means "keep the branch".
