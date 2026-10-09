@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 86,
-        "tip_oid": "9fa8c3efa24016f0bdc12b8fd2b11a04dc1ef9f4",
-        "prefix_sha256": "b6c10255b09cce4e292156c6e93c10461eb9525abd2c0b8c5dd130e958d58fde"
+        "sequence": 87,
+        "tip_oid": "3828482137f240bd9c1e44e598ab5dcd6826198a",
+        "prefix_sha256": "a40e7415d3f5ba911dde66f65c55c966c600790691a02b427a00c63b77a1d7a8"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 816,
-  "next_comment_id": 1301,
+  "next_comment_id": 1302,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -7321,7 +7321,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T18:25:40.199127Z",
-      "updated_at": "2026-10-09T00:44:45.158763Z",
+      "updated_at": "2026-10-09T01:43:57.186927Z",
       "comments": {
         "08df1ae7-0297-41f3-a39f-0856952bf3e1": {
           "display_id": 1284,
@@ -7349,6 +7349,15 @@
           "kind": "decision",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkvdsshwtjG6siIBG91HzdQoYYt6G3MDRbNdhvokMEFZsvSQxgA+yklJp5iMKRrOeV87Tv1NYv+A8gwL/6w45AA=="
+        },
+        "304db5d0-e18e-4315-9d7f-02beeec8ecbd": {
+          "display_id": 1301,
+          "author": "ldsw",
+          "content": "Delivered in Corvidae-Coding-Projects/crosslink#129, merged into develop as 3440c0d05. Deferred review findings: #815.",
+          "created_at": "2026-10-09T01:43:57.152297Z",
+          "kind": "resolution",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYgL0vSUlu7uWuVO1WEQ4ufCjILvhOZfzDdj62zhny1/OhIF44zOupLPz4uzDd+GDPU5LCPlJRhnjiF8l8NvsDA=="
         },
         "9d624543-e029-4bad-a4d9-f086494dc63e": {
           "display_id": 1292,
@@ -28018,6 +28027,11 @@
       "agent_id": "ldsw",
       "agent_seq": 86,
       "timestamp": "2026-10-09T01:42:54.588718Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 87,
+      "timestamp": "2026-10-09T01:43:57.186927Z"
     }
   ],
   "watermark": {
