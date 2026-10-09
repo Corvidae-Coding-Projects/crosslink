@@ -71,10 +71,10 @@ Kickoff undo:
 
 Tests marked "fails first" must fail on 3440c0d05 and pass after the change. They are the regression tests for Corvidae-Coding-Projects/crosslink#110.
 
-- [ ] AC-1 (fails first): a test hook delays publication past the confirmation deadline (a 2 s delay against a 1 s deadline), and confirmation succeeds. Amended 2026-10-08 during the build, from "past 30 s": the deadline is what publication time must not count against. `session work` succeeds, records the active issue, and the hub shows the lock held by the agent. (REQ-1, REQ-4)
+- [ ] AC-1 (fails first): a test hook delays publication past the confirmation deadline (a 6 s delay against a 5 s deadline), and confirmation succeeds. Amended 2026-10-08 during the build, from "past 30 s": the deadline is what publication time must not count against. `session work` succeeds, records the active issue, and the hub shows the lock held by the agent. (REQ-1, REQ-4)
 - [ ] AC-2 (fails first): the remote becomes unreachable after the claim's push. The result is `Unconfirmed`, `session work` exits non-zero with the rerun message, and no active issue is recorded. With the remote back, a rerun records the active issue, and the agent ref holds exactly one `LockClaimed` for the issue. (REQ-2, REQ-3, REQ-4)
 - [ ] AC-3: an error is injected into the reduce after the push. The result is `Unconfirmed`, not a plain error. (REQ-2)
-- [ ] AC-4: a test sets the confirmation deadline to 2 s, and a fake git holds the fetch open for 30 s. On the already-held path, the result is `Unconfirmed` in well under 30 s (the test asserts under 20 s). Amended 2026-10-08 during the scaffold: "within 4 s" could not hold, because the claim's publication and the local read before confirmation are not part of the bound. No process from the fetch's process group remains, and a normal fetch afterwards succeeds, so no lock files were left. On Windows, only the direct child is checked. (REQ-2)
+- [ ] AC-4: a test sets the confirmation deadline to 2 s, and a fake git holds the fetch open for 30 s. On the already-held path, the result is `Unconfirmed` in well under 30 s (the test asserts under 20 s). Amended 2026-10-08 during the scaffold: "within 4 s" could not hold, because the claim's publication and the local read before confirmation are not part of the bound. No process from the fetch's process group remains (the test's marker is on a grandchild), and a lock file the fake fetch removes only on SIGTERM is gone, so termination was graceful. On Windows, only the direct child is checked. (REQ-2)
 - [ ] AC-4a: the fetch is fast, and a test hook makes the reduce take longer than the deadline. The result is `Claimed` (and `AlreadyHeld` on a rerun), not `Unconfirmed`. (REQ-2, REQ-3)
 - [ ] AC-5: the local view shows this agent as holder, and the remote is unreachable. `session work` returns `Unconfirmed`, not `AlreadyHeld`. (REQ-3)
 - [ ] AC-6: another agent's earlier-ordered claim arrives during confirmation. The result is `Contended`, and no active issue is recorded. (REQ-3)
@@ -157,10 +157,10 @@ The build starts from a scaffold commit containing the new `LockClaimResult` var
 
 Dated 2026-10-08, made while building on `feat/lock-claim-outcome`:
 
-- **AC-1** is relative to the confirmation deadline (a 2 s publication delay against a 1 s deadline), not "past 30 s".
+- **AC-1** is relative to the confirmation deadline (a 6 s publication delay against a 5 s deadline), not "past 30 s".
 - **AC-4** checks the bound against the hung fetch (under 20 s), not "within 4 s". Publication and the local read before confirmation are outside the bound.
 - **Undo and cleanup release the lock in-process.** They use a `SharedWriter` built on the worktree's `.crosslink`, not a `crosslink locks release` subprocess. The signer is the same worktree agent. Running in-process lets the release be checked by `SharedWriter::confirmed_lock_holder`, the bounded confirmation, which a subprocess exit code cannot provide.
-- **`session end` runs without notes.** With notes it would post a comment on the issue, an extra hub write for every failed kickoff.
+- **`session end` runs without notes.** With notes it would post a comment on the issue, an extra hub write for every failed kickoff. Superseded 2026-10-09 (round 2): undo and cleanup no longer end the worktree session at all. The session is local state in the worktree and is discarded with it, and a failed session end printed a remedy for a path that was then removed. REQ-6 step 2, REQ-8 step 3 and AC-11's "session ended" read accordingly.
 - **Cleanup releases every lock the worktree agent holds**, because cleanup does not know the agent's issue. Amended 2026-10-09: it reads them from the host's view of the hub, and brings the worktree daemon up only when there is one to release.
 
 Dated 2026-10-09, after the manual checks and the phase 3 review (three reviewers, recorded on #820):
@@ -180,6 +180,12 @@ Dated 2026-10-09, after the manual checks and the phase 3 review (three reviewer
   - on a reused worktree, undo leaves what pre-existed (AC-9).
 - **Reducer: late arrivals are replayed in total order** (`9b6a59ed`). The contention test (AC-6) found that a reduce applying unseen events on top of the checkpoint diverges from a total-order replay when another agent's earlier event arrives late. Two clients could then each see themselves as holder, and a checkpoint written from that state failed verification for every reader. REQ-6(b) depends on the reduce matching a total-order replay. Reduce now rebuilds from the authority baseline when the earliest unseen event orders before the latest covered one. `f60712ed` had widened the window by dropping the checkpoint adoption that recomputed on concurrent checkpoints; the gap also existed before this branch when the earlier claim was in no checkpoint. This is not a protocol change: the event and checkpoint formats are unchanged, and checkpoint verification already replays in total order. Older binaries on a mixed-version hub can still compute the wrong holder locally until they upgrade; their checkpoints from that state already fail verification on every reader.
 - **Signature checks without a polling floor** (`21ff0aad`). `verify_content` waited for `ssh-keygen` with a 50 ms sleep per event, and the late-arrival replay will run whenever writers overlap. It now uses the shared timeout helper, which polls from 1 ms. Strictly this belongs to the write-cost increment; it is here because the replay above would otherwise make claims slow again.
+- **Round 2 review fixes (2026-10-09):**
+  - cleanup decides what the agent may hold from the host's view plus the agent's own claims read from its ref, and keeps the worktree if that cannot be read;
+  - undo and cleanup no longer end the worktree session (see the superseded entry above);
+  - signature verification treats incomplete output as an error, not a bad signature, and a hung `ssh-keygen` now fails after 30 s instead of blocking;
+  - the late-arrival replay is logged at debug level.
+- **Costs and visible effects of the reducer rule.** The rebuilt state is not persisted by the reduce itself. Until a write publishes a checkpoint covering the late event, each reduce that writes no checkpoint replays the history again: lock confirmation, side-effect-free reads, the daemon's hydration tick and dashboard polls. An agent with a lagging clock keeps producing late arrivals. This is a constraint on the write-cost increment. A late `IssueCreated` that orders earlier also renumbers display ids a client has already shown, and lock events are keyed by display id. That is the canonical total-order semantics, which diverging clients used to hide; whether hydration tolerates two ids swapping is tracked separately (#824).
 - **Keep the worktree when a release does not complete** (`4a43adc9`). See the amendments to REQ-6 and REQ-8. This also brings the build back in line with REQ-11: the worktree holds the agent's `agent.json`, half the identity REQ-11 keeps.
 - **Permit hold time.** A claim now holds its mutation permit through confirmation: up to 30 s more for the hub-lock wait and fetch, plus one reduce. Writes that hold permits past 90 s let the readiness record expire and the daemon exit (#816, #817), so this narrows that margin on slow machines until the write-cost and heartbeat increments land.
 
@@ -192,8 +198,8 @@ Where each criterion is covered:
   - **AC-4:** the grandchild in the fetch's process group and the SIGTERM lock-file cleanup.
   - **AC-4a.**
   - **AC-6:** contention found during confirmation, on the already-held path (`v3_contention_found_during_confirmation_is_contended`).
-- **Reducer:** `compaction::tests::prop_reduce_from_any_checkpoint_equals_full_replay` (256 cases) and `a_late_earlier_claim_wins_over_a_checkpointed_later_claim`; both fail with the rule disabled.
-  - **AC-12:** the real release on a refused push (`Stranded`) and an unreachable remote (`Unverified`), Unix only.
+- **Reducer:** `compaction::tests::prop_reduce_from_any_checkpoint_equals_full_replay` (256 cases: lock claims and releases, issue creation with allocated display ids, two successive checkpoint cuts) and `a_late_earlier_claim_wins_over_a_checkpointed_later_claim`; both failed with the rule disabled (lock-only version). The oracle is `reduce` from empty, the total order checkpoint verification also uses. `prop_` tests run on Ubuntu CI only. The baseline branch of the rebuild is not exercised: the generated hubs have no authority baseline.
+- **AC-12:** the real release on a refused push (`Stranded`) and an unreachable remote (`Unverified`), Unix only; it skips itself when run as root.
 - **Undo and cleanup:** unit tests in `crosslink/src/commands/kickoff/rollback.rs` and `cleanup.rs`:
   - the step order for each failure point;
   - reuse, including pre-existing state;
@@ -201,8 +207,9 @@ Where each criterion is covered:
   - failure reporting;
   - the branch rule;
   - the pipeline restore through `undo_failed_kickoff`;
-  - the host key file surviving undo (AC-13);
-  - an incomplete release keeping the worktree and branch, in undo and in cleanup, including the field scenario of a daemon that never becomes ready;
+  - a host key file surviving undo (weak evidence for AC-13: undo never touches that directory, and the trust approval and the after-cleanup half are not tested);
+  - an incomplete release keeping the worktree and branch, in undo and in cleanup, with the field scenario of a daemon that never becomes ready simulated at the `UndoOps` boundary (a canned `Failed` release), and an unreadable lock view keeping it too;
+  - the agent's own claims read from its ref (`v3_agent_own_claims_are_read_from_its_ref`);
   - git operations on a temporary repository.
 - **Daemon reaping:** `daemon::tests::a_spawned_child_is_reaped_when_it_exits`.
 
@@ -233,13 +240,13 @@ Field observation, 2026-10-09T20:43Z, from another repository's session on an in
 
 - **One additive field.** `base_commit` in kickoff metadata, optional, with a default. Metadata without it means "keep the branch".
 - `LockClaimResult` and rollback state are internal, so no other persisted format changes.
-- Older binaries on the same hub are unaffected.
+- Older binaries on the same hub are unaffected by the claim, undo and cleanup changes. They do not have the reducer's late-arrival rule: until they upgrade they can compute a different lock holder locally, and checkpoints they write from that state fail verification on every reader, as they already did.
 
 ## Failure handling
 
 - **Confirmation does not complete.** The claim stays published, the command exits non-zero, and a rerun confirms it. If nobody reruns, kickoff undo releases it: the release comes from the holder, so the reducer accepts it. Otherwise the lock stays until its holder releases it. A stale timeout does not clear it on v3. Clearing another agent's lock arrives with the lock-clearing increment (#818).
 - **An undo or cleanup step fails.** The failure is reported with its remedy, and the remaining steps run.
-- **The worktree cannot become ready during cleanup.** The lock and session steps are reported as skipped, with the remedy.
+- **The worktree cannot become ready during cleanup, or the agent's locks cannot be read.** The daemon is stopped and the worktree and branch are kept, with a remedy naming the kept path.
 
 ## Security considerations
 
@@ -250,7 +257,7 @@ Field observation, 2026-10-09T20:43Z, from another repository's session on an in
 ## Verification
 
 - **Tests:**
-  - `cargo test --manifest-path crosslink/Cargo.toml --bin crosslink -- hub_v3_operation_tests kickoff::rollback kickoff::cleanup daemon::tests::a_spawned_child lock_check sync:: utils::` (the new tests live in these modules);
+  - `cargo test --manifest-path crosslink/Cargo.toml --bin crosslink -- hub_v3_operation_tests compaction:: kickoff::rollback kickoff::cleanup daemon::tests::a_spawned_child lock_check sync:: utils:: signing::` (the new tests live in these modules);
   - `cargo test --manifest-path crosslink/Cargo.toml --test smoke coordination`.
 - **Before every commit:** `cargo fmt --check` and `cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used`.
 - **Full suite:** CI only.
@@ -261,7 +268,7 @@ Field observation, 2026-10-09T20:43Z, from another repository's session on an in
 ## Rollout and rollback
 
 - This increment merges when its tests and review pass.
-- Reverting it restores the elapsed-time bail.
+- Reverting it restores the elapsed-time bail, and also removes the reducer's late-arrival rule, reopening the two-holder gap REQ-6(b) depends on.
 - `base_commit` values already written are ignored by older binaries.
 
 ## Open questions

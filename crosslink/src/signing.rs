@@ -613,10 +613,11 @@ pub fn verify_content(
         ])
         .arg(&sig_path)
         .stdin(std::fs::File::open(&content_path).context("opening signed content")?);
-    let Some(output) =
-        crate::utils::command_output_with_timeout(&mut command, std::time::Duration::from_secs(30))
-    else {
-        bail!("ssh-keygen verification could not run or did not finish within 30 seconds");
+    let Some(output) = crate::utils::command_complete_output_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(30),
+    ) else {
+        bail!("ssh-keygen verification could not run, did not finish within 30 seconds, or its output was incomplete");
     };
 
     if !output.status.success() {

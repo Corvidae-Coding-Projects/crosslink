@@ -1,6 +1,6 @@
 # Feature: Write-path cost and lock semantics (umbrella)
 
-Umbrella design document, written 2026-10-08 against `origin/develop` at 3440c0d05. Status: reviewed. It was revised after review rounds 1 and 2, and is to be frozen when the first increment's scaffold commit lands. It states the shared problem, the evidence, the increments named by feature and their order, and the decisions that cross increments. Each increment gets its own design document, written when that increment is next to build. Only the first exists: `.design/lock-claim-outcome-and-kickoff-rollback.md`. The entries for later increments are provisional. This document follows `.design/crosslink-architecture-overhead-map.md` and amends `.design/hub-v3-per-agent-refs.md` where the increment documents say so. A bare `#N` is a tracker item, and GitHub records are written in full. Handles are listed in the key at the end.
+Umbrella design document, written 2026-10-08 against `origin/develop` at 3440c0d05. Status: reviewed. It was revised after review rounds 1 and 2, and was to be frozen when the first increment's scaffold commit landed. It has since been amended, by dated operator decisions only (the 2026-10-09 reorder and the reduce invariant); later changes follow the same rule. It states the shared problem, the evidence, the increments named by feature and their order, and the decisions that cross increments. Each increment gets its own design document, written when that increment is next to build. Only the first exists: `.design/lock-claim-outcome-and-kickoff-rollback.md`. The entries for later increments are provisional. This document follows `.design/crosslink-architecture-overhead-map.md` and amends `.design/hub-v3-per-agent-refs.md` where the increment documents say so. A bare `#N` is a tracker item, and GitHub records are written in full. Handles are listed in the key at the end.
 
 ## Problem
 
@@ -35,6 +35,7 @@ Each figure is marked as measured, estimated or a target.
 ## Increments, in build order
 
 1. **Lock-claim outcome and kickoff rollback** (Corvidae-Coding-Projects/crosslink#110, and the timeout half of Corvidae-Coding-Projects/crosslink#118). The design document is written: `.design/lock-claim-outcome-and-kickoff-rollback.md`.
+   - It also carries the reducer rule that a reduce from any checkpoint equals a replay of every event in total order (late arrivals are replayed), which REQ-6(b) depends on. Write cost and lock clearing build on that invariant. Recorded 2026-10-09.
 2. **Write cost** (Corvidae-Coding-Projects/crosslink#118). Provisional.
    - Moved to second on 2026-10-09 (operator decision, from the #820 review): bootstrap and write latency now break the first increment's undo and cleanup on large hubs. The reducer's late-arrival rule (#820) lands before it, and its caches must keep the property test against full replay.
    - A spawn-count test lands first and records the baseline.
@@ -48,6 +49,7 @@ Each figure is marked as measured, estimated or a target.
    - Constraints found:
      - The readiness contract forbids "in-memory-only readiness" and requires every write to reject a non-ready repository. So a cached validation must still re-check record age and daemon liveness on every acquisition.
      - Every new cache needs a property test against full recomputation, proved by removing its invalidation and watching the test fail.
+     - The reducer's late-arrival replay is not persisted: until a write publishes a covering checkpoint, every read-only reduce replays again (confirmation, reads, the daemon tick, dashboard polls). Persist or memoise the rebuilt state, or rebuild from the newest checkpoint before the late event.
 3. **Knowledge cache ownership** (Corvidae-Coding-Projects/crosslink#120, tracker #807). Provisional.
    - The main checkout's daemon creates the cache after its first ready activation and refreshes it on its sync tick when the remote tip moves. Creation is atomic.
    - A failure is logged and never affects readiness or the reconcile budget.
@@ -79,6 +81,8 @@ Each figure is marked as measured, estimated or a target.
 Each increment is dispatched as one issue. The number of merges each takes is decided in its own document.
 
 ## Cross-increment decisions
+
+- **Reduce equals a total-order replay** (2026-10-09, from the first increment's review). A reduce from any checkpoint must give the same state as replaying every event after the authority baseline in total order. Late arrivals trigger that replay, and `compaction::tests::prop_reduce_from_any_checkpoint_equals_full_replay` is its oracle. Every later increment that caches or shortcuts reduction keeps this property.
 
 - **Steal wire format** (2026-10-08, @magnificentlycursed). The direction was a tolerant decoder that skips unknown event types with a warning, plus a minimum-reader-version gate before any new lock-clearing event is emitted. Rejected: an optional field on `LockReleased`, which old binaries would reduce differently, and a staged rollout without a gate. The precedent check the same day found that a gate already exists:
   - the generation descriptor's `protocol_version` on `crosslink/reconciliation/current`, checked by exact equality, which every readiness-era binary refuses to become ready on;

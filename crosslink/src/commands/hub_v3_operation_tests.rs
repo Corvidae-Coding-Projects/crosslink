@@ -1493,6 +1493,11 @@ fn v3_slow_reduce_after_the_fetch_still_confirms() {
         writer.claim_lock_v2(issue_id, None).unwrap(),
         crate::shared_writer::LockClaimResult::Claimed
     );
+    assert_eq!(
+        writer.claim_lock_v2(issue_id, None).unwrap(),
+        crate::shared_writer::LockClaimResult::AlreadyHeld,
+        "the already-held path must not bound the reduce either"
+    );
 }
 
 /// AC-5 (fails first): an already-held lock is confirmed against the remote,
@@ -1645,4 +1650,31 @@ fn v3_undo_release_reports_stranded_and_unverified() {
         matches!(unverified, UndoOutcome::Unverified { .. }),
         "unreachable remote: got {unverified:?}"
     );
+}
+
+/// Cleanup's view of what an agent may still hold includes its own recent
+/// claims, read from its ref in the shared repository, even when the host's
+/// lock view has not caught up. A released claim no longer counts.
+#[test]
+fn v3_agent_own_claims_are_read_from_its_ref() {
+    use crate::commands::kickoff::rollback::agent_own_claims;
+
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let (writer, first) = writer_with_issue(&hub, "Kept claim");
+    let db = Database::open(&hub.crosslink_dir.join("issues.db")).unwrap();
+    let second = writer
+        .create_issue(&db, "Released claim", None, "high", None, None)
+        .unwrap();
+    writer.claim_lock_v2(first, None).unwrap();
+    writer.claim_lock_v2(second, None).unwrap();
+    assert!(writer.release_lock_v2(second).unwrap());
+
+    let claims = agent_own_claims(hub.work.path(), "alpha").unwrap();
+    assert_eq!(claims, vec![first]);
+    assert!(agent_own_claims(hub.work.path(), "nobody")
+        .unwrap()
+        .is_empty());
 }

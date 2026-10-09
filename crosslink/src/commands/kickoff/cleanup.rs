@@ -6,7 +6,7 @@ use std::process::Command;
 use super::helpers::*;
 use super::monitor::discover_agents;
 use super::rollback::{
-    host_locks_held_by, kept_worktree_remedy, outcome_message, worktree_agent_id, KickoffUndo,
+    kept_worktree_remedy, locks_to_release, outcome_message, worktree_agent_id, KickoffUndo,
     UndoOps, UndoOutcome, UndoStep,
 };
 use super::types::*;
@@ -266,8 +266,9 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
         let mut released = true;
         let mut branch_to_delete = None;
         if worktree_present {
-            let held = worktree_agent_id(&worktree_path.join(".crosslink"))
-                .map(|agent_id| host_locks_held_by(&repo_root.join(".crosslink"), &agent_id));
+            let held = worktree_agent_id(&worktree_path.join(".crosslink")).map(|agent_id| {
+                locks_to_release(&repo_root.join(".crosslink"), repo_root, &agent_id)
+            });
             released = release_agent_work(worktree_path, held, &mut ops, &mut result);
             if !keep_branch {
                 branch_to_delete = branch_and_base(worktree_path);
@@ -359,9 +360,10 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
     Ok(())
 }
 
-/// Releases the agent's locks and ends its session under its own identity.
-/// `held` is the host's view of the locks the worktree agent holds (`None`
-/// when the worktree has no agent). Returns whether every lock was released;
+/// Releases the agent's locks under its own identity. `held` is what it may
+/// hold: the host's view plus its own recent claims (`None` when the worktree
+/// has no agent). Its session is local state in the worktree and goes with
+/// it, so it is not ended separately. Returns whether every lock was released;
 /// anything left is a warning with its remedy.
 fn release_agent_work(
     worktree: &Path,
@@ -395,11 +397,6 @@ fn release_agent_work(
                 result.warnings.push(message);
             }
         }
-    }
-    let step = UndoStep::EndSession;
-    let outcome = ops.run(&step);
-    if let Some(message) = outcome_message(&step, &outcome) {
-        result.warnings.push(message);
     }
     released
 }
@@ -623,6 +620,39 @@ mod tests {
                 .warnings
                 .iter()
                 .any(|w| w.contains(&shown) && w.contains("kept")),
+            "{:?}",
+            result.warnings
+        );
+    }
+
+    /// When which locks the agent holds cannot be read (the host's view is
+    /// unavailable, the #822 situation), the worktree is kept: its identity
+    /// may still be needed.
+    #[test]
+    fn cleanup_keeps_the_worktree_when_the_held_locks_cannot_be_read() {
+        let (_dir, root, worktree, base) = repo_with_worktree();
+        let mut ops = RecordingOps::default();
+        let mut result = empty_result();
+        let released = release_agent_work(
+            &worktree,
+            Some(Err(anyhow::anyhow!("host view unavailable"))),
+            &mut ops,
+            &mut result,
+        );
+        assert!(!released);
+        finish_worktree(
+            &root,
+            &worktree,
+            released,
+            Some(("feature/x".to_string(), base)),
+            &mut ops,
+            &mut result,
+        );
+        assert!(worktree.exists());
+        assert!(result.worktree_kept);
+        let shown = worktree.display().to_string();
+        assert!(
+            result.warnings.iter().any(|w| w.contains(&shown)),
             "{:?}",
             result.warnings
         );

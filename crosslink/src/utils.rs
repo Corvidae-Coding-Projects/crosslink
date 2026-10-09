@@ -424,6 +424,24 @@ pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
 /// grace period, so no helper (a remote helper, ssh, index-pack) outlives the
 /// call. Elsewhere only the direct child is killed.
 pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Option<Output> {
+    run_with_timeout(command, timeout).map(|(output, _complete)| output)
+}
+
+/// Like [`command_output_with_timeout`], but only with complete output.
+///
+/// Returns `None` unless both streams arrived in full, for callers that decide
+/// on the output's content: a signature check must not read missing output as
+/// a bad signature.
+pub fn command_complete_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Option<Output> {
+    run_with_timeout(command, timeout).and_then(|(output, complete)| complete.then_some(output))
+}
+
+/// Runs the command; returns its output and whether both streams arrived in
+/// full.
+fn run_with_timeout(command: &mut Command, timeout: Duration) -> Option<(Output, bool)> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -456,16 +474,25 @@ pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> 
     // The command has exited. A process it left behind (an ssh
     // ControlPersist master, say) may still hold a pipe open; wait briefly for
     // the output, then return without it rather than kill that process.
-    let wait = deadline
-        .saturating_duration_since(Instant::now())
-        .min(Duration::from_secs(1));
-    let stdout = stdout.recv_timeout(wait).unwrap_or_default();
-    let stderr = stderr.recv_timeout(wait).unwrap_or_default();
-    Some(Output {
-        status,
-        stdout,
-        stderr,
-    })
+    let output_deadline = Instant::now()
+        + deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_secs(1));
+    let stdout = stdout
+        .recv_timeout(output_deadline.saturating_duration_since(Instant::now()))
+        .ok();
+    let stderr = stderr
+        .recv_timeout(output_deadline.saturating_duration_since(Instant::now()))
+        .ok();
+    let complete = stdout.is_some() && stderr.is_some();
+    Some((
+        Output {
+            status,
+            stdout: stdout.unwrap_or_default(),
+            stderr: stderr.unwrap_or_default(),
+        },
+        complete,
+    ))
 }
 
 /// Reads a pipe to its end on a background thread.
@@ -543,6 +570,31 @@ mod tests {
         )
         .expect("completes");
         assert_eq!(output.stdout.len(), 300_000);
+    }
+
+    /// A process left behind holding a pipe open does not extend the call:
+    /// the lenient helper returns the exit status, the strict one reports the
+    /// output as incomplete.
+    #[cfg(unix)]
+    #[test]
+    fn a_leftover_pipe_holder_does_not_extend_the_call() {
+        let started = Instant::now();
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "sleep 5 & exit 0"]),
+            Duration::from_secs(10),
+        )
+        .expect("returns once the command has exited");
+        assert!(output.status.success());
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert!(command_complete_output_with_timeout(
+            Command::new("sh").args(["-c", "sleep 5 & exit 0"]),
+            Duration::from_secs(10),
+        )
+        .is_none());
     }
 
     #[cfg(unix)]

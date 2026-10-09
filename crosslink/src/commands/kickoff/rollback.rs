@@ -32,7 +32,6 @@ pub(crate) enum UndoStep {
     ReleaseLock {
         issue_id: i64,
     },
-    EndSession,
     StopDaemon,
     RestorePipeline {
         doc_path: PathBuf,
@@ -102,9 +101,6 @@ pub(crate) struct KickoffRollback {
     worktree: Option<(PathBuf, Origin)>,
     branch: Option<(String, Origin, Option<String>)>,
     agent_initialized: bool,
-    /// The worktree already had an agent (a reused worktree): its session is
-    /// not this invocation's to end.
-    agent_preexisting: bool,
     /// The worktree's daemon was already running before this invocation.
     daemon_preexisting: bool,
     claimed_issue: Option<i64>,
@@ -139,7 +135,6 @@ impl KickoffRollback {
     /// its daemon was already running. Undo leaves what pre-existed as found.
     pub(crate) const fn record_existing_agent(&mut self, daemon_was_live: bool) {
         self.agent_initialized = true;
-        self.agent_preexisting = true;
         self.daemon_preexisting = daemon_was_live;
     }
 
@@ -194,9 +189,6 @@ impl KickoffRollback {
         if self.agent_initialized {
             if let Some(issue_id) = self.claimed_issue.filter(|_| !self.claim_preexisting) {
                 steps.push(UndoStep::ReleaseLock { issue_id });
-            }
-            if !self.agent_preexisting {
-                steps.push(UndoStep::EndSession);
             }
             if !self.daemon_preexisting {
                 steps.push(UndoStep::StopDaemon);
@@ -330,31 +322,6 @@ impl KickoffUndo<'_> {
         }
     }
 
-    fn end_session(&self) -> UndoOutcome {
-        if !self.has_agent() {
-            return UndoOutcome::NothingToUndo;
-        }
-        if let Err(error) = self.ensure_ready() {
-            return UndoOutcome::Failed {
-                error,
-                remedy: format!(
-                    "run `crosslink session end` in {}",
-                    self.worktree_dir.display()
-                ),
-            };
-        }
-        command_outcome(
-            Command::new("crosslink")
-                .current_dir(self.worktree_dir)
-                .args(["session", "end"]),
-            &format!(
-                "run `crosslink session end` in {}",
-                self.worktree_dir.display()
-            ),
-            &["No active session"],
-        )
-    }
-
     fn stop_daemon(&self) -> UndoOutcome {
         let crosslink = self.worktree_crosslink();
         if !crate::reconcile::readiness::requires_readiness(&crosslink) {
@@ -457,7 +424,6 @@ impl UndoOps for KickoffUndo<'_> {
                 &["can't find session", "no server running"],
             ),
             UndoStep::ReleaseLock { issue_id } => self.release_lock(*issue_id),
-            UndoStep::EndSession => self.end_session(),
             UndoStep::StopDaemon => self.stop_daemon(),
             UndoStep::RestorePipeline { doc_path } => self.restore_pipeline(doc_path),
             UndoStep::RemoveWorktree { path } => self.remove_worktree(path),
@@ -493,6 +459,64 @@ pub(crate) fn host_locks_held_by(host_crosslink: &Path, agent_id: &str) -> Resul
         .map(|(issue, _)| *issue)
         .collect();
     held.sort_unstable();
+    Ok(held)
+}
+
+/// The issues whose most recent lock event on `agent_id`'s own ref is a
+/// claim, read from the repository the worktree shares with the host. No
+/// fetch and no daemon: the agent's ref is local. A superset of what the agent
+/// holds (a claim it lost to contention still counts), which is the safe side
+/// for deciding whether its identity is still needed.
+pub(crate) fn agent_own_claims(repo_root: &Path, agent_id: &str) -> Result<Vec<i64>> {
+    let reference = crate::hub_v3::agent_ref_name(agent_id)?;
+    let exists = Command::new("git")
+        .current_dir(repo_root)
+        .args(["rev-parse", "--verify", "--quiet", &reference])
+        .output()?;
+    if !exists.status.success() {
+        return Ok(Vec::new());
+    }
+    let log = Command::new("git")
+        .current_dir(repo_root)
+        .args(["show", &format!("{reference}:events.log")])
+        .output()?;
+    anyhow::ensure!(
+        log.status.success(),
+        "could not read {reference}:events.log: {}",
+        String::from_utf8_lossy(&log.stderr).trim()
+    );
+    let mut events = crate::events::read_events_from_bytes(&log.stdout)?;
+    events.sort_by_key(|event| event.agent_seq);
+    let mut claimed = std::collections::BTreeSet::new();
+    for event in events {
+        match event.event {
+            crate::events::Event::LockClaimed {
+                issue_display_id, ..
+            } => {
+                claimed.insert(issue_display_id);
+            }
+            crate::events::Event::LockReleased { issue_display_id } => {
+                claimed.remove(&issue_display_id);
+            }
+            _ => {}
+        }
+    }
+    Ok(claimed.into_iter().collect())
+}
+
+/// The locks a cleanup must release before it may remove the worktree: what
+/// the host's view shows the agent holding, plus the agent's own recent
+/// claims (the host's view may not have seen them yet). An error means it
+/// cannot be known, and the worktree must be kept.
+pub(crate) fn locks_to_release(
+    host_crosslink: &Path,
+    repo_root: &Path,
+    agent_id: &str,
+) -> Result<Vec<i64>> {
+    let mut held = host_locks_held_by(host_crosslink, agent_id)?;
+    held.extend(agent_own_claims(repo_root, agent_id)?);
+    held.sort_unstable();
+    held.dedup();
     Ok(held)
 }
 
@@ -602,7 +626,6 @@ impl UndoStep {
             Self::RemoveContainer { name, .. } => format!("removing container {name}"),
             Self::KillTmuxSession { name } => format!("killing tmux session {name}"),
             Self::ReleaseLock { issue_id } => format!("releasing the lock on #{issue_id}"),
-            Self::EndSession => "ending the worktree session".to_string(),
             Self::StopDaemon => "stopping the worktree daemon".to_string(),
             Self::RestorePipeline { doc_path } => {
                 format!("restoring the pipeline state of {}", doc_path.display())
@@ -659,11 +682,7 @@ mod tests {
     }
 
     fn tail_steps() -> Vec<UndoStep> {
-        vec![
-            UndoStep::ReleaseLock { issue_id: 7 },
-            UndoStep::EndSession,
-            UndoStep::StopDaemon,
-        ]
+        vec![UndoStep::ReleaseLock { issue_id: 7 }, UndoStep::StopDaemon]
     }
 
     fn removal_steps() -> Vec<UndoStep> {
@@ -718,7 +737,7 @@ mod tests {
                 name: "feat-x".to_string()
             })
         );
-        assert_eq!(steps.len(), 6);
+        assert_eq!(steps.len(), 5);
     }
 
     /// AC-9: a reused worktree and branch are never removed.
@@ -909,7 +928,6 @@ mod tests {
             .map(|(step, _)| step.clone())
             .collect();
         assert!(nothing.contains(&UndoStep::ReleaseLock { issue_id: 7 }));
-        assert!(nothing.contains(&UndoStep::EndSession));
     }
 
     /// AC-13: undo never touches the host-side identity: the agent's key

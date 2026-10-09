@@ -193,7 +193,16 @@ pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
     // a lock claim would lose to a later claim already in the checkpoint, and
     // display ids would be allocated in a different order, so clients reducing
     // from different checkpoints would disagree. Rebuild in total order then.
+    // The rebuilt state is not persisted here: until a write publishes a
+    // checkpoint covering the late event, each reduce replays again (a known
+    // cost, recorded for the write-cost increment), so make it visible.
     if arrives_late(&histories, &state.frontier, all_events.first()) {
+        tracing::debug!(
+            "late arrival from '{}' (seq {}): replaying {} unseen events in total order",
+            all_events[0].agent_id,
+            all_events[0].agent_seq,
+            all_events.len()
+        );
         return rebuild_with_histories(source, &histories);
     }
 
@@ -1336,23 +1345,52 @@ mod tests {
         compact(cache_dir, agent_id, force, &lock)
     }
 
+    /// What a generated event does: claim or release a lock, or create an
+    /// issue (whose display id is allocated in apply order).
+    #[derive(Debug, Clone, Copy)]
+    enum Act {
+        Claim,
+        Release,
+        Create,
+    }
+
+    fn act(kind: u8) -> Act {
+        match kind % 3 {
+            0 => Act::Claim,
+            1 => Act::Release,
+            _ => Act::Create,
+        }
+    }
+
     /// Writes a gap-free event sequence per agent from `plan` entries of
-    /// (agent index, issue, claim or release, timestamp offset).
-    fn lock_events(plan: &[(usize, i64, bool, i64)]) -> Vec<EventEnvelope> {
+    /// (agent index, issue, act, timestamp offset).
+    fn plan_events(plan: &[(usize, i64, Act, i64)]) -> Vec<EventEnvelope> {
         const AGENTS: [&str; 3] = ["agent-a", "agent-b", "agent-c"];
         let mut sequences = [0_u64; 3];
         plan.iter()
-            .map(|&(agent, issue, claim, offset)| {
+            .enumerate()
+            .map(|(index, &(agent, issue, act, offset))| {
                 sequences[agent] += 1;
-                let event = if claim {
-                    Event::LockClaimed {
+                let event = match act {
+                    Act::Claim => Event::LockClaimed {
                         issue_display_id: issue,
                         branch: None,
-                    }
-                } else {
-                    Event::LockReleased {
+                    },
+                    Act::Release => Event::LockReleased {
                         issue_display_id: issue,
-                    }
+                    },
+                    Act::Create => Event::IssueCreated {
+                        uuid: Uuid::from_u128(index as u128 + 1),
+                        title: format!("issue {index}"),
+                        description: None,
+                        priority: "medium".to_string(),
+                        labels: Vec::new(),
+                        parent_uuid: None,
+                        created_by: AGENTS[agent].to_string(),
+                        display_id: None,
+                        scheduled_at: None,
+                        due_at: None,
+                    },
                 };
                 let mut envelope = make_envelope(AGENTS[agent], sequences[agent], event);
                 envelope.timestamp =
@@ -1360,6 +1398,21 @@ mod tests {
                 envelope
             })
             .collect()
+    }
+
+    fn lock_events(plan: &[(usize, i64, bool, i64)]) -> Vec<EventEnvelope> {
+        let plan: Vec<_> = plan
+            .iter()
+            .map(|&(agent, issue, claim, offset)| {
+                (
+                    agent,
+                    issue,
+                    if claim { Act::Claim } else { Act::Release },
+                    offset,
+                )
+            })
+            .collect();
+        plan_events(&plan)
     }
 
     fn append_all<'a>(dir: &Path, events: impl IntoIterator<Item = &'a EventEnvelope>) {
@@ -1372,28 +1425,54 @@ mod tests {
         }
     }
 
-    /// Reduces `events` from a checkpoint cut after the first `cut[agent]`
-    /// events of each agent, with the rest arriving afterwards.
-    fn reduce_from_cut(events: &[EventEnvelope], cut: &[usize]) -> CheckpointState {
-        let dir = tempfile::tempdir().unwrap();
-        setup_cache(dir.path());
-        let agent_index = |id: &str| match id {
+    fn agent_index(id: &str) -> usize {
+        match id {
             "agent-a" => 0,
             "agent-b" => 1,
             _ => 2,
-        };
-        let mut seen = [0_usize; 3];
-        let (covered, late): (Vec<_>, Vec<_>) = events.iter().partition(|event| {
-            let index = agent_index(&event.agent_id);
-            seen[index] += 1;
-            seen[index] <= cut[index]
-        });
-        if !covered.is_empty() {
-            append_all(dir.path(), covered);
-            compact_t(dir.path(), "agent-a", true).unwrap();
         }
-        append_all(dir.path(), late);
+    }
+
+    /// Reduces `events` after checkpointing at each cut in turn (a cut is the
+    /// number of each agent's events written before compacting), with the
+    /// rest arriving afterwards. Cuts must not shrink.
+    fn reduce_from_cuts(events: &[EventEnvelope], cuts: &[[usize; 3]]) -> CheckpointState {
+        let dir = tempfile::tempdir().unwrap();
+        setup_cache(dir.path());
+        let mut written = [0_usize; 3];
+        for cut in cuts {
+            let mut seen = [0_usize; 3];
+            let batch: Vec<_> = events
+                .iter()
+                .filter(|event| {
+                    let index = agent_index(&event.agent_id);
+                    seen[index] += 1;
+                    seen[index] > written[index] && seen[index] <= cut[index]
+                })
+                .collect();
+            for event in &batch {
+                written[agent_index(&event.agent_id)] += 1;
+            }
+            if !batch.is_empty() {
+                append_all(dir.path(), batch);
+                compact_t(dir.path(), "agent-a", true).unwrap();
+            }
+        }
+        let mut seen = [0_usize; 3];
+        let rest: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                let index = agent_index(&event.agent_id);
+                seen[index] += 1;
+                seen[index] > written[index]
+            })
+            .collect();
+        append_all(dir.path(), rest);
         reduce(&WorktreeSource::new(dir.path())).unwrap().state
+    }
+
+    fn reduce_from_cut(events: &[EventEnvelope], cut: &[usize]) -> CheckpointState {
+        reduce_from_cuts(events, &[[cut[0], cut[1], cut[2]]])
     }
 
     /// The late arrival found by the #820 contention test: agent-b claims
@@ -1412,21 +1491,37 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
-        /// Reducing from any checkpoint cut, with the remaining events
+        /// Reducing from any checkpoint cuts, with the remaining events
         /// arriving late, gives the same state as a full replay in total
-        /// order: contended locks, releases by non-holders, timestamp ties,
-        /// inversions and per-agent clock skew included.
+        /// order: contended locks, releases by non-holders, issue creation
+        /// (display ids allocated in apply order), timestamp ties, inversions,
+        /// per-agent clock skew, and a second checkpoint written after a
+        /// first. The oracle is `reduce` replaying from empty, the same total
+        /// order checkpoint verification uses.
         #[test]
         fn prop_reduce_from_any_checkpoint_equals_full_replay(
-            plan in prop::collection::vec((0_usize..3, 1_i64..3, any::<bool>(), 0_i64..4), 1..12),
-            cut in prop::collection::vec(0_usize..12, 3),
+            plan in prop::collection::vec((0_usize..3, 1_i64..3, 0_u8..3, 0_i64..4), 1..12),
+            first in prop::array::uniform3(0_usize..12),
+            second in prop::array::uniform3(0_usize..12),
         ) {
-            let events = lock_events(&plan);
-            let full = reduce_from_cut(&events, &[0, 0, 0]);
-            let incremental = reduce_from_cut(&events, &cut);
+            let plan: Vec<_> = plan
+                .into_iter()
+                .map(|(agent, issue, kind, offset)| (agent, issue, act(kind), offset))
+                .collect();
+            let events = plan_events(&plan);
+            let later = [
+                first[0].max(second[0]),
+                first[1].max(second[1]),
+                first[2].max(second[2]),
+            ];
+            let full = reduce_from_cuts(&events, &[]);
+            let incremental = reduce_from_cuts(&events, &[first, later]);
             prop_assert!(
                 checkpoint_semantics_equal(&full, &incremental).unwrap(),
-                "full locks {:?} vs incremental {:?}",
+                "plan {:?}\ncuts {:?} then {:?}\nfull locks {:?} vs incremental {:?}",
+                plan,
+                first,
+                later,
                 full.locks,
                 incremental.locks
             );

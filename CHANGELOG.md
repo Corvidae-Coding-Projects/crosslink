@@ -122,8 +122,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   command that clears it.
 - `kickoff cleanup` releases the agent's locks, then removes the worktree and
   deletes its branch when the branch has no commits beyond the base recorded
-  at kickoff; `--keep-branch` keeps it. Cleanup exits non-zero when it leaves
-  work behind.
+  at kickoff; `--keep-branch` keeps it. When a lock cannot be released (for
+  example, the worktree's daemon does not become ready), cleanup and kickoff's
+  undo keep the worktree and its branch, so the agent identity in it can still
+  release the lock, and say how to finish or give up. Cleanup now exits
+  non-zero when it leaves work behind, and its JSON gains `worktree_kept`.
+- Clients reducing the hub from different checkpoints no longer disagree when
+  another agent's earlier event arrives late (for example after a transient
+  fetch failure): the reduce replays every event in total order, so every
+  client names the same lock holder and allocates the same display ids.
+- Signature checks no longer wait a fixed 50 ms per event for `ssh-keygen`.
 - `locks steal` and lock auto-steal no longer report success when the steal
   did not take.
 - `crosslink container build` no longer fails with a cryptic
