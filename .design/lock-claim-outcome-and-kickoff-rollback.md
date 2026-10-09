@@ -71,7 +71,7 @@ Kickoff undo:
 
 Tests marked "fails first" must fail on 3440c0d05 and pass after the change. They are the regression tests for Corvidae-Coding-Projects/crosslink#110.
 
-- [ ] AC-1 (fails first): publication is delayed past 30 s by a test hook, and confirmation succeeds. `session work` succeeds, records the active issue, and the hub shows the lock held by the agent. (REQ-1, REQ-4)
+- [ ] AC-1 (fails first): a test hook delays publication past the confirmation deadline (a 2 s delay against a 1 s deadline), and confirmation succeeds. Amended 2026-10-08 during the build, from "past 30 s": the deadline is what publication time must not count against. `session work` succeeds, records the active issue, and the hub shows the lock held by the agent. (REQ-1, REQ-4)
 - [ ] AC-2 (fails first): the remote becomes unreachable after the claim's push. The result is `Unconfirmed`, `session work` exits non-zero with the rerun message, and no active issue is recorded. With the remote back, a rerun records the active issue, and the agent ref holds exactly one `LockClaimed` for the issue. (REQ-2, REQ-3, REQ-4)
 - [ ] AC-3: an error is injected into the reduce after the push. The result is `Unconfirmed`, not a plain error. (REQ-2)
 - [ ] AC-4: a test sets the confirmation deadline to 2 s, and a fake git holds the fetch open for 30 s. On the already-held path, the result is `Unconfirmed` in well under 30 s (the test asserts under 20 s). Amended 2026-10-08 during the scaffold: "within 4 s" could not hold, because the claim's publication and the local read before confirmation are not part of the bound. No process from the fetch's process group remains, and a normal fetch afterwards succeeds, so no lock files were left. On Windows, only the direct child is checked. (REQ-2)
@@ -152,6 +152,36 @@ The build starts from a scaffold commit containing the new `LockClaimResult` var
 - **The deadline bounds only the network.** The hub-lock wait and the fetch are bounded; the local reduce is not. A slow reduce of a fresh snapshot is still a correct confirmation, and bounding it would make claims fail on slow machines until the write-cost increment lands. Rejected: bounding the whole confirmation, which round 2 of the review showed would turn today's slow success into a permanent failure.
 - **The 30 s value stays; what it measures changes.** Raising it, as Corvidae-Coding-Projects/crosslink#103 did, would treat write cost, and that is the write-cost increment's job.
 - **Identity and trust approval are left in place.** Revoking them would make the agent's published events unverifiable.
+
+## Amendments during the build
+
+Dated 2026-10-08, made while building on `feat/lock-claim-outcome`:
+
+- **AC-1** is relative to the confirmation deadline (a 2 s publication delay against a 1 s deadline), not "past 30 s".
+- **AC-4** checks the bound against the hung fetch (under 20 s), not "within 4 s". Publication and the local read before confirmation are outside the bound.
+- **Undo and cleanup release the lock in-process.** They use a `SharedWriter` built on the worktree's `.crosslink`, not a `crosslink locks release` subprocess. The signer is the same worktree agent. Running in-process lets the release be checked by `SharedWriter::confirmed_lock_holder`, the bounded confirmation, which a subprocess exit code cannot provide.
+- **`session end` runs without notes.** With notes it would post a comment on the issue, an extra hub write for every failed kickoff.
+- **Cleanup releases every lock the worktree agent holds** (`SharedWriter::locks_held_by_self`), because cleanup does not know the agent's issue.
+
+Where each criterion is covered:
+
+- **Claim (AC-1 to AC-6):** tests in `crosslink/src/commands/hub_v3_operation_tests.rs` against real v3 hubs with a bare remote. AC-6 is the existing `v3_lock_claim_confirm_winner_and_loser`.
+- **Undo and cleanup:** unit tests in `crosslink/src/commands/kickoff/rollback.rs` and `cleanup.rs`, covering:
+  - the step order for each failure point;
+  - reuse;
+  - disarming;
+  - failure reporting;
+  - the branch rule;
+  - the pipeline restore;
+  - the real git operations on a temporary repository.
+
+Not covered by automated tests:
+
+- the `session work` message for an unconfirmed claim (AC-2's command-level half);
+- AC-7;
+- AC-8 and AC-11 end to end, which need the `crosslink` binary, tmux and a container runtime.
+
+These are checked by hand on this Mac before merge.
 
 ## Data and compatibility
 

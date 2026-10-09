@@ -5,15 +5,27 @@ use std::process::Command;
 
 use super::helpers::*;
 use super::monitor::discover_agents;
+use super::rollback::{outcome_message, KickoffUndo, UndoOps, UndoOutcome, UndoStep};
 use super::types::*;
 
-pub fn cleanup(
-    crosslink_dir: &Path,
-    dry_run: bool,
-    force: bool,
-    keep: usize,
-    json_output: bool,
-) -> Result<()> {
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CleanupOptions {
+    pub dry_run: bool,
+    pub force: bool,
+    pub keep: usize,
+    /// Keep each agent's branch even when it has no commits beyond its base.
+    pub keep_branch: bool,
+    pub json_output: bool,
+}
+
+pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
+    let CleanupOptions {
+        dry_run,
+        force,
+        keep,
+        keep_branch,
+        json_output,
+    } = *opts;
     let agents = discover_agents(crosslink_dir)?;
     if !dry_run {
         for agent in &agents {
@@ -185,6 +197,9 @@ pub fn cleanup(
             worktree_removed: false,
             tmux_killed: false,
             container_removed: false,
+            locks_released: Vec::new(),
+            branch_deleted: false,
+            warnings: Vec::new(),
             error: None,
         };
 
@@ -232,6 +247,19 @@ pub fn cleanup(
             }
         }
 
+        // With the agent's processes gone, release its locks and end its
+        // session under its own identity, before the worktree goes.
+        let worktree_path = Path::new(&agent.worktree);
+        let worktree_present = !agent.worktree.is_empty() && worktree_path.exists();
+        let repo_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+        let mut branch_to_delete = None;
+        if worktree_present {
+            release_agent_work(repo_root, worktree_path, &mut result);
+            if !keep_branch {
+                branch_to_delete = branch_and_base(worktree_path);
+            }
+        }
+
         if !agent.worktree.is_empty() {
             if let Some(root) = crosslink_dir.parent() {
                 let pipeline_status = match agent.status.as_str() {
@@ -260,6 +288,20 @@ pub fn cleanup(
             {
                 Ok(o) if o.status.success() => {
                     result.worktree_removed = true;
+                    if let Some((name, base_commit)) = branch_to_delete.take() {
+                        let step = UndoStep::DeleteBranch { name, base_commit };
+                        let mut ops = KickoffUndo {
+                            repo_root,
+                            worktree_dir: worktree_path,
+                            prior_pipeline: None,
+                        };
+                        let outcome = ops.run(&step);
+                        if outcome == UndoOutcome::Done {
+                            result.branch_deleted = true;
+                        } else if let Some(message) = outcome_message(&step, &outcome) {
+                            result.warnings.push(message);
+                        }
+                    }
                     let wt_display = std::path::Path::new(&agent.worktree)
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -279,6 +321,18 @@ pub fn cleanup(
                     tracing::warn!("{}", msg);
                     result.error = Some(msg);
                 }
+            }
+        }
+
+        if !json_output {
+            for issue in &result.locks_released {
+                println!("  Released lock on #{issue}");
+            }
+            if result.branch_deleted {
+                println!("  Deleted branch with no commits beyond its base");
+            }
+            for warning in &result.warnings {
+                eprintln!("  Warning: {warning}");
             }
         }
 
@@ -311,4 +365,148 @@ pub fn cleanup(
     }
 
     Ok(())
+}
+
+/// Brings the worktree's daemon up so the agent's locks can be released and
+/// its session ended under its own identity. Anything left is a warning
+/// with its remedy.
+fn release_agent_work(repo_root: &Path, worktree: &Path, result: &mut CleanupResult) {
+    let worktree_crosslink = worktree.join(".crosslink");
+    if !worktree_crosslink.join("agent.json").exists() {
+        return;
+    }
+    if crate::reconcile::readiness::requires_readiness(&worktree_crosslink) {
+        let ready = crate::daemon::ensure(&worktree_crosslink, true)
+            .map(|record| record.state.grants_mutations());
+        if !matches!(ready, Ok(true)) {
+            result.warnings.push(format!(
+                "the worktree daemon did not become ready, so the agent's locks and session \
+                 were left; to clear them, run `crosslink locks list` and \
+                 `crosslink locks release <id>` in {}",
+                worktree.display()
+            ));
+            return;
+        }
+    }
+    let held = match crate::shared_writer::SharedWriter::new(&worktree_crosslink) {
+        Ok(Some(writer)) => writer.locks_held_by_self(),
+        Ok(None) => Ok(Vec::new()),
+        Err(error) => Err(error),
+    };
+    let held = match held {
+        Ok(held) => held,
+        Err(error) => {
+            result.warnings.push(format!(
+                "could not read the agent's locks: {error:#}; to clear them, run \
+                 `crosslink locks release <id>` in {}",
+                worktree.display()
+            ));
+            Vec::new()
+        }
+    };
+    let mut ops = KickoffUndo {
+        repo_root,
+        worktree_dir: worktree,
+        prior_pipeline: None,
+    };
+    for issue_id in held {
+        let step = UndoStep::ReleaseLock { issue_id };
+        let outcome = ops.run(&step);
+        if outcome == UndoOutcome::Done {
+            result.locks_released.push(issue_id);
+        } else if let Some(message) = outcome_message(&step, &outcome) {
+            result.warnings.push(message);
+        }
+    }
+    let step = UndoStep::EndSession;
+    let outcome = ops.run(&step);
+    if let Some(message) = outcome_message(&step, &outcome) {
+        result.warnings.push(message);
+    }
+}
+
+/// The worktree's branch and its recorded base, when kickoff recorded one.
+fn branch_and_base(worktree: &Path) -> Option<(String, String)> {
+    let metadata: KickoffMetadata =
+        serde_json::from_slice(&std::fs::read(worktree.join(".kickoff-metadata.json")).ok()?)
+            .ok()?;
+    let base_commit = metadata.base_commit?;
+    let branch = Command::new("git")
+        .current_dir(worktree)
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    let branch = String::from_utf8_lossy(&branch.stdout).trim().to_string();
+    (!branch.is_empty()).then_some((branch, base_commit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(output.status.success(), "git {args:?}");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    fn write_metadata(worktree: &Path, base_commit: Option<&str>) {
+        let metadata = serde_json::json!({
+            "started_at": "2026-10-08T00:00:00Z",
+            "timeout_secs": 3600,
+            "base_commit": base_commit,
+        });
+        std::fs::write(
+            worktree.join(".kickoff-metadata.json"),
+            serde_json::to_vec(&metadata).expect("json"),
+        )
+        .expect("metadata");
+    }
+
+    /// AC-11 (cleanup): the branch rule needs a recorded base; metadata
+    /// written before `base_commit` existed keeps the branch.
+    #[test]
+    fn cleanup_deletes_a_branch_only_with_a_recorded_base() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let worktree = dir.path();
+        git(worktree, &["init", "-q", "-b", "feature/x"]);
+        git(worktree, &["config", "user.email", "test@test.local"]);
+        git(worktree, &["config", "user.name", "Test"]);
+        git(worktree, &["config", "commit.gpgsign", "false"]);
+        git(worktree, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        let head = git(worktree, &["rev-parse", "HEAD"]);
+
+        write_metadata(worktree, Some(&head));
+        assert_eq!(
+            branch_and_base(worktree),
+            Some(("feature/x".to_string(), head))
+        );
+
+        write_metadata(worktree, None);
+        assert_eq!(branch_and_base(worktree), None);
+    }
+
+    #[test]
+    fn cleanup_leaves_locks_alone_without_an_agent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut result = CleanupResult {
+            id: "agent".to_string(),
+            class: CleanupClass::Stale,
+            worktree_removed: false,
+            tmux_killed: false,
+            container_removed: false,
+            locks_released: Vec::new(),
+            branch_deleted: false,
+            warnings: Vec::new(),
+            error: None,
+        };
+        release_agent_work(dir.path(), dir.path(), &mut result);
+        assert!(result.locks_released.is_empty());
+        assert!(result.warnings.is_empty());
+    }
 }

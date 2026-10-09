@@ -127,7 +127,10 @@ pub fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
     acquire_hub_lock_with_timeout(lock_path, Duration::from_secs(30))
 }
 
-fn acquire_hub_lock_with_timeout(lock_path: &Path, max_wait: Duration) -> Result<HubWriteLock> {
+pub(crate) fn acquire_hub_lock_with_timeout(
+    lock_path: &Path,
+    max_wait: Duration,
+) -> Result<HubWriteLock> {
     let poll_interval = Duration::from_millis(100);
     let start = std::time::Instant::now();
 
@@ -150,9 +153,10 @@ fn acquire_hub_lock_with_timeout(lock_path: &Path, max_wait: Duration) -> Result
                 if start.elapsed() > max_wait {
                     if holder_alive {
                         bail!(
-                            "hub write lock held by live process for >30s ({}); \
+                            "hub write lock held by live process for more than {}s ({}); \
                              waiting aborted to avoid concurrent worktree mutation — \
                              retry, or remove the lock file if the process is hung: {}",
+                            max_wait.as_secs(),
                             std::fs::read_to_string(lock_path)
                                 .ok()
                                 .and_then(|c| c.trim().parse::<u32>().ok())
@@ -168,7 +172,8 @@ fn acquire_hub_lock_with_timeout(lock_path: &Path, max_wait: Duration) -> Result
                     match try_create_lock(lock_path) {
                         Ok(guard) => return Ok(guard),
                         Err(_) => bail!(
-                            "Hub lock held for >30s and could not be acquired after force-removal"
+                            "Hub lock held for more than {}s and could not be acquired after force-removal",
+                            max_wait.as_secs()
                         ),
                     }
                 }
@@ -183,6 +188,12 @@ impl SyncManager {
     pub(crate) fn acquire_lock(&self) -> Result<HubWriteLock> {
         let lock_path = self.cache_dir.join(".hub-write-lock");
         acquire_hub_lock(&lock_path)
+    }
+
+    /// Like `acquire_lock`, but gives up after `max_wait`.
+    pub(crate) fn acquire_lock_within(&self, max_wait: Duration) -> Result<HubWriteLock> {
+        let lock_path = self.cache_dir.join(".hub-write-lock");
+        acquire_hub_lock_with_timeout(&lock_path, max_wait)
     }
 
     pub fn init_cache(&self) -> Result<()> {
@@ -546,6 +557,20 @@ impl SyncManager {
         self.refresh_local_checkpoint();
     }
 
+    /// The fetch of every agent ref and the checkpoint into the remote-tracking
+    /// namespace, as a command the caller runs (for example under a deadline).
+    pub(crate) fn v3_fetch_command(&self) -> std::process::Command {
+        let mut command = std::process::Command::new("git");
+        command.current_dir(&self.cache_dir).args([
+            "fetch",
+            "--quiet",
+            &self.remote,
+            "+refs/heads/crosslink/checkpoint:refs/crosslink-remote/checkpoint",
+            "refs/heads/crosslink/agents/*:refs/crosslink-remote/agents/*",
+        ]);
+        command
+    }
+
     pub(crate) fn fetch_and_adopt_v3_refs(&self) {
         let fetch_result = self.git_in_cache(&[
             "fetch",
@@ -556,19 +581,23 @@ impl SyncManager {
         if fetch_result.is_err() {
             return;
         }
+        if let Err(error) = self.adopt_fetched_v3_refs() {
+            tracing::warn!("v3 fetch: {error:#}");
+        }
+    }
 
+    /// Adopts what a v3 fetch brought into the remote-tracking namespace:
+    /// every other agent's ref tip and, by frontier, the checkpoint. Local
+    /// only; never touches this agent's own ref.
+    pub(crate) fn adopt_fetched_v3_refs(&self) -> Result<()> {
         let own_agent_id = crate::identity::AgentConfig::load(&self.crosslink_dir)
             .ok()
             .flatten()
             .map(|a| a.agent_id);
 
-        let tips = match self.list_remote_agent_tips() {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("v3 fetch: could not list remote agent tips: {e}");
-                return;
-            }
-        };
+        let tips = self
+            .list_remote_agent_tips()
+            .context("could not list remote agent tips")?;
         for (agent_id, remote_tip) in tips {
             if own_agent_id.as_deref() == Some(agent_id.as_str()) {
                 continue;
@@ -581,6 +610,7 @@ impl SyncManager {
         }
 
         self.adopt_checkpoint_by_frontier();
+        Ok(())
     }
 
     fn list_remote_agent_tips(&self) -> Result<Vec<(String, String)>> {

@@ -7,6 +7,7 @@ use crate::db::Database;
 use super::helpers::*;
 use super::launch::*;
 use super::prompt::*;
+use super::rollback::{KickoffRollback, KickoffUndo, Origin};
 use super::types::*;
 
 pub(crate) fn resolve_kickoff_issue(
@@ -137,154 +138,211 @@ pub fn run(crosslink_dir: &Path, db: &Database, opts: &KickoffOpts) -> Result<St
         return Ok(compact_name);
     }
 
-    let (worktree_dir, branch_name) = if worktree_dir.exists() && opts.branch.is_some() {
+    let reused = worktree_dir.exists() && opts.branch.is_some();
+    let (worktree_dir, branch_name) = if reused {
         (worktree_dir, branch_name)
     } else {
         create_worktree(&root, &wt_slug, None)?
     };
 
-    std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
-        .context("Failed to write .kickoff-slug sentinel")?;
+    // Everything below is undone if it fails before the agent starts.
+    let origin = if reused {
+        Origin::Reused
+    } else {
+        Origin::Created
+    };
+    let base_commit = if reused {
+        None
+    } else {
+        worktree_head(&worktree_dir)
+    };
+    let mut rollback = KickoffRollback::new();
+    rollback.record_worktree(worktree_dir.clone(), origin);
+    rollback.record_branch(branch_name.clone(), origin, base_commit.clone());
 
-    std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
-        .context("Failed to write KICKOFF.md")?;
+    let launched = (|| -> Result<String> {
+        std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
+            .context("Failed to write .kickoff-slug sentinel")?;
 
-    if let Some(doc) = opts.design_doc {
-        if !doc.acceptance_criteria.is_empty() {
-            let source = opts.doc_path.unwrap_or("unknown");
-            let criteria_file = extract_criteria(doc, source);
-            let json = serde_json::to_string_pretty(&criteria_file)
-                .context("Failed to serialize criteria")?;
-            std::fs::write(worktree_dir.join(".kickoff-criteria.json"), &json)
-                .context("Failed to write .kickoff-criteria.json")?;
-        }
-    }
+        std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
+            .context("Failed to write KICKOFF.md")?;
 
-    {
-        let mut metadata = KickoffMetadata::for_launch(opts, chrono::Utc::now().to_rfc3339());
-        metadata.provider = Some(validation_agent.provider.to_string());
-        metadata.model = validation_agent.resolve_model(Some(opts.model));
-        let json = serde_json::to_string_pretty(&metadata)
-            .context("Failed to serialize kickoff metadata")?;
-        std::fs::write(worktree_dir.join(".kickoff-metadata.json"), &json)
-            .context("Failed to write .kickoff-metadata.json")?;
-    }
-
-    let protected_doc_rel = resolve_worktree_relative_doc(opts.doc_path, &root);
-    if let Some(rel) = protected_doc_rel.as_deref() {
-        protect_design_doc(&worktree_dir, rel)?;
-    }
-
-    exclude_kickoff_files(&worktree_dir)?;
-
-    let agent_id =
-        init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name, Some(issue_id))?;
-
-    if let Some(doc_path_str) = opts.doc_path {
-        let doc_path = Path::new(doc_path_str);
-        if let Err(e) = super::pipeline::mark_running(
-            doc_path,
-            &agent_id,
-            &worktree_dir.to_string_lossy(),
-            Some(issue_id),
-        ) {
-            tracing::warn!("could not record pipeline run row for {doc_path_str}: {e}");
-        }
-    }
-
-    let preflight = preflight.context("preflight check was skipped unexpectedly")?;
-
-    let allowed_tools = build_allowed_tools(&conventions, &opts.verify);
-
-    match &opts.container {
-        ContainerMode::None => {
-            let mut session_name = tmux_session_name(&compact_name);
-            if tmux_session_exists(&session_name) {
-                let suffix: u32 = rand_suffix();
-                session_name =
-                    format!("{}-{}", &session_name[..session_name.len().min(58)], suffix);
+        if let Some(doc) = opts.design_doc {
+            if !doc.acceptance_criteria.is_empty() {
+                let source = opts.doc_path.unwrap_or("unknown");
+                let criteria_file = extract_criteria(doc, source);
+                let json = serde_json::to_string_pretty(&criteria_file)
+                    .context("Failed to serialize criteria")?;
+                std::fs::write(worktree_dir.join(".kickoff-criteria.json"), &json)
+                    .context("Failed to write .kickoff-criteria.json")?;
             }
+        }
 
-            launch_local(
-                &preflight.agent,
-                &worktree_dir,
-                &session_name,
-                opts.model,
-                &allowed_tools,
-                preflight.timeout_cmd,
-                preflight.sandbox_command.as_deref(),
-                crosslink_dir,
-                &opts.policy,
-            )?;
+        {
+            let mut metadata = KickoffMetadata::for_launch(opts, chrono::Utc::now().to_rfc3339());
+            metadata.base_commit.clone_from(&base_commit);
+            metadata.provider = Some(validation_agent.provider.to_string());
+            metadata.model = validation_agent.resolve_model(Some(opts.model));
+            let json = serde_json::to_string_pretty(&metadata)
+                .context("Failed to serialize kickoff metadata")?;
+            std::fs::write(worktree_dir.join(".kickoff-metadata.json"), &json)
+                .context("Failed to write .kickoff-metadata.json")?;
+        }
 
-            let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
+        let protected_doc_rel = resolve_worktree_relative_doc(opts.doc_path, &root);
+        if let Some(rel) = protected_doc_rel.as_deref() {
+            protect_design_doc(&worktree_dir, rel)?;
+        }
 
-            if opts.quiet {
-                println!("{session_name}");
-            } else {
-                println!("Feature agent launched.");
-                println!();
-                println!("  Worktree: {}", worktree_dir.display());
-                println!("  Branch:   {branch_name}");
-                println!("  Issue:    #{issue_id}");
-                println!("  Agent:    {agent_id}");
-                println!("  Session:  {session_name}");
-                println!("  Verify:   {:?}", opts.verify);
-                println!();
-                println!("  Approve trust:  tmux attach -t {session_name}");
-                println!("  Check status:   crosslink kickoff status {agent_id}");
-                if opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough {
+        exclude_kickoff_files(&worktree_dir)?;
+
+        rollback.record_agent();
+        rollback.record_claim(issue_id);
+        let agent_id =
+            init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name, Some(issue_id))?;
+
+        if let Some(doc_path_str) = opts.doc_path {
+            let doc_path = Path::new(doc_path_str);
+            rollback.record_pipeline(
+                doc_path.to_path_buf(),
+                super::pipeline::read_pipeline_state(doc_path),
+            );
+            if let Err(e) = super::pipeline::mark_running(
+                doc_path,
+                &agent_id,
+                &worktree_dir.to_string_lossy(),
+                Some(issue_id),
+            ) {
+                tracing::warn!("could not record pipeline run row for {doc_path_str}: {e}");
+            }
+        }
+
+        let preflight = preflight.context("preflight check was skipped unexpectedly")?;
+
+        let allowed_tools = build_allowed_tools(&conventions, &opts.verify);
+
+        match &opts.container {
+            ContainerMode::None => {
+                let mut session_name = tmux_session_name(&compact_name);
+                if tmux_session_exists(&session_name) {
+                    let suffix: u32 = rand_suffix();
+                    session_name =
+                        format!("{}-{}", &session_name[..session_name.len().min(58)], suffix);
+                }
+
+                rollback.record_tmux_session(session_name.clone());
+                launch_local(
+                    &preflight.agent,
+                    &worktree_dir,
+                    &session_name,
+                    opts.model,
+                    &allowed_tools,
+                    preflight.timeout_cmd,
+                    preflight.sandbox_command.as_deref(),
+                    crosslink_dir,
+                    &opts.policy,
+                )?;
+                rollback.disarm();
+
+                let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
+
+                if opts.quiet {
+                    println!("{session_name}");
+                } else {
+                    println!("Feature agent launched.");
                     println!();
-                    println!("  CI verification is enabled. The agent will push and open a draft PR after local tests pass.");
+                    println!("  Worktree: {}", worktree_dir.display());
+                    println!("  Branch:   {branch_name}");
+                    println!("  Issue:    #{issue_id}");
+                    println!("  Agent:    {agent_id}");
+                    println!("  Session:  {session_name}");
+                    println!("  Verify:   {:?}", opts.verify);
+                    println!();
+                    println!("  Approve trust:  tmux attach -t {session_name}");
+                    println!("  Check status:   crosslink kickoff status {agent_id}");
+                    if opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough {
+                        println!();
+                        println!("  CI verification is enabled. The agent will push and open a draft PR after local tests pass.");
+                    }
                 }
             }
-        }
-        mode @ (ContainerMode::Docker | ContainerMode::Podman) => {
-            let container_id = launch_container(
-                mode,
-                &preflight.agent,
-                &worktree_dir,
-                &root,
-                opts.image,
-                &agent_id,
-                opts.model,
-                &allowed_tools,
-                opts.timeout,
-                protected_doc_rel.as_deref(),
-                &opts.policy,
-            )?;
-
-            if opts.quiet {
-                println!("{container_id}");
-            } else {
+            mode @ (ContainerMode::Docker | ContainerMode::Podman) => {
                 let runtime = if *mode == ContainerMode::Docker {
                     "docker"
                 } else {
                     "podman"
                 };
-                println!("Feature agent launched in container.");
-                println!();
-                println!("  Worktree:    {}", worktree_dir.display());
-                println!("  Branch:      {branch_name}");
-                println!("  Issue:       #{issue_id}");
-                println!("  Agent:       {agent_id}");
-                println!(
-                    "  Container:   {}",
-                    &container_id[..12.min(container_id.len())]
-                );
-                println!("  Verify:      {:?}", opts.verify);
-                println!();
-                println!(
-                    "  View logs:   {} logs -f {}",
-                    runtime,
-                    &container_id[..12.min(container_id.len())]
-                );
-                println!("  Check status: crosslink kickoff status {agent_id}");
+                rollback
+                    .record_container(runtime.to_string(), format!("crosslink-agent-{agent_id}"));
+                let container_id = launch_container(
+                    mode,
+                    &preflight.agent,
+                    &worktree_dir,
+                    &root,
+                    opts.image,
+                    &agent_id,
+                    opts.model,
+                    &allowed_tools,
+                    opts.timeout,
+                    protected_doc_rel.as_deref(),
+                    &opts.policy,
+                )?;
+                rollback.disarm();
+
+                if opts.quiet {
+                    println!("{container_id}");
+                } else {
+                    println!("Feature agent launched in container.");
+                    println!();
+                    println!("  Worktree:    {}", worktree_dir.display());
+                    println!("  Branch:      {branch_name}");
+                    println!("  Issue:       #{issue_id}");
+                    println!("  Agent:       {agent_id}");
+                    println!(
+                        "  Container:   {}",
+                        &container_id[..12.min(container_id.len())]
+                    );
+                    println!("  Verify:      {:?}", opts.verify);
+                    println!();
+                    println!(
+                        "  View logs:   {} logs -f {}",
+                        runtime,
+                        &container_id[..12.min(container_id.len())]
+                    );
+                    println!("  Check status: crosslink kickoff status {agent_id}");
+                }
             }
         }
-    }
 
-    Ok(compact_name)
+        Ok(compact_name.clone())
+    })();
+
+    launched.inspect_err(|_| undo_failed_kickoff(rollback, &root, &worktree_dir))
+}
+
+/// Undoes what a failed kickoff created and reports any step that did not
+/// complete.
+pub(super) fn undo_failed_kickoff(rollback: KickoffRollback, root: &Path, worktree_dir: &Path) {
+    let mut ops = KickoffUndo {
+        repo_root: root,
+        worktree_dir,
+        prior_pipeline: rollback.prior_pipeline().cloned(),
+    };
+    let report = rollback.unwind(&mut ops);
+    if !report.entries.is_empty() {
+        report.print();
+    }
+}
+
+/// The commit a freshly created worktree's branch points at.
+pub(super) fn worktree_head(worktree_dir: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .current_dir(worktree_dir)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn resolve_worktree_relative_doc(doc_path: Option<&str>, repo_root: &Path) -> Option<PathBuf> {

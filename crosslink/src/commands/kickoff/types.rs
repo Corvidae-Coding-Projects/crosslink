@@ -409,6 +409,9 @@ pub(super) struct CleanupResult {
     pub worktree_removed: bool,
     pub tmux_killed: bool,
     pub container_removed: bool,
+    pub locks_released: Vec<i64>,
+    pub branch_deleted: bool,
+    pub warnings: Vec<String>,
     pub error: Option<String>,
 }
 

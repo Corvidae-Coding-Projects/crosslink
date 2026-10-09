@@ -32,11 +32,10 @@ pub enum PushOutcome {
 /// Failure and delay injection for claim tests, in the style of the
 /// reconciliation `FailureController`. Each field is consulted at one point.
 #[cfg(test)]
-#[allow(dead_code)] // scaffold: the deadline fields are read by the bounded confirmation
 #[derive(Debug, Default)]
 pub(crate) struct ClaimFailpoints {
-    /// Added to the measured publication time of a lock claim.
-    pub(crate) extra_publish_elapsed: Duration,
+    /// Sleeps after a successful push, before the steps that follow it.
+    pub(crate) publish_delay: Duration,
     /// Makes the lock-confirmation fetch fail.
     pub(crate) fail_confirm_fetch: bool,
     /// Fails the first step after a successful push.
@@ -52,7 +51,6 @@ pub(crate) struct ClaimFailpoints {
 /// The result of committing events once publication was attempted. An `Err`
 /// from the commit means nothing was published; this type means the events
 /// reached the remote, possibly followed by a failure in a later step.
-#[allow(dead_code)] // scaffold: constructed by the implementation commit
 #[derive(Debug)]
 pub(crate) struct Published {
     pub(crate) outcome: PushOutcome,
@@ -280,11 +278,36 @@ impl SharedWriter {
             bail!(V2_WRITE_REFUSAL);
         }
 
+        let published = self.emit_compact_push_tracked(event)?;
+        match published.after_push_error {
+            Some(error) => Err(error),
+            None => Ok(published.outcome),
+        }
+    }
+
+    /// `emit_compact_push_inner`, keeping apart "not published" (`Err`) and
+    /// "published, then a later step failed" (`after_push_error`).
+    pub(super) fn emit_compact_push_tracked(
+        &self,
+        event: crate::events::Event,
+    ) -> Result<Published> {
+        if !self.is_v3() {
+            bail!(V2_WRITE_REFUSAL);
+        }
+
         let lock_guard = self.sync.acquire_lock()?;
-        let outcome = self.commit_v3(vec![event], &lock_guard)?;
-        let db = Database::open(&self.readiness_dir.join("issues.db"))?;
-        crate::hydration::hydrate_current_authority_under_operation(&self.readiness_dir, &db)?;
-        Ok(outcome)
+        let mut published = self.commit_v3_tracked(vec![event], &lock_guard)?;
+        if published.after_push_error.is_none() {
+            published.after_push_error = Database::open(&self.readiness_dir.join("issues.db"))
+                .and_then(|db| {
+                    crate::hydration::hydrate_current_authority_under_operation(
+                        &self.readiness_dir,
+                        &db,
+                    )
+                })
+                .err();
+        }
+        Ok(published)
     }
 
     pub fn write_agent_request(
@@ -553,8 +576,24 @@ impl SharedWriter {
     fn commit_v3(
         &self,
         events: Vec<crate::events::Event>,
-        _lock: &crate::sync::HubWriteLock,
+        lock: &crate::sync::HubWriteLock,
     ) -> Result<PushOutcome> {
+        let published = self.commit_v3_tracked(events, lock)?;
+        match published.after_push_error {
+            Some(error) => Err(error),
+            None => Ok(published.outcome),
+        }
+    }
+
+    /// Commits and publishes `events`. An `Err` means nothing was published
+    /// (the agent ref is rolled back). Once the push has succeeded, a failure
+    /// in a later step is returned inside `Published`, so the caller knows
+    /// the events are on the remote.
+    pub(super) fn commit_v3_tracked(
+        &self,
+        events: Vec<crate::events::Event>,
+        _lock: &crate::sync::HubWriteLock,
+    ) -> Result<Published> {
         let agent_id = self.agent.agent_id.clone();
         let remote = self.sync.remote();
         let requires_publication = self.sync.remote_exists();
@@ -608,9 +647,26 @@ impl SharedWriter {
             return Err(error);
         }
 
+        let outcome = if requires_publication {
+            PushOutcome::Pushed
+        } else {
+            PushOutcome::LocalOnly
+        };
+        let after_push_error = self.after_publication().err();
+        Ok(Published {
+            outcome,
+            after_push_error,
+        })
+    }
+
+    fn after_publication(&self) -> Result<()> {
         #[cfg(test)]
-        if self.failpoints.borrow().fail_after_push {
-            bail!("injected failure after push");
+        {
+            let failpoints = self.failpoints.borrow();
+            std::thread::sleep(failpoints.publish_delay);
+            if failpoints.fail_after_push {
+                bail!("injected failure after push");
+            }
         }
 
         if self.sync.remote_exists() {
@@ -619,12 +675,7 @@ impl SharedWriter {
 
         self.refresh_v3_state()?;
         self.write_and_push_v3_checkpoint();
-
-        Ok(if requires_publication {
-            PushOutcome::Pushed
-        } else {
-            PushOutcome::LocalOnly
-        })
+        Ok(())
     }
 
     fn write_and_push_v3_checkpoint(&self) {
@@ -721,31 +772,71 @@ impl SharedWriter {
         }
     }
 
-    pub(super) fn confirm_v3_locks(&self) -> Result<()> {
+    /// The bound on a lock confirmation's hub-lock wait and fetch.
+    #[cfg_attr(not(test), allow(clippy::unused_self, clippy::missing_const_for_fn))] // test builds read the failpoints
+    pub(super) fn lock_confirm_deadline(&self) -> Duration {
         #[cfg(test)]
-        let fetched = if self.failpoints.borrow().fail_confirm_fetch {
-            Err(anyhow::anyhow!("injected confirmation fetch failure"))
-        } else {
-            self.sync.fetch()
-        };
-        #[cfg(not(test))]
-        let fetched = self.sync.fetch();
-        if let Err(e) = fetched {
-            tracing::warn!("v3 lock confirm: fetch failed ({e}); confirming against local view");
+        if let Some(deadline) = self.failpoints.borrow().confirm_deadline {
+            return deadline;
+        }
+        Duration::from_secs(LOCK_CONFIRM_TIMEOUT_SECS)
+    }
+
+    /// Confirms lock state against a fresh fetch. The hub-lock wait and the
+    /// fetch share `deadline`; adopting and reducing the fetched snapshot are
+    /// local and not bounded. Every failure is returned, never confirmed
+    /// against the local view. With no remote, the local authority is the
+    /// authority, and confirmation is a reduce.
+    /// See `.design/lock-claim-outcome-and-kickoff-rollback.md`.
+    pub(super) fn confirm_v3_locks_bounded(&self, deadline: Duration) -> Result<()> {
+        if self.sync.remote_exists() {
+            let started = std::time::Instant::now();
+            let lock = self
+                .sync
+                .acquire_lock_within(deadline)
+                .context("lock confirmation could not take the hub lock")?;
+            self.run_confirmation_fetch(deadline.saturating_sub(started.elapsed()))?;
+            self.sync
+                .adopt_fetched_v3_refs()
+                .context("lock confirmation could not adopt the fetched refs")?;
+            drop(lock);
         }
         #[cfg(test)]
         std::thread::sleep(self.failpoints.borrow().slow_confirm_reduce);
         self.refresh_v3_state()
     }
 
-    /// Confirms lock state against a fresh fetch. The hub-lock wait and the
-    /// fetch share `deadline`; the reduce of the fetched snapshot is not
-    /// bounded. Every failure is returned, never confirmed against the local
-    /// view. See `.design/lock-claim-outcome-and-kickoff-rollback.md`.
-    #[allow(dead_code)] // scaffold: called by the implementation commit
-    pub(super) fn confirm_v3_locks_bounded(&self, deadline: Duration) -> Result<()> {
-        let _ = deadline;
-        unimplemented!("scaffold: bounded lock confirmation")
+    fn run_confirmation_fetch(&self, remaining: Duration) -> Result<()> {
+        let mut command = self.sync.v3_fetch_command();
+        #[cfg(test)]
+        {
+            let failpoints = self.failpoints.borrow();
+            if failpoints.fail_confirm_fetch {
+                bail!("injected confirmation fetch failure");
+            }
+            if let Some((program, args)) = failpoints
+                .confirm_fetch_command
+                .as_ref()
+                .and_then(|argv| argv.split_first())
+            {
+                command = std::process::Command::new(program);
+                command.args(args);
+            }
+        }
+        let output = crate::utils::command_output_with_timeout(&mut command, remaining)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "the confirmation fetch did not finish within {}s",
+                    remaining.as_secs()
+                )
+            })?;
+        if !output.status.success() {
+            bail!(
+                "the confirmation fetch failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
     }
 
     pub(super) fn v3_assigned_display_id(&self, uuid: &Uuid) -> Option<i64> {

@@ -1293,8 +1293,8 @@ fn writer_with_issue(hub: &V3Hub, title: &str) -> (SharedWriter, i64) {
     (writer, issue_id)
 }
 
-/// AC-1 (fails first): a slow publication does not turn a confirmed claim
-/// into a failure.
+/// AC-1 (fails first): publication time never counts against the
+/// confirmation deadline, so a slow publication still confirms the claim.
 #[test]
 fn v3_slow_publication_still_confirms_the_claim() {
     if !git_ok() {
@@ -1302,7 +1302,11 @@ fn v3_slow_publication_still_confirms_the_claim() {
     }
     let hub = setup_migrated_v3_hub();
     let (writer, issue_id) = writer_with_issue(&hub, "Slow publication");
-    writer.failpoints.borrow_mut().extra_publish_elapsed = std::time::Duration::from_secs(31);
+    {
+        let mut failpoints = writer.failpoints.borrow_mut();
+        failpoints.confirm_deadline = Some(std::time::Duration::from_secs(1));
+        failpoints.publish_delay = std::time::Duration::from_secs(2);
+    }
 
     let result = writer.claim_lock_v2(issue_id, None);
     assert_eq!(

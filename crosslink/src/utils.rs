@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 #[deprecated(note = "use agents::resolve_agent")]
 pub fn read_agent_binary(crosslink_dir: &Path) -> String {
@@ -408,6 +409,69 @@ pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
     parse_rfc3339_as_utc(s).ok_or_else(|| {
         format!("expected YYYY-MM-DD or RFC 3339 datetime (e.g. 2026-03-20T14:00:00Z), got: {s}")
     })
+}
+
+/// Runs `command` to completion or until `timeout`, capturing its output.
+/// Returns `None` when the command cannot be spawned or runs past `timeout`.
+///
+/// On Unix the command runs in its own process group. On timeout the group
+/// gets SIGTERM, so git can remove its lock files, then SIGKILL after a short
+/// grace period, so no helper (a remote helper, ssh, index-pack) outlives the
+/// call. Elsewhere only the direct child is killed.
+pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Option<Output> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) | Err(_) => {
+                terminate_child(&mut child);
+                return None;
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut Child) {
+    const GRACE: Duration = Duration::from_millis(500);
+    let group = format!("-{}", child.id());
+    let _ = Command::new("kill")
+        .args(["-TERM", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let grace_ends = Instant::now() + GRACE;
+    while Instant::now() < grace_ends {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = Command::new("kill")
+        .args(["-KILL", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn terminate_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[cfg(test)]
