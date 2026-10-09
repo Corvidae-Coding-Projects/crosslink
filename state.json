@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 126,
-        "tip_oid": "7f510ee4412d162c1788ebd397b178975778839f",
-        "prefix_sha256": "21fa671c8a5eda6c6a5a8023d836efa126af1e8d45e9db8cf235200d401ffb54"
+        "sequence": 127,
+        "tip_oid": "dbb0cbe180b76ad135fb04eae416401a15ffa036",
+        "prefix_sha256": "33c8917dd43b257e72ec8cbf322e92a975f74c86e355c540a69a3fd4efa54c74"
       },
       "qWWn": {
         "sequence": 2,
@@ -60,7 +60,7 @@
     }
   },
   "next_display_id": 824,
-  "next_comment_id": 1323,
+  "next_comment_id": 1324,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -23419,7 +23419,18 @@
       "priority": "low",
       "created_by": "ldsw",
       "created_at": "2026-10-09T03:05:29.824750Z",
-      "updated_at": "2026-10-09T03:05:29.824750Z"
+      "updated_at": "2026-10-09T21:55:11.514629Z",
+      "comments": {
+        "53763de3-7211-4697-bc3a-d89e5d6fa67e": {
+          "display_id": 1323,
+          "author": "ldsw",
+          "content": "Precondition from the #820 review (2026-10-09): a dead agent's identity, key file and trust approval may be removed only when the agent holds no lock. Since 4a43adc9, kickoff undo and cleanup keep the worktree (which holds the agent's agent.json) whenever a lock release does not complete, because that identity is what can still release the lock; v3 steal and force-release do not work until #818.",
+          "created_at": "2026-10-09T21:55:11.281899Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAV8mzD2N19BipI333edGJo7enTzmWHZzSMGHG6ycpeDxZbubvGLL0pw+9AA69Zv0I3zOmhMPWeg3QcvbCyov+DA=="
+        }
+      }
     },
     "e490f329-dfaf-4c92-9095-aacc7354d17e": {
       "uuid": "e490f329-dfaf-4c92-9095-aacc7354d17e",
@@ -28543,6 +28554,11 @@
       "agent_id": "ldsw",
       "agent_seq": 126,
       "timestamp": "2026-10-09T21:52:36.498829Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 127,
+      "timestamp": "2026-10-09T21:55:11.514629Z"
     }
   ],
   "watermark": {
