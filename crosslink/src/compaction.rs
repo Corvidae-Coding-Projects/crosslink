@@ -186,6 +186,17 @@ pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
 
     all_events.sort_by_cached_key(OrderingKey::from_envelope);
 
+    // Applying unseen events on top of the checkpoint equals a replay in
+    // total order only if none of them orders before an event the checkpoint
+    // already covers. A late arrival (another agent's earlier event that this
+    // checkpoint was written without) would otherwise be applied out of order:
+    // a lock claim would lose to a later claim already in the checkpoint, and
+    // display ids would be allocated in a different order, so clients reducing
+    // from different checkpoints would disagree. Rebuild in total order then.
+    if arrives_late(&histories, &state.frontier, all_events.first()) {
+        return rebuild_with_histories(source, &histories);
+    }
+
     let events_processed = all_events.len();
     let mut changed_issues: HashSet<Uuid> = HashSet::new();
     let mut changed_locks: HashSet<i64> = HashSet::new();
@@ -233,10 +244,43 @@ pub(crate) fn reduce_legacy_compatible(source: &dyn HubSource) -> Result<Reducti
     reduce_legacy_snapshot(source, state, watermark.as_ref())
 }
 
+/// Whether the earliest unseen event orders before the latest event the
+/// frontier already covers.
+fn arrives_late(
+    histories: &BTreeMap<String, AgentHistory>,
+    frontier: &CausalFrontier,
+    earliest_unseen: Option<&EventEnvelope>,
+) -> bool {
+    let Some(earliest_unseen) = earliest_unseen else {
+        return false;
+    };
+    let latest_covered = histories
+        .iter()
+        .filter_map(|(agent_id, history)| {
+            let covered = frontier.agents.get(agent_id)?.sequence;
+            history
+                .events
+                .iter()
+                .filter(|event| event.agent_seq <= covered)
+                .map(OrderingKey::from_envelope)
+                .max()
+        })
+        .max();
+    latest_covered.is_some_and(|latest| OrderingKey::from_envelope(earliest_unseen) < latest)
+}
+
 pub fn rebuild_from_authority(source: &dyn HubSource) -> Result<ReductionOutcome> {
     let histories = validated_histories(source)?;
+    rebuild_with_histories(source, &histories)
+}
+
+/// Replays every event after the authority baseline in total order.
+fn rebuild_with_histories(
+    source: &dyn HubSource,
+    histories: &BTreeMap<String, AgentHistory>,
+) -> Result<ReductionOutcome> {
     let mut state = if let Some(baseline) = source.read_authority_baseline()? {
-        validate_frontier(source, &baseline.frontier, &histories)?;
+        validate_frontier(source, &baseline.frontier, histories)?;
         let mut state = baseline.state;
         state.activate_causal(baseline.frontier);
         state
@@ -275,7 +319,7 @@ pub fn rebuild_from_authority(source: &dyn HubSource) -> Result<ReductionOutcome
             &mut changed_locks,
         );
     }
-    state.activate_causal(frontier_for_histories(&histories, None)?);
+    state.activate_causal(frontier_for_histories(histories, None)?);
     Ok(ReductionOutcome {
         state,
         changed_issues,
@@ -1292,6 +1336,103 @@ mod tests {
         compact(cache_dir, agent_id, force, &lock)
     }
 
+    /// Writes a gap-free event sequence per agent from `plan` entries of
+    /// (agent index, issue, claim or release, timestamp offset).
+    fn lock_events(plan: &[(usize, i64, bool, i64)]) -> Vec<EventEnvelope> {
+        const AGENTS: [&str; 3] = ["agent-a", "agent-b", "agent-c"];
+        let mut sequences = [0_u64; 3];
+        plan.iter()
+            .map(|&(agent, issue, claim, offset)| {
+                sequences[agent] += 1;
+                let event = if claim {
+                    Event::LockClaimed {
+                        issue_display_id: issue,
+                        branch: None,
+                    }
+                } else {
+                    Event::LockReleased {
+                        issue_display_id: issue,
+                    }
+                };
+                let mut envelope = make_envelope(AGENTS[agent], sequences[agent], event);
+                envelope.timestamp =
+                    chrono::DateTime::<Utc>::UNIX_EPOCH + Duration::seconds(offset);
+                envelope
+            })
+            .collect()
+    }
+
+    fn append_all<'a>(dir: &Path, events: impl IntoIterator<Item = &'a EventEnvelope>) {
+        for event in events {
+            append_event(
+                &dir.join("agents").join(&event.agent_id).join("events.log"),
+                event,
+            )
+            .unwrap();
+        }
+    }
+
+    /// Reduces `events` from a checkpoint cut after the first `cut[agent]`
+    /// events of each agent, with the rest arriving afterwards.
+    fn reduce_from_cut(events: &[EventEnvelope], cut: &[usize]) -> CheckpointState {
+        let dir = tempfile::tempdir().unwrap();
+        setup_cache(dir.path());
+        let agent_index = |id: &str| match id {
+            "agent-a" => 0,
+            "agent-b" => 1,
+            _ => 2,
+        };
+        let mut seen = [0_usize; 3];
+        let (covered, late): (Vec<_>, Vec<_>) = events.iter().partition(|event| {
+            let index = agent_index(&event.agent_id);
+            seen[index] += 1;
+            seen[index] <= cut[index]
+        });
+        if !covered.is_empty() {
+            append_all(dir.path(), covered);
+            compact_t(dir.path(), "agent-a", true).unwrap();
+        }
+        append_all(dir.path(), late);
+        reduce(&WorktreeSource::new(dir.path())).unwrap().state
+    }
+
+    /// The late arrival found by the #820 contention test: agent-b claims
+    /// first, agent-a's checkpoint is written with only its own later claim,
+    /// then agent-b's claim arrives. Every reader must name agent-b.
+    #[test]
+    fn a_late_earlier_claim_wins_over_a_checkpointed_later_claim() {
+        let events = lock_events(&[(1, 1, true, 10), (0, 1, true, 20)]);
+        let full = reduce_from_cut(&events, &[0, 0, 0]);
+        let incremental = reduce_from_cut(&events, &[1, 0, 0]);
+        assert_eq!(full.locks[&1].agent_id, "agent-b");
+        assert_eq!(incremental.locks[&1].agent_id, "agent-b");
+        assert!(checkpoint_semantics_equal(&full, &incremental).unwrap());
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Reducing from any checkpoint cut, with the remaining events
+        /// arriving late, gives the same state as a full replay in total
+        /// order: contended locks, releases by non-holders, timestamp ties,
+        /// inversions and per-agent clock skew included.
+        #[test]
+        fn prop_reduce_from_any_checkpoint_equals_full_replay(
+            plan in prop::collection::vec((0_usize..3, 1_i64..3, any::<bool>(), 0_i64..4), 1..12),
+            cut in prop::collection::vec(0_usize..12, 3),
+        ) {
+            let events = lock_events(&plan);
+            let full = reduce_from_cut(&events, &[0, 0, 0]);
+            let incremental = reduce_from_cut(&events, &cut);
+            prop_assert!(
+                checkpoint_semantics_equal(&full, &incremental).unwrap(),
+                "full locks {:?} vs incremental {:?}",
+                full.locks,
+                incremental.locks
+            );
+        }
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(32))]
 
@@ -1322,7 +1463,11 @@ mod tests {
                 + Duration::seconds(second_offset);
             append_event(&cache_dir.join("agents/agent-b/events.log"), &second).unwrap();
             let result = compact_t(cache_dir, "agent-b", true).unwrap().unwrap();
-            prop_assert_eq!(result.events_processed, 1);
+            // No event is lost whatever the clocks say. A second event that
+            // orders before the checkpointed one is a late arrival, and the
+            // reduce replays both in total order instead of applying it on top.
+            let late = second_offset < first_offset;
+            prop_assert_eq!(result.events_processed, if late { 2 } else { 1 });
             let state = read_checkpoint(cache_dir).unwrap();
             prop_assert!(state.locks.contains_key(&1));
             prop_assert!(state.locks.contains_key(&2));
