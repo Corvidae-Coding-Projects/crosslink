@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 78,
-        "tip_oid": "c3ea4a5370cd8f3279b11bdd0310f89c85fcca58",
-        "prefix_sha256": "2cd8155584cc88fd2fde820611986ece39ebf5f79c24c91eaf11b16d0027880c"
+        "sequence": 79,
+        "tip_oid": "72b632c66e0015e1481857a9891afbec9819c215",
+        "prefix_sha256": "c1c6ee2d6e400e3a1727fac76e16996a3a1973aa2e9cb88bce3792db642461be"
       },
       "sQl8": {
         "sequence": 35,
@@ -4704,11 +4704,12 @@
       "display_id": 806,
       "title": "Kickoff default image: Corvidae has no :latest until a release is tagged",
       "description": "Decision pending with the operator. Kickoff defaults to ghcr.io/corvidae-coding-projects/crosslink-agent:latest; that tag does not exist because no v* tag has been pushed since the move (only :nightly). Precedent: :latest existed once, on forecast-bio, pushed by the v0.9.0-beta.1 tag (same digest as :0.9.0-beta.1). Design #727: develop -> :nightly, v* tag -> :<version> + :latest; docs say :latest is the most recent tagged release. Package made public 2026-10-08 (GH#101 closed, #728 closed).",
-      "status": "open",
+      "status": "closed",
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:52.610682Z",
-      "updated_at": "2026-10-09T01:36:18.327228Z",
+      "updated_at": "2026-10-09T01:37:08.792374Z",
+      "closed_at": "2026-10-09T01:37:08.768678Z",
       "comments": {
         "03e020e6-f38b-437e-9995-8d4807e23bc5": {
           "display_id": 1270,
@@ -27967,6 +27968,11 @@
       "agent_id": "ldsw",
       "agent_seq": 78,
       "timestamp": "2026-10-09T01:36:18.327228Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 79,
+      "timestamp": "2026-10-09T01:37:08.792374Z"
     }
   ],
   "watermark": {
