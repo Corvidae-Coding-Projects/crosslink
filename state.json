@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 98,
-        "tip_oid": "0b97260b48bb9a4b9d5394255bd5cb2457610af8",
-        "prefix_sha256": "6323aa354468edd0703204929106e099b3452561a181df11a8d03a16c2edfc82"
+        "sequence": 99,
+        "tip_oid": "85916de219e1a10ffe42d281b5ed1dbd242f3ab0",
+        "prefix_sha256": "39aacf68648d985f36fb816e00d1ec9d991f4d0696021960bbd8442a84789f05"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 819,
-  "next_comment_id": 1306,
+  "next_comment_id": 1307,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -24079,7 +24079,18 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:59:16.682189Z",
-      "updated_at": "2026-10-09T01:59:16.682189Z"
+      "updated_at": "2026-10-09T02:19:26.412786Z",
+      "comments": {
+        "253f31dc-ed2c-4161-9400-2294ffd831bb": {
+          "display_id": 1306,
+          "author": "ldsw",
+          "content": "[action] Drafted .design/write-path-cost.md on branch design/write-path-cost: 5 phases (lock semantics+kickoff rollback, v3 steal #818, write cost, heartbeats, knowledge cache). Open: steal wire format (protocol), macOS git default.",
+          "created_at": "2026-10-09T02:19:26.377431Z",
+          "kind": "note",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdNTet2k6y+6/0rX8mXgphhjE5YRFx8ZEiZTasCkD03qVowQwajObLczfZklLbC60j6wFNUMULvuSn7ccWfCeDA=="
+        }
+      }
     },
     "ec842d71-e9d1-4585-bd1d-8d4fcf184e84": {
       "uuid": "ec842d71-e9d1-4585-bd1d-8d4fcf184e84",
@@ -28164,6 +28175,11 @@
       "agent_id": "ldsw",
       "agent_seq": 98,
       "timestamp": "2026-10-09T02:08:18.702774Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 99,
+      "timestamp": "2026-10-09T02:19:26.412786Z"
     }
   ],
   "watermark": {
