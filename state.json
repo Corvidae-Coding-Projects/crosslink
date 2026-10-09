@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 122,
-        "tip_oid": "ee2d812b24baeafd6622569652ab9b2612e8fb83",
-        "prefix_sha256": "25a3283b6fe2ffde994c6ce5043c19bec73a90e8836f5ddf3729f0aca6c64d45"
+        "sequence": 123,
+        "tip_oid": "3e46f6df039abbc3e660bb7890fc6ae51509e11c",
+        "prefix_sha256": "e4cfcf8814ccbaa6e8041701616579cec2008d0999cea9182ce37b4746141ecf"
       },
       "qWWn": {
         "sequence": 2,
@@ -59,7 +59,7 @@
       }
     }
   },
-  "next_display_id": 822,
+  "next_display_id": 823,
   "next_comment_id": 1321,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -734,6 +734,7 @@
     "cefb2327-6ca7-442c-b42b-c30783450c89": 558,
     "cf7d5711-1efa-4e37-af62-42f942fac39b": 724,
     "cf8d2c80-6984-4695-bf70-235f73936531": 179,
+    "cf9d07dc-9ac7-4254-8e5b-91bd16515f59": 822,
     "d0b59565-5ba7-4ca1-bcf3-0c2f30807d71": 700,
     "d0dfa04c-1e7e-415d-ab25-e958633167b4": 124,
     "d173777a-a268-4edc-ace3-234efe8c3d7a": 27,
@@ -21904,6 +21905,17 @@
         }
       }
     },
+    "cf9d07dc-9ac7-4254-8e5b-91bd16515f59": {
+      "uuid": "cf9d07dc-9ac7-4254-8e5b-91bd16515f59",
+      "display_id": 822,
+      "title": "kickoff cleanup cannot run while an orphaned worktree daemon blocks the parent; no per-agent selector",
+      "description": "Follow-up to Corvidae-Coding-Projects/crosslink#110 (comment 2026-10-09T20:34Z), outside the #820 increment. (1) A leftover worktree daemon holding .hub-cache/.hub-write-lock puts the parent into blocked_corrupt; kickoff cleanup is a mutation command that needs the parent's readiness, so it refuses to run, and the orphan it would remove is the blocker. Cleanup (or at least its stop-orphaned-worktree-daemons step) should run while the parent is blocked. (2) kickoff cleanup has no per-agent selector (only --force over every non-active agent), and daemon stop takes no directory flag. #820 covers the related ask that a failed activation stops the worktree daemon it started (undo StopDaemon, plus 73ed70db reaping spawned daemons).",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T20:43:28.274049Z",
+      "updated_at": "2026-10-09T20:43:28.274049Z"
+    },
     "d0b59565-5ba7-4ca1-bcf3-0c2f30807d71": {
       "uuid": "d0b59565-5ba7-4ca1-bcf3-0c2f30807d71",
       "display_id": 700,
@@ -28481,6 +28493,11 @@
       "agent_id": "ldsw",
       "agent_seq": 122,
       "timestamp": "2026-10-09T20:17:11.737771Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 123,
+      "timestamp": "2026-10-09T20:43:28.274049Z"
     }
   ],
   "watermark": {
