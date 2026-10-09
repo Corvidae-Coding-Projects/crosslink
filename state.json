@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 125,
-        "tip_oid": "2b68109f2af02a540d982def8e9f1ba6303b3bef",
-        "prefix_sha256": "b81b739f7f07ceb64bb34660e89446adf2c25150360279968bf6e1431b2334d9"
+        "sequence": 126,
+        "tip_oid": "7f510ee4412d162c1788ebd397b178975778839f",
+        "prefix_sha256": "21fa671c8a5eda6c6a5a8023d836efa126af1e8d45e9db8cf235200d401ffb54"
       },
       "qWWn": {
         "sequence": 2,
@@ -60,7 +60,7 @@
     }
   },
   "next_display_id": 824,
-  "next_comment_id": 1322,
+  "next_comment_id": 1323,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13262,7 +13262,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T03:16:26.512724Z",
-      "updated_at": "2026-10-09T20:17:11.737771Z",
+      "updated_at": "2026-10-09T21:52:36.498829Z",
       "comments": {
         "1985e621-bbfb-47a5-bd7d-2215005428d3": {
           "display_id": 1313,
@@ -13281,6 +13281,15 @@
           "kind": "result",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA0aN05RFv4RGIcF7uG4gLyEXFII0yb18enSJXlMgOwv7UFOwcFDT0rWPXAOn+LQrrSaV+I9JOOKcAE+m8mPgCDQ=="
+        },
+        "716f0a58-3888-4571-b794-f6415202a88c": {
+          "display_id": 1322,
+          "author": "ldsw",
+          "content": "After the crash (2026-10-09): committed 9b6a59ed (reducer: late-arrival rebuild in total order from the authority baseline; property test vs full replay, 256 cases, and a deterministic regression, both failing with the rule disabled), 21ff0aad (verify_content via the shared timeout helper, adaptive polling from 1 ms), 4a43adc9 (keep the worktree and branch when a lock release does not complete, in undo and cleanup; still stop the daemon; field scenario from upstream #110 20:43Z tested behind the UndoOps seam), 7ec14546 (design records, umbrella reorder). Lint gate clean; affected fast suites green (154). reconcile::migration::tests::production_ready_observer_completes_fallback_pointer_window fails on this Mac on develop 3440c0d0 too (5 s timing wait), so it is not this branch. Round 2 review (SE, QE, SA) running on 9b848e18..7ec14546.",
+          "created_at": "2026-10-09T21:52:36.457745Z",
+          "kind": "result",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeV5CGVwYZttfLMe2WH1KwmkqsAWt56PxdNxdceUxmlHZISKrkIrYVMUnurW4c4YLgGeopGtSetRYGsGI2by4CQ=="
         },
         "cef1eba5-70fd-4ef6-ae3b-af99ebf68463": {
           "display_id": 1319,
@@ -28529,6 +28538,11 @@
       "agent_id": "ldsw",
       "agent_seq": 125,
       "timestamp": "2026-10-09T21:07:20.622520Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 126,
+      "timestamp": "2026-10-09T21:52:36.498829Z"
     }
   ],
   "watermark": {
