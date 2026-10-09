@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 84,
-        "tip_oid": "35be30cfdc475e600049724b5388f98801b6c10f",
-        "prefix_sha256": "f3235f0e6889e8f6e5757e9c4965b3ef5c853a282b7917218f3f89ad6f84620e"
+        "sequence": 85,
+        "tip_oid": "1f22a911a7e1ab1dbff47d5790dbb252e8134643",
+        "prefix_sha256": "f485bf9ce1a2ea0bff1a68755883ad973f83016d0d6de507b7219353bc61229d"
       },
       "sQl8": {
         "sequence": 35,
@@ -22734,11 +22734,12 @@
       "display_id": 813,
       "title": "One image resolver for every container command, and fork-aware image repository",
       "description": "From PR #129 review (#812, ARCH-08/SEC-10). CROSSLINK_CONTAINER_IMAGE is honoured only by container start and container auth; kickoff (clap default), swarm (lifecycle.rs) and sentinel (engine.rs) ignore it, and swarm and sentinel have no override at all. The image repository is hard-coded to ghcr.io/corvidae-coding-projects/crosslink-agent, so a fork's release binaries default to Corvidae's image at the fork's version, while the workflows derive the repository from the owner. Proposal: one resolver (flag, then env, then build default) used at every call site, print where the image came from, and an optional build-time repository override.",
-      "status": "open",
+      "status": "closed",
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T18:42:19.834645Z",
-      "updated_at": "2026-10-09T01:41:24.063961Z",
+      "updated_at": "2026-10-09T01:42:15.830196Z",
+      "closed_at": "2026-10-09T01:42:15.805889Z",
       "comments": {
         "d67c9e0a-9990-4b28-baf4-34fce6df8267": {
           "display_id": 1300,
@@ -28011,6 +28012,11 @@
       "agent_id": "ldsw",
       "agent_seq": 84,
       "timestamp": "2026-10-09T01:41:24.063961Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 85,
+      "timestamp": "2026-10-09T01:42:15.830196Z"
     }
   ],
   "watermark": {
