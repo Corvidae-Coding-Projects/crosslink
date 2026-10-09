@@ -387,7 +387,23 @@ fn ensure_process(crosslink_dir: &Path) -> Result<DaemonIdentity> {
         process_start: readiness::process_start_token_for(child.id())?,
     };
     readiness::write_daemon_identity(crosslink_dir, &identity)?;
+    reap_when_exited(child);
     Ok(identity)
+}
+
+/// Waits for the daemon on a background thread, so that when it exits while
+/// the process that started it is still running (kickoff stopping a worktree
+/// daemon), it does not linger as a zombie that still looks alive to `stop`.
+/// A short-lived parent exits first and the daemon is adopted as before.
+fn reap_when_exited(mut child: std::process::Child) {
+    let spawned = thread::Builder::new()
+        .name("crosslink-daemon-reaper".to_string())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    if let Err(error) = spawned {
+        tracing::debug!("could not start the daemon reaper thread: {error}");
+    }
 }
 
 #[cfg(windows)]
