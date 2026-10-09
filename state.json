@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 83,
-        "tip_oid": "47407c2bc413ed7114a5c66a10a4c5feb5d07807",
-        "prefix_sha256": "5d0cad603169b5bb79c9479a842bf1052f7a4f239b51817d93117e084e2f24d3"
+        "sequence": 84,
+        "tip_oid": "35be30cfdc475e600049724b5388f98801b6c10f",
+        "prefix_sha256": "f3235f0e6889e8f6e5757e9c4965b3ef5c853a282b7917218f3f89ad6f84620e"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 816,
-  "next_comment_id": 1300,
+  "next_comment_id": 1301,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -22738,7 +22738,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T18:42:19.834645Z",
-      "updated_at": "2026-10-08T18:42:19.834645Z"
+      "updated_at": "2026-10-09T01:41:24.063961Z",
+      "comments": {
+        "d67c9e0a-9990-4b28-baf4-34fce6df8267": {
+          "display_id": 1300,
+          "author": "ldsw",
+          "content": "Delivered in Corvidae-Coding-Projects/crosslink#129, merged into develop as 3440c0d05. Deferred review findings: #815.",
+          "created_at": "2026-10-09T01:41:24.030008Z",
+          "kind": "resolution",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYgL0vSUlu7uWuVO1WEQ4ufCjILvhOZfzDdj62zhny1/OhIF44zOupLPz4uzDd+GDPU5LCPlJRhnjiF8l8NvsDA=="
+        }
+      }
     },
     "dec5acf0-dd1b-4540-9e9d-b70bea8ca777": {
       "uuid": "dec5acf0-dd1b-4540-9e9d-b70bea8ca777",
@@ -27995,6 +28006,11 @@
       "agent_id": "ldsw",
       "agent_seq": 83,
       "timestamp": "2026-10-09T01:40:18.030123Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 84,
+      "timestamp": "2026-10-09T01:41:24.063961Z"
     }
   ],
   "watermark": {
