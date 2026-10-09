@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 103,
-        "tip_oid": "9296b9df2e672a0630c1510ac1839dded8d2bc3a",
-        "prefix_sha256": "834afa40b4241c2eda9cdf7881c04cf90f94c3a36467d131b6eb18ec537bca0a"
+        "sequence": 104,
+        "tip_oid": "10bec0bfc4ed4bcf1a67ab4acffe94d99e04f9d0",
+        "prefix_sha256": "2d2529d8b3800f4a102d120cfa35361304ee108644b433100fd76f4becdee53c"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 819,
+  "next_display_id": 820,
   "next_comment_id": 1311,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -779,6 +779,7 @@
     "e2ffcebd-d6a2-4fa3-8702-2cae1c921894": 711,
     "e37ed66c-2060-4434-bde6-694375a45abf": 623,
     "e39bf7c3-029b-48f1-9442-ed3411ca81b3": 98,
+    "e3ff54f1-396b-445f-8677-339ac0ae5b03": 819,
     "e490f329-dfaf-4c92-9095-aacc7354d17e": 665,
     "e4a98c60-65eb-45d4-8045-87b906d06847": 170,
     "e4b898fc-faeb-471d-a41f-19159c9265fc": 420,
@@ -23275,6 +23276,17 @@
         "feature"
       ]
     },
+    "e3ff54f1-396b-445f-8677-339ac0ae5b03": {
+      "uuid": "e3ff54f1-396b-445f-8677-339ac0ae5b03",
+      "display_id": 819,
+      "title": "Dead kickoff agents leave identities, host key files and trust approvals behind",
+      "description": "From the #817 design review, 2026-10-08. init_worktree_agent (crosslink/src/commands/kickoff/launch.rs) creates an agent identity with its private key on the host (.crosslink/keys/<agent>_ed25519, commands/agent.rs) and commits a host-signed trust approval to the hub (commands/trust.rs). Kickoff undo and cleanup (increment 1 of .design/write-path-cost.md) leave all three in place deliberately: revoking the approval with 'crosslink trust revoke' would leave the agent's already-published events signed by a revoked key. Needs a design for retiring a dead agent's key and approval without invalidating its published history (for example, marking it retired rather than revoked).",
+      "status": "open",
+      "priority": "low",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T03:05:29.824750Z",
+      "updated_at": "2026-10-09T03:05:29.824750Z"
+    },
     "e490f329-dfaf-4c92-9095-aacc7354d17e": {
       "uuid": "e490f329-dfaf-4c92-9095-aacc7354d17e",
       "display_id": 665,
@@ -28236,6 +28248,11 @@
       "agent_id": "ldsw",
       "agent_seq": 103,
       "timestamp": "2026-10-09T02:58:29.921183Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 104,
+      "timestamp": "2026-10-09T03:05:29.824750Z"
     }
   ],
   "watermark": {
