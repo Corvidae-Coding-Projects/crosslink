@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 119,
-        "tip_oid": "8f9cd9a4fed62ddf635e869431ae1ae345935c6b",
-        "prefix_sha256": "37fc1bb9110e20a460ff9c9aa84afffd802fdc3e61d7aa47fe3105408e1c2885"
+        "sequence": 120,
+        "tip_oid": "69332a4ca8806871b0914cc7bf20e1b6545a321c",
+        "prefix_sha256": "a7d0d32840398104a8b3fb6dcc0dbeda67742b8853cd8e3fab069efeadf1b820"
       },
       "qWWn": {
         "sequence": 2,
@@ -60,7 +60,7 @@
     }
   },
   "next_display_id": 822,
-  "next_comment_id": 1318,
+  "next_comment_id": 1319,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -24183,7 +24183,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:59:16.682189Z",
-      "updated_at": "2026-10-09T06:19:51.892869Z",
+      "updated_at": "2026-10-09T18:30:06.664806Z",
       "comments": {
         "079ba8c8-f422-4c19-bf06-4a63f457fcf2": {
           "display_id": 1308,
@@ -24220,6 +24220,15 @@
           "kind": "result",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAsXqi+BlXpkldF3TiuAJMueUx3lxNBnp5hkOJMDYikg8fCyVnmUnGK3sA1sl77cwmvkh0eYWAxHzXRD/hhqI1AA=="
+        },
+        "b5e263d4-f8eb-47f9-9dbd-53e52528b623": {
+          "display_id": 1318,
+          "author": "ldsw",
+          "content": "From the #820 manual checks, 2026-10-09: the host daemon exited (daemon status running:false, 'readiness record is stale') after writes that held mutation permits past the 90 s record age: a 130 s 'kickoff cleanup --force' and the kickoff runs; restarted with 'daemon ensure'. Slow writes still kill the daemon the way sleep did before upstream #107. Belongs with the heartbeats-off-the-write-path and write-cost increments.",
+          "created_at": "2026-10-09T18:30:06.629862Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvK5AaoVpbhPDPQf8Q6vPCIaeNehd7a0wuFI2vWsq/jQo/soohVymULZTwdRtNtLgAdeqJnaNm2rjAbigZaH5Dg=="
         },
         "d43c2316-36bd-43be-8367-2116d9ffcb24": {
           "display_id": 1307,
@@ -28439,6 +28448,11 @@
       "agent_id": "ldsw",
       "agent_seq": 119,
       "timestamp": "2026-10-09T18:28:02.618187Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 120,
+      "timestamp": "2026-10-09T18:30:06.664806Z"
     }
   ],
   "watermark": {
