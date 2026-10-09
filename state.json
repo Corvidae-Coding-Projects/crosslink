@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 71,
-        "tip_oid": "0c21b49ab21386c4d294e67b23565811638e37ec",
-        "prefix_sha256": "23d448dc14df9500a100543d7528b06e864c213461a5c581d9540036b435b5b3"
+        "sequence": 72,
+        "tip_oid": "1d0142a17fa65a51cf0c39d61648fe257a0b2207",
+        "prefix_sha256": "1449a6197442bb2b6765fc41167f2c4d9a5773635c4dbf8dcf3661c7183e91d4"
       },
       "sQl8": {
         "sequence": 35,
@@ -9093,11 +9093,12 @@
       "display_id": 803,
       "title": "Container smoke-verify: check anonymous pull before logging in",
       "description": "External: Corvidae-Coding-Projects/crosslink#122. smoke-verify in .github/workflows/container-image.yml logs in with GITHUB_TOKEN before pulling, so a private package passes CI (how GH#101 went unnoticed). Request an anonymous ghcr.io pull token for <owner>/crosslink-agent and fail if refused.",
-      "status": "open",
+      "status": "closed",
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:02:14.366945Z",
-      "updated_at": "2026-10-09T01:30:30.042249Z",
+      "updated_at": "2026-10-09T01:31:19.294168Z",
+      "closed_at": "2026-10-09T01:31:19.269396Z",
       "comments": {
         "77bea630-11a1-45fb-a606-a9ff2c2df508": {
           "display_id": 1295,
@@ -27906,6 +27907,11 @@
       "agent_id": "ldsw",
       "agent_seq": 71,
       "timestamp": "2026-10-09T01:30:30.042249Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 72,
+      "timestamp": "2026-10-09T01:31:19.294168Z"
     }
   ],
   "watermark": {
