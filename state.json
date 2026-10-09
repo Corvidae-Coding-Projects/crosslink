@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 69,
-        "tip_oid": "1acbd8483f1c3e858d0586545a7f96b6cbd1617c",
-        "prefix_sha256": "21b299cfddb4479e14ce783c7107db62ca77db75b38480216b34a7fd3e7265bd"
+        "sequence": 70,
+        "tip_oid": "24369d9bc2bc26c93a8644dd3af3a6f6e13beb6a",
+        "prefix_sha256": "119fa609d4b9ab6bb21e6b7674473d17fb7ce7e970a036f55cfed879d963b257"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 815,
+  "next_display_id": 816,
   "next_comment_id": 1295,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -498,6 +498,7 @@
     "88839df1-1922-4fd1-909a-df362874b59a": 800,
     "88b95d60-d967-44d3-aba7-b9abeb4c54e4": 40,
     "88d80f3c-4bdd-4010-92c6-31f60264aab6": 624,
+    "8950bf8b-5fef-4b78-855a-fd20be6da96f": 815,
     "89809899-51db-4d09-838b-a6ec61ebf1f8": 265,
     "89d71301-9973-4b41-96b9-d96448bd3c6f": 232,
     "8a628f7a-e107-4156-bcfc-82ed57334183": 292,
@@ -14444,6 +14445,17 @@
         }
       }
     },
+    "8950bf8b-5fef-4b78-855a-fd20be6da96f": {
+      "uuid": "8950bf8b-5fef-4b78-855a-fd20be6da96f",
+      "display_id": 815,
+      "title": "PR #129 review follow-ups (deferred findings)",
+      "description": "Deferred from the PR #129 review (#812): (1) binary default-image/version checks are substring greps; a 0.9.0 expectation also matches 0.9.0-rc.1 - assert via the binary itself (R3-IMPL-04). (2) CROSSLINK_VERSION input shares its name with the compile-time output and is read from any ambient environment, including crates.io installs - rename to a build-only input such as CROSSLINK_BUILD_VERSION (R3-SEC-06/R3-ARCH-05). (3) The ETXTBSY wait helper is private to container.rs tests; kickoff tests write and exec stub scripts the same way; errno 26 is a magic number (R3-IMPL-07). (4) build.rs watches all of refs/, so hub and knowledge writes rebuild the crate after every sync (R2-ARCH-06); index/working tree unwatched so -dirty can go stale (IMPL-07). (5) Promotion and the canary take 'highest stable' and the release list from git tags rather than from published releases (R2-ARCH-04/R2-SEC-05). (6) The canary checks pullability, not attestations (R2-SEC-03). (7) Repository validator allows a leading '-' host and '..' path parts at build time (R2-SEC-06). (8) Smoke, promotion and release paths only run on develop pushes and tags; the first tag release is their first real run (use the rehearsal first).",
+      "status": "open",
+      "priority": "low",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T00:45:24.016551Z",
+      "updated_at": "2026-10-09T00:45:24.016551Z"
+    },
     "89809899-51db-4d09-838b-a6ec61ebf1f8": {
       "uuid": "89809899-51db-4d09-838b-a6ec61ebf1f8",
       "display_id": 265,
@@ -27875,6 +27887,11 @@
       "agent_id": "ldsw",
       "agent_seq": 69,
       "timestamp": "2026-10-09T00:44:45.158763Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 70,
+      "timestamp": "2026-10-09T00:45:24.016551Z"
     }
   ],
   "watermark": {
