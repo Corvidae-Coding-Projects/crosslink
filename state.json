@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 114,
-        "tip_oid": "515aaa70de78e30f7b2757a2c083579163d48c7f",
-        "prefix_sha256": "abf0b6b86e83285151d70052deaeb8fea963d3a7338f787205999f5bbbe7b3ed"
+        "sequence": 115,
+        "tip_oid": "ef65694bb89bd7def9a15f1d3b901525cfd1debe",
+        "prefix_sha256": "ff8e1169729fd5a081185aab8bfd988442de4f54ba1e6f075be56d53c3a949f8"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 822,
-  "next_comment_id": 1316,
+  "next_comment_id": 1317,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -12732,8 +12732,17 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:57:23.153112Z",
-      "updated_at": "2026-10-09T04:18:13.920587Z",
+      "updated_at": "2026-10-09T17:50:29.215266Z",
       "comments": {
+        "81429a78-81a5-4a92-9c83-3ca755e3ddf3": {
+          "display_id": 1316,
+          "author": "ldsw",
+          "content": "Escalation observed 2026-10-09: after repeated readiness-record expiries in this checkout (mid-build CPU load around 04:15 UTC, a 302 s write around 05:07, and an overnight kickoff run across sleep), the daemon parked as blocked_corrupt: 'housekeeping sent the daemon back to reconciliation 5 times in a row without completing a tick; last cause: readiness record expired'. Only 'crosslink daemon stop' + 'crosslink daemon ensure --wait-ready' recovered it (operator ran both). An expired record should not count toward the corruption budget the same way as a real reconciliation failure; repeated expiry from sleep or load is not corruption. The parked daemon was still the 2026-10-07 binary (875066ad6-era epoch, started before the #820 install).",
+          "created_at": "2026-10-09T17:50:29.179127Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbBxEuLmShsXzMGVeGJp//sLwstBASP58zBz/QmzWEFKrryKiSbzUAy0EACawHRsmO0CrHu08j5uHOA3YgVDwBQ=="
+        },
         "afa08510-8082-4502-8a3e-9c9df1e2ccd0": {
           "display_id": 1314,
           "author": "ldsw",
@@ -28388,6 +28397,11 @@
       "agent_id": "ldsw",
       "agent_seq": 114,
       "timestamp": "2026-10-09T06:32:13.765727Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 115,
+      "timestamp": "2026-10-09T17:50:29.215266Z"
     }
   ],
   "watermark": {
