@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 92,
-        "tip_oid": "c32826315c8b4492bb59c027da6b6162cd7fcf1d",
-        "prefix_sha256": "5c85dec566857aa10ed783cc258c9ac1e7b03537e7a8dc34cc999d31c7742279"
+        "sequence": 93,
+        "tip_oid": "2fe12009cf3c56f1cff36624c7c848cdb9224e40",
+        "prefix_sha256": "50d4e9ffc9983520e5f4c1fb2fa73f1d48e556d481c4e6da0f6d71002c86a35b"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 816,
-  "next_comment_id": 1304,
+  "next_comment_id": 1305,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -17353,12 +17353,21 @@
       "priority": "low",
       "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
       "created_at": "2026-03-02T23:05:31.619836Z",
-      "updated_at": "2026-03-10T03:19:03.929390Z",
+      "updated_at": "2026-10-09T01:56:27.599859Z",
       "closed_at": "2026-03-10T03:19:03.929390Z",
       "labels": [
         "ops"
       ],
       "comments": {
+        "360c76db-3d13-41fc-a649-7c0b9b0e86ed": {
+          "display_id": 1304,
+          "author": "ldsw",
+          "content": "Reproduced live 2026-10-09 01:54 on this Mac: 'crosslink session work 814' failed with 'Lock confirmation timed out after 51s (threshold 30s)', session left with no active issue, yet 'crosslink locks list' showed #814 claimed by ldsw at 01:54. Retrying 'session work 814' succeeded because the lock was already ours. Same failure mode as the kickoff activation comment: the claim lands but the caller reports failure and does not record it.",
+          "created_at": "2026-10-09T01:56:27.565399Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAl9UstxOT0KxDs/YexY63+BHxHZ4vFHOTX7sttFbANsP7V/h+JMptl4/fvEhrEfCrZTcSSyvG6ujXrNUmwX7IAA=="
+        },
         "9f66688c-7966-4ad3-8ee1-f06eb28a0d23": {
           "author": "maxine-at-forecast--noether--ci-cd-restructure",
           "content": "Created PR #163 for hotfix/gitignore-mac-cleanup -> develop.",
@@ -28076,6 +28085,11 @@
       "agent_id": "ldsw",
       "agent_seq": 92,
       "timestamp": "2026-10-09T01:54:27.362210Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 93,
+      "timestamp": "2026-10-09T01:56:27.599859Z"
     }
   ],
   "watermark": {
