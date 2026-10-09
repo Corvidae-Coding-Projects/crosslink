@@ -216,6 +216,21 @@ impl KickoffUndo<'_> {
         self.worktree_crosslink().join("agent.json").exists()
     }
 
+    /// Brings the worktree's daemon to a state that grants mutations. A
+    /// failed kickoff can leave the worktree's readiness stale, for example
+    /// across a sleep, and releasing the lock or ending the session needs it.
+    fn ensure_ready(&self) -> Result<(), String> {
+        let crosslink = self.worktree_crosslink();
+        if !crate::reconcile::readiness::requires_readiness(&crosslink) {
+            return Ok(());
+        }
+        match crate::daemon::ensure(&crosslink, true) {
+            Ok(record) if record.state.grants_mutations() => Ok(()),
+            Ok(record) => Err(format!("the worktree daemon is {}", record.state.as_str())),
+            Err(error) => Err(format!("{error:#}")),
+        }
+    }
+
     fn release_lock(&self, issue_id: i64) -> UndoOutcome {
         if !self.has_agent() {
             return UndoOutcome::NothingToUndo;
@@ -224,6 +239,9 @@ impl KickoffUndo<'_> {
             "run `crosslink locks release {issue_id}` in {}",
             self.worktree_dir.display()
         );
+        if let Err(error) = self.ensure_ready() {
+            return UndoOutcome::Failed { error, remedy };
+        }
         let writer = match crate::shared_writer::SharedWriter::new(&self.worktree_crosslink()) {
             Ok(Some(writer)) => writer,
             Ok(None) => return UndoOutcome::NothingToUndo,
@@ -253,6 +271,15 @@ impl KickoffUndo<'_> {
         if !self.has_agent() {
             return UndoOutcome::NothingToUndo;
         }
+        if let Err(error) = self.ensure_ready() {
+            return UndoOutcome::Failed {
+                error,
+                remedy: format!(
+                    "run `crosslink session end` in {}",
+                    self.worktree_dir.display()
+                ),
+            };
+        }
         command_outcome(
             Command::new("crosslink")
                 .current_dir(self.worktree_dir)
@@ -272,6 +299,11 @@ impl KickoffUndo<'_> {
         }
         match crate::daemon::stop(&crosslink) {
             Ok(()) => UndoOutcome::Done,
+            // `daemon::stop` allows 2 s after SIGKILL; on a loaded or
+            // sleeping machine the process can take longer to go.
+            Err(_) if daemon_gone_within(&crosslink, std::time::Duration::from_secs(5)) => {
+                UndoOutcome::Done
+            }
             Err(error) => UndoOutcome::Failed {
                 error: format!("{error:#}"),
                 remedy: format!(
@@ -367,6 +399,23 @@ impl UndoOps for KickoffUndo<'_> {
             UndoStep::RestorePipeline { doc_path } => self.restore_pipeline(doc_path),
             UndoStep::RemoveWorktree { path } => self.remove_worktree(path),
             UndoStep::DeleteBranch { name, base_commit } => self.delete_branch(name, base_commit),
+        }
+    }
+}
+
+/// Whether the worktree's daemon is gone, or goes within `timeout`.
+fn daemon_gone_within(crosslink: &Path, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match crate::reconcile::readiness::read_daemon_identity(crosslink) {
+            Ok(None) => return true,
+            Ok(Some(identity))
+                if !crate::reconcile::readiness::daemon_identity_is_live(&identity) =>
+            {
+                return true;
+            }
+            _ if std::time::Instant::now() >= deadline => return false,
+            _ => std::thread::sleep(std::time::Duration::from_millis(250)),
         }
     }
 }
