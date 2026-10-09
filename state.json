@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 89,
-        "tip_oid": "39ec7cc91966ce538269f285752574f0d5f1145d",
-        "prefix_sha256": "c7581634bae1e804a3d089b325b93e93e071fc77c0d7bf418015a2807db1356f"
+        "sequence": 90,
+        "tip_oid": "6e487318471d3fa4060a65388d0a2e0a04ff9aba",
+        "prefix_sha256": "13d8e9ec26c730b00e851ba4db7b4b1693a36abe06a8a26d764a6e2227f2bc57"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 816,
-  "next_comment_id": 1302,
+  "next_comment_id": 1303,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -6307,7 +6307,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:34:32.537759Z",
-      "updated_at": "2026-10-08T18:41:36.660504Z",
+      "updated_at": "2026-10-09T01:46:33.390512Z",
       "comments": {
         "9bcf3aca-f33d-4633-8ac9-27b7b88a3035": {
           "display_id": 1290,
@@ -6317,6 +6317,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAE2ak/RBKCsznEvEPBKHQvbtabKMzJ+ffjcmjG4aPhVi9Q5eJ7+285GpoPFr4iAyDnf0gqIepL4dG3XEsrJJ+DA=="
+        },
+        "d0499291-b971-42e6-99bb-0aadacf17c9a": {
+          "display_id": 1302,
+          "author": "ldsw",
+          "content": "Partly delivered in #129 (3440c0d05): base image by digest, gh/Codex/Claude Code/uv/gosu by version, gosu checksum, pipefail, image build attestation, SHA-pinned publishing actions, no-cache release builds. Still open here: SHA-pin the build jobs' actions and the Rust toolchain (rust-toolchain.toml), pin apt packages (snapshot mirror), and verify the Claude Code and uv downloads by checksum instead of piping installer scripts.",
+          "created_at": "2026-10-09T01:46:33.359242Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOmmJywbwusRO2kZsL34vyWPcXlZkdEx/1MYXVaHjQoVCFHQH112qQQFRW0wY5wp3hMvy5WQzRvuZV9lIUPj6Aw=="
         }
       }
     },
@@ -28039,6 +28048,11 @@
       "agent_id": "ldsw",
       "agent_seq": 89,
       "timestamp": "2026-10-09T01:45:29.209224Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 90,
+      "timestamp": "2026-10-09T01:46:33.390512Z"
     }
   ],
   "watermark": {
