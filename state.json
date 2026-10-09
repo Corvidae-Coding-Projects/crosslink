@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 94,
-        "tip_oid": "7dbadf6800f9eca79106cdc1072d2211b2a1d158",
-        "prefix_sha256": "9158020b5c989299a3de5b4d3ae8ddec1dc1d36e4c2e6147a0f969dbbc7ce670"
+        "sequence": 95,
+        "tip_oid": "bdffff9fc31512aa60b6f22fe667832055e78d0c",
+        "prefix_sha256": "0458e685ba1a8d81cf0b11dbe4c9c0e721e01b043117a14987ee0dc412280745"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 817,
-  "next_comment_id": 1305,
+  "next_comment_id": 1306,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -2454,8 +2454,17 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-08T19:20:09.088796Z",
-      "updated_at": "2026-10-08T22:25:18.339466Z",
+      "updated_at": "2026-10-09T01:58:25.090078Z",
       "comments": {
+        "91ef98f6-e0e0-49ba-926c-1cca02e4dfbb": {
+          "display_id": 1305,
+          "author": "ldsw",
+          "content": "Hook design bundle (agreed 2026-10-09): upstream #104 items 2+ (not item 1, which goes with the integration-drift bundle: #105, #13, #15, #20, #99), upstream #116 agent hook policy (needs dollspace's policy decision), and tracker #816 post-wake readiness block.",
+          "created_at": "2026-10-09T01:58:25.055220Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAEbaCbB4hBONSlRMzES/f5bVYNMrnlkxCOBWeuvZpqjUlwAqQPFsqpYTquPLBeVZi5CYRPFFHyfWJw0yggI4rBQ=="
+        },
         "97666da2-d457-4032-b637-23651a82e6a9": {
           "display_id": 1293,
           "author": "ldsw",
@@ -28107,6 +28116,11 @@
       "agent_id": "ldsw",
       "agent_seq": 94,
       "timestamp": "2026-10-09T01:57:23.153112Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 95,
+      "timestamp": "2026-10-09T01:58:25.090078Z"
     }
   ],
   "watermark": {
