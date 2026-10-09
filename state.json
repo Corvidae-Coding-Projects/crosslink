@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 115,
-        "tip_oid": "ef65694bb89bd7def9a15f1d3b901525cfd1debe",
-        "prefix_sha256": "ff8e1169729fd5a081185aab8bfd988442de4f54ba1e6f075be56d53c3a949f8"
+        "sequence": 116,
+        "tip_oid": "c8d4c2a8150bbac4d5f02d2d61dc7a8f0f4607c3",
+        "prefix_sha256": "0c92eb61345d7d5af83d5c0bd4fbfe85e4434ce314d491c511b3177de29f8351"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 822,
-  "next_comment_id": 1317,
+  "next_comment_id": 1318,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -12732,7 +12732,7 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:57:23.153112Z",
-      "updated_at": "2026-10-09T17:50:29.215266Z",
+      "updated_at": "2026-10-09T17:51:35.658958Z",
       "comments": {
         "81429a78-81a5-4a92-9c83-3ca755e3ddf3": {
           "display_id": 1316,
@@ -12751,6 +12751,15 @@
           "kind": "observation",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlRIgu58kS63A5RMtv+qL3+6TVAdYrXy62BUExjqVbMC1B/FlI47PKlVyq3Y6vcXqDWqEtU2m4AXljVJvbanNCw=="
+        },
+        "dd507dd6-d0ce-4f20-9e0b-b2681abcd224": {
+          "display_id": 1317,
+          "author": "ldsw",
+          "content": "Correction to the comment above: the parked daemon's binary version was not checked. It was started 2026-10-07 19:08 local, when the installed binary was 0.9.0-beta.1+388bed89f; '875066ad6-era' was a guess and should be disregarded.",
+          "created_at": "2026-10-09T17:51:35.623984Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQo/BM9MxGP7gES+4j5q6EZvzY725xXU/lZluuL9KTL4bXB727scK93Z7HNh+mS4dbGXioAatBszeoQ6q+QrcCw=="
         }
       }
     },
@@ -28402,6 +28411,11 @@
       "agent_id": "ldsw",
       "agent_seq": 115,
       "timestamp": "2026-10-09T17:50:29.215266Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 116,
+      "timestamp": "2026-10-09T17:51:35.658958Z"
     }
   ],
   "watermark": {
