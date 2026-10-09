@@ -49,7 +49,7 @@ Kickoff undo:
   5. the worktree, only if this invocation created it;
   6. the branch, only if this invocation created it and it has no commits beyond the recorded base.
 
-  A worktree or branch that kickoff reused (`--branch` with an existing directory, a swarm-stored branch) is never removed.
+  A worktree or branch that kickoff reused (`--branch` with an existing directory, a swarm-stored branch) is never removed. Amended 2026-10-09: if the lock release in step 2 does not complete (failed, stranded, unverified, or readiness not granted), steps 5 and 6 are skipped and reported as kept, with a remedy naming the kept path. Step 3 still runs, so no orphaned daemon holds the hub write lock.
 - REQ-7: The agent has started once tmux `send-keys` succeeds (`launch_local`) or `launch_container` returns `Ok`, which happens after its early-exit check. From then on, undo is disarmed, and the lock, worktree and branch belong to the agent.
 - REQ-8: `kickoff cleanup` works in this order:
   1. it removes the tmux session or container, so no agent process is still running;
@@ -58,7 +58,7 @@ Kickoff undo:
   4. it stops the daemon and removes the worktree;
   5. it deletes the branch under the rule in REQ-6 step 6.
 
-  `--keep-branch` skips the branch step. A worktree whose metadata has no recorded base keeps its branch.
+  `--keep-branch` skips the branch step. A worktree whose metadata has no recorded base keeps its branch. Amended 2026-10-09: if a release in step 3 does not complete, step 4 still stops the daemon but keeps the worktree, and step 5 is skipped. The warning names the kept path and how to finish (`crosslink locks release` there, then `kickoff cleanup` again) or give up (`git worktree remove --force`).
 - REQ-9: Undo and cleanup verify each lock release with the same bounded, fallible confirmation as REQ-2, run in the worktree after the release:
   - if confirmation shows the worktree agent still holding the lock, the lock is reported as stranded;
   - if confirmation does not complete, the release is reported as unverified.
@@ -178,6 +178,9 @@ Dated 2026-10-09, after the manual checks and the phase 3 review (three reviewer
   - the undo report follows the original error in the returned error, so swarm and sentinel keep it;
   - cleanup stops daemons through the shared undo step and exits non-zero when it leaves work behind;
   - on a reused worktree, undo leaves what pre-existed (AC-9).
+- **Reducer: late arrivals are replayed in total order** (`9b6a59ed`). The contention test (AC-6) found that a reduce applying unseen events on top of the checkpoint diverges from a total-order replay when another agent's earlier event arrives late. Two clients could then each see themselves as holder, and a checkpoint written from that state failed verification for every reader. REQ-6(b) depends on the reduce matching a total-order replay. Reduce now rebuilds from the authority baseline when the earliest unseen event orders before the latest covered one. `f60712ed` had widened the window by dropping the checkpoint adoption that recomputed on concurrent checkpoints; the gap also existed before this branch when the earlier claim was in no checkpoint. This is not a protocol change: the event and checkpoint formats are unchanged, and checkpoint verification already replays in total order. Older binaries on a mixed-version hub can still compute the wrong holder locally until they upgrade; their checkpoints from that state already fail verification on every reader.
+- **Signature checks without a polling floor** (`21ff0aad`). `verify_content` waited for `ssh-keygen` with a 50 ms sleep per event, and the late-arrival replay will run whenever writers overlap. It now uses the shared timeout helper, which polls from 1 ms. Strictly this belongs to the write-cost increment; it is here because the replay above would otherwise make claims slow again.
+- **Keep the worktree when a release does not complete** (`4a43adc9`). See the amendments to REQ-6 and REQ-8. This also brings the build back in line with REQ-11: the worktree holds the agent's `agent.json`, half the identity REQ-11 keeps.
 - **Permit hold time.** A claim now holds its mutation permit through confirmation: up to 30 s more for the hub-lock wait and fetch, plus one reduce. Writes that hold permits past 90 s let the readiness record expire and the daemon exit (#816, #817), so this narrows that margin on slow machines until the write-cost and heartbeat increments land.
 
 Where each criterion is covered:
@@ -188,7 +191,8 @@ Where each criterion is covered:
   - **AC-3:** after-push and hydration failures.
   - **AC-4:** the grandchild in the fetch's process group and the SIGTERM lock-file cleanup.
   - **AC-4a.**
-  - **AC-6:** contention found during confirmation, on the already-held path.
+  - **AC-6:** contention found during confirmation, on the already-held path (`v3_contention_found_during_confirmation_is_contended`).
+- **Reducer:** `compaction::tests::prop_reduce_from_any_checkpoint_equals_full_replay` (256 cases) and `a_late_earlier_claim_wins_over_a_checkpointed_later_claim`; both fail with the rule disabled.
   - **AC-12:** the real release on a refused push (`Stranded`) and an unreachable remote (`Unverified`), Unix only.
 - **Undo and cleanup:** unit tests in `crosslink/src/commands/kickoff/rollback.rs` and `cleanup.rs`:
   - the step order for each failure point;
@@ -198,6 +202,7 @@ Where each criterion is covered:
   - the branch rule;
   - the pipeline restore through `undo_failed_kickoff`;
   - the host key file surviving undo (AC-13);
+  - an incomplete release keeping the worktree and branch, in undo and in cleanup, including the field scenario of a daemon that never becomes ready;
   - git operations on a temporary repository.
 - **Daemon reaping:** `daemon::tests::a_spawned_child_is_reaped_when_it_exits`.
 
@@ -209,6 +214,7 @@ Not covered by automated tests:
 - **AC-10 and AC-11 end to end.** AC-11's cleanup flow was checked by hand. `--keep-branch` is untested.
 - **The undo's readiness wake-up.** It would start a daemon, so no unit test runs it.
 - **Windows:** the AC-4 and AC-12 tests are Unix only, and the Windows CI shards do not run the v3 operation suite.
+- **Known local failure, not this branch:** `reconcile::migration::tests::production_ready_observer_completes_fallback_pointer_window` fails on this Mac on develop (`3440c0d0`) as well; its 5 s wait for a migration's pointer push is shorter than a migration takes here.
 
 Manual checks, 2026-10-09, macOS, installed builds of this branch:
 
@@ -218,7 +224,9 @@ Manual checks, 2026-10-09, macOS, installed builds of this branch:
   - the daemon stop reported a zombie as alive, because the spawning kickoff never reaped it; spawned daemons are now reaped (`73ed70db`).
 
   After the fixes, the undo reported "removed everything this kickoff created".
-- **Cleanup of a stopped agent.** A local kickoff was stopped at the trust prompt, and `kickoff cleanup --force` ran on it. It stopped the daemon, released the agent's lock, removed the worktree and deleted the unchanged branch. The issue then read "not locked".
+- **Cleanup of a stopped agent.** A local kickoff was stopped at the trust prompt, and `kickoff cleanup --force` ran on it. It stopped the daemon, released the agent's lock, removed the worktree and deleted the unchanged branch. The issue then read "not locked". This run took the path where the worktree daemon became ready; the not-ready path was not exercised by hand.
+
+Field observation, 2026-10-09T20:43Z, from another repository's session on an installed build of this branch before `ea5402a0` (Corvidae-Coding-Projects/crosslink#110): `kickoff cleanup --force` over three timed-out plan worktrees removed the worktrees and stopped their daemons, but the worktree daemons did not become ready, so no lock was released, and each warning's remedy named the directory just removed. The lock stayed stranded with no identity left to release it. This is evidence against AC-11 and REQ-8 as implemented at that build. Fixed by `4a43adc9`, verified by `cleanup_keeps_the_worktree_when_a_release_does_not_complete` and `an_incomplete_release_keeps_the_worktree_and_branch`.
 - **Observed, out of scope.** The host daemon exited, as `running: false`, after writes that held permits for more than 90 s: the 130 s cleanup, and the kickoff runs. It also parked once as `blocked_corrupt` after repeated record expiries. These are tracked on #816 and #817, for the heartbeat and write-cost increments.
 
 ## Data and compatibility

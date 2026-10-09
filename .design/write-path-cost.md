@@ -35,16 +35,8 @@ Each figure is marked as measured, estimated or a target.
 ## Increments, in build order
 
 1. **Lock-claim outcome and kickoff rollback** (Corvidae-Coding-Projects/crosslink#110, and the timeout half of Corvidae-Coding-Projects/crosslink#118). The design document is written: `.design/lock-claim-outcome-and-kickoff-rollback.md`.
-2. **Knowledge cache ownership** (Corvidae-Coding-Projects/crosslink#120, tracker #807). Provisional.
-   - The main checkout's daemon creates the cache after its first ready activation and refreshes it on its sync tick when the remote tip moves. Creation is atomic.
-   - A failure is logged and never affects readiness or the reconcile budget.
-   - The hook and the knowledge MCP server name `crosslink knowledge sync` when the cache is missing.
-   - Constraints found:
-     - The step must run only in the ready normal loop, per the readiness contract's state gating (tracker #794).
-     - Running it outside the operation permit departs from Corvidae-Coding-Projects/crosslink#120's suggestion, and the increment document must say why.
-     - The overhead map asks that the cache never be made authoritative.
-   - It is second because it is small and independent. Downstream projects rely on it: pages attached to an issue reach agents at session start only if the cache exists.
-3. **Write cost** (Corvidae-Coding-Projects/crosslink#118). Provisional.
+2. **Write cost** (Corvidae-Coding-Projects/crosslink#118). Provisional.
+   - Moved to second on 2026-10-09 (operator decision, from the #820 review): bootstrap and write latency now break the first increment's undo and cleanup on large hubs. The reducer's late-arrival rule (#820) lands before it, and its caches must keep the property test against full replay.
    - A spawn-count test lands first and records the baseline.
    - Then readiness validated once per command, with `SyncManager` setup and `remote_exists` computed once.
    - At most two reduces per write.
@@ -56,6 +48,15 @@ Each figure is marked as measured, estimated or a target.
    - Constraints found:
      - The readiness contract forbids "in-memory-only readiness" and requires every write to reject a non-ready repository. So a cached validation must still re-check record age and daemon liveness on every acquisition.
      - Every new cache needs a property test against full recomputation, proved by removing its invalidation and watching the test fail.
+3. **Knowledge cache ownership** (Corvidae-Coding-Projects/crosslink#120, tracker #807). Provisional.
+   - The main checkout's daemon creates the cache after its first ready activation and refreshes it on its sync tick when the remote tip moves. Creation is atomic.
+   - A failure is logged and never affects readiness or the reconcile budget.
+   - The hook and the knowledge MCP server name `crosslink knowledge sync` when the cache is missing.
+   - Constraints found:
+     - The step must run only in the ready normal loop, per the readiness contract's state gating (tracker #794).
+     - Running it outside the operation permit departs from Corvidae-Coding-Projects/crosslink#120's suggestion, and the increment document must say why.
+     - The overhead map asks that the cache never be made authoritative.
+   - It was second because it is small and independent; moved to third on 2026-10-09 (operator decision) because bootstraps after a wake now exceed the 120 s `ensure` wait (Corvidae-Coding-Projects/crosslink#118), which breaks claims, kickoff undo and cleanup. Downstream projects rely on it: pages attached to an issue reach agents at session start only if the cache exists.
 4. **Heartbeats off the write path.** Provisional.
    - A heartbeat writes only the agent's own ref, without a reduce or full validation.
    - It still runs only while readiness grants writes; the readiness contract lists heartbeats among the operations that require ready.
