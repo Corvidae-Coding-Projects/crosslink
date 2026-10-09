@@ -6,19 +6,21 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use anyhow::Result;
+
 use super::pipeline::PipelineState;
 
 /// Whether this kickoff invocation created a resource or found it in place.
 /// Only created resources are removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Origin {
+pub(crate) enum Origin {
     Created,
     Reused,
 }
 
 /// One undo action, in the order `KickoffRollback::steps` returns them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum UndoStep {
+pub(crate) enum UndoStep {
     RemoveContainer {
         runtime: String,
         name: String,
@@ -45,7 +47,7 @@ pub(super) enum UndoStep {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum UndoOutcome {
+pub(crate) enum UndoOutcome {
     Done,
     NothingToUndo,
     Failed {
@@ -64,13 +66,13 @@ pub(super) enum UndoOutcome {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct UndoReport {
-    pub(super) entries: Vec<(UndoStep, UndoOutcome)>,
+pub(crate) struct UndoReport {
+    pub(crate) entries: Vec<(UndoStep, UndoOutcome)>,
 }
 
 impl UndoReport {
     /// True when every step either completed or had nothing to undo.
-    pub(super) fn is_clean(&self) -> bool {
+    pub(crate) fn is_clean(&self) -> bool {
         self.entries
             .iter()
             .all(|(_, outcome)| matches!(outcome, UndoOutcome::Done | UndoOutcome::NothingToUndo))
@@ -79,18 +81,25 @@ impl UndoReport {
 
 /// Performs one undo step. The kickoff implementation runs subprocesses;
 /// tests record the calls.
-pub(super) trait UndoOps {
+pub(crate) trait UndoOps {
     fn run(&mut self, step: &UndoStep) -> UndoOutcome;
 }
 
 /// What a kickoff invocation has created so far. Record each resource as it
 /// is created; call `disarm` once the agent has started.
 #[derive(Debug, Default)]
-pub(super) struct KickoffRollback {
+pub(crate) struct KickoffRollback {
     worktree: Option<(PathBuf, Origin)>,
     branch: Option<(String, Origin, Option<String>)>,
     agent_initialized: bool,
+    /// The worktree already had an agent (a reused worktree): its session is
+    /// not this invocation's to end.
+    agent_preexisting: bool,
+    /// The worktree's daemon was already running before this invocation.
+    daemon_preexisting: bool,
     claimed_issue: Option<i64>,
+    /// The worktree agent already held the issue before this invocation.
+    claim_preexisting: bool,
     pipeline: Option<(PathBuf, Option<PipelineState>)>,
     tmux_session: Option<String>,
     container: Option<(String, String)>,
@@ -98,51 +107,67 @@ pub(super) struct KickoffRollback {
 }
 
 impl KickoffRollback {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub(super) fn record_worktree(&mut self, path: PathBuf, origin: Origin) {
+    pub(crate) fn record_worktree(&mut self, path: PathBuf, origin: Origin) {
         self.worktree = Some((path, origin));
     }
 
-    pub(super) fn record_branch(&mut self, name: String, origin: Origin, base: Option<String>) {
+    pub(crate) fn record_branch(&mut self, name: String, origin: Origin, base: Option<String>) {
         self.branch = Some((name, origin, base));
     }
 
-    /// The worktree has an agent, a daemon and a session.
-    pub(super) const fn record_agent(&mut self) {
+    /// The worktree has an agent, a daemon and a session, all created by
+    /// this invocation.
+    pub(crate) const fn record_agent(&mut self) {
         self.agent_initialized = true;
+    }
+
+    /// A reused worktree already had an agent; `daemon_was_live` says whether
+    /// its daemon was already running. Undo leaves what pre-existed as found.
+    pub(crate) const fn record_existing_agent(&mut self, daemon_was_live: bool) {
+        self.agent_initialized = true;
+        self.agent_preexisting = true;
+        self.daemon_preexisting = daemon_was_live;
     }
 
     /// Record before invoking `session work`: a claim that fails to confirm
     /// may still have been published. Releasing a lock this agent does not
     /// hold is ignored by the reducer.
-    pub(super) const fn record_claim(&mut self, issue_id: i64) {
+    pub(crate) const fn record_claim(&mut self, issue_id: i64) {
         self.claimed_issue = Some(issue_id);
+    }
+
+    /// The worktree agent already held the issue before this invocation, so
+    /// undo does not release it.
+    pub(crate) const fn record_existing_claim(&mut self, issue_id: i64) {
+        self.claimed_issue = Some(issue_id);
+        self.claim_preexisting = true;
     }
 
     /// Record the pipeline state as it was before `mark_running` or
     /// `mark_planning` changed it.
-    pub(super) fn record_pipeline(&mut self, doc_path: PathBuf, prior: Option<PipelineState>) {
+    pub(crate) fn record_pipeline(&mut self, doc_path: PathBuf, prior: Option<PipelineState>) {
         self.pipeline = Some((doc_path, prior));
     }
 
-    pub(super) fn record_tmux_session(&mut self, name: String) {
+    pub(crate) fn record_tmux_session(&mut self, name: String) {
         self.tmux_session = Some(name);
     }
 
-    pub(super) fn record_container(&mut self, runtime: String, name: String) {
+    pub(crate) fn record_container(&mut self, runtime: String, name: String) {
         self.container = Some((runtime, name));
     }
 
     /// The agent has started: from here on, its resources are its own.
-    pub(super) const fn disarm(&mut self) {
+    pub(crate) const fn disarm(&mut self) {
         self.disarmed = true;
     }
 
     /// The undo steps for what was recorded, in the order they must run.
-    pub(super) fn steps(&self) -> Vec<UndoStep> {
+    pub(crate) fn steps(&self) -> Vec<UndoStep> {
         if self.disarmed {
             return Vec::new();
         }
@@ -157,11 +182,15 @@ impl KickoffRollback {
             steps.push(UndoStep::KillTmuxSession { name: name.clone() });
         }
         if self.agent_initialized {
-            if let Some(issue_id) = self.claimed_issue {
+            if let Some(issue_id) = self.claimed_issue.filter(|_| !self.claim_preexisting) {
                 steps.push(UndoStep::ReleaseLock { issue_id });
             }
-            steps.push(UndoStep::EndSession);
-            steps.push(UndoStep::StopDaemon);
+            if !self.agent_preexisting {
+                steps.push(UndoStep::EndSession);
+            }
+            if !self.daemon_preexisting {
+                steps.push(UndoStep::StopDaemon);
+            }
         }
         if let Some((doc_path, _)) = &self.pipeline {
             steps.push(UndoStep::RestorePipeline {
@@ -182,12 +211,12 @@ impl KickoffRollback {
 
     /// The pipeline state recorded before kickoff changed it, for the
     /// `RestorePipeline` step.
-    pub(super) fn prior_pipeline(&self) -> Option<&PipelineState> {
+    pub(crate) fn prior_pipeline(&self) -> Option<&PipelineState> {
         self.pipeline.as_ref().and_then(|(_, prior)| prior.as_ref())
     }
 
     /// Runs every step, continuing past failures, and reports each outcome.
-    pub(super) fn unwind(self, ops: &mut impl UndoOps) -> UndoReport {
+    pub(crate) fn unwind(self, ops: &mut impl UndoOps) -> UndoReport {
         let entries = self
             .steps()
             .into_iter()
@@ -201,10 +230,10 @@ impl KickoffRollback {
 }
 
 /// Runs undo steps against the system for one kickoff worktree.
-pub(super) struct KickoffUndo<'a> {
-    pub(super) repo_root: &'a Path,
-    pub(super) worktree_dir: &'a Path,
-    pub(super) prior_pipeline: Option<PipelineState>,
+pub(crate) struct KickoffUndo<'a> {
+    pub(crate) repo_root: &'a Path,
+    pub(crate) worktree_dir: &'a Path,
+    pub(crate) prior_pipeline: Option<PipelineState>,
 }
 
 impl KickoffUndo<'_> {
@@ -231,6 +260,10 @@ impl KickoffUndo<'_> {
         }
     }
 
+    /// Releases the lock through the worktree's command service, under the
+    /// worktree agent's identity, then classifies the outcome from a bounded
+    /// confirmation: a release can land although its command failed
+    /// afterwards, or fail although nothing reported it.
     fn release_lock(&self, issue_id: i64) -> UndoOutcome {
         if !self.has_agent() {
             return UndoOutcome::NothingToUndo;
@@ -242,27 +275,30 @@ impl KickoffUndo<'_> {
         if let Err(error) = self.ensure_ready() {
             return UndoOutcome::Failed { error, remedy };
         }
-        let writer = match crate::shared_writer::SharedWriter::new(&self.worktree_crosslink()) {
+        let crosslink = self.worktree_crosslink();
+        let release = crate::db::Database::open(&crosslink.join("issues.db")).and_then(|db| {
+            let service = crate::application::RepositoryService::new(&db, &crosslink)?;
+            crate::lock_check::try_release_lock(&service, issue_id)
+        });
+        let release_note = release.err().map_or_else(String::new, |error| {
+            format!(" (the release reported: {error:#})")
+        });
+        let writer = match crate::shared_writer::SharedWriter::new(&crosslink) {
             Ok(Some(writer)) => writer,
             Ok(None) => return UndoOutcome::NothingToUndo,
             Err(error) => {
-                return UndoOutcome::Failed {
-                    error: format!("{error:#}"),
-                    remedy,
+                return UndoOutcome::Unverified {
+                    remedy: format!("{remedy}{release_note}; confirmation unavailable: {error:#}"),
                 }
             }
         };
-        if let Err(error) = writer.release_lock_v2(issue_id) {
-            return UndoOutcome::Failed {
-                error: format!("{error:#}"),
-                remedy,
-            };
-        }
         match writer.confirmed_lock_holder(issue_id) {
-            Ok(Some(holder)) if holder == writer.agent_id() => UndoOutcome::Stranded { remedy },
+            Ok(Some(holder)) if holder == writer.agent_id() => UndoOutcome::Stranded {
+                remedy: format!("{remedy}{release_note}"),
+            },
             Ok(_) => UndoOutcome::Done,
             Err(error) => UndoOutcome::Unverified {
-                remedy: format!("{remedy} (the release could not be confirmed: {error:#})"),
+                remedy: format!("{remedy}{release_note}; confirmation failed: {error:#}"),
             },
         }
     }
@@ -403,6 +439,36 @@ impl UndoOps for KickoffUndo<'_> {
     }
 }
 
+/// Whether the worktree's daemon is running now.
+pub(crate) fn worktree_daemon_is_live(worktree_crosslink: &Path) -> bool {
+    crate::reconcile::readiness::read_daemon_identity(worktree_crosslink)
+        .ok()
+        .flatten()
+        .is_some_and(|identity| crate::reconcile::readiness::daemon_identity_is_live(&identity))
+}
+
+/// The worktree agent's id, from its `agent.json`.
+pub(crate) fn worktree_agent_id(worktree_crosslink: &Path) -> Option<String> {
+    crate::identity::AgentConfig::load(worktree_crosslink)
+        .ok()
+        .flatten()
+        .map(|agent| agent.agent_id)
+}
+
+/// The issues the host's view of the hub shows `agent_id` holding. A read:
+/// it needs no worktree daemon.
+pub(crate) fn host_locks_held_by(host_crosslink: &Path, agent_id: &str) -> Result<Vec<i64>> {
+    let locks = crate::sync::SyncManager::new(host_crosslink)?.read_locks_auto()?;
+    let mut held: Vec<i64> = locks
+        .locks
+        .iter()
+        .filter(|(_, lock)| lock.agent_id == agent_id)
+        .map(|(issue, _)| *issue)
+        .collect();
+    held.sort_unstable();
+    Ok(held)
+}
+
 /// Whether the worktree's daemon is gone, or goes within `timeout`.
 fn daemon_gone_within(crosslink: &Path, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
@@ -444,25 +510,31 @@ fn command_outcome(command: &mut Command, remedy: &str, absent: &[&str]) -> Undo
 }
 
 impl UndoReport {
-    /// Prints every step that did not complete cleanly, with its remedy, and
-    /// one summary line.
-    pub(super) fn print(&self) {
-        for (step, outcome) in &self.entries {
-            if let Some(message) = outcome_message(step, outcome) {
-                eprintln!("kickoff undo: {message}");
-            }
+    /// The report for the user: every step that did not complete cleanly,
+    /// with its remedy, and one summary line. `None` when there were no
+    /// steps.
+    pub(crate) fn render(&self) -> Option<String> {
+        if self.entries.is_empty() {
+            return None;
         }
-        if self.is_clean() {
-            eprintln!("kickoff undo: removed everything this kickoff created");
+        let mut lines: Vec<String> = self
+            .entries
+            .iter()
+            .filter_map(|(step, outcome)| outcome_message(step, outcome))
+            .map(|message| format!("kickoff undo: {message}"))
+            .collect();
+        lines.push(if self.is_clean() {
+            "kickoff undo: removed everything this kickoff created".to_string()
         } else {
-            eprintln!("kickoff undo: some steps did not complete; see above");
-        }
+            "kickoff undo: some steps did not complete; see above".to_string()
+        });
+        Some(lines.join("\n"))
     }
 }
 
 /// What to tell the user about a step that did not complete cleanly, or
 /// `None` when it did.
-pub(super) fn outcome_message(step: &UndoStep, outcome: &UndoOutcome) -> Option<String> {
+pub(crate) fn outcome_message(step: &UndoStep, outcome: &UndoOutcome) -> Option<String> {
     match outcome {
         UndoOutcome::Done | UndoOutcome::NothingToUndo => None,
         UndoOutcome::Failed { error, remedy } => Some(format!(
@@ -474,7 +546,7 @@ pub(super) fn outcome_message(step: &UndoStep, outcome: &UndoOutcome) -> Option<
             step.describe()
         )),
         UndoOutcome::Unverified { remedy } => Some(format!(
-            "{} could not be verified; to check it, {remedy}",
+            "{}: release unverified; to check it, {remedy}",
             step.describe()
         )),
     }
@@ -499,7 +571,7 @@ impl UndoStep {
 
 /// A branch may be deleted only when a base was recorded and the branch has
 /// no commits beyond it.
-pub(super) fn branch_deletable(tip: &str, base_commit: Option<&str>) -> bool {
+pub(crate) fn branch_deletable(tip: &str, base_commit: Option<&str>) -> bool {
     base_commit.is_some_and(|base| base == tip)
 }
 
@@ -610,6 +682,28 @@ mod tests {
         rollback.record_agent();
         rollback.record_claim(7);
         assert_eq!(rollback.steps(), tail_steps());
+    }
+
+    /// AC-9: on a reused worktree, what already existed (the agent and its
+    /// session, a running daemon, a lock the agent already held) is left as
+    /// found.
+    #[test]
+    fn reused_worktree_leaves_existing_agent_daemon_and_lock_alone() {
+        let mut rollback = KickoffRollback::new();
+        rollback.record_worktree(PathBuf::from("/wt/feature-x"), Origin::Reused);
+        rollback.record_branch("feature/feature-x".to_string(), Origin::Reused, None);
+        rollback.record_existing_agent(true);
+        rollback.record_existing_claim(7);
+        assert!(rollback.steps().is_empty());
+
+        let mut started_daemon = KickoffRollback::new();
+        started_daemon.record_worktree(PathBuf::from("/wt/feature-x"), Origin::Reused);
+        started_daemon.record_existing_agent(false);
+        started_daemon.record_claim(7);
+        assert_eq!(
+            started_daemon.steps(),
+            vec![UndoStep::ReleaseLock { issue_id: 7 }, UndoStep::StopDaemon]
+        );
     }
 
     /// AC-11 (unit level): without a recorded base, the branch is kept.
@@ -741,6 +835,45 @@ mod tests {
             .collect();
         assert!(nothing.contains(&UndoStep::ReleaseLock { issue_id: 7 }));
         assert!(nothing.contains(&UndoStep::EndSession));
+    }
+
+    /// AC-13: undo never touches the host-side identity: the agent's key
+    /// file in the host `.crosslink/keys` survives.
+    #[test]
+    fn undo_leaves_the_host_key_file() {
+        let (_dir, root, worktree, base) = repo_with_worktree();
+        let keys = root.join(".crosslink").join("keys");
+        std::fs::create_dir_all(&keys).expect("keys dir");
+        let key = keys.join("agent_ed25519");
+        std::fs::write(&key, "key").expect("key");
+        let mut rollback = KickoffRollback::new();
+        rollback.record_worktree(worktree.clone(), Origin::Created);
+        rollback.record_branch("feature/x".to_string(), Origin::Created, Some(base));
+        rollback.record_agent();
+        rollback.record_claim(7);
+        let report = super::super::run::undo_failed_kickoff(rollback, &root, &worktree);
+        assert!(report.is_some());
+        assert!(!worktree.exists());
+        assert!(key.exists(), "undo removed the host key file");
+    }
+
+    /// The wiring carries the recorded prior pipeline state into the undo.
+    #[test]
+    fn undo_failed_kickoff_restores_the_prior_pipeline_state() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let doc = dir.path().join("feature.md");
+        std::fs::write(&doc, "# Feature\n").expect("doc");
+        let prior = super::super::pipeline::create_initial_pipeline(&doc).expect("pipeline");
+        let mut rollback = KickoffRollback::new();
+        rollback.record_pipeline(doc.clone(), Some(prior.clone()));
+        super::super::pipeline::mark_running(&doc, "agent", "/wt", Some(7)).expect("running");
+
+        let report = super::super::run::undo_failed_kickoff(rollback, dir.path(), dir.path())
+            .expect("report");
+        assert!(report.contains("removed everything"), "{report}");
+        let restored = super::super::pipeline::read_pipeline_state(&doc).expect("restored");
+        assert_eq!(restored.stage, prior.stage);
+        assert!(restored.runs.is_empty());
     }
 
     /// AC-11 (operations): a branch with its own commits is kept.

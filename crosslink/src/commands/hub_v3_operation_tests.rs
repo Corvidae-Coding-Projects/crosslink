@@ -1260,13 +1260,11 @@ fn v3_to_shared_promotes_sqlite_only_rows() {
 }
 
 // Lock-claim outcome: `.design/lock-claim-outcome-and-kickoff-rollback.md`.
-// AC-6 (contention found during confirmation) is covered by
-// `v3_lock_claim_confirm_winner_and_loser` above.
 
-fn lock_claims_on_agent_ref(cache_dir: &Path, agent_id: &str, issue_id: i64) -> usize {
+fn lock_claims_on_agent_ref(repo: &Path, agent_id: &str, issue_id: i64) -> usize {
     let reference = agent_ref_name(agent_id).unwrap();
     let out = Command::new("git")
-        .current_dir(cache_dir)
+        .current_dir(repo)
         .args(["show", &format!("{reference}:events.log")])
         .output()
         .unwrap();
@@ -1293,8 +1291,17 @@ fn writer_with_issue(hub: &V3Hub, title: &str) -> (SharedWriter, i64) {
     (writer, issue_id)
 }
 
-/// AC-1 (fails first): publication time never counts against the
-/// confirmation deadline, so a slow publication still confirms the claim.
+fn is_unconfirmed(result: &crate::shared_writer::LockClaimResult) -> bool {
+    matches!(
+        result,
+        crate::shared_writer::LockClaimResult::Unconfirmed { .. }
+    )
+}
+
+/// AC-1: publication time never counts against the confirmation deadline,
+/// so a publication slower than the deadline still confirms the claim. It
+/// does not catch a literal revert of the old bail against the fixed 30 s,
+/// which publication here does not reach.
 #[test]
 fn v3_slow_publication_still_confirms_the_claim() {
     if !git_ok() {
@@ -1304,21 +1311,18 @@ fn v3_slow_publication_still_confirms_the_claim() {
     let (writer, issue_id) = writer_with_issue(&hub, "Slow publication");
     {
         let mut failpoints = writer.failpoints.borrow_mut();
-        failpoints.confirm_deadline = Some(std::time::Duration::from_secs(1));
-        failpoints.publish_delay = std::time::Duration::from_secs(2);
+        failpoints.confirm_deadline = Some(std::time::Duration::from_secs(5));
+        failpoints.publish_delay = std::time::Duration::from_secs(6);
     }
 
-    let result = writer.claim_lock_v2(issue_id, None);
     assert_eq!(
-        result.unwrap(),
+        writer.claim_lock_v2(issue_id, None).unwrap(),
         crate::shared_writer::LockClaimResult::Claimed
     );
-    let cold = SharedWriter::new(&hub.crosslink_dir).unwrap().unwrap();
     assert_eq!(
-        cold.read_lock_v2(issue_id)
-            .unwrap()
-            .map(|lock| lock.agent_id),
-        Some("alpha".to_string())
+        lock_claims_on_agent_ref(hub.remote.path(), "alpha", issue_id),
+        1,
+        "the remote must hold the claim"
     );
 }
 
@@ -1335,10 +1339,7 @@ fn v3_failed_confirmation_is_unconfirmed_and_the_rerun_confirms() {
 
     let first = writer.claim_lock_v2(issue_id, None).unwrap();
     assert!(
-        matches!(
-            first,
-            crate::shared_writer::LockClaimResult::Unconfirmed { .. }
-        ),
+        is_unconfirmed(&first),
         "expected Unconfirmed, got {first:?}"
     );
 
@@ -1348,9 +1349,32 @@ fn v3_failed_confirmation_is_unconfirmed_and_the_rerun_confirms() {
         crate::shared_writer::LockClaimResult::AlreadyHeld
     );
     assert_eq!(
-        lock_claims_on_agent_ref(&hub.cache_dir, "alpha", issue_id),
-        1
+        lock_claims_on_agent_ref(hub.remote.path(), "alpha", issue_id),
+        1,
+        "the rerun must not publish a second claim"
     );
+}
+
+/// AC-2 and AC-5 through a real failing fetch, not a failpoint: a fetch that
+/// exits non-zero is `Unconfirmed`, for a new claim and for an already-held
+/// lock.
+#[test]
+fn v3_a_failing_confirmation_fetch_is_unconfirmed() {
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let (writer, issue_id) = writer_with_issue(&hub, "Failing fetch");
+    writer.failpoints.borrow_mut().confirm_fetch_command = Some(vec![
+        "git".to_string(),
+        "fetch".to_string(),
+        "--quiet".to_string(),
+        "/nonexistent-crosslink-remote".to_string(),
+    ]);
+    let first = writer.claim_lock_v2(issue_id, None).unwrap();
+    assert!(is_unconfirmed(&first), "new claim: got {first:?}");
+    let again = writer.claim_lock_v2(issue_id, None).unwrap();
+    assert!(is_unconfirmed(&again), "already held: got {again:?}");
 }
 
 /// AC-3 (fails first): a failure after the push lands is `Unconfirmed`, not
@@ -1366,22 +1390,37 @@ fn v3_failure_after_push_is_unconfirmed() {
 
     let result = writer.claim_lock_v2(issue_id, None);
     assert!(
-        matches!(
-            result,
-            Ok(crate::shared_writer::LockClaimResult::Unconfirmed { .. })
-        ),
+        matches!(result, Ok(ref r) if is_unconfirmed(r)),
         "expected Ok(Unconfirmed), got {result:?}"
     );
 }
 
-/// AC-4 (fails first): the confirmation fetch is bounded and killed with its
-/// process group, and leaves nothing that blocks a later fetch. The timed call
+/// AC-3: a hydration failure after the push is `Unconfirmed` too.
+#[test]
+fn v3_hydration_failure_after_push_is_unconfirmed() {
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let (writer, issue_id) = writer_with_issue(&hub, "Hydration failure");
+    writer.failpoints.borrow_mut().fail_hydration = true;
+
+    let result = writer.claim_lock_v2(issue_id, None);
+    assert!(
+        matches!(result, Ok(ref r) if is_unconfirmed(r)),
+        "expected Ok(Unconfirmed), got {result:?}"
+    );
+}
+
+/// AC-4 (fails first): the confirmation fetch is bounded, and the whole
+/// process group is terminated: the marker is on a grandchild, and the
+/// fake fetch holds a lock file it removes only on SIGTERM. The timed call
 /// is the already-held path, so publication time is not measured; the bound
 /// is checked against the hung fetch's 30 s, because the local read before
 /// confirmation also reduces.
 #[cfg(unix)]
 #[test]
-fn v3_confirmation_fetch_is_bounded_and_cleaned_up() {
+fn v3_confirmation_fetch_is_bounded_and_its_group_terminated() {
     if !git_ok() {
         return;
     }
@@ -1392,23 +1431,22 @@ fn v3_confirmation_fetch_is_bounded_and_cleaned_up() {
         crate::shared_writer::LockClaimResult::Claimed
     );
     let marker = format!("crosslink-confirm-deadline-{}", std::process::id());
+    let lock_file = hub.work.path().join("fake-fetch.lock");
+    let script = format!(
+        "touch '{lock}'; trap 'rm -f \"{lock}\"; exit 143' TERM; \
+         sh -c 'sleep 30; : {marker}' & wait",
+        lock = lock_file.display()
+    );
     {
         let mut failpoints = writer.failpoints.borrow_mut();
         failpoints.confirm_deadline = Some(std::time::Duration::from_secs(2));
-        failpoints.confirm_fetch_command = Some(vec![
-            "sh".to_string(),
-            "-c".to_string(),
-            format!("sleep 30; : {marker}"),
-        ]);
+        failpoints.confirm_fetch_command = Some(vec!["sh".to_string(), "-c".to_string(), script]);
     }
 
     let started = std::time::Instant::now();
     let result = writer.claim_lock_v2(issue_id, None).unwrap();
     assert!(
-        matches!(
-            result,
-            crate::shared_writer::LockClaimResult::Unconfirmed { .. }
-        ),
+        is_unconfirmed(&result),
         "expected Unconfirmed, got {result:?}"
     );
     assert!(
@@ -1422,15 +1460,15 @@ fn v3_confirmation_fetch_is_bounded_and_cleaned_up() {
         .unwrap();
     assert!(
         !leftover.status.success(),
-        "fetch process group survived: {}",
+        "a grandchild in the fetch's process group survived: {}",
         String::from_utf8_lossy(&leftover.stdout)
+    );
+    assert!(
+        !lock_file.exists(),
+        "the fetch was not given SIGTERM to clean up its lock file"
     );
 
     *writer.failpoints.borrow_mut() = crate::shared_writer::core::ClaimFailpoints::default();
-    SyncManager::new(&hub.crosslink_dir)
-        .unwrap()
-        .fetch()
-        .unwrap();
     assert_eq!(
         writer.claim_lock_v2(issue_id, None).unwrap(),
         crate::shared_writer::LockClaimResult::AlreadyHeld
@@ -1448,16 +1486,12 @@ fn v3_slow_reduce_after_the_fetch_still_confirms() {
     let (writer, issue_id) = writer_with_issue(&hub, "Slow reduce");
     {
         let mut failpoints = writer.failpoints.borrow_mut();
-        failpoints.confirm_deadline = Some(std::time::Duration::from_secs(1));
-        failpoints.slow_confirm_reduce = std::time::Duration::from_secs(2);
+        failpoints.confirm_deadline = Some(std::time::Duration::from_secs(5));
+        failpoints.slow_confirm_reduce = std::time::Duration::from_secs(6);
     }
     assert_eq!(
         writer.claim_lock_v2(issue_id, None).unwrap(),
         crate::shared_writer::LockClaimResult::Claimed
-    );
-    assert_eq!(
-        writer.claim_lock_v2(issue_id, None).unwrap(),
-        crate::shared_writer::LockClaimResult::AlreadyHeld
     );
 }
 
@@ -1477,12 +1511,49 @@ fn v3_already_held_is_confirmed_against_the_remote() {
     writer.failpoints.borrow_mut().fail_confirm_fetch = true;
     let result = writer.claim_lock_v2(issue_id, None).unwrap();
     assert!(
-        matches!(
-            result,
-            crate::shared_writer::LockClaimResult::Unconfirmed { .. }
-        ),
+        is_unconfirmed(&result),
         "expected Unconfirmed, got {result:?}"
     );
+}
+
+/// AC-6: the local view shows this agent holding the lock, but another
+/// agent's earlier-ordered claim is on the remote. Confirmation finds it and
+/// the result is `Contended`, never a second owner.
+#[test]
+fn v3_contention_found_during_confirmation_is_contended() {
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let remote = hub.remote.path();
+    let (writer_a, issue_id) = writer_with_issue(&hub, "Claimed first elsewhere");
+
+    let (_wb, beta_dir, _bc) = clone_for_agent(remote, "beta");
+    SyncManager::new(&beta_dir).unwrap().fetch().unwrap();
+    let writer_b = SharedWriter::new(&beta_dir).unwrap().unwrap();
+    assert_eq!(
+        writer_b.claim_lock_v2(issue_id, None).unwrap(),
+        crate::shared_writer::LockClaimResult::Claimed
+    );
+
+    {
+        let mut failpoints = writer_a.failpoints.borrow_mut();
+        failpoints.skip_adopt_after_push = true;
+        failpoints.fail_confirm_fetch = true;
+    }
+    let first = writer_a.claim_lock_v2(issue_id, None).unwrap();
+    assert!(
+        is_unconfirmed(&first),
+        "expected Unconfirmed, got {first:?}"
+    );
+
+    writer_a.failpoints.borrow_mut().fail_confirm_fetch = false;
+    match writer_a.claim_lock_v2(issue_id, None).unwrap() {
+        crate::shared_writer::LockClaimResult::Contended { winner_agent_id } => {
+            assert_eq!(winner_agent_id, "beta");
+        }
+        other => panic!("expected Contended by beta, got {other:?}"),
+    }
 }
 
 /// The confirmation adopts other agents' ref tips (not the remote
@@ -1506,5 +1577,72 @@ fn v3_confirmation_sees_an_unfetched_claim_without_the_checkpoint() {
     assert_eq!(
         writer_b.confirmed_lock_holder(issue_id).unwrap(),
         Some("alpha".to_string())
+    );
+}
+
+/// AC-12: undo's release through the real worktree service, classified from
+/// confirmation. A push the remote refuses leaves the lock stranded; an
+/// unreachable remote leaves the release unverified.
+#[cfg(unix)]
+#[test]
+fn v3_undo_release_reports_stranded_and_unverified() {
+    use crate::commands::kickoff::rollback::{KickoffUndo, UndoOps, UndoOutcome, UndoStep};
+
+    if !git_ok() {
+        return;
+    }
+    let is_root = Command::new("id")
+        .arg("-u")
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "0");
+    if is_root {
+        // Root ignores directory permissions, so a refused push cannot be staged.
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let (writer, issue_id) = writer_with_issue(&hub, "Undo release");
+    assert_eq!(
+        writer.claim_lock_v2(issue_id, None).unwrap(),
+        crate::shared_writer::LockClaimResult::Claimed
+    );
+    drop(writer);
+    let worktree_dir = hub.work.path().to_path_buf();
+    let step = UndoStep::ReleaseLock { issue_id };
+
+    let objects = hub.remote.path().join("objects");
+    let refs = hub.remote.path().join("refs");
+    let set_mode = |mode: u32| {
+        for dir in [&objects, &refs] {
+            Command::new("chmod")
+                .args(["-R", &format!("{mode:o}"), dir.to_str().unwrap()])
+                .status()
+                .unwrap();
+        }
+    };
+    set_mode(0o555);
+    let stranded = KickoffUndo {
+        repo_root: &worktree_dir,
+        worktree_dir: &worktree_dir,
+        prior_pipeline: None,
+    }
+    .run(&step);
+    set_mode(0o755);
+    assert!(
+        matches!(stranded, UndoOutcome::Stranded { .. }),
+        "refused push: got {stranded:?}"
+    );
+
+    let parked = hub.work.path().join("remote-parked");
+    std::fs::rename(hub.remote.path(), &parked).unwrap();
+    let unverified = KickoffUndo {
+        repo_root: &worktree_dir,
+        worktree_dir: &worktree_dir,
+        prior_pipeline: None,
+    }
+    .run(&step);
+    std::fs::rename(&parked, hub.remote.path()).unwrap();
+    assert!(
+        matches!(unverified, UndoOutcome::Unverified { .. }),
+        "unreachable remote: got {unverified:?}"
     );
 }

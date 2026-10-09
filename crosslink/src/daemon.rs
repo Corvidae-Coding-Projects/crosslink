@@ -1208,6 +1208,35 @@ fn kill_process_force(pid: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A daemon spawned by a process that keeps running is reaped when it
+    /// exits, instead of lingering as a zombie that still looks alive.
+    #[cfg(unix)]
+    #[test]
+    fn a_spawned_child_is_reaped_when_it_exits() {
+        let child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn");
+        let pid = child.id();
+        reap_when_exited(child);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let state = Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .expect("ps");
+            let state = String::from_utf8_lossy(&state.stdout).trim().to_string();
+            if state.is_empty() {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "child {pid} was not reaped (state {state})"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
     use crate::sync::SyncManager;
     use std::sync::{mpsc, Barrier};
 

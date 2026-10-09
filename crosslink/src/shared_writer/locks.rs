@@ -91,25 +91,13 @@ impl SharedWriter {
                     winner_agent_id: lock.agent_id,
                 })
             }
+            // On v3 the confirmed view must show the claim; "no lock" is not
+            // ownership (for example, the reducer dropped the event).
+            None if self.is_v3() => Ok(LockClaimResult::Unconfirmed {
+                cause: "the claim is not visible after confirmation".to_string(),
+            }),
             None => Ok(LockClaimResult::Claimed),
         }
-    }
-
-    /// The issues whose locks this agent holds in the local view.
-    pub fn locks_held_by_self(&self) -> Result<Vec<i64>> {
-        if !self.is_v3() {
-            return Ok(Vec::new());
-        }
-        self.refresh_v3_state()?;
-        let state = self.last_v3_state.borrow();
-        Ok(state.as_ref().map_or_else(Vec::new, |state| {
-            state
-                .locks
-                .iter()
-                .filter(|(_, entry)| entry.agent_id == self.agent.agent_id)
-                .map(|(issue, _)| *issue)
-                .collect()
-        }))
     }
 
     /// The lock's holder, confirmed against a fresh fetch under the same

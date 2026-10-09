@@ -153,10 +153,9 @@ pub(crate) fn acquire_hub_lock_with_timeout(
                 if start.elapsed() > max_wait {
                     if holder_alive {
                         bail!(
-                            "hub write lock held by live process for more than {}s ({}); \
+                            "hub write lock still held by a live process after waiting ({}); \
                              waiting aborted to avoid concurrent worktree mutation — \
                              retry, or remove the lock file if the process is hung: {}",
-                            max_wait.as_secs(),
                             std::fs::read_to_string(lock_path)
                                 .ok()
                                 .and_then(|c| c.trim().parse::<u32>().ok())
@@ -171,10 +170,9 @@ pub(crate) fn acquire_hub_lock_with_timeout(
                     let _ = std::fs::remove_file(lock_path);
                     match try_create_lock(lock_path) {
                         Ok(guard) => return Ok(guard),
-                        Err(_) => bail!(
-                            "Hub lock held for more than {}s and could not be acquired after force-removal",
-                            max_wait.as_secs()
-                        ),
+                        Err(_) => {
+                            bail!("Hub lock could not be acquired after waiting and force-removal")
+                        }
                     }
                 }
                 std::thread::sleep(poll_interval);
@@ -558,16 +556,36 @@ impl SyncManager {
     }
 
     /// The fetch of every agent ref and the checkpoint into the remote-tracking
-    /// namespace, as a command the caller runs (for example under a deadline).
+    /// namespace, as a command the caller runs under a deadline. It never
+    /// prompts: it may run in its own process group, where a credential or
+    /// passphrase prompt would stop it until the deadline. Missing credentials
+    /// fail fast with git's own message instead.
     pub(crate) fn v3_fetch_command(&self) -> std::process::Command {
         let mut command = std::process::Command::new("git");
-        command.current_dir(&self.cache_dir).args([
-            "fetch",
-            "--quiet",
-            &self.remote,
-            "+refs/heads/crosslink/checkpoint:refs/crosslink-remote/checkpoint",
-            "refs/heads/crosslink/agents/*:refs/crosslink-remote/agents/*",
-        ]);
+        command
+            .current_dir(&self.cache_dir)
+            .stdin(std::process::Stdio::null())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args([
+                "fetch",
+                "--quiet",
+                &self.remote,
+                "+refs/heads/crosslink/checkpoint:refs/crosslink-remote/checkpoint",
+                "refs/heads/crosslink/agents/*:refs/crosslink-remote/agents/*",
+            ]);
+        if std::env::var_os("GIT_SSH").is_none() {
+            let ssh = std::env::var("GIT_SSH_COMMAND")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    self.git_in_cache(&["config", "--get", "core.sshCommand"])
+                        .ok()
+                        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+                        .filter(|value| !value.is_empty())
+                })
+                .unwrap_or_else(|| "ssh".to_string());
+            command.env("GIT_SSH_COMMAND", format!("{ssh} -o BatchMode=yes"));
+        }
         command
     }
 
@@ -588,18 +606,33 @@ impl SyncManager {
 
     /// Adopts what a v3 fetch brought into the remote-tracking namespace:
     /// every other agent's ref tip and, by frontier, the checkpoint. Local
-    /// only; never touches this agent's own ref.
+    /// only; never touches this agent's own ref. A tip that fails to adopt is
+    /// logged and skipped.
     pub(crate) fn adopt_fetched_v3_refs(&self) -> Result<()> {
-        self.adopt_fetched_agent_tips()?;
+        for failure in self.adopt_tips()? {
+            tracing::warn!("v3 fetch: {failure}");
+        }
         self.adopt_checkpoint_by_frontier();
         Ok(())
     }
 
-    /// Adopts every other agent's fetched ref tip, without the checkpoint.
-    /// A reduce over the adopted tips is complete without it: the checkpoint
-    /// only shortens the replay, and adopting a remote one means verifying it
-    /// by rebuilding state from every event.
+    /// Adopts every other agent's fetched ref tip, without the checkpoint,
+    /// and fails if any tip could not be adopted: a reduce over a stale tip
+    /// could miss that agent's earlier claim. A reduce over the adopted tips
+    /// is complete without the checkpoint, which only shortens the replay
+    /// (each agent's history is validated from sequence 1), and adopting a
+    /// remote checkpoint means verifying it by rebuilding state from every
+    /// event.
     pub(crate) fn adopt_fetched_agent_tips(&self) -> Result<()> {
+        let failures = self.adopt_tips()?;
+        if !failures.is_empty() {
+            bail!("{}", failures.join("; "));
+        }
+        Ok(())
+    }
+
+    /// Adopts each other agent's fetched tip; returns the failures.
+    fn adopt_tips(&self) -> Result<Vec<String>> {
         let own_agent_id = crate::identity::AgentConfig::load(&self.crosslink_dir)
             .ok()
             .flatten()
@@ -608,6 +641,7 @@ impl SyncManager {
         let tips = self
             .list_remote_agent_tips()
             .context("could not list remote agent tips")?;
+        let mut failures = Vec::new();
         for (agent_id, remote_tip) in tips {
             if own_agent_id.as_deref() == Some(agent_id.as_str()) {
                 continue;
@@ -615,10 +649,10 @@ impl SyncManager {
             let local_ref = format!("{}{agent_id}", crate::hub_v3::AGENT_REF_PREFIX);
 
             if let Err(e) = self.git_in_cache(&["update-ref", &local_ref, &remote_tip]) {
-                tracing::warn!("v3 fetch: failed to adopt ref '{local_ref}': {e}");
+                failures.push(format!("failed to adopt ref '{local_ref}': {e}"));
             }
         }
-        Ok(())
+        Ok(failures)
     }
 
     fn list_remote_agent_tips(&self) -> Result<Vec<(String, String)>> {

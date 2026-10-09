@@ -28,7 +28,7 @@ This increment does three things:
 
 Claim outcome:
 
-- REQ-1: A claim's outcome comes from confirmation, never from the elapsed time of publication. Confirmation is a fetch of every agent ref and the checkpoint, followed by a reduce. The elapsed-time `bail!` in `claim_lock_v2_inner` is removed.
+- REQ-1: A claim's outcome comes from confirmation, never from the elapsed time of publication. Confirmation fetches every agent ref and the checkpoint, adopts every other agent's ref tip (not the remote checkpoint), and reduces over the local checkpoint. Any tip that fails to adopt fails the confirmation. On v3, a confirmed view that shows no lock is `Unconfirmed`, not ownership. The elapsed-time `bail!` in `claim_lock_v2_inner` is removed. (Amended 2026-10-09; see Amendments.)
 - REQ-2: Confirmation is fallible. The result is `Unconfirmed { cause }` in three cases:
   - the confirmation fetch fails;
   - the hub-lock wait plus the fetch does not finish within 30 s (`LOCK_CONFIRM_TIMEOUT_SECS`);
@@ -80,7 +80,7 @@ Tests marked "fails first" must fail on 3440c0d05 and pass after the change. The
 - [ ] AC-6: another agent's earlier-ordered claim arrives during confirmation. The result is `Contended`, and no active issue is recorded. (REQ-3)
 - [ ] AC-7 (guard, passes on base): `set_session_issue` fails after a confirmed claim. A `LockReleased` follows, and the hub shows no lock. (REQ-5)
 - [ ] AC-8 (fails first for activation): this is a fake-runtime test for each failure point: activation, missing preflight, tmux start, container start, and early container exit. Afterwards the issue is unlocked, the worktree directory and branch are gone, the worktree daemon is not running, no container or tmux session remains, and the pipeline state equals its prior value. This holds for both `run` and `plan`. (REQ-6)
-- [ ] AC-9: in a reuse case (`--branch` with an existing worktree), activation fails. The lock is released, but the worktree and branch remain. (REQ-6)
+- [ ] AC-9: in a reuse case (`--branch` with an existing worktree), activation fails. The worktree and branch remain. A lock, session and daemon that existed before this invocation are left as found; a lock or daemon this invocation created is undone. (REQ-6; amended 2026-10-09 by operator decision)
 - [ ] AC-10: a launch succeeds. Afterwards the lock is held by the worktree agent, and the worktree, branch and daemon remain. (REQ-7)
 - [ ] AC-11: `kickoff cleanup --force` runs on a stopped agent whose daemon is not running. Afterwards the issue is unlocked, the session ended, the daemon stopped, and the worktree removed. A branch with no commits beyond `base_commit` is deleted. A branch with a commit, any branch under `--keep-branch`, and any branch whose metadata has no `base_commit` remain. (REQ-8, REQ-10)
 - [ ] AC-12: the lock release does not reach the remote (the remote is rejecting pushes), and confirmation still shows the worktree agent holding the lock. The output names the stranded lock, and the remaining steps run. With the remote unreachable, the output says "release unverified". (REQ-9)
@@ -148,7 +148,7 @@ The build starts from a scaffold commit containing the new `LockClaimResult` var
 
 - **An unconfirmed claim is not ownership.** hub-v3 REQ-6(b) forbids a state in which two agents both verify ownership. Treating `Unconfirmed` as held, or confirming against a stale local view, could create one. Rejected: "held with a warning", which the first draft of this design proposed; it was withdrawn after the precedent check.
 - **Undo is an explicit `unwind`, not `Drop`.** It runs subprocesses, can fail and must report. `Drop` can do none of that visibly, and it would also run during a panic.
-- **Release under the worktree agent's identity.** Running the release inside the worktree keeps the signed log truthful. Rejected: signing from the host with the worktree agent's key.
+- **Release under the worktree agent's identity.** The release runs with the worktree's `.crosslink` as the crosslink directory, so the event is signed as the worktree agent and the signed log stays truthful. Built in-process, it is the same host process and key file a subprocess would use. Rejected: releasing as the host or driver identity, or through a writer built on the host's `.crosslink`.
 - **The deadline bounds only the network.** The hub-lock wait and the fetch are bounded; the local reduce is not. A slow reduce of a fresh snapshot is still a correct confirmation, and bounding it would make claims fail on slow machines until the write-cost increment lands. Rejected: bounding the whole confirmation, which round 2 of the review showed would turn today's slow success into a permanent failure.
 - **The 30 s value stays; what it measures changes.** Raising it, as Corvidae-Coding-Projects/crosslink#103 did, would treat write cost, and that is the write-cost increment's job.
 - **Identity and trust approval are left in place.** Revoking them would make the agent's published events unverifiable.
@@ -161,27 +161,54 @@ Dated 2026-10-08, made while building on `feat/lock-claim-outcome`:
 - **AC-4** checks the bound against the hung fetch (under 20 s), not "within 4 s". Publication and the local read before confirmation are outside the bound.
 - **Undo and cleanup release the lock in-process.** They use a `SharedWriter` built on the worktree's `.crosslink`, not a `crosslink locks release` subprocess. The signer is the same worktree agent. Running in-process lets the release be checked by `SharedWriter::confirmed_lock_holder`, the bounded confirmation, which a subprocess exit code cannot provide.
 - **`session end` runs without notes.** With notes it would post a comment on the issue, an extra hub write for every failed kickoff.
-- **Cleanup releases every lock the worktree agent holds** (`SharedWriter::locks_held_by_self`), because cleanup does not know the agent's issue.
+- **Cleanup releases every lock the worktree agent holds**, because cleanup does not know the agent's issue. Amended 2026-10-09: it reads them from the host's view of the hub, and brings the worktree daemon up only when there is one to release.
+
+Dated 2026-10-09, after the manual checks and the phase 3 review (three reviewers, recorded on #820):
+
+- **Confirmation adopts agent tips, not the remote checkpoint** (`f60712ed`). Verifying a remote checkpoint rebuilds state from every event with an `ssh-keygen` check per event, and a claim took 302 s. Skipping it keeps the lock table correct: each agent's history is validated from sequence 1, so a missing or pruned event fails the reduce instead of hiding a claim, and a stale local checkpoint only lengthens the replay. REQ-1 is restated to match.
+- **Undo brings the worktree daemon up before releasing** (`444f28bf`). Readiness can be stale by the time undo runs, for example across a sleep.
+- **Spawned daemons are reaped** (`73ed70db`). A daemon stopped by the process that started it lingered as a zombie, and `daemon stop` reported it alive.
+- **Review fixes:**
+  - a tip that fails to adopt fails the confirmation;
+  - a confirmed "no lock" is `Unconfirmed` on v3;
+  - the confirmation fetch never prompts (no stdin, `GIT_TERMINAL_PROMPT=0`, ssh `BatchMode=yes` appended to the user's ssh command);
+  - the timeout helper drains output while waiting and waits at most a second for it after exit;
+  - `locks steal` and auto-steal act on the claim result;
+  - the undo release goes through the worktree's command service and is classified from confirmation (`Stranded`, `Unverified` or done) whatever the release reported;
+  - the undo report follows the original error in the returned error, so swarm and sentinel keep it;
+  - cleanup stops daemons through the shared undo step and exits non-zero when it leaves work behind;
+  - on a reused worktree, undo leaves what pre-existed (AC-9).
+- **Permit hold time.** A claim now holds its mutation permit through confirmation: up to 30 s more for the hub-lock wait and fetch, plus one reduce. Writes that hold permits past 90 s let the readiness record expire and the daemon exit (#816, #817), so this narrows that margin on slow machines until the write-cost and heartbeat increments land.
 
 Where each criterion is covered:
 
-- **Claim (AC-1 to AC-6):** tests in `crosslink/src/commands/hub_v3_operation_tests.rs` against real v3 hubs with a bare remote. AC-6 is the existing `v3_lock_claim_confirm_winner_and_loser`.
-- **Undo and cleanup:** unit tests in `crosslink/src/commands/kickoff/rollback.rs` and `cleanup.rs`, covering:
+- **Claim:** tests in `crosslink/src/commands/hub_v3_operation_tests.rs`, against real v3 hubs with a bare remote.
+  - **AC-1:** deadline-relative. It does not catch a literal revert of the old bail against the fixed 30 s, which only review would.
+  - **AC-2 and AC-5:** a failpoint, plus a real failing fetch.
+  - **AC-3:** after-push and hydration failures.
+  - **AC-4:** the grandchild in the fetch's process group and the SIGTERM lock-file cleanup.
+  - **AC-4a.**
+  - **AC-6:** contention found during confirmation, on the already-held path.
+  - **AC-12:** the real release on a refused push (`Stranded`) and an unreachable remote (`Unverified`), Unix only.
+- **Undo and cleanup:** unit tests in `crosslink/src/commands/kickoff/rollback.rs` and `cleanup.rs`:
   - the step order for each failure point;
-  - reuse;
+  - reuse, including pre-existing state;
   - disarming;
   - failure reporting;
   - the branch rule;
-  - the pipeline restore;
-  - the real git operations on a temporary repository.
+  - the pipeline restore through `undo_failed_kickoff`;
+  - the host key file surviving undo (AC-13);
+  - git operations on a temporary repository.
+- **Daemon reaping:** `daemon::tests::a_spawned_child_is_reaped_when_it_exits`.
 
 Not covered by automated tests:
 
-- the `session work` message for an unconfirmed claim (AC-2's command-level half);
-- AC-7;
-- AC-8 and AC-11 end to end, which need the `crosslink` binary, tmux and a container runtime.
-
-These are checked by hand on this Mac before merge.
+- **The `session work` message for an unconfirmed claim** (AC-2's command-level half). Not checked by hand either.
+- **AC-7.** The base revision already releases on that path; not checked by hand.
+- **AC-8 end to end,** which needs the `crosslink` binary, tmux and a container runtime. Checked by hand for the activation failure point on `run` only. Kickoff's preflight runs the image first, so a missing image fails before any undo.
+- **AC-10 and AC-11 end to end.** AC-11's cleanup flow was checked by hand. `--keep-branch` is untested.
+- **The undo's readiness wake-up.** It would start a daemon, so no unit test runs it.
+- **Windows:** the AC-4 and AC-12 tests are Unix only, and the Windows CI shards do not run the v3 operation suite.
 
 Manual checks, 2026-10-09, macOS, installed builds of this branch:
 
@@ -215,7 +242,7 @@ Manual checks, 2026-10-09, macOS, installed builds of this branch:
 ## Verification
 
 - **Tests:**
-  - `cargo test --manifest-path crosslink/Cargo.toml --lib shared_writer::tests`, `lock_check::tests` and `commands::kickoff::tests`;
+  - `cargo test --manifest-path crosslink/Cargo.toml --bin crosslink -- hub_v3_operation_tests kickoff::rollback kickoff::cleanup daemon::tests::a_spawned_child lock_check sync:: utils::` (the new tests live in these modules);
   - `cargo test --manifest-path crosslink/Cargo.toml --test smoke coordination`.
 - **Before every commit:** `cargo fmt --check` and `cargo clippy -- -D warnings -W clippy::unwrap_used -W clippy::expect_used`.
 - **Full suite:** CI only.

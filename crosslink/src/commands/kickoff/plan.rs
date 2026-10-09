@@ -340,7 +340,7 @@ pub fn plan(crosslink_dir: &Path, db: &impl QueryService, opts: &PlanOpts) -> Re
         Ok(())
     })();
 
-    launched.inspect_err(|_| super::run::undo_failed_kickoff(rollback, &root, &worktree_dir))
+    launched.map_err(|error| super::run::with_undo_report(error, rollback, &root, &worktree_dir))
 }
 
 pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {

@@ -78,7 +78,7 @@ Launch multiple agents and let them coordinate automatically.
   - `kickoff plan` — Read-only gap analysis against the codebase before committing to a build
   - `kickoff report` — Spec validation reports from completed agents
   - `kickoff graph` — Visual branch topology of active kickoff branches
-  - `kickoff list` / `kickoff cleanup` — Monitor and manage running agents
+  - `kickoff list` / `kickoff cleanup` — Monitor and manage running agents; cleanup releases the agent's locks and deletes branches with no new commits (`--keep-branch` keeps them)
 - **`crosslink swarm`** — Multi-agent phased builds from design documents
   - `swarm init --doc` — Decompose a design document into phases and work units
   - `swarm launch` / `swarm gate` / `swarm checkpoint` — Execute, gate, and record phase progress

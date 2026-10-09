@@ -5,7 +5,10 @@ use std::process::Command;
 
 use super::helpers::*;
 use super::monitor::discover_agents;
-use super::rollback::{outcome_message, KickoffUndo, UndoOps, UndoOutcome, UndoStep};
+use super::rollback::{
+    host_locks_held_by, outcome_message, worktree_agent_id, KickoffUndo, UndoOps, UndoOutcome,
+    UndoStep,
+};
 use super::types::*;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -276,11 +279,15 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
         }
 
         if !agent.worktree.is_empty() && std::path::Path::new(&agent.worktree).exists() {
-            let worktree_crosslink = std::path::Path::new(&agent.worktree).join(".crosslink");
-            if crate::reconcile::readiness::requires_readiness(&worktree_crosslink) {
-                if let Err(error) = crate::daemon::stop(&worktree_crosslink) {
-                    tracing::warn!("could not stop the worktree daemon before removal: {error}");
-                }
+            let step = UndoStep::StopDaemon;
+            let outcome = KickoffUndo {
+                repo_root,
+                worktree_dir: worktree_path,
+                prior_pipeline: None,
+            }
+            .run(&step);
+            if let Some(message) = outcome_message(&step, &outcome) {
+                result.warnings.push(message);
             }
             match Command::new("git")
                 .args(["worktree", "remove", "--force", &agent.worktree])
@@ -364,46 +371,41 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
         println!(".");
     }
 
+    let left_behind = results
+        .iter()
+        .filter(|r| r.error.is_some() || !r.warnings.is_empty())
+        .count();
+    if left_behind > 0 {
+        anyhow::bail!(
+            "cleanup left work behind for {left_behind} agent(s); see the warnings and errors above"
+        );
+    }
     Ok(())
 }
 
-/// Brings the worktree's daemon up so the agent's locks can be released and
-/// its session ended under its own identity. Anything left is a warning
-/// with its remedy.
+/// Releases the agent's locks and ends its session under its own identity.
+/// The host's view says which locks the agent holds; the worktree's daemon is
+/// brought up only when there is one to release (its session is local to the
+/// worktree and goes with it). Anything left is a warning with its remedy.
 fn release_agent_work(repo_root: &Path, worktree: &Path, result: &mut CleanupResult) {
     let worktree_crosslink = worktree.join(".crosslink");
-    if !worktree_crosslink.join("agent.json").exists() {
+    let Some(agent_id) = worktree_agent_id(&worktree_crosslink) else {
         return;
-    }
-    if crate::reconcile::readiness::requires_readiness(&worktree_crosslink) {
-        let ready = crate::daemon::ensure(&worktree_crosslink, true)
-            .map(|record| record.state.grants_mutations());
-        if !matches!(ready, Ok(true)) {
+    };
+    let held = match host_locks_held_by(&repo_root.join(".crosslink"), &agent_id) {
+        Ok(held) => held,
+        Err(error) => {
             result.warnings.push(format!(
-                "the worktree daemon did not become ready, so the agent's locks and session \
-                 were left; to clear them, run `crosslink locks list` and \
-                 `crosslink locks release <id>` in {}",
+                "could not read which locks '{agent_id}' holds: {error:#}; to clear them, run \
+                 `crosslink locks list` and `crosslink locks release <id>` in {}",
                 worktree.display()
             ));
             return;
         }
+    };
+    if held.is_empty() {
+        return;
     }
-    let held = match crate::shared_writer::SharedWriter::new(&worktree_crosslink) {
-        Ok(Some(writer)) => writer.locks_held_by_self(),
-        Ok(None) => Ok(Vec::new()),
-        Err(error) => Err(error),
-    };
-    let held = match held {
-        Ok(held) => held,
-        Err(error) => {
-            result.warnings.push(format!(
-                "could not read the agent's locks: {error:#}; to clear them, run \
-                 `crosslink locks release <id>` in {}",
-                worktree.display()
-            ));
-            Vec::new()
-        }
-    };
     let mut ops = KickoffUndo {
         repo_root,
         worktree_dir: worktree,

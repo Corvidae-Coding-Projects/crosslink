@@ -103,7 +103,17 @@ fn auto_steal_if_configured(
 
     if sync.hub_mode().is_v3() {
         {
-            service.steal_lock(issue_id, stale_agent_id, None)?;
+            match service.steal_lock(issue_id, stale_agent_id, None)? {
+                crate::shared_writer::LockClaimResult::Claimed
+                | crate::shared_writer::LockClaimResult::AlreadyHeld => {}
+                other => {
+                    tracing::warn!(
+                        "auto-steal of the lock on {} from '{stale_agent_id}' did not take: {other:?}",
+                        crate::utils::format_issue_id(issue_id)
+                    );
+                    return Ok(false);
+                }
+            }
             let comment = format!(
                 "[auto-steal] Lock auto-stolen from agent '{stale_agent_id}' (stale for {stale_minutes} min, threshold: {auto_steal_threshold} min)"
             );
@@ -913,8 +923,12 @@ mod tests {
         assert!(!result.unwrap());
     }
 
+    /// Until tracker #818 lands, a v3 steal does not take: the reducer ignores
+    /// another agent's claim on a held lock, so the steal comes back
+    /// `Contended`. Auto-steal must report that, not success. When #818 is
+    /// fixed this test fails and should assert `Ok(true)` again.
     #[test]
-    fn test_auto_steal_stale_lock_is_stolen_via_v3() {
+    fn test_auto_steal_on_v3_reports_a_steal_that_did_not_take() {
         let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 55, Some("other-agent"), false)
         else {
             return;
@@ -929,7 +943,10 @@ mod tests {
         let service = RepositoryService::new(&db, &crosslink_dir).unwrap();
         let result = auto_steal_if_configured(&crosslink_dir, 55, "other-agent", &service);
 
-        assert!(matches!(result, Ok(true)), "expected steal, got {result:?}");
+        assert!(
+            matches!(result, Ok(false)),
+            "expected the untaken steal to be reported (#818), got {result:?}"
+        );
     }
 
     #[test]

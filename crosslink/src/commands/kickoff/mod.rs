@@ -6,7 +6,7 @@ mod monitor;
 pub(crate) mod pipeline;
 mod plan;
 mod prompt;
-mod rollback;
+pub(crate) mod rollback;
 mod run;
 mod types;
 mod wizard;

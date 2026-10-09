@@ -7,7 +7,10 @@ use crate::db::Database;
 use super::helpers::*;
 use super::launch::*;
 use super::prompt::*;
-use super::rollback::{KickoffRollback, KickoffUndo, Origin};
+use super::rollback::{
+    host_locks_held_by, worktree_agent_id, worktree_daemon_is_live, KickoffRollback, KickoffUndo,
+    Origin,
+};
 use super::types::*;
 
 pub(crate) fn resolve_kickoff_issue(
@@ -196,8 +199,13 @@ pub fn run(crosslink_dir: &Path, db: &Database, opts: &KickoffOpts) -> Result<St
 
         exclude_kickoff_files(&worktree_dir)?;
 
-        rollback.record_agent();
-        rollback.record_claim(issue_id);
+        record_activation(
+            &mut rollback,
+            reused,
+            crosslink_dir,
+            &worktree_dir,
+            issue_id,
+        );
         let agent_id =
             init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name, Some(issue_id))?;
 
@@ -317,20 +325,67 @@ pub fn run(crosslink_dir: &Path, db: &Database, opts: &KickoffOpts) -> Result<St
         Ok(compact_name.clone())
     })();
 
-    launched.inspect_err(|_| undo_failed_kickoff(rollback, &root, &worktree_dir))
+    launched.map_err(|error| with_undo_report(error, rollback, &root, &worktree_dir))
 }
 
-/// Undoes what a failed kickoff created and reports any step that did not
-/// complete.
-pub(super) fn undo_failed_kickoff(rollback: KickoffRollback, root: &Path, worktree_dir: &Path) {
+/// Undoes what a failed kickoff created and returns the original error with
+/// the undo report after it, so the error reads first and callers that only
+/// log the error (swarm, sentinel) keep the report and its remedies.
+pub(super) fn with_undo_report(
+    error: anyhow::Error,
+    rollback: KickoffRollback,
+    root: &Path,
+    worktree_dir: &Path,
+) -> anyhow::Error {
+    match undo_failed_kickoff(rollback, root, worktree_dir) {
+        Some(report) => anyhow::anyhow!("{error:#}\n{report}"),
+        None => error,
+    }
+}
+
+/// Undoes what a failed kickoff created; returns the report, if any step ran.
+pub(super) fn undo_failed_kickoff(
+    rollback: KickoffRollback,
+    root: &Path,
+    worktree_dir: &Path,
+) -> Option<String> {
     let mut ops = KickoffUndo {
         repo_root: root,
         worktree_dir,
         prior_pipeline: rollback.prior_pipeline().cloned(),
     };
-    let report = rollback.unwind(&mut ops);
-    if !report.entries.is_empty() {
-        report.print();
+    rollback.unwind(&mut ops).render()
+}
+
+/// Records the agent, daemon and claim that activation is about to set up.
+/// On a reused worktree, whatever already existed (the agent and its session,
+/// a running daemon, a lock the agent already held) is recorded as such, so
+/// undo leaves it as found.
+pub(super) fn record_activation(
+    rollback: &mut KickoffRollback,
+    reused: bool,
+    host_crosslink: &Path,
+    worktree_dir: &Path,
+    issue_id: i64,
+) {
+    let worktree_crosslink = worktree_dir.join(".crosslink");
+    let existing_agent = if reused {
+        worktree_agent_id(&worktree_crosslink)
+    } else {
+        None
+    };
+    let Some(agent_id) = existing_agent else {
+        rollback.record_agent();
+        rollback.record_claim(issue_id);
+        return;
+    };
+    rollback.record_existing_agent(worktree_daemon_is_live(&worktree_crosslink));
+    let already_held =
+        host_locks_held_by(host_crosslink, &agent_id).is_ok_and(|held| held.contains(&issue_id));
+    if already_held {
+        rollback.record_existing_claim(issue_id);
+    } else {
+        rollback.record_claim(issue_id);
     }
 }
 

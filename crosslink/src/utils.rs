@@ -414,6 +414,11 @@ pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
 /// Runs `command` to completion or until `timeout`, capturing its output.
 /// Returns `None` when the command cannot be spawned or runs past `timeout`.
 ///
+/// Output is drained on reader threads while the command runs, so a command
+/// that writes more than a pipe buffer does not stall. Once the command has
+/// exited, its output is awaited for at most a second more: a process it
+/// left behind holding a pipe open cannot extend the call.
+///
 /// On Unix the command runs in its own process group. On timeout the group
 /// gets SIGTERM, so git can remove its lock files, then SIGKILL after a short
 /// grace period, so no helper (a remote helper, ssh, index-pack) outlives the
@@ -430,9 +435,11 @@ pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> 
         .spawn()
         .ok()?;
     let deadline = Instant::now() + timeout;
-    loop {
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(Some(status)) => break status,
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(20));
             }
@@ -441,7 +448,33 @@ pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> 
                 return None;
             }
         }
-    }
+    };
+    // The command has exited. A process it left behind (an ssh
+    // ControlPersist master, say) may still hold a pipe open; wait briefly for
+    // the output, then return without it rather than kill that process.
+    let wait = deadline
+        .saturating_duration_since(Instant::now())
+        .min(Duration::from_secs(1));
+    let stdout = stdout.recv_timeout(wait).unwrap_or_default();
+    let stderr = stderr.recv_timeout(wait).unwrap_or_default();
+    Some(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+/// Reads a pipe to its end on a background thread.
+fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut buffer);
+        }
+        let _ = sender.send(buffer);
+    });
+    receiver
 }
 
 #[cfg(unix)]

@@ -40,6 +40,11 @@ pub(crate) struct ClaimFailpoints {
     pub(crate) fail_confirm_fetch: bool,
     /// Fails the first step after a successful push.
     pub(crate) fail_after_push: bool,
+    /// Skips adopting other agents' refs after a successful push, so the
+    /// local view can miss a claim that only confirmation would find.
+    pub(crate) skip_adopt_after_push: bool,
+    /// Fails hydration after a successful push.
+    pub(crate) fail_hydration: bool,
     /// Overrides the confirmation deadline.
     pub(crate) confirm_deadline: Option<Duration>,
     /// Replaces the confirmation fetch command (program and arguments).
@@ -297,6 +302,10 @@ impl SharedWriter {
 
         let lock_guard = self.sync.acquire_lock()?;
         let mut published = self.commit_v3_tracked(vec![event], &lock_guard)?;
+        #[cfg(test)]
+        if published.after_push_error.is_none() && self.failpoints.borrow().fail_hydration {
+            published.after_push_error = Some(anyhow::anyhow!("injected hydration failure"));
+        }
         if published.after_push_error.is_none() {
             published.after_push_error = Database::open(&self.readiness_dir.join("issues.db"))
                 .and_then(|db| {
@@ -669,7 +678,11 @@ impl SharedWriter {
             }
         }
 
-        if self.sync.remote_exists() {
+        #[cfg(test)]
+        let skip_adopt = self.failpoints.borrow().skip_adopt_after_push;
+        #[cfg(not(test))]
+        let skip_adopt = false;
+        if self.sync.remote_exists() && !skip_adopt {
             self.sync.fetch_and_adopt_v3_refs();
         }
 
