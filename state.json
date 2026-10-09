@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 109,
-        "tip_oid": "94f0552d045d08409c11cf4a6b7f2d012cd8c5cc",
-        "prefix_sha256": "3a3e1d3067df5d83808ab84bb8a976d308409361187f3fbe0c786b352a9eee7d"
+        "sequence": 110,
+        "tip_oid": "eb4cc12564a22ae688e9c338de89821256be9170",
+        "prefix_sha256": "d6ce2291fe3dc849299983e12c98b5a39a168e9f3bf1a70a87b8d9a4760e3ed8"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 821,
-  "next_comment_id": 1314,
+  "next_comment_id": 1315,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -12723,7 +12723,18 @@
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:57:23.153112Z",
-      "updated_at": "2026-10-09T01:57:23.153112Z"
+      "updated_at": "2026-10-09T04:18:13.920587Z",
+      "comments": {
+        "afa08510-8082-4502-8a3e-9c9df1e2ccd0": {
+          "display_id": 1314,
+          "author": "ldsw",
+          "content": "Related observation 2026-10-09 ~04:15 UTC, no sleep involved: the readiness record expired mid-turn while cargo was compiling and running a 105 s targeted test run in this checkout. The daemon log showed 'readiness record expired; reconciling again' then 'hub reconciliation already current', but 'daemon status' stayed 'pending: readiness record expired' for several minutes until the operator ran 'crosslink daemon ensure --wait-ready', which returned ready_current at once. So the same block occurs under CPU load, and the daemon can sit in pending after a reconcile that found nothing to do.",
+          "created_at": "2026-10-09T04:18:13.884287Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlRIgu58kS63A5RMtv+qL3+6TVAdYrXy62BUExjqVbMC1B/FlI47PKlVyq3Y6vcXqDWqEtU2m4AXljVJvbanNCw=="
+        }
+      }
     },
     "781606a3-280a-4849-8c59-a8f289805ae0": {
       "uuid": "781606a3-280a-4849-8c59-a8f289805ae0",
@@ -28323,6 +28334,11 @@
       "agent_id": "ldsw",
       "agent_seq": 109,
       "timestamp": "2026-10-09T04:08:09.823173Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 110,
+      "timestamp": "2026-10-09T04:18:13.920587Z"
     }
   ],
   "watermark": {
