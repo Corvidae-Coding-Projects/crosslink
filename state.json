@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 95,
-        "tip_oid": "bdffff9fc31512aa60b6f22fe667832055e78d0c",
-        "prefix_sha256": "0458e685ba1a8d81cf0b11dbe4c9c0e721e01b043117a14987ee0dc412280745"
+        "sequence": 96,
+        "tip_oid": "83bb19075add72bb32cac90a520deec4f77ea2b8",
+        "prefix_sha256": "c03b7d87a877c00eb7c0bcc9914e24b43497c9aa383d0ed0a28b45569b77446c"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 817,
+  "next_display_id": 818,
   "next_comment_id": 1306,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -801,6 +801,7 @@
     "ea7ce593-a9a4-4b2f-bc5c-e69ed0d9f0f5": 771,
     "ea8b2b52-86c6-47df-a85d-628869b5706c": 168,
     "eade6a06-6929-4fb6-bce5-f7881f5c263c": 349,
+    "eb1a4388-3986-477b-b657-86a21e83c800": 817,
     "ec842d71-e9d1-4585-bd1d-8d4fcf184e84": 582,
     "eca5bd4a-f28c-4866-853d-17383616b581": 246,
     "ecaea02f-0a45-464a-a50e-cf6e93f3bebb": 192,
@@ -24053,6 +24054,17 @@
         }
       }
     },
+    "eb1a4388-3986-477b-b657-86a21e83c800": {
+      "uuid": "eb1a4388-3986-477b-b657-86a21e83c800",
+      "display_id": 817,
+      "title": "Design: write-path cost and lock-confirmation semantics (upstream #118, #110, #120)",
+      "description": "Design bundle agreed 2026-10-09. Upstream #118: one write spawns ~350-615 git processes; lock confirmation takes 34-57 s locally and 58-86 s downstream against a 30 s bound; heartbeats and readiness ride the same slow path. Upstream #110: a lock claim that times out lands anyway, so the lock is stranded and the caller does not record it (kickoff activation path in launch.rs; reproduced again 2026-10-09 with 'session work 814'). Upstream #120 / tracker #807: nothing creates or refreshes the knowledge cache; the fix belongs in daemon activation and its tick, which this design changes. Output: a /design document covering write cost, confirmation semantics (landed-after-timeout), kickoff failure cleanup, heartbeat/readiness off the slow path, and knowledge-cache housekeeping.",
+      "status": "open",
+      "priority": "high",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T01:59:16.682189Z",
+      "updated_at": "2026-10-09T01:59:16.682189Z"
+    },
     "ec842d71-e9d1-4585-bd1d-8d4fcf184e84": {
       "uuid": "ec842d71-e9d1-4585-bd1d-8d4fcf184e84",
       "display_id": 582,
@@ -28121,6 +28133,11 @@
       "agent_id": "ldsw",
       "agent_seq": 95,
       "timestamp": "2026-10-09T01:58:25.090078Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 96,
+      "timestamp": "2026-10-09T01:59:16.682189Z"
     }
   ],
   "watermark": {
