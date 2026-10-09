@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 100,
-        "tip_oid": "cf4e67a2568bc21b0c819b16f4ce1fb74723cc9e",
-        "prefix_sha256": "72809967e0e5baec53a8e9c51ee76fe588104bff30c40ad520d5737cc8f56766"
+        "sequence": 101,
+        "tip_oid": "cbaa09b335efd91875d3f7e24e801c3db4f9c7c4",
+        "prefix_sha256": "748656e60767c5670a874c90ddaec00ef2c786b15574443a3e324fcb42ed9ec0"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 819,
-  "next_comment_id": 1308,
+  "next_comment_id": 1309,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -24079,8 +24079,17 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:59:16.682189Z",
-      "updated_at": "2026-10-09T02:24:27.882284Z",
+      "updated_at": "2026-10-09T02:37:46.507367Z",
       "comments": {
+        "079ba8c8-f422-4c19-bf06-4a63f457fcf2": {
+          "display_id": 1308,
+          "author": "ldsw",
+          "content": "Reshaped 2026-10-08 per the vsdd-cli big-picture decisions (umbrella plus one document per increment, written at build time; work-in-progress limit): .design/write-path-cost.md is now the umbrella (increments by feature, in build order: lock-claim outcome and kickoff rollback; knowledge cache ownership; write cost; heartbeats off the write path; lock clearing on v3 hubs); .design/lock-claim-outcome-and-kickoff-rollback.md is the first increment's document. Precedent sweep changes: (1) an unconfirmed claim is NOT ownership (hub-v3 REQ-6(b): no state where two agents both verify ownership); session work exits with a rerun message and the rerun confirms without re-publishing; (2) the steal-format gate must reuse the generation descriptor protocol_version (exact-equality, fail-closed in every readiness-era binary) rather than a new meta-ref field; a decoder that skips an event must never publish a checkpoint covering it; (3) steal must re-check the holder's heartbeat just before emitting (hub-v3 'live-holder lock force-steal' defect); heartbeats still require ready (#794); per-command readiness caching must re-check record age and daemon liveness. Hook design (#814) waits under the WIP limit.",
+          "created_at": "2026-10-09T02:37:46.471881Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy1j27ISoJPHBN/6y5rvQXgbLeDZl5mTypIVjWZnAe7fxpFi1lBcZ/iQqxoa0qOWzahDnGDVja9R92DjJmTfnBg=="
+        },
         "253f31dc-ed2c-4161-9400-2294ffd831bb": {
           "display_id": 1306,
           "author": "ldsw",
@@ -28194,6 +28203,11 @@
       "agent_id": "ldsw",
       "agent_seq": 100,
       "timestamp": "2026-10-09T02:24:27.882284Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 101,
+      "timestamp": "2026-10-09T02:37:46.507367Z"
     }
   ],
   "watermark": {
