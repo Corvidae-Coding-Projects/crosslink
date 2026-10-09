@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 93,
-        "tip_oid": "2fe12009cf3c56f1cff36624c7c848cdb9224e40",
-        "prefix_sha256": "50d4e9ffc9983520e5f4c1fb2fa73f1d48e556d481c4e6da0f6d71002c86a35b"
+        "sequence": 94,
+        "tip_oid": "7dbadf6800f9eca79106cdc1072d2211b2a1d158",
+        "prefix_sha256": "9158020b5c989299a3de5b4d3ae8ddec1dc1d36e4c2e6147a0f969dbbc7ce670"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 816,
+  "next_display_id": 817,
   "next_comment_id": 1305,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -434,6 +434,7 @@
     "76e11ad3-e953-4a5c-bb9c-67aa4c135ef1": 183,
     "7737f1ae-534a-44cd-829b-c7880380a33f": 808,
     "7776c07d-0638-48f0-b239-bfcf8ddaac46": 438,
+    "77c6fca8-5ce3-496c-968f-b219b70b087e": 816,
     "781606a3-280a-4849-8c59-a8f289805ae0": 106,
     "783db1cd-dcbf-4fb0-bb28-74bb09872ad0": 372,
     "7864414a-69e5-4929-bb0e-1421f1b1595a": 481,
@@ -12680,6 +12681,17 @@
       "labels": [
         "bug"
       ]
+    },
+    "77c6fca8-5ce3-496c-968f-b219b70b087e": {
+      "uuid": "77c6fca8-5ce3-496c-968f-b219b70b087e",
+      "display_id": 816,
+      "title": "Readiness blocks all work for ~30 s plus a reconcile after every wake",
+      "description": "After the Mac wakes from sleep, the readiness record is older than MAX_RECORD_AGE_SECONDS (90 s), so work-check.py blocks every Bash/Edit call until the daemon's next tick (~35 s cadence) rewrites it and a post-wake reconcile finishes. The daemon survives the sleep since upstream #107, and 'daemon ensure --wait-ready' only waits, so the block is pure latency: on a machine that idle-sleeps after one minute it lands on nearly every resumed session. Observed 2026-10-07 in mdatron and here.\n\nPossible directions for the hook design (bundled with upstream #104 / tracker #814): the daemon detects a wall-clock jump (monotonic vs wall clock, or a missed-tick gap) and refreshes immediately instead of waiting for its next tick; and/or the hook lets read-only diagnostics through while the record is merely expired with a live daemon, rather than treating expired the same as corrupt. Related: #814 (readiness windows block even diagnostics), upstream #102/#107/#111.",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T01:57:23.153112Z",
+      "updated_at": "2026-10-09T01:57:23.153112Z"
     },
     "781606a3-280a-4849-8c59-a8f289805ae0": {
       "uuid": "781606a3-280a-4849-8c59-a8f289805ae0",
@@ -28090,6 +28102,11 @@
       "agent_id": "ldsw",
       "agent_seq": 93,
       "timestamp": "2026-10-09T01:56:27.599859Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 94,
+      "timestamp": "2026-10-09T01:57:23.153112Z"
     }
   ],
   "watermark": {
