@@ -1,0 +1,88 @@
+name: Agent Image Canary
+
+# Checks, as an anonymous user would, that the agent images released crosslink
+# builds default to can still be pulled. A private package, a missing tag or a
+# deleted old-owner image fails here instead of in users' kickoffs.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Default images are pullable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect the image references released builds use
+        id: refs
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          base="ghcr.io/${owner}/crosslink-agent"
+          # ref[@expected digest]: a digest means the tag must still name exactly
+          # that image (it is outside this repository's control).
+          refs="${base}:nightly"
+          # Releases up to v0.9.0-beta.1 default to the frozen forecast-bio
+          # image; it must stay pullable and unchanged.
+          refs="${refs} ghcr.io/forecast-bio/crosslink-agent:latest@sha256:5f93d5509aecbc5d05c88e9836b62014de7acc754e93605bfe67319e388ccb60"
+          # Every later release defaults to its own version tag. versionsort.suffix
+          # ranks a prerelease below its release (v0.10.0-rc.1 < v0.10.0).
+          stable=""
+          after_scheme=false
+          for tag in $(git -c versionsort.suffix=- tag --list 'v*' --sort=version:refname); do
+            if [ "$after_scheme" = true ]; then
+              refs="${refs} ${base}:${tag#v}"
+              case "$tag" in *-*) ;; *) stable="$tag" ;; esac
+            fi
+            if [ "$tag" = v0.9.0-beta.1 ]; then after_scheme=true; fi
+          done
+          if [ -n "$stable" ]; then
+            refs="${refs} ${base}:latest"
+          fi
+          echo "refs=${refs}" >> "$GITHUB_OUTPUT"
+          echo "checking: ${refs}"
+
+      - name: Pull each reference anonymously
+        env:
+          REFS: ${{ steps.refs.outputs.refs }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for entry in $REFS; do
+            ref="${entry%@*}"
+            expected=""
+            if [ "$entry" != "$ref" ]; then expected="${entry#*@}"; fi
+            image="${ref#ghcr.io/}"
+            repo="${image%:*}"
+            tag="${image##*:}"
+            token="$(curl -sS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
+            if [ -z "$token" ]; then
+              echo "::error::${ref}: anonymous pull refused (package private or missing)"
+              failed=1
+              continue
+            fi
+            headers="$(curl -sS -o /dev/null -D - -I \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/${repo}/manifests/${tag}")"
+            status="$(printf '%s' "$headers" | head -n 1 | awk '{print $2}')"
+            got="$(printf '%s' "$headers" | tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')"
+            if [ "$status" != 200 ]; then
+              echo "::error::${ref}: manifest HTTP ${status}"
+              failed=1
+            elif [ -n "$expected" ] && [ "$got" != "$expected" ]; then
+              echo "::error::${ref} now resolves to ${got}, not ${expected}: the image installed releases pull has changed"
+              failed=1
+            else
+              echo "OK ${ref} ${got}"
+            fi
+          done
+          exit "$failed"

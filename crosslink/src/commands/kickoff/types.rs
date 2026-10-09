@@ -3,7 +3,120 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
-pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent:latest";
+/// The agent image repository this build defaults to: the published one,
+/// unless the build set `CROSSLINK_AGENT_IMAGE_REPOSITORY` (forks that publish
+/// their own image). Chosen in `build.rs`.
+pub const AGENT_IMAGE_REPOSITORY: &str = env!("CROSSLINK_AGENT_IMAGE_REPOSITORY");
+
+/// The tag this build defaults to, chosen in `build.rs` from positive
+/// evidence only: the release version for published packages and for
+/// checkouts at their `v<version>` tag, `nightly` (the image built from
+/// `develop`) for every other build, or an explicit build-time
+/// `CROSSLINK_AGENT_IMAGE_TAG`. A release build therefore runs the crosslink
+/// it was released with inside the container; a development build runs
+/// develop's crosslink, which can differ from a feature branch's code (build
+/// and pass your own image when changing hub or readiness code).
+pub const AGENT_IMAGE_TAG: &str = env!("CROSSLINK_AGENT_IMAGE_TAG");
+
+/// The image kickoff, swarm, sentinel and `container` commands use unless an
+/// image is given explicitly.
+pub const DEFAULT_AGENT_IMAGE: &str = concat!(
+    env!("CROSSLINK_AGENT_IMAGE_REPOSITORY"),
+    ":",
+    env!("CROSSLINK_AGENT_IMAGE_TAG")
+);
+
+/// Environment override for the agent image, honoured by every container
+/// command. Forks publish the agent image under their own registry path.
+pub const AGENT_IMAGE_ENV: &str = "CROSSLINK_CONTAINER_IMAGE";
+
+/// Where the agent image a command uses came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentImageSource {
+    Flag,
+    Environment,
+    BuildDefault,
+}
+
+impl std::fmt::Display for AgentImageSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Flag => "--image",
+            Self::Environment => AGENT_IMAGE_ENV,
+            Self::BuildDefault => "this build's default",
+        })
+    }
+}
+
+/// The agent image every container command uses: an explicit `--image` wins,
+/// then `CROSSLINK_CONTAINER_IMAGE`, then this build's default. Blank values
+/// count as unset.
+pub fn resolve_agent_image_from(
+    explicit: Option<&str>,
+    env_value: Option<&str>,
+) -> Result<(String, AgentImageSource)> {
+    let non_empty = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(String::from)
+    };
+    let (image, source) = non_empty(explicit)
+        .map(|image| (image, AgentImageSource::Flag))
+        .or_else(|| non_empty(env_value).map(|image| (image, AgentImageSource::Environment)))
+        .unwrap_or_else(|| {
+            (
+                DEFAULT_AGENT_IMAGE.to_string(),
+                AgentImageSource::BuildDefault,
+            )
+        });
+    if image.starts_with('-') {
+        bail!("container image name cannot start with '-': {image}");
+    }
+    Ok((image, source))
+}
+
+/// The agent image for a launch in `mode`: resolved as for every container
+/// command when a container is used, and this build's default otherwise (a
+/// local launch never reads the image settings, so they cannot fail it).
+pub fn agent_image_for(
+    mode: &ContainerMode,
+    explicit: Option<&str>,
+) -> Result<(String, AgentImageSource)> {
+    if *mode == ContainerMode::None {
+        if explicit.is_some_and(|image| !image.trim().is_empty()) {
+            eprintln!("warning: --image is ignored without --container docker|podman");
+        }
+        return Ok((
+            DEFAULT_AGENT_IMAGE.to_string(),
+            AgentImageSource::BuildDefault,
+        ));
+    }
+    resolve_agent_image(explicit)
+}
+
+/// `resolve_agent_image_from` over the live `CROSSLINK_CONTAINER_IMAGE`.
+pub fn resolve_agent_image(explicit: Option<&str>) -> Result<(String, AgentImageSource)> {
+    resolve_agent_image_from(explicit, std::env::var(AGENT_IMAGE_ENV).ok().as_deref())
+}
+
+/// Tags that move to a new build without a version change. A local copy of
+/// one of these is re-pulled on every launch, so it cannot go stale.
+const FLOATING_IMAGE_TAGS: [&str; 2] = ["nightly", "latest"];
+
+/// Whether an image reference names a floating tag (`:nightly`, `:latest`,
+/// or no tag at all, which means `:latest`) that should be refreshed before a
+/// launch. Pinned tags and digests are not.
+pub fn is_floating_image(image: &str) -> bool {
+    if image.contains('@') {
+        return false;
+    }
+    let tag = image
+        .rsplit_once(':')
+        .filter(|(_, tag)| !tag.contains('/'))
+        .map_or("latest", |(_, tag)| tag);
+    FLOATING_IMAGE_TAGS.contains(&tag)
+}
 
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 

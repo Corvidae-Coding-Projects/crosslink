@@ -446,13 +446,14 @@ fn spawn_agent(
         None,
     )?;
 
+    let (agent_image, _) = crate::commands::kickoff::agent_image_for(&ContainerMode::None, None)?;
     let opts = KickoffOpts {
         description: &scoped_description,
         issue: Some(issue_id),
         container: ContainerMode::None,
         verify: scope.verify.clone(),
         model: &scope.model,
-        image: crate::commands::kickoff::DEFAULT_AGENT_IMAGE,
+        image: &agent_image,
         timeout: scope.timeout,
         dry_run: false,
         branch: None,

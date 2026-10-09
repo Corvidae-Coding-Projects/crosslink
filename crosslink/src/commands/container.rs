@@ -24,6 +24,7 @@ pub fn run(command: ContainerCommands) -> Result<()> {
             prompt,
             issue,
             memory,
+            image,
         } => {
             let path = PathBuf::from(&worktree);
             start(
@@ -32,6 +33,7 @@ pub fn run(command: ContainerCommands) -> Result<()> {
                 prompt.as_deref(),
                 issue,
                 memory.as_deref(),
+                image.as_deref(),
             )
         }
         ContainerCommands::Ps => ps(),
@@ -379,34 +381,91 @@ pub(crate) fn github_login_preflight(
     }
 }
 
-/// Environment override for the image that hosts container account login.
-/// Forks publish the agent image under their own registry path; the login volume
-/// is image-independent, so any image carrying the provider CLI will do.
-const AUTH_IMAGE_ENV: &str = "CROSSLINK_CONTAINER_IMAGE";
-
-/// Pick the login image: an explicit `--image` wins, then the environment
-/// value, then the published default. Blank values count as unset.
-fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String {
-    let non_empty = |value: Option<&str>| {
-        value
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(String::from)
-    };
-    non_empty(explicit)
-        .or_else(|| non_empty(env_value))
-        .unwrap_or_else(|| format!("{IMAGE_NAME}:{IMAGE_TAG}"))
+/// Whether a failed pull is the registry refusing the image (it answered that
+/// the image does not exist or may not be pulled). Only a refusal stops a
+/// launch that has a local copy of a floating tag: a withdrawn or hidden image
+/// must not outlive its withdrawal in caches. Network failures and registry
+/// outages (5xx, rate limits) and anything unrecognised are not refusals.
+/// The image reference is removed before matching so that words in it cannot
+/// match.
+pub(crate) fn is_registry_refusal(stderr: &str, image: &str) -> bool {
+    let lower = stderr.replace(image, "<image>").to_ascii_lowercase();
+    [
+        "manifest unknown",
+        "manifest_unknown",
+        "name unknown",
+        "pull access denied",
+        "denied:",
+        "access denied",
+        "unauthorized",
+        "forbidden",
+        "repository does not exist",
+        ": not found",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
-/// `resolve_auth_image` over the live `CROSSLINK_CONTAINER_IMAGE` value.
+fn image_present_locally(runtime: &str, image: &str) -> bool {
+    Command::new(runtime)
+        .args(["image", "inspect", image])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Make the image ready to launch. A floating tag (`:nightly`, `:latest`) is
+/// refreshed every time; a pinned tag or digest is pulled once, when it is not
+/// present locally. When the registry cannot be reached and a local copy of a
+/// floating tag exists, the launch warns and uses it; any other failure stops
+/// the launch with the runtime's reason.
+pub(crate) fn refresh_floating_image(runtime: &str, image: &str) -> Result<()> {
+    let floating = crate::commands::kickoff::is_floating_image(image);
+    if !floating && image_present_locally(runtime, image) {
+        return Ok(());
+    }
+    let pull = Command::new(runtime)
+        .args(["pull", "--quiet", image])
+        .output()
+        .with_context(|| format!("Failed to run {runtime} pull"))?;
+    if pull.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&pull.stderr);
+    let reason = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("no error output")
+        .to_string();
+    let refused = is_registry_refusal(&stderr, image);
+    if floating && !refused && image_present_locally(runtime, image) {
+        eprintln!(
+            "warning: could not refresh {image} ({reason}); using the local copy, which may be out of date"
+        );
+        return Ok(());
+    }
+    let advice = if refused {
+        "The registry refused the image (it may have been withdrawn, made private, or never published). Pass --image with another image, or build one locally (`just build-image` tags :local)."
+    } else {
+        "The registry could not be reached or did not answer (network, outage or rate limit). Retry, or pass --image with an image you have locally (`just build-image` tags :local)."
+    };
+    bail!("could not pull {image}: {reason}\n{advice}")
+}
+
+/// Pick the image: an explicit `--image` wins, then `CROSSLINK_CONTAINER_IMAGE`,
+/// then this build's default (the image matching the CLI's own version).
+/// Blank values count as unset. See `kickoff::resolve_agent_image_from`.
+#[cfg(test)]
+fn resolve_auth_image(explicit: Option<&str>, env_value: Option<&str>) -> String {
+    crate::commands::kickoff::resolve_agent_image_from(explicit, env_value)
+        .map_or_else(|_| DEFAULT_IMAGE.to_string(), |(image, _)| image)
+}
+
+/// The image a container command uses, and where it came from.
 fn auth_image(explicit: Option<&str>) -> Result<String> {
-    let from_env = std::env::var(AUTH_IMAGE_ENV).ok();
-    let image = resolve_auth_image(explicit, from_env.as_deref());
-    anyhow::ensure!(
-        !image.starts_with('-'),
-        "container image name cannot start with '-': {image}"
-    );
-    Ok(image)
+    crate::commands::kickoff::resolve_agent_image(explicit).map(|(image, _)| image)
 }
 
 fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Result<()> {
@@ -416,7 +475,7 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     let parsed_provider = provider.parse::<AuthProvider>()?;
     let volume = parsed_provider.volume();
     let image = auth_image(image)?;
-    let image_hint = if image == format!("{IMAGE_NAME}:{IMAGE_TAG}") {
+    let image_hint = if image == DEFAULT_IMAGE {
         String::new()
     } else {
         format!(" --image {image}")
@@ -440,6 +499,7 @@ fn run_auth_container(provider: &str, status: bool, image: Option<&str>) -> Resu
     if let Some(agent_provider) = parsed_provider.agent_provider_name() {
         command.args(["-e", &format!("CROSSLINK_AGENT_PROVIDER={agent_provider}")]);
     }
+    refresh_floating_image("docker", &image)?;
     command.arg(&image);
     command.args(parsed_provider.command(status));
     if status {
@@ -529,9 +589,11 @@ pub(crate) fn github_login_args(
     ])
 }
 
-const IMAGE_NAME: &str = "ghcr.io/corvidae-coding-projects/crosslink-agent";
+const IMAGE_NAME: &str = crate::commands::kickoff::AGENT_IMAGE_REPOSITORY;
 
-const IMAGE_TAG: &str = "latest";
+/// This build's default image: the published image matching the CLI's own
+/// version (`:<version>` for releases, `:nightly` for development builds).
+const DEFAULT_IMAGE: &str = crate::commands::kickoff::DEFAULT_AGENT_IMAGE;
 
 const BUILD_DEFAULT_TAG: &str = "local";
 const CONTAINER_PREFIX: &str = "crosslink-task-";
@@ -551,22 +613,6 @@ pub fn docker_available() -> bool {
 
 fn find_crosslink_binary() -> Result<PathBuf> {
     std::env::current_exe().context("Could not determine crosslink binary path")
-}
-
-fn file_hash(path: &Path) -> Result<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)?;
-
-    let mut buf = vec![0u8; 65536];
-    let n = file.read(&mut buf)?;
-    buf.truncate(n);
-
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for &byte in &buf {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    Ok(format!("{hash:016x}"))
 }
 
 fn resolve_repo_root() -> Result<PathBuf> {
@@ -645,37 +691,85 @@ fn compute_memory_limit(config_override: Option<&str>) -> String {
     )
 }
 
-fn get_image_hash() -> Option<String> {
-    let output = Command::new("docker")
-        .args([
-            "inspect",
-            "--format",
-            "{{index .Config.Labels \"crosslink-binary-hash\"}}",
-            &format!("{IMAGE_NAME}:{IMAGE_TAG}"),
-        ])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        let hash = String::from_utf8(output.stdout).ok()?.trim().to_string();
-        if !hash.is_empty() && hash != "<no value>" {
-            return Some(hash);
-        }
-    }
-    None
+/// The image label that records which crosslink an agent image contains: the
+/// exact `crosslink --version` of its binary. CI and `container build` set it.
+/// Crosslink-specific so that labels inherited from a base image (Ubuntu sets
+/// `org.opencontainers.image.version`) are never mistaken for it.
+pub(crate) const IMAGE_VERSION_LABEL: &str = "dev.crosslink.version";
+
+/// This CLI's version as `crosslink --version` reports it (`+<commit>` for git
+/// builds).
+pub(crate) fn cli_version() -> &'static str {
+    option_env!("CROSSLINK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
-fn check_staleness() {
-    let Ok(binary_hash) = find_crosslink_binary().and_then(|p| file_hash(&p)) else {
-        return;
+/// How the crosslink inside an image relates to this CLI's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImageVersionMatch {
+    /// Same version and build.
+    Same,
+    /// Same release version, built from a different commit: the normal case
+    /// for a development build against `:nightly`.
+    SameReleaseDifferentBuild,
+    /// A different version: the container and the CLI write the same hub, and
+    /// their formats may disagree.
+    Different,
+}
+
+/// Compare two `crosslink --version` strings (`<semver>[+<build>]`).
+pub(crate) fn compare_crosslink_versions(cli: &str, image: &str) -> ImageVersionMatch {
+    let core = |version: &str| {
+        version
+            .split_once('+')
+            .map_or(version, |(core, _)| core)
+            .to_string()
     };
-    if let Some(image_hash) = get_image_hash() {
-        if image_hash != binary_hash {
-            tracing::warn!(
-                "container image {IMAGE_NAME}:{IMAGE_TAG} is stale relative to your installed crosslink binary. \
-                 Pull the latest published image (`docker pull {IMAGE_NAME}:{IMAGE_TAG}`) or rebuild locally (`just build-image` or `crosslink container build`)."
-            );
-        }
+    if cli == image {
+        ImageVersionMatch::Same
+    } else if core(cli) == core(image) {
+        ImageVersionMatch::SameReleaseDifferentBuild
+    } else {
+        ImageVersionMatch::Different
     }
+}
+
+/// Compare the crosslink an image contains with this CLI's, using the image's
+/// version label, and say so when they differ. Nothing is printed when the
+/// image is not available locally yet or carries no label (images built before
+/// the label existed).
+pub(crate) fn check_image_version(runtime: &str, image: &str) -> Option<ImageVersionMatch> {
+    let output = Command::new(runtime)
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            &format!("{{{{ index .Config.Labels \"{IMAGE_VERSION_LABEL}\" }}}}"),
+            image,
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    let image_version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if image_version.is_empty() || image_version == "<no value>" {
+        tracing::debug!(
+            "{image} carries no {IMAGE_VERSION_LABEL} label; skipping the version check"
+        );
+        return None;
+    }
+    let verdict = compare_crosslink_versions(cli_version(), &image_version);
+    match verdict {
+        ImageVersionMatch::Same => {}
+        ImageVersionMatch::SameReleaseDifferentBuild => tracing::info!(
+            "{image} contains crosslink {image_version}; this CLI is {}",
+            cli_version()
+        ),
+        ImageVersionMatch::Different => eprintln!(
+            "warning: {image} contains crosslink {image_version}, but this CLI is {}. Both write the same hub; \
+             use the image matching this build, or pass --image with one built from your code (`just build-image`).",
+            cli_version()
+        ),
+    }
+    Some(verdict)
 }
 
 struct BuildDirCleanup(PathBuf);
@@ -732,8 +826,6 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     std::fs::copy(&binary, build_path.join(&staged_binary))
         .context("Failed to copy crosslink binary to build context")?;
 
-    let binary_hash = file_hash(&binary).unwrap_or_else(|_| "unknown".to_string());
-
     println!("Building container image: {image}");
 
     let mut cmd = Command::new("docker");
@@ -741,7 +833,10 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
 
     cmd.args(["--build-arg", &format!("TARGETARCH={docker_arch}")]);
     cmd.args(["--label", LABEL_AGENT]);
-    cmd.args(["--label", &format!("crosslink-binary-hash={binary_hash}")]);
+    cmd.args([
+        "--label",
+        &format!("{IMAGE_VERSION_LABEL}={}", cli_version()),
+    ]);
     if force {
         cmd.arg("--no-cache");
     }
@@ -754,7 +849,7 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     }
 
     println!("Image built successfully: {image}");
-    println!("Binary hash: {binary_hash}");
+    println!("crosslink version: {}", cli_version());
     Ok(())
 }
 
@@ -764,12 +859,12 @@ pub fn start(
     prompt_file: Option<&str>,
     issue_id: Option<i64>,
     memory: Option<&str>,
+    image: Option<&str>,
 ) -> Result<()> {
     if !docker_available() {
         bail!("Docker is not available. Install Docker and ensure the daemon is running.");
     }
-
-    check_staleness();
+    let (image, image_source) = crate::commands::kickoff::resolve_agent_image(image)?;
 
     let worktree_abs = std::fs::canonicalize(worktree_path)
         .with_context(|| format!("Worktree not found: {}", worktree_path.display()))?;
@@ -845,13 +940,15 @@ pub fn start(
 
     let agent_id = format!("container--{worktree_slug}");
 
-    let image = format!("{IMAGE_NAME}:{IMAGE_TAG}");
+    refresh_floating_image("docker", &image)?;
+    check_image_version("docker", &image);
 
     println!("Starting task container: {container_name}");
     println!("  Worktree: {}", worktree_abs.display());
     println!("  Memory:   {memory_limit}");
     println!("  Agent:    {agent_id}");
     println!("  Provider: {}", resolved.provider);
+    println!("  Image:    {image} (from {image_source})");
 
     let mut cmd = Command::new("docker");
     cmd.args(["run", "-d"]);
@@ -1164,7 +1261,7 @@ mod tests {
 
     #[test]
     fn auth_image_resolution_prefers_flag_then_env_then_default() {
-        let default = format!("{IMAGE_NAME}:{IMAGE_TAG}");
+        let default = DEFAULT_IMAGE.to_string();
         assert_eq!(resolve_auth_image(None, None), default);
         assert_eq!(resolve_auth_image(Some("  "), Some("")), default);
         assert_eq!(
@@ -1181,28 +1278,11 @@ mod tests {
     }
 
     #[test]
-    fn image_name_is_ghcr_namespaced() {
-        assert_eq!(
-            IMAGE_NAME,
-            "ghcr.io/corvidae-coding-projects/crosslink-agent"
-        );
-        assert_eq!(
-            IMAGE_NAME,
-            crate::commands::kickoff::DEFAULT_AGENT_IMAGE
-                .rsplit_once(':')
-                .map_or(IMAGE_NAME, |(name, _)| name),
-            "container.rs IMAGE_NAME diverged from kickoff DEFAULT_AGENT_IMAGE — \
-             re-opens the GH#576 compose-failure between `crosslink container build` \
-             and `crosslink kickoff run --container …`"
-        );
-    }
-
-    #[test]
     fn build_default_tag_is_distinct_from_lookup_tag() {
         assert_eq!(BUILD_DEFAULT_TAG, "local");
         assert_ne!(
-            BUILD_DEFAULT_TAG, IMAGE_TAG,
-            "BUILD_DEFAULT_TAG and IMAGE_TAG must differ — otherwise `crosslink container build` \
+            BUILD_DEFAULT_TAG, crate::commands::kickoff::AGENT_IMAGE_TAG,
+            "BUILD_DEFAULT_TAG and crate::commands::kickoff::AGENT_IMAGE_TAG must differ — otherwise `crosslink container build` \
              clobbers the published `:latest` users pulled from GHCR"
         );
     }
@@ -1346,6 +1426,221 @@ mod tests {
         assert!(podman.contains("create `vol` with podman"), "{podman}");
     }
 
+    #[test]
+    fn image_versions_compare_on_release_and_build() {
+        use ImageVersionMatch::{Different, Same, SameReleaseDifferentBuild};
+        let cases = [
+            ("0.10.0", "0.10.0", Same),
+            ("0.10.0+abc1234", "0.10.0+abc1234", Same),
+            (
+                "0.10.0+abc1234",
+                "0.10.0+def5678",
+                SameReleaseDifferentBuild,
+            ),
+            (
+                "0.10.0+abc1234-dirty",
+                "0.10.0+abc1234",
+                SameReleaseDifferentBuild,
+            ),
+            ("0.10.0", "0.10.0+def5678", SameReleaseDifferentBuild),
+            ("0.10.0", "0.9.0", Different),
+            ("0.10.0-beta.1+abc", "0.10.0+abc", Different),
+        ];
+        for (cli, image, expected) in cases {
+            assert_eq!(
+                compare_crosslink_versions(cli, image),
+                expected,
+                "{cli} vs {image}"
+            );
+        }
+    }
+
+    /// A stand-in runtime whose `image inspect` prints the given label value.
+    /// Wait until a freshly written fake runtime script can be executed. On
+    /// Linux, another test thread forking a process while the script was open
+    /// for writing keeps a write handle alive in that child until it execs,
+    /// and executing the script meanwhile fails with ETXTBSY.
+    #[cfg(unix)]
+    fn wait_until_spawnable(path: &Path) {
+        for _ in 0..500 {
+            match Command::new(path)
+                .arg("--crosslink-test-probe")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+            {
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                _ => return,
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn fake_inspect_runtime(dir: &Path, label: Option<&str>) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(format!(
+            "inspect-{}",
+            label.unwrap_or("missing").replace(['+', '.'], "_")
+        ));
+        let body = label.map_or_else(
+            || "exit 1".to_string(),
+            |value| format!("printf '%s\\n' '{value}'"),
+        );
+        let log = dir.join("inspect.log");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n{body}\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_spawnable(&path);
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_reads_the_images_version_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = format!("{IMAGE_NAME}:nightly");
+        assert_eq!(
+            check_image_version(
+                &fake_inspect_runtime(dir.path(), Some(cli_version())),
+                &image
+            ),
+            Some(ImageVersionMatch::Same)
+        );
+        assert_eq!(
+            check_image_version(&fake_inspect_runtime(dir.path(), Some("0.0.1")), &image),
+            Some(ImageVersionMatch::Different)
+        );
+        // No label (older images) or no local image: nothing to compare.
+        assert_eq!(
+            check_image_version(
+                &fake_inspect_runtime(dir.path(), Some("<no value>")),
+                &image
+            ),
+            None
+        );
+        assert_eq!(
+            check_image_version(&fake_inspect_runtime(dir.path(), None), &image),
+            None
+        );
+        let calls = std::fs::read_to_string(dir.path().join("inspect.log")).unwrap();
+        let expected = format!(
+            "image inspect --format {{{{ index .Config.Labels \"{IMAGE_VERSION_LABEL}\" }}}} {image}"
+        );
+        assert!(calls.contains(&expected), "{calls}");
+        assert_eq!(IMAGE_VERSION_LABEL, "dev.crosslink.version");
+    }
+
+    #[test]
+    fn only_registry_refusals_stop_a_cached_launch() {
+        let image = "ghcr.io/geoff/crosslink-agent:nightly";
+        for refused in [
+            "Error response from daemon: manifest unknown",
+            "Error response from daemon: pull access denied for ghcr.io/x/y, repository does not exist",
+            "Error: unauthorized: authentication required",
+            "Error response from daemon: denied: requested access to the resource is denied",
+            "Error response from daemon: ghcr.io/x/y:nightly: not found",
+        ] {
+            assert!(is_registry_refusal(refused, image), "{refused}");
+        }
+        for not_refused in [
+            "Error response from daemon: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host",
+            "Error response from daemon: Get \"https://ghcr.io/v2/\": context deadline exceeded",
+            "dial tcp 140.82.112.34:443: connect: no route to host",
+            "lookup ghcr.io on 127.0.0.53:53: server misbehaving",
+            "received unexpected HTTP status: 503 Service Unavailable",
+            "toomanyrequests: retry later",
+            "something nobody has seen before",
+            // Words inside the image reference itself must not match.
+            "Error: failed to pull ghcr.io/geoff/crosslink-agent:nightly: EOF",
+        ] {
+            assert!(!is_registry_refusal(not_refused, image), "{not_refused}");
+        }
+    }
+
+    /// A stand-in runtime for image preparation: `pull` prints `pull_stderr`
+    /// and exits `pull_rc`, `image inspect` exits `inspect_rc`, and every call
+    /// is appended to `calls.log`.
+    #[cfg(unix)]
+    fn fake_pull_runtime(
+        dir: &Path,
+        name: &str,
+        pull_rc: i32,
+        pull_stderr: &str,
+        inspect_rc: i32,
+    ) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        let log = dir.join("calls.log");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1\" in\n  pull) echo '{pull_stderr}' >&2; exit {pull_rc} ;;\n  image) exit {inspect_rc} ;;\nesac\nexit 1\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_spawnable(&path);
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn images_are_prepared_with_a_network_only_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let nightly = format!("{IMAGE_NAME}:nightly");
+        let pinned = format!("{IMAGE_NAME}:0.10.0");
+        let offline = "dial tcp: lookup ghcr.io: no such host";
+        let withdrawn = "Error response from daemon: manifest unknown";
+        let prepare = |name: &str, pull_rc, stderr: &str, inspect_rc, image: &str| {
+            refresh_floating_image(
+                &fake_pull_runtime(dir.path(), name, pull_rc, stderr, inspect_rc),
+                image,
+            )
+        };
+        // Floating tag, registry reachable: refreshed.
+        prepare("a", 0, "", 1, &nightly).unwrap();
+        // Floating tag, network down, local copy present: the launch continues.
+        prepare("b", 1, offline, 0, &nightly).unwrap();
+        // Floating tag withdrawn by the registry: a cached copy must not be used.
+        let error = prepare("c", 1, withdrawn, 0, &nightly)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("manifest unknown") && error.contains("refused"),
+            "{error}"
+        );
+        // Network down and nothing local: the error carries the reason.
+        let error = prepare("d", 1, offline, 1, &nightly)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("no such host") && error.contains("network"),
+            "{error}"
+        );
+        // Pinned tag present locally: no pull at all.
+        let log = dir.path().join("calls.log");
+        let _ = std::fs::remove_file(&log);
+        prepare("e", 1, withdrawn, 0, &pinned).unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(!calls.contains("pull"), "{calls}");
+        // Pinned tag missing locally: pulled once, and a refusal is reported.
+        let error = prepare("f", 1, withdrawn, 1, &pinned)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("refused"), "{error}");
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(calls.contains(&format!("pull --quiet {pinned}")), "{calls}");
+    }
+
     /// A stand-in container runtime: `info`, `volume inspect` and `run` exit
     /// with the given codes, so each preflight branch can be reached without
     /// a real daemon.
@@ -1361,6 +1656,7 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_spawnable(&path);
         path.to_string_lossy().into_owned()
     }
 

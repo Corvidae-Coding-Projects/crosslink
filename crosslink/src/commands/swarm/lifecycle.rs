@@ -700,13 +700,14 @@ pub fn launch(crosslink_dir: &Path, db: &Database, phase_slug: &str, quiet: bool
             timeout,
             None,
         )?;
+        let (agent_image, _) = kickoff::agent_image_for(&ContainerMode::None, None)?;
         let opts = KickoffOpts {
             description: &description,
             issue: issue_id,
             container: ContainerMode::None,
             verify: VerifyLevel::Local,
             model: &dials.model,
-            image: kickoff::DEFAULT_AGENT_IMAGE,
+            image: &agent_image,
             timeout,
             dry_run: false,
             branch: branch.as_deref(),

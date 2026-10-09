@@ -74,12 +74,35 @@ The default image used by `--container docker|podman` is published to GitHub Con
 [`ghcr.io/corvidae-coding-projects/crosslink-agent`](https://github.com/Corvidae-Coding-Projects/crosslink/pkgs/container/crosslink-agent),
 built for both `linux/amd64` and `linux/arm64`. Published tags:
 
-- `:latest` — the most recent tagged release
-- `:<version>` (e.g. `:0.5.2`) — pinned release
+- `:<version>` (e.g. `:0.10.0`) — the image built for that release
+- `:latest` — the most recent stable (non-prerelease) release; it moves only after
+  that release's image has passed an anonymous pull and smoke test
 - `:nightly` — floating tag tracking `develop`
-- `:nightly-<short-sha>` — immutable nightly snapshots
+- `:nightly-<short-sha>` — the nightly built from that `develop` commit
 
-The first `--container docker` launch will pull the image automatically; subsequent launches reuse the local copy. Pin `--image ghcr.io/corvidae-coding-projects/crosslink-agent:<version>` for reproducible runs.
+By default, crosslink uses the image that matches its own build. A released
+crosslink (installed from crates.io, or built from a checkout at its
+`v<version>` tag) uses `:<version>`, so the crosslink inside the container is
+the one it was released with. Every other build, such as `develop` or a feature
+branch, uses `:nightly`, the image built from the tip of `develop`: its
+crosslink can differ from your branch's code, so when you change hub or
+readiness code, build your own image (`just build-image`) and pass
+`--image ghcr.io/corvidae-coding-projects/crosslink-agent:local`. Builds from
+`cargo install --git` cannot see their release tag and also use `:nightly`;
+pass `--image` with the version you installed. Release CI sets the tag
+explicitly with `CROSSLINK_AGENT_IMAGE_TAG`, and fork builds can point at their
+own registry with `CROSSLINK_AGENT_IMAGE_REPOSITORY`.
+
+`:nightly` and `:latest` are refreshed before every launch. If the registry
+cannot be reached and a local copy exists, crosslink warns and uses it; pinned
+tags are pulled once and then reused. Because `:nightly` follows `develop`,
+anything merged there runs in every development build's next container, which
+mounts your provider and GitHub logins. To use another image, pass `--image`
+or set `CROSSLINK_CONTAINER_IMAGE`; every container command (kickoff,
+`container start`, `container auth`, swarm and sentinel launches) resolves the
+image the same way, flag first, then the variable, then the build default, and
+reports which one it used. Registry tags can be moved; for a byte-for-byte reproducible run,
+pin the image by digest (`--image ghcr.io/corvidae-coding-projects/crosslink-agent@sha256:<digest>`).
 
 ### Building the image locally
 

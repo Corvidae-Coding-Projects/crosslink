@@ -968,6 +968,8 @@ pub(super) fn launch_container(
         Path::new("/workspaces/repo"),
         policy,
     )?;
+    crate::commands::container::refresh_floating_image(runtime_cmd, image)?;
+    crate::commands::container::check_image_version(runtime_cmd, image);
     args.push(image.to_string());
     args.push("bash".to_string());
     args.push("-c".to_string());
@@ -1092,12 +1094,22 @@ fn format_container_launch_error(runtime_cmd: &str, image: &str, stderr: &str) -
         .any(|needle| lowered.contains(needle));
 
     if pull_failure {
+        let default_note = if image == super::types::DEFAULT_AGENT_IMAGE {
+            format!(
+                "\n  This is the image matching this crosslink build (tag `{}`). A release's \
+                 image is published when its `v*` tag is pushed; development builds use `:nightly`.",
+                super::types::AGENT_IMAGE_TAG
+            )
+        } else {
+            String::new()
+        };
         format!(
             "{runtime_cmd} container launch failed: {trimmed}\n\n\
-             Hint: the image `{image}` could not be pulled. Either:\n  \
+             Hint: the image `{image}` could not be pulled.{default_note} Either:\n  \
                * Build it locally:  just build-image       (tags as :local)\n  \
                * Or pick a published tag from {AGENT_IMAGE_PACKAGE_URL}\n  \
-                 and pass it via `--image ghcr.io/corvidae-coding-projects/crosslink-agent:<tag>`."
+                 and pass it via `--image {}:<tag>`.",
+            super::types::AGENT_IMAGE_REPOSITORY
         )
     } else {
         format!("{runtime_cmd} container launch failed: {trimmed}")
@@ -1195,6 +1207,29 @@ mod tests {
         assert!(msg.contains("podman container launch failed"));
         assert!(msg.contains("Hint:"));
         assert!(msg.contains("just build-image"));
+    }
+
+    #[test]
+    fn pull_failure_on_the_default_image_explains_the_build_matched_tag() {
+        let msg = format_container_launch_error(
+            "docker",
+            crate::commands::kickoff::DEFAULT_AGENT_IMAGE,
+            "Error response from daemon: manifest unknown",
+        );
+        assert!(
+            msg.contains(crate::commands::kickoff::DEFAULT_AGENT_IMAGE),
+            "{msg}"
+        );
+        assert!(msg.contains("matching this crosslink build"), "{msg}");
+        let custom = format_container_launch_error(
+            "docker",
+            "example/agent:1",
+            "Error response from daemon: manifest unknown",
+        );
+        assert!(
+            !custom.contains("matching this crosslink build"),
+            "{custom}"
+        );
     }
 
     #[test]
