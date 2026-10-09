@@ -596,7 +596,10 @@ pub fn verify_content(
         format!("-----BEGIN SSH SIGNATURE-----\n{signature_b64}\n-----END SSH SIGNATURE-----\n");
     std::fs::write(&sig_path, pem_sig)?;
 
-    let mut child = Command::new("ssh-keygen")
+    // The signed content goes in on stdin from the file written above; the
+    // shared helper bounds the wait without a fixed polling sleep.
+    let mut command = Command::new("ssh-keygen");
+    command
         .args([
             "-Y",
             "verify",
@@ -609,37 +612,12 @@ pub fn verify_content(
             "-s",
         ])
         .arg(&sig_path)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to run ssh-keygen -Y verify")?;
-
-    if let Some(ref mut stdin) = child.stdin {
-        use std::io::Write;
-
-        let _ = stdin.write_all(content);
-    }
-
-    drop(child.stdin.take());
-
-    {
-        use std::time::{Duration, Instant};
-        let start = Instant::now();
-        let timeout = Duration::from_secs(30);
-        loop {
-            if child.try_wait()?.is_some() {
-                break;
-            }
-            if start.elapsed() > timeout {
-                let _ = child.kill();
-                bail!("ssh-keygen verification timed out after 30 seconds");
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-
-    let output = child.wait_with_output()?;
+        .stdin(std::fs::File::open(&content_path).context("opening signed content")?);
+    let Some(output) =
+        crate::utils::command_output_with_timeout(&mut command, std::time::Duration::from_secs(30))
+    else {
+        bail!("ssh-keygen verification could not run or did not finish within 30 seconds");
+    };
 
     if !output.status.success() {
         return Ok(false);

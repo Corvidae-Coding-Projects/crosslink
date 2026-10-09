@@ -437,11 +437,15 @@ pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> 
     let deadline = Instant::now() + timeout;
     let stdout = drain(child.stdout.take());
     let stderr = drain(child.stderr.take());
+    // Poll quickly at first, so a short command returns promptly, and back
+    // off to 20 ms for long ones.
+    let mut pause = Duration::from_millis(1);
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(20));
+                std::thread::sleep(pause);
+                pause = (pause * 2).min(Duration::from_millis(20));
             }
             Ok(None) | Err(_) => {
                 terminate_child(&mut child);
@@ -510,6 +514,52 @@ fn terminate_child(child: &mut Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_with_timeout_returns_a_short_command_promptly() {
+        let started = Instant::now();
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "printf ok"]),
+            Duration::from_secs(10),
+        )
+        .expect("completes");
+        assert_eq!(output.stdout, b"ok");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Output larger than a pipe buffer is drained while waiting, so the
+    /// command neither stalls nor times out.
+    #[cfg(unix)]
+    #[test]
+    fn command_output_with_timeout_drains_large_output() {
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "head -c 300000 /dev/zero"]),
+            Duration::from_secs(10),
+        )
+        .expect("completes");
+        assert_eq!(output.stdout.len(), 300_000);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_with_timeout_gives_up_at_the_deadline() {
+        let started = Instant::now();
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "sleep 10"]),
+            Duration::from_millis(300),
+        );
+        assert!(output.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
     use std::process::Command as StdCommand;
     use tempfile::tempdir;
 
