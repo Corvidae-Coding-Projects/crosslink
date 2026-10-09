@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 116,
-        "tip_oid": "c8d4c2a8150bbac4d5f02d2d61dc7a8f0f4607c3",
-        "prefix_sha256": "0c92eb61345d7d5af83d5c0bd4fbfe85e4434ce314d491c511b3177de29f8351"
+        "sequence": 117,
+        "tip_oid": "550d36ab8c6f9ca479e69451f5361b59d446cf65",
+        "prefix_sha256": "1269434dd7af8553f5f15fd0eecaae19983876c2d1d0695cd8fe642c746187c4"
       },
       "qWWn": {
         "sequence": 2,
@@ -12963,11 +12963,12 @@
       "display_id": 821,
       "title": "Manual check scratch for #820: kickoff undo and cleanup (close after)",
       "description": "Scratch issue for the #820 manual checks: a kickoff whose container launch fails on a missing image tag (undo), and a local kickoff stopped at the trust prompt (cleanup). Closed when the checks finish.",
-      "status": "open",
+      "status": "closed",
       "priority": "low",
       "created_by": "ldsw",
       "created_at": "2026-10-09T06:32:13.765727Z",
-      "updated_at": "2026-10-09T06:32:13.765727Z"
+      "updated_at": "2026-10-09T18:24:09.553940Z",
+      "closed_at": "2026-10-09T18:24:09.528602Z"
     },
     "79128bb7-018b-4cb2-8171-c46e350980d3": {
       "uuid": "79128bb7-018b-4cb2-8171-c46e350980d3",
@@ -28431,6 +28432,11 @@
       "agent_id": "qWWn",
       "agent_seq": 2,
       "timestamp": "2026-10-09T18:20:26.616020Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 117,
+      "timestamp": "2026-10-09T18:24:09.553940Z"
     }
   ],
   "watermark": {
