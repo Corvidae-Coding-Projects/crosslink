@@ -60,8 +60,10 @@ Then merge `main` back into `develop` so the next release does not conflict
   promotion takes "highest stable" from git tags, so a stray higher tag would
   stop `:latest` from moving and turn the canary red.
 - **A later stage fails for a transient reason:** use **Re-run failed jobs**.
-  Re-running all jobs starts at the gate again, which refuses because
-  `:<version>` now exists.
+  A re-run of the image job reuses the digest that was already pushed instead
+  of rebuilding it. Re-running all jobs starts at the gate again, which
+  refuses because `:<version>` now exists. Build artifacts are kept for one
+  day, so re-run within a day or release the next patch version.
 - **Smoke test fails:** `:<version>` exists but `:latest` did not move and no
   GitHub release was created. Find the cause, fix it, and release the next
   patch version. Do not republish the same version: the gate refuses, on
@@ -81,7 +83,7 @@ Then merge `main` back into `develop` so the next release does not conflict
 
 | Tag | Moves? | Who uses it |
 |---|---|---|
-| `:<version>` | Not by the release flow (the gate refuses to republish); only someone with package write access acting outside it | Released builds of that version |
+| `:<version>` | Not by the release flow (the gate refuses to republish and re-runs reuse the pushed digest); any repository writer can still push one from another workflow until rulesets restrict that | Released builds of that version |
 | `:latest` | To each stable release, after its smoke test | Anyone who asks for it with `--image` |
 | `:nightly` | On every push to `develop` | Development builds; refreshed before each launch |
 | `:nightly-<sha>` | Not by design, but registry tags can be moved | Pinning a development build |
@@ -126,8 +128,11 @@ with newer tools: ship a patch release instead.
   created only by maintainers and never moved (deletion by an admin only, for
   tags whose release failed at the gate); `main` and `develop` require pull
   requests and passing CI and refuse force pushes and deletion. Until they
-  exist, anyone with write access can push to `develop` (which every
-  development build's `:nightly` follows) and tag a commit on `main`.
+  exist, the release checks guard against accidents only: the gate runs from
+  the tagged commit's own workflow, so anyone with write access can tag any
+  commit, edit the checks out, and publish a release, and can push to
+  `develop`, which every development build's `:nightly` follows. The rulesets
+  are the only control against that.
 
 ## Moving the repository or owner
 

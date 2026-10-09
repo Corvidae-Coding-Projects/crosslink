@@ -63,6 +63,7 @@ jobs:
       agent_image_tag: ${{ steps.plan.outputs.agent_image_tag }}
       crosslink_version: ${{ steps.plan.outputs.crosslink_version }}
       cache_ref: ${{ steps.plan.outputs.cache_ref }}
+      write_cache: ${{ steps.plan.outputs.write_cache }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -79,7 +80,7 @@ jobs:
           REPO_PATH="${OWNER}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA::7}"
           CARGO_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("crosslink/Cargo.toml", "rb"))["package"]["version"])')"
-          PUSH=false RELEASE=false PRERELEASE=false REHEARSAL=false
+          PUSH=false RELEASE=false PRERELEASE=false REHEARSAL=false WRITE_CACHE=false
           AGENT_IMAGE_TAG=nightly
           case "${GITHUB_EVENT_NAME}:${GITHUB_REF}" in
             pull_request:*)
@@ -127,10 +128,15 @@ jobs:
               ;;
             push:refs/heads/develop|workflow_dispatch:refs/heads/develop)
               VERSION="nightly-${SHORT_SHA}"
-              TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
               PUSH=true
               if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ] && [ "${REHEARSE:-false}" = true ]; then
+                # A rehearsal never moves :nightly or writes the shared cache,
+                # so it cannot race a develop push.
                 REHEARSAL=true
+                TAGS=("${BASE}:nightly-${SHORT_SHA}")
+              else
+                WRITE_CACHE=true
+                TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
               fi
               ;;
             workflow_dispatch:*)
@@ -156,6 +162,7 @@ jobs:
             echo "agent_image_tag=${AGENT_IMAGE_TAG}"
             echo "crosslink_version=${CARGO_VERSION}+${SHORT_SHA}"
             echo "cache_ref=${BASE}:buildcache"
+            echo "write_cache=${WRITE_CACHE}"
           } >> "$GITHUB_OUTPUT"
           echo "Plan: push=${PUSH} release=${RELEASE} prerelease=${PRERELEASE} rehearsal=${REHEARSAL} tags=${TAGS[*]}"
 
@@ -204,6 +211,7 @@ jobs:
           tool: cross
 
       - name: Cache cargo
+        if: needs.gate.outputs.release != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -240,7 +248,7 @@ jobs:
       id-token: write
       attestations: write
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest || steps.existing.outputs.digest }}
       crosslink_version: ${{ steps.label.outputs.crosslink_version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -264,10 +272,11 @@ jobs:
           chmod +x crosslink/resources/container/crosslink-amd64
           chmod +x crosslink/resources/container/crosslink-arm64
 
-      - name: Check the binary reports the gate's version
+      - name: Check both binaries before anything is pushed
         id: label
         env:
           EXPECTED: ${{ needs.gate.outputs.crosslink_version }}
+          DEFAULT_IMAGE: ${{ needs.gate.outputs.base }}:${{ needs.gate.outputs.agent_image_tag }}
         run: |
           set -euo pipefail
           out="$(crosslink/resources/container/crosslink-amd64 --version)"
@@ -275,7 +284,46 @@ jobs:
             echo "::error::amd64 binary reports '${out}', expected 'crosslink ${EXPECTED}'"
             exit 1
           fi
+          for arch in amd64 arm64; do
+            bin="crosslink/resources/container/crosslink-${arch}"
+            grep -aqF "$EXPECTED" "$bin" || { echo "::error::${arch} binary does not carry version ${EXPECTED}"; exit 1; }
+            grep -aqF "$DEFAULT_IMAGE" "$bin" || { echo "::error::${arch} binary does not default to ${DEFAULT_IMAGE}"; exit 1; }
+          done
           echo "crosslink_version=${EXPECTED}" >> "$GITHUB_OUTPUT"
+
+      # A re-run of this job (Re-run failed jobs) after the push already
+      # happened must not rebuild and overwrite :<version>: reuse the
+      # published digest instead. On a first attempt an existing version means
+      # something else published it since the gate, so stop.
+      - name: Reuse an already published version on a re-run
+        id: existing
+        if: needs.gate.outputs.release == 'true'
+        env:
+          BASE: ${{ needs.gate.outputs.base }}
+          VERSION: ${{ needs.gate.outputs.version }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          repo="${BASE#"${REGISTRY}"/}"
+          token="$(curl -sS "https://${REGISTRY}/token?scope=repository:${repo}:pull" | jq -r '.token // empty' || true)"
+          test -n "$token" || { echo "::error::no anonymous registry token for ${BASE}"; exit 1; }
+          headers="$(curl -sS -o /dev/null -D - -I -H "Authorization: Bearer ${token}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+            "https://${REGISTRY}/v2/${repo}/manifests/${VERSION}" || true)"
+          status="$(printf '%s' "$headers" | head -n 1 | awk '{print $2}')"
+          case "$status" in
+            404) echo "reuse=false" >> "$GITHUB_OUTPUT" ;;
+            200)
+              if [ "$ATTEMPT" = 1 ]; then
+                echo "::error::${BASE}:${VERSION} appeared after the gate checked it; not overwriting it"
+                exit 1
+              fi
+              digest="$(printf '%s' "$headers" | tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')"
+              echo "Re-run: ${BASE}:${VERSION} is already published as ${digest}; reusing it"
+              { echo "reuse=true"; echo "digest=${digest}"; } >> "$GITHUB_OUTPUT"
+              ;;
+            *) echo "::error::registry answered HTTP ${status:-none} for ${BASE}:${VERSION}"; exit 1 ;;
+          esac
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -295,6 +343,7 @@ jobs:
 
       - name: Build and push
         id: build
+        if: steps.existing.outputs.reuse != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: crosslink/resources/container
@@ -312,14 +361,14 @@ jobs:
           # write, so a release image follows only from its tagged source.
           no-cache: ${{ needs.gate.outputs.release == 'true' }}
           cache-from: ${{ needs.gate.outputs.release != 'true' && format('type=registry,ref={0}', needs.gate.outputs.cache_ref) || '' }}
-          cache-to: ${{ needs.gate.outputs.push == 'true' && needs.gate.outputs.release != 'true' && format('type=registry,ref={0},mode=max', needs.gate.outputs.cache_ref) || '' }}
+          cache-to: ${{ needs.gate.outputs.write_cache == 'true' && format('type=registry,ref={0},mode=max', needs.gate.outputs.cache_ref) || '' }}
 
       - name: Attest the image build
         if: needs.gate.outputs.push == 'true'
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-name: ${{ needs.gate.outputs.base }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.build.outputs.digest || steps.existing.outputs.digest }}
           push-to-registry: true
 
   container-pr-smoke:
@@ -448,7 +497,7 @@ jobs:
       - name: The image's tools run on this platform
         run: |
           docker run --rm --platform ${{ matrix.platform }} "${BASE}@${DIGEST}" \
-            bash -c 'set -e; claude --version; codex --version; gh --version | head -n 1; uv --version'
+            bash -c 'set -eo pipefail; claude --version; codex --version; gh --version | head -n 1; uv --version'
 
       - name: Manifest covers both architectures (once)
         if: matrix.platform == 'linux/amd64'

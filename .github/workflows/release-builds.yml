@@ -149,12 +149,14 @@ jobs:
       - name: Check the binary defaults to the release image (release runs)
         if: inputs.agent_image_tag != ''
         shell: bash
+        env:
+          BIN: target/${{ matrix.target }}/release/crosslink${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          EXPECTED_IMAGE: ${{ inputs.agent_image_repository }}:${{ inputs.agent_image_tag }}
+          EXPECTED_VERSION: ${{ inputs.crosslink_version }}
         run: |
           set -euo pipefail
-          bin="target/${{ matrix.target }}/release/crosslink${{ matrix.os == 'windows-latest' && '.exe' || '' }}"
-          expected="${{ inputs.agent_image_repository }}:${{ inputs.agent_image_tag }}"
-          grep -aqF "$expected" "$bin" || { echo "::error::${bin} does not default to ${expected}"; exit 1; }
-          grep -aqF "${{ inputs.crosslink_version }}" "$bin" || { echo "::error::${bin} does not carry version ${{ inputs.crosslink_version }}"; exit 1; }
+          grep -aqF "$EXPECTED_IMAGE" "$BIN" || { echo "::error::${BIN} does not default to ${EXPECTED_IMAGE}"; exit 1; }
+          grep -aqF "$EXPECTED_VERSION" "$BIN" || { echo "::error::${BIN} does not carry version ${EXPECTED_VERSION}"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
