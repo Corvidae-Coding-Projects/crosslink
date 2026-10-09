@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 107,
-        "tip_oid": "75dc1ba779c1d28975d3e9b269a6e78f3ddff963",
-        "prefix_sha256": "d171b499ca66cfa2c9af9a543ce359d88d647b7cf80d7ac79142d8248e94bcdd"
+        "sequence": 108,
+        "tip_oid": "6f814ff08212feea2dec99b67b4edee926ec6866",
+        "prefix_sha256": "43d864ea98b810c8d53199c7640b0a7b8aced9093aaed4e7179f936cc9f37050"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 821,
-  "next_comment_id": 1312,
+  "next_comment_id": 1313,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13213,7 +13213,18 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T03:16:26.512724Z",
-      "updated_at": "2026-10-09T03:16:26.512724Z"
+      "updated_at": "2026-10-09T03:56:44.202414Z",
+      "comments": {
+        "4c465a1e-2d2b-4e71-aea3-68cc68b6d629": {
+          "display_id": 1312,
+          "author": "ldsw",
+          "content": "Scaffold committed as 2cac336d on feat/lock-claim-outcome (on top of design commit 6eddcc20). Red, failing for the intended reasons: five claim tests in crosslink/src/commands/hub_v3_operation_tests.rs against real v3 hubs (slow publication hits the 30 s bail; failed confirmation fetch reports Claimed; failure after push is a plain error; confirmation deadline ignored; AlreadyHeld answered from the local view) and eight unit tests in crosslink/src/commands/kickoff/rollback.rs (stubs). Passing guards: slow-reduce claim, metadata round trip, existing claim/release tests, all 46 lock_check tests. Lint gate clean (fmt --check, clippy -D warnings). AC-4 amended in the design (bound checked against the hung fetch, not 4 s). Not yet covered: session-level and kickoff integration criteria (AC-7, AC-8 end to end, AC-11), which come with the implementation. Do not open a PR until the implementation lands; CI will be red on this branch by design.",
+          "created_at": "2026-10-09T03:56:44.157121Z",
+          "kind": "result",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA0aN05RFv4RGIcF7uG4gLyEXFII0yb18enSJXlMgOwv7UFOwcFDT0rWPXAOn+LQrrSaV+I9JOOKcAE+m8mPgCDQ=="
+        }
+      }
     },
     "7c129e8c-e138-4191-bbab-9a09a1b185ee": {
       "uuid": "7c129e8c-e138-4191-bbab-9a09a1b185ee",
@@ -28293,6 +28304,11 @@
       "agent_id": "ldsw",
       "agent_seq": 107,
       "timestamp": "2026-10-09T03:17:27.173109Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 108,
+      "timestamp": "2026-10-09T03:56:44.202414Z"
     }
   ],
   "watermark": {
