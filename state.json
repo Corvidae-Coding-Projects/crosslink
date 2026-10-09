@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 113,
-        "tip_oid": "cd93bc0873710a2cef25c79303fe46e26d1657c6",
-        "prefix_sha256": "ab7deb69166aebb574aa94749db44aeb4a33a4d5087dd99f3ee975042ef1862f"
+        "sequence": 114,
+        "tip_oid": "515aaa70de78e30f7b2757a2c083579163d48c7f",
+        "prefix_sha256": "abf0b6b86e83285151d70052deaeb8fea963d3a7338f787205999f5bbbe7b3ed"
       },
       "sQl8": {
         "sequence": 35,
@@ -54,7 +54,7 @@
       }
     }
   },
-  "next_display_id": 821,
+  "next_display_id": 822,
   "next_comment_id": 1316,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -442,6 +442,7 @@
     "786fe5ff-81f2-48dd-bb3e-be40a024a8e7": 280,
     "78722cfa-599b-493c-b0d5-184265fc6988": 557,
     "7896c05a-756b-439b-989b-d403ec5dc7da": 22,
+    "7896e07d-fc57-44bd-aaf5-12156013255a": 821,
     "79128bb7-018b-4cb2-8171-c46e350980d3": 54,
     "796605b3-f446-4939-96ec-4cbacb42f9e1": 805,
     "79805808-20a3-49a1-a89c-f3a12bf6323a": 303,
@@ -12933,6 +12934,17 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAFdBHbEGeaw+XcmtykjH786gJoEXI2i8mI9eQ4UqJV4+yUc+uojdC8qdE8yzm2ad0ua1CA0BEXyUxyBxqqqv1Cg=="
         }
       }
+    },
+    "7896e07d-fc57-44bd-aaf5-12156013255a": {
+      "uuid": "7896e07d-fc57-44bd-aaf5-12156013255a",
+      "display_id": 821,
+      "title": "Manual check scratch for #820: kickoff undo and cleanup (close after)",
+      "description": "Scratch issue for the #820 manual checks: a kickoff whose container launch fails on a missing image tag (undo), and a local kickoff stopped at the trust prompt (cleanup). Closed when the checks finish.",
+      "status": "open",
+      "priority": "low",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T06:32:13.765727Z",
+      "updated_at": "2026-10-09T06:32:13.765727Z"
     },
     "79128bb7-018b-4cb2-8171-c46e350980d3": {
       "uuid": "79128bb7-018b-4cb2-8171-c46e350980d3",
@@ -28371,6 +28383,11 @@
       "agent_id": "ldsw",
       "agent_seq": 113,
       "timestamp": "2026-10-09T06:30:47.292458Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 114,
+      "timestamp": "2026-10-09T06:32:13.765727Z"
     }
   ],
   "watermark": {
