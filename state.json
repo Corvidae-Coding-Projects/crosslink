@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 111,
-        "tip_oid": "4aa24e3c732681dbc3d1aa3470709e37982b48dc",
-        "prefix_sha256": "05d2b9d45db730d0fe2eddadaafcc6396f251f98ff1cb96b2fe12e87e9afbe4e"
+        "sequence": 112,
+        "tip_oid": "ea691ca17803e282103a17609829b11c263b7170",
+        "prefix_sha256": "62d3d0494d38ae2af706e01fa366cde2f95edfc01e27c0b9da79acf28b4e156b"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 821,
-  "next_comment_id": 1315,
+  "next_comment_id": 1316,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -24151,7 +24151,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:59:16.682189Z",
-      "updated_at": "2026-10-09T03:11:11.919528Z",
+      "updated_at": "2026-10-09T06:19:51.892869Z",
       "comments": {
         "079ba8c8-f422-4c19-bf06-4a63f457fcf2": {
           "display_id": 1308,
@@ -24197,6 +24197,15 @@
           "kind": "decision",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKx73aYvptKjdfiSnnB1/2AE7jgOjTeoDlgsLuaJIRg1IIORjFu3lX/QZzPMRt7VgEysWaqZ9YTqibaC3AqsJDQ=="
+        },
+        "feef6c69-6277-4bd0-a301-63e0a101c4eb": {
+          "display_id": 1315,
+          "author": "ldsw",
+          "content": "Write-cost finding from the #820 manual check, 2026-10-09, macOS, installed dcbe2bd9: a new claim took 302 s and the already-held path 56 s. A 15 s stack sample of the already-held run: 10813 of 12562 samples in confirm_v3_locks_bounded -> SyncManager::adopt_fetched_v3_refs -> verified_checkpoint -> compaction::reduce -> rebuild_state_to_frontier -> check_unsigned -> events::verify_event_signature -> signing::verify_content, and 6961 of those in thread::sleep. verify_content (crosslink/src/signing.rs, around line 599-638) spawns ssh-keygen -Y verify per event, then polls child.try_wait() with a 50 ms sleep, so every signature check costs at least 50 ms however fast ssh-keygen is; verifying a remote checkpoint rebuilds state from every event on the shared hub, so each adopt is minutes. The commit's own fetch_and_adopt already pays this once per write; the first #820 implementation paid it again in confirmation. Fix in #820: confirmation adopts only other agents' ref tips (adopt_fetched_agent_tips), not the remote checkpoint. For the write-cost increment this is likely the dominant cost, ahead of git spawn counts: candidates are a non-polling wait (or a short initial poll interval with backoff), batching verification, and not re-verifying an unchanged checkpoint.",
+          "created_at": "2026-10-09T06:19:51.854847Z",
+          "kind": "observation",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAagKZc+kNlyPjKdffNZ7bcFqOXenBZpvv6HPs883csHnzEUrZl1lkJhgaldQwY/84uTILeFxsjM6JS7fFM/ZxDQ=="
         }
       }
     },
@@ -28348,6 +28357,11 @@
       "agent_id": "ldsw",
       "agent_seq": 111,
       "timestamp": "2026-10-09T05:07:44.246316Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 112,
+      "timestamp": "2026-10-09T06:19:51.892869Z"
     }
   ],
   "watermark": {
