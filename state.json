@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 123,
-        "tip_oid": "3e46f6df039abbc3e660bb7890fc6ae51509e11c",
-        "prefix_sha256": "e4cfcf8814ccbaa6e8041701616579cec2008d0999cea9182ce37b4746141ecf"
+        "sequence": 124,
+        "tip_oid": "5db0df39afa294f89c92f6e639a8be8a76e6abb0",
+        "prefix_sha256": "f3e34f80a6109933cbe73651ded29cd38418cf00231b4e986ca66f12e2f70186"
       },
       "qWWn": {
         "sequence": 2,
@@ -59,7 +59,7 @@
       }
     }
   },
-  "next_display_id": 823,
+  "next_display_id": 824,
   "next_comment_id": 1321,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -761,6 +761,7 @@
     "d8bbfcd4-40cb-4f9a-ae15-8598725e5601": 259,
     "d8cd22fa-aae2-465e-bb10-216b0cd3ab0f": 336,
     "d9d1838f-e09d-4bcc-b6e0-1737ab203502": 472,
+    "da58f5bf-a1b0-4284-b469-21188677250b": 823,
     "da964115-2333-4e4b-8148-70865b51d4b9": 422,
     "db141eaf-3152-437a-9f89-24e7eb97ab3f": 654,
     "db1fc1d4-322d-4fe1-ba6d-e03dd1493118": 371,
@@ -22564,6 +22565,17 @@
         }
       }
     },
+    "da58f5bf-a1b0-4284-b469-21188677250b": {
+      "uuid": "da58f5bf-a1b0-4284-b469-21188677250b",
+      "display_id": 823,
+      "title": "blocked_corrupt from a hub write lock holder persists after the holder and lock file are gone (upstream #130)",
+      "description": "Tracks Corvidae-Coding-Projects/crosslink#130, filed 2026-10-09 from vsdd-cli. Once the daemon records blocked_corrupt for 'hub write lock held by live process', ensure keeps returning it after the PID is dead and the lock file is gone; only daemon stop + ensure clears it. Same shape as upstream #111 (transport errors, closed). Related to the readiness bundle: #816 (post-wake block; this checkout also parked as blocked_corrupt on 2026-10-09 after repeated record expiries).",
+      "status": "open",
+      "priority": "high",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T20:44:40.488788Z",
+      "updated_at": "2026-10-09T20:44:40.488788Z"
+    },
     "da964115-2333-4e4b-8148-70865b51d4b9": {
       "uuid": "da964115-2333-4e4b-8148-70865b51d4b9",
       "display_id": 422,
@@ -28498,6 +28510,11 @@
       "agent_id": "ldsw",
       "agent_seq": 123,
       "timestamp": "2026-10-09T20:43:28.274049Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 124,
+      "timestamp": "2026-10-09T20:44:40.488788Z"
     }
   ],
   "watermark": {
