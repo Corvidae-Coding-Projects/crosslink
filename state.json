@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 99,
-        "tip_oid": "85916de219e1a10ffe42d281b5ed1dbd242f3ab0",
-        "prefix_sha256": "39aacf68648d985f36fb816e00d1ec9d991f4d0696021960bbd8442a84789f05"
+        "sequence": 100,
+        "tip_oid": "cf4e67a2568bc21b0c819b16f4ce1fb74723cc9e",
+        "prefix_sha256": "72809967e0e5baec53a8e9c51ee76fe588104bff30c40ad520d5737cc8f56766"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 819,
-  "next_comment_id": 1307,
+  "next_comment_id": 1308,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -24079,7 +24079,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:59:16.682189Z",
-      "updated_at": "2026-10-09T02:19:26.412786Z",
+      "updated_at": "2026-10-09T02:24:27.882284Z",
       "comments": {
         "253f31dc-ed2c-4161-9400-2294ffd831bb": {
           "display_id": 1306,
@@ -24089,6 +24089,15 @@
           "kind": "note",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdNTet2k6y+6/0rX8mXgphhjE5YRFx8ZEiZTasCkD03qVowQwajObLczfZklLbC60j6wFNUMULvuSn7ccWfCeDA=="
+        },
+        "d43c2316-36bd-43be-8367-2116d9ffcb24": {
+          "display_id": 1307,
+          "author": "ldsw",
+          "content": "Design decisions 2026-10-08: D1 steal wire format = tolerant decoder (skip unknown event types with warning) + hub minimum-reader-version marker gating LockStolen emission, 'hub require-version' checks live heartbeats (protocol change, needs upstream owners' agreement before step A merges). D2 git binary = CROSSLINK_GIT override, else on macOS one-time 'xcrun --find git' when PATH gives /usr/bin/git, fallback /usr/bin/git. Draft at .design/write-path-cost.md on branch design/write-path-cost; checked against vsdd-cli knowledge from 2026-10-08 (decisions section, evidence tagging, property ACs, failing-first ACs added). Precedent sweep of prior designs and code history in progress.",
+          "created_at": "2026-10-09T02:24:27.847656Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKx73aYvptKjdfiSnnB1/2AE7jgOjTeoDlgsLuaJIRg1IIORjFu3lX/QZzPMRt7VgEysWaqZ9YTqibaC3AqsJDQ=="
         }
       }
     },
@@ -28180,6 +28189,11 @@
       "agent_id": "ldsw",
       "agent_seq": 99,
       "timestamp": "2026-10-09T02:19:26.412786Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 100,
+      "timestamp": "2026-10-09T02:24:27.882284Z"
     }
   ],
   "watermark": {
