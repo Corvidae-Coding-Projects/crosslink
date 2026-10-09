@@ -107,6 +107,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- A lock claim is no longer reported as failed because its write took more
+  than 30 s, which left the lock on the hub while `session work` recorded
+  nothing (gh#110, gh#118). The outcome now comes from a confirmation against
+  a fresh fetch, bounded at 30 s for the hub-lock wait and the fetch. A claim
+  that was published but could not be confirmed makes `session work` and
+  `locks claim` exit non-zero with "claim published but not confirmed"; the
+  rerun confirms it without publishing a second claim. An already-held lock is
+  confirmed against the remote, not the local view.
+- `kickoff run` and `kickoff plan` undo what they created when they fail
+  before the agent starts: the container or tmux session, the issue lock, the
+  worktree session and daemon, the pipeline state, and the worktree and branch
+  they created (gh#110). Anything left is reported after the error, with the
+  command that clears it.
+- `kickoff cleanup` releases the agent's locks, then removes the worktree and
+  deletes its branch when the branch has no commits beyond the base recorded
+  at kickoff; `--keep-branch` keeps it. When a lock cannot be released (for
+  example, the worktree's daemon does not become ready), cleanup and kickoff's
+  undo keep the worktree and its branch, so the agent identity in it can still
+  release the lock, and say how to finish or give up. Cleanup now exits
+  non-zero when it leaves work behind, and its JSON gains `worktree_kept`.
+- Clients reducing the hub from different checkpoints no longer disagree when
+  another agent's earlier event arrives late (for example after a transient
+  fetch failure): the reduce replays every event in total order, so every
+  client names the same lock holder and allocates the same display ids.
+- Signature checks no longer wait a fixed 50 ms per event for `ssh-keygen`.
+- `locks steal` and lock auto-steal no longer report success when the steal
+  did not take.
 - `crosslink container build` no longer fails with a cryptic
   `COPY crosslink-<arch>: not found` (gh#75). It staged the binary as
   `crosslink` while the Dockerfile expects `crosslink-${TARGETARCH}`; it now

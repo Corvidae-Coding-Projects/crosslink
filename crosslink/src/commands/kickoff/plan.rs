@@ -8,6 +8,7 @@ use crate::identity::AgentConfig;
 use super::helpers::*;
 use super::launch::*;
 use super::prompt::{interpolate_template, TemplateContext};
+use super::rollback::{KickoffRollback, Origin};
 use super::types::*;
 
 pub(crate) fn build_allowed_tools_plan() -> String {
@@ -211,114 +212,135 @@ pub fn plan(crosslink_dir: &Path, db: &impl QueryService, opts: &PlanOpts) -> Re
 
     let (worktree_dir, branch_name) = create_worktree(&root, &slug, None)?;
 
-    std::fs::write(worktree_dir.join(".kickoff-slug"), &slug)
-        .context("Failed to write .kickoff-slug sentinel")?;
+    // Everything below is undone if it fails before the agent starts.
+    let base_commit = super::run::worktree_head(&worktree_dir);
+    let mut rollback = KickoffRollback::new();
+    rollback.record_worktree(worktree_dir.clone(), Origin::Created);
+    rollback.record_branch(branch_name.clone(), Origin::Created, base_commit.clone());
 
-    std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
-        .context("Failed to write PLAN_KICKOFF.md")?;
-    std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
-        .context("Failed to create provider runtime log directory")?;
-    let metadata = KickoffMetadata {
-        started_at: chrono::Utc::now().to_rfc3339(),
-        timeout_secs: opts.timeout.as_secs(),
-        provider: Some(validation_agent.provider.to_string()),
-        model: validation_agent.resolve_model(Some(opts.model)),
-        effort: opts.policy.effort.clone(),
-        budget_usd: opts.policy.monetary_budget_usd.clone(),
-    };
-    std::fs::write(
-        worktree_dir.join(".kickoff-metadata.json"),
-        serde_json::to_vec_pretty(&metadata)?,
-    )
-    .context("Failed to write plan provider metadata")?;
+    let launched = (|| -> Result<()> {
+        std::fs::write(worktree_dir.join(".kickoff-slug"), &slug)
+            .context("Failed to write .kickoff-slug sentinel")?;
 
-    exclude_kickoff_files(&worktree_dir)?;
+        std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
+            .context("Failed to write PLAN_KICKOFF.md")?;
+        std::fs::create_dir_all(worktree_dir.join(".crosslink/runtime"))
+            .context("Failed to create provider runtime log directory")?;
+        let metadata = KickoffMetadata {
+            started_at: chrono::Utc::now().to_rfc3339(),
+            timeout_secs: opts.timeout.as_secs(),
+            provider: Some(validation_agent.provider.to_string()),
+            model: validation_agent.resolve_model(Some(opts.model)),
+            effort: opts.policy.effort.clone(),
+            budget_usd: opts.policy.monetary_budget_usd.clone(),
+            base_commit: base_commit.clone(),
+        };
+        std::fs::write(
+            worktree_dir.join(".kickoff-metadata.json"),
+            serde_json::to_vec_pretty(&metadata)?,
+        )
+        .context("Failed to write plan provider metadata")?;
 
-    if let Some(doc_path) = opts.doc_path {
-        let _ = super::pipeline::mark_planning(
-            doc_path,
-            &format!("driver--{slug}"),
-            &worktree_dir.to_string_lossy(),
-        );
-    }
+        exclude_kickoff_files(&worktree_dir)?;
 
-    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug, issue_id)?;
-
-    let preflight = preflight.context("preflight check was skipped unexpectedly")?;
-
-    let allowed_tools = build_allowed_tools_plan();
-    let mut session_name = tmux_session_name(&slug);
-    if tmux_session_exists(&session_name) {
-        let suffix = rand_suffix();
-        session_name = format!("{}-{}", &session_name[..session_name.len().min(44)], suffix);
-    }
-
-    let cmd = build_resolved_agent_command(
-        &preflight.agent,
-        preflight.timeout_cmd,
-        opts.model,
-        &allowed_tools,
-        "PLAN_KICKOFF.md",
-        preflight.sandbox_command.as_deref(),
-        &worktree_dir,
-        &opts.policy,
-    )?;
-
-    let output = Command::new("tmux")
-        .args([
-            "new-session",
-            "-d",
-            "-s",
-            &session_name,
-            "-c",
-            &worktree_dir.to_string_lossy(),
-        ])
-        .output()
-        .context("Failed to create tmux session")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Failed to create tmux session: {}", stderr.trim());
-    }
-
-    let output = Command::new("tmux")
-        .args(["send-keys", "-t", &session_name, &cmd, "Enter"])
-        .output()
-        .context("Failed to send command to tmux session")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Failed to send keys to tmux: {}", stderr.trim());
-    }
-
-    let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
-
-    let watchdog_cfg = read_watchdog_config(crosslink_dir);
-    if watchdog_cfg.enabled {
-        if let Err(e) = spawn_watchdog(&session_name, &worktree_dir, &watchdog_cfg) {
-            tracing::warn!("failed to spawn watchdog: {}", e);
+        if let Some(doc_path) = opts.doc_path {
+            rollback.record_pipeline(
+                doc_path.to_path_buf(),
+                super::pipeline::read_pipeline_state(doc_path),
+            );
+            let _ = super::pipeline::mark_planning(
+                doc_path,
+                &format!("driver--{slug}"),
+                &worktree_dir.to_string_lossy(),
+            );
         }
-    }
 
-    if opts.quiet {
-        println!("{session_name}");
-    } else {
-        println!("Plan analysis agent launched (read-only mode).");
-        println!();
-        println!("  Worktree: {}", worktree_dir.display());
-        println!("  Branch:   {branch_name}");
+        rollback.record_agent();
         if let Some(id) = issue_id {
-            println!("  Issue:    #{id}");
+            rollback.record_claim(id);
         }
-        println!("  Agent:    {agent_id}");
-        println!("  Session:  {session_name}");
-        println!();
-        println!("  Approve trust:  tmux attach -t {session_name}");
-        println!("  Check status:   crosslink kickoff status {agent_id}");
-        println!("  View report:    crosslink kickoff show-plan {agent_id}");
-    }
+        let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug, issue_id)?;
 
-    Ok(())
+        let preflight = preflight.context("preflight check was skipped unexpectedly")?;
+
+        let allowed_tools = build_allowed_tools_plan();
+        let mut session_name = tmux_session_name(&slug);
+        if tmux_session_exists(&session_name) {
+            let suffix = rand_suffix();
+            session_name = format!("{}-{}", &session_name[..session_name.len().min(44)], suffix);
+        }
+
+        let cmd = build_resolved_agent_command(
+            &preflight.agent,
+            preflight.timeout_cmd,
+            opts.model,
+            &allowed_tools,
+            "PLAN_KICKOFF.md",
+            preflight.sandbox_command.as_deref(),
+            &worktree_dir,
+            &opts.policy,
+        )?;
+
+        rollback.record_tmux_session(session_name.clone());
+        let output = Command::new("tmux")
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                &session_name,
+                "-c",
+                &worktree_dir.to_string_lossy(),
+            ])
+            .output()
+            .context("Failed to create tmux session")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("Failed to create tmux session: {}", stderr.trim());
+        }
+
+        let output = Command::new("tmux")
+            .args(["send-keys", "-t", &session_name, &cmd, "Enter"])
+            .output()
+            .context("Failed to send command to tmux session")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("Failed to send keys to tmux: {}", stderr.trim());
+        }
+        rollback.disarm();
+
+        let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
+
+        let watchdog_cfg = read_watchdog_config(crosslink_dir);
+        if watchdog_cfg.enabled {
+            if let Err(e) = spawn_watchdog(&session_name, &worktree_dir, &watchdog_cfg) {
+                tracing::warn!("failed to spawn watchdog: {}", e);
+            }
+        }
+
+        if opts.quiet {
+            println!("{session_name}");
+        } else {
+            println!("Plan analysis agent launched (read-only mode).");
+            println!();
+            println!("  Worktree: {}", worktree_dir.display());
+            println!("  Branch:   {branch_name}");
+            if let Some(id) = issue_id {
+                println!("  Issue:    #{id}");
+            }
+            println!("  Agent:    {agent_id}");
+            println!("  Session:  {session_name}");
+            println!();
+            println!("  Approve trust:  tmux attach -t {session_name}");
+            println!("  Check status:   crosslink kickoff status {agent_id}");
+            println!("  View report:    crosslink kickoff show-plan {agent_id}");
+        }
+
+        Ok(())
+    })();
+
+    launched.map_err(|error| super::run::with_undo_report(error, rollback, &root, &worktree_dir))
 }
 
 pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {

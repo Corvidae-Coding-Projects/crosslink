@@ -387,7 +387,23 @@ fn ensure_process(crosslink_dir: &Path) -> Result<DaemonIdentity> {
         process_start: readiness::process_start_token_for(child.id())?,
     };
     readiness::write_daemon_identity(crosslink_dir, &identity)?;
+    reap_when_exited(child);
     Ok(identity)
+}
+
+/// Waits for the daemon on a background thread, so that when it exits while
+/// the process that started it is still running (kickoff stopping a worktree
+/// daemon), it does not linger as a zombie that still looks alive to `stop`.
+/// A short-lived parent exits first and the daemon is adopted as before.
+fn reap_when_exited(mut child: std::process::Child) {
+    let spawned = thread::Builder::new()
+        .name("crosslink-daemon-reaper".to_string())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    if let Err(error) = spawned {
+        tracing::debug!("could not start the daemon reaper thread: {error}");
+    }
 }
 
 #[cfg(windows)]
@@ -1192,6 +1208,35 @@ fn kill_process_force(pid: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A daemon spawned by a process that keeps running is reaped when it
+    /// exits, instead of lingering as a zombie that still looks alive.
+    #[cfg(unix)]
+    #[test]
+    fn a_spawned_child_is_reaped_when_it_exits() {
+        let child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn");
+        let pid = child.id();
+        reap_when_exited(child);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let state = Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .expect("ps");
+            let state = String::from_utf8_lossy(&state.stdout).trim().to_string();
+            if state.is_empty() {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "child {pid} was not reaped (state {state})"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
     use crate::sync::SyncManager;
     use std::sync::{mpsc, Barrier};
 

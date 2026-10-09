@@ -1581,6 +1581,10 @@ enum KickoffCommands {
         #[arg(long, default_value = "0")]
         keep: usize,
 
+        /// Keep each agent's branch even when it has no commits beyond its base.
+        #[arg(long = "keep-branch")]
+        keep_branch: bool,
+
         #[arg(long)]
         json: bool,
     },

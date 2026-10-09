@@ -86,7 +86,7 @@ crosslink kickoff status <agent>
 crosslink kickoff logs <agent>
 crosslink kickoff report <agent>
 crosslink kickoff stop <agent>
-crosslink kickoff cleanup
+crosslink kickoff cleanup              # releases locks; --keep-branch keeps unchanged branches
 crosslink swarm init
 crosslink swarm status
 crosslink swarm launch

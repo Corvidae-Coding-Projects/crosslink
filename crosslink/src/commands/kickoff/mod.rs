@@ -6,6 +6,7 @@ mod monitor;
 pub(crate) mod pipeline;
 mod plan;
 mod prompt;
+pub(crate) mod rollback;
 mod run;
 mod types;
 mod wizard;
@@ -23,7 +24,7 @@ pub use types::{parse_container_mode, parse_duration, parse_verify_level};
 #[cfg(test)]
 pub use types::{resolve_agent_image_from, AGENT_IMAGE_TAG};
 
-pub use cleanup::cleanup;
+pub use cleanup::{cleanup, CleanupOptions};
 pub use graph::graph;
 pub use monitor::{list, logs, report, report_all, status, stop};
 pub use plan::{plan, show_plan};
@@ -191,8 +192,18 @@ pub fn dispatch(
             dry_run,
             force,
             keep,
+            keep_branch,
             json: cleanup_json,
-        } => cleanup(crosslink_dir, dry_run, force, keep, cleanup_json),
+        } => cleanup(
+            crosslink_dir,
+            &CleanupOptions {
+                dry_run,
+                force,
+                keep,
+                keep_branch,
+                json_output: cleanup_json,
+            },
+        ),
         KickoffCommands::Launch {
             doc,
             plan: do_plan,

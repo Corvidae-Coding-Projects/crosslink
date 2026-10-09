@@ -277,6 +277,13 @@ fn auto_claim_and_set_work(
                     winner_agent_id
                 );
             }
+            Ok(Some(crate::shared_writer::LockClaimResult::Unconfirmed { cause })) => {
+                tracing::warn!(
+                    "Lock claim on {} published but not confirmed: {}",
+                    format_issue_id(id),
+                    cause
+                );
+            }
             Err(e) => tracing::warn!("Could not auto-claim lock: {}", e),
         }
     }

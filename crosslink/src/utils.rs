@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 #[deprecated(note = "use agents::resolve_agent")]
 pub fn read_agent_binary(crosslink_dir: &Path) -> String {
@@ -410,9 +411,207 @@ pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
     })
 }
 
+/// Runs `command` to completion or until `timeout`, capturing its output.
+/// Returns `None` when the command cannot be spawned or runs past `timeout`.
+///
+/// Output is drained on reader threads while the command runs, so a command
+/// that writes more than a pipe buffer does not stall. Once the command has
+/// exited, its output is awaited for at most a second more: a process it
+/// left behind holding a pipe open cannot extend the call.
+///
+/// On Unix the command runs in its own process group. On timeout the group
+/// gets SIGTERM, so git can remove its lock files, then SIGKILL after a short
+/// grace period, so no helper (a remote helper, ssh, index-pack) outlives the
+/// call. Elsewhere only the direct child is killed.
+pub fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Option<Output> {
+    run_with_timeout(command, timeout).map(|(output, _complete)| output)
+}
+
+/// Like [`command_output_with_timeout`], but only with complete output.
+///
+/// Returns `None` unless both streams arrived in full, for callers that decide
+/// on the output's content: a signature check must not read missing output as
+/// a bad signature.
+pub fn command_complete_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Option<Output> {
+    run_with_timeout(command, timeout).and_then(|(output, complete)| complete.then_some(output))
+}
+
+/// Runs the command; returns its output and whether both streams arrived in
+/// full.
+fn run_with_timeout(command: &mut Command, timeout: Duration) -> Option<(Output, bool)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + timeout;
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    // Poll quickly at first, so a short command returns promptly, and back
+    // off to 20 ms for long ones.
+    let mut pause = Duration::from_millis(1);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(pause);
+                pause = (pause * 2).min(Duration::from_millis(20));
+            }
+            Ok(None) | Err(_) => {
+                terminate_child(&mut child);
+                return None;
+            }
+        }
+    };
+    // The command has exited. A process it left behind (an ssh
+    // ControlPersist master, say) may still hold a pipe open; wait briefly for
+    // the output, then return without it rather than kill that process.
+    let output_deadline = Instant::now()
+        + deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_secs(1));
+    let stdout = stdout
+        .recv_timeout(output_deadline.saturating_duration_since(Instant::now()))
+        .ok();
+    let stderr = stderr
+        .recv_timeout(output_deadline.saturating_duration_since(Instant::now()))
+        .ok();
+    let complete = stdout.is_some() && stderr.is_some();
+    Some((
+        Output {
+            status,
+            stdout: stdout.unwrap_or_default(),
+            stderr: stderr.unwrap_or_default(),
+        },
+        complete,
+    ))
+}
+
+/// Reads a pipe to its end on a background thread.
+fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut buffer);
+        }
+        let _ = sender.send(buffer);
+    });
+    receiver
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut Child) {
+    const GRACE: Duration = Duration::from_millis(500);
+    let group = format!("-{}", child.id());
+    let _ = Command::new("kill")
+        .args(["-TERM", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let grace_ends = Instant::now() + GRACE;
+    while Instant::now() < grace_ends {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = Command::new("kill")
+        .args(["-KILL", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn terminate_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_with_timeout_returns_a_short_command_promptly() {
+        let started = Instant::now();
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "printf ok"]),
+            Duration::from_secs(10),
+        )
+        .expect("completes");
+        assert_eq!(output.stdout, b"ok");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Output larger than a pipe buffer is drained while waiting, so the
+    /// command neither stalls nor times out.
+    #[cfg(unix)]
+    #[test]
+    fn command_output_with_timeout_drains_large_output() {
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "head -c 300000 /dev/zero"]),
+            Duration::from_secs(10),
+        )
+        .expect("completes");
+        assert_eq!(output.stdout.len(), 300_000);
+    }
+
+    /// A process left behind holding a pipe open does not extend the call:
+    /// the lenient helper returns the exit status, the strict one reports the
+    /// output as incomplete.
+    #[cfg(unix)]
+    #[test]
+    fn a_leftover_pipe_holder_does_not_extend_the_call() {
+        let started = Instant::now();
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "sleep 5 & exit 0"]),
+            Duration::from_secs(10),
+        )
+        .expect("returns once the command has exited");
+        assert!(output.status.success());
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert!(command_complete_output_with_timeout(
+            Command::new("sh").args(["-c", "sleep 5 & exit 0"]),
+            Duration::from_secs(10),
+        )
+        .is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_with_timeout_gives_up_at_the_deadline() {
+        let started = Instant::now();
+        let output = command_output_with_timeout(
+            Command::new("sh").args(["-c", "sleep 10"]),
+            Duration::from_millis(300),
+        );
+        assert!(output.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
     use std::process::Command as StdCommand;
     use tempfile::tempdir;
 

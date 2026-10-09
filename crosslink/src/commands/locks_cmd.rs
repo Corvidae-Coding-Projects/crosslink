@@ -153,6 +153,13 @@ pub fn claim(
                 winner_agent_id
             );
         }
+        LockClaimResult::Unconfirmed { cause } => {
+            anyhow::bail!(
+                "Lock claim on issue {} published but not confirmed: {cause}; \
+                 run `crosslink locks claim {issue_id}` again to confirm",
+                format_issue_id(issue_id)
+            );
+        }
     }
     Ok(())
 }
@@ -205,7 +212,23 @@ pub fn steal(commands: &impl CommandService, crosslink_dir: &Path, issue_id: i64
             );
         }
 
-        commands.steal_lock(issue_id, &existing.agent_id, None)?;
+        use crate::shared_writer::LockClaimResult;
+        match commands.steal_lock(issue_id, &existing.agent_id, None)? {
+            LockClaimResult::Claimed | LockClaimResult::AlreadyHeld => {}
+            LockClaimResult::Contended { winner_agent_id } => {
+                anyhow::bail!(
+                    "Could not steal the lock on issue {}: it is still held by '{winner_agent_id}'",
+                    format_issue_id(issue_id)
+                );
+            }
+            LockClaimResult::Unconfirmed { cause } => {
+                anyhow::bail!(
+                    "Lock steal on issue {} published but not confirmed: {cause}; \
+                     run `crosslink locks check {issue_id}` to see who holds it",
+                    format_issue_id(issue_id)
+                );
+            }
+        }
         println!(
             "Stole lock on issue {} from '{}'",
             format_issue_id(issue_id),
@@ -217,6 +240,9 @@ pub fn steal(commands: &impl CommandService, crosslink_dir: &Path, issue_id: i64
             LockClaimResult::Claimed | LockClaimResult::AlreadyHeld => {}
             LockClaimResult::Contended { winner_agent_id } => {
                 anyhow::bail!("Lock contended — won by '{winner_agent_id}'");
+            }
+            LockClaimResult::Unconfirmed { cause } => {
+                anyhow::bail!("Lock claim published but not confirmed: {cause}");
             }
         }
         println!(

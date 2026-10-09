@@ -242,6 +242,12 @@ pub fn work(
                 issue_id
             );
         }
+        ClaimResult::Unconfirmed { cause } => {
+            bail!(
+                "claim published but not confirmed: {cause}; \
+                 run `crosslink session work {issue_id}` again to confirm"
+            );
+        }
     };
 
     if let Err(e) = service.set_session_issue(session.id, issue_id) {

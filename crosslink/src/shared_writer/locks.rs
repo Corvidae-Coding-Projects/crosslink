@@ -1,6 +1,6 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
-use super::core::{SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS};
+use super::core::SharedWriter;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LockClaimResult {
@@ -8,7 +8,15 @@ pub enum LockClaimResult {
 
     AlreadyHeld,
 
-    Contended { winner_agent_id: String },
+    Contended {
+        winner_agent_id: String,
+    },
+
+    /// The claim was published, but confirmation against a fresh fetch did not
+    /// complete. Not ownership: a rerun confirms it without publishing again.
+    Unconfirmed {
+        cause: String,
+    },
 }
 
 impl SharedWriter {
@@ -21,6 +29,11 @@ impl SharedWriter {
         self.claim_lock_v2_inner(issue_display_id, branch)
     }
 
+    /// Claims the lock and reports the outcome confirmed against a fresh
+    /// fetch. Publication time does not count: only the confirmation's
+    /// hub-lock wait and fetch are bounded. A claim that was published but
+    /// could not be confirmed is `Unconfirmed`, which is not ownership; a
+    /// rerun confirms it without publishing a second claim.
     fn claim_lock_v2_inner(
         &self,
         issue_display_id: i64,
@@ -28,7 +41,23 @@ impl SharedWriter {
     ) -> Result<LockClaimResult> {
         if let Some(lock) = self.read_lock_v2(issue_display_id)? {
             if lock.agent_id == self.agent.agent_id {
-                return Ok(LockClaimResult::AlreadyHeld);
+                if !self.is_v3() {
+                    return Ok(LockClaimResult::AlreadyHeld);
+                }
+                if let Err(error) = self.confirm_v3_locks_bounded(self.lock_confirm_deadline()) {
+                    return Ok(unconfirmed(&error));
+                }
+                match self.read_lock_v2(issue_display_id)? {
+                    Some(lock) if lock.agent_id == self.agent.agent_id => {
+                        return Ok(LockClaimResult::AlreadyHeld);
+                    }
+                    Some(lock) => {
+                        return Ok(LockClaimResult::Contended {
+                            winner_agent_id: lock.agent_id,
+                        });
+                    }
+                    None => {}
+                }
             }
         }
 
@@ -36,20 +65,15 @@ impl SharedWriter {
             issue_display_id,
             branch: branch.map(std::string::ToString::to_string),
         };
-        let start = std::time::Instant::now();
-        self.emit_compact_push_inner(event, &format!("claim lock on #{issue_display_id}"))?;
-        let elapsed = start.elapsed();
-        if elapsed > std::time::Duration::from_secs(LOCK_CONFIRM_TIMEOUT_SECS) {
-            bail!(
-                "Lock confirmation timed out after {}s (threshold {}s) -- \
-                 compaction result may be stale, not treating as authoritative",
-                elapsed.as_secs(),
-                LOCK_CONFIRM_TIMEOUT_SECS
-            );
+        let published = self.emit_compact_push_tracked(event)?;
+        if let Some(error) = published.after_push_error {
+            return Ok(unconfirmed(&error));
         }
 
         if self.is_v3() {
-            self.confirm_v3_locks()?;
+            if let Err(error) = self.confirm_v3_locks_bounded(self.lock_confirm_deadline()) {
+                return Ok(unconfirmed(&error));
+            }
         }
 
         match self.read_lock_v2(issue_display_id)? {
@@ -67,8 +91,26 @@ impl SharedWriter {
                     winner_agent_id: lock.agent_id,
                 })
             }
+            // On v3 the confirmed view must show the claim; "no lock" is not
+            // ownership (for example, the reducer dropped the event).
+            None if self.is_v3() => Ok(LockClaimResult::Unconfirmed {
+                cause: "the claim is not visible after confirmation".to_string(),
+            }),
             None => Ok(LockClaimResult::Claimed),
         }
+    }
+
+    /// The lock's holder, confirmed against a fresh fetch under the same
+    /// bound as a claim's confirmation. An `Err` means it could not be
+    /// confirmed; the local view is never returned in its place.
+    pub fn confirmed_lock_holder(&self, issue_display_id: i64) -> Result<Option<String>> {
+        let _permit = self.acquire_mutation_operation_permit()?;
+        if self.is_v3() {
+            self.confirm_v3_locks_bounded(self.lock_confirm_deadline())?;
+        }
+        Ok(self
+            .read_lock_v2(issue_display_id)?
+            .map(|lock| lock.agent_id))
     }
 
     pub fn release_lock_v2(&self, issue_display_id: i64) -> Result<bool> {
@@ -166,5 +208,11 @@ impl SharedWriter {
         let lock: crate::issue_file::LockFileV2 = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse lock file: {}", lock_path.display()))?;
         Ok(Some(lock))
+    }
+}
+
+fn unconfirmed(error: &anyhow::Error) -> LockClaimResult {
+    LockClaimResult::Unconfirmed {
+        cause: format!("{error:#}"),
     }
 }
