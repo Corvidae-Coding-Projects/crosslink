@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 108,
-        "tip_oid": "6f814ff08212feea2dec99b67b4edee926ec6866",
-        "prefix_sha256": "43d864ea98b810c8d53199c7640b0a7b8aced9093aaed4e7179f936cc9f37050"
+        "sequence": 109,
+        "tip_oid": "94f0552d045d08409c11cf4a6b7f2d012cd8c5cc",
+        "prefix_sha256": "3a3e1d3067df5d83808ab84bb8a976d308409361187f3fbe0c786b352a9eee7d"
       },
       "sQl8": {
         "sequence": 35,
@@ -55,7 +55,7 @@
     }
   },
   "next_display_id": 821,
-  "next_comment_id": 1313,
+  "next_comment_id": 1314,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13213,8 +13213,17 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T03:16:26.512724Z",
-      "updated_at": "2026-10-09T03:56:44.202414Z",
+      "updated_at": "2026-10-09T04:08:09.823173Z",
       "comments": {
+        "1985e621-bbfb-47a5-bd7d-2215005428d3": {
+          "display_id": 1313,
+          "author": "ldsw",
+          "content": "[action] #820: claim side implemented (bounded confirmation via utils::command_output_with_timeout with process-group kill; commit_v3_tracked/emit_compact_push_tracked; claim decided by confirmation). 10/10 claim tests green. AC-1 amended to a deadline-relative publish delay. Next: rollback logic, then wiring into run/plan/cleanup.",
+          "created_at": "2026-10-09T04:08:09.786142Z",
+          "kind": "note",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMzf+83DFuoKtECnogB6P/GsPXTO0KY+ZKnTnZBDwX9E18HdCbixZKNiENcz56S4ewYM2Iun77wjmJ3qgbMdTBA=="
+        },
         "4c465a1e-2d2b-4e71-aea3-68cc68b6d629": {
           "display_id": 1312,
           "author": "ldsw",
@@ -28309,6 +28318,11 @@
       "agent_id": "ldsw",
       "agent_seq": 108,
       "timestamp": "2026-10-09T03:56:44.202414Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 109,
+      "timestamp": "2026-10-09T04:08:09.823173Z"
     }
   ],
   "watermark": {
