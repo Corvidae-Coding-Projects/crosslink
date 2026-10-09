@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 124,
-        "tip_oid": "5db0df39afa294f89c92f6e639a8be8a76e6abb0",
-        "prefix_sha256": "f3e34f80a6109933cbe73651ded29cd38418cf00231b4e986ca66f12e2f70186"
+        "sequence": 125,
+        "tip_oid": "2b68109f2af02a540d982def8e9f1ba6303b3bef",
+        "prefix_sha256": "b81b739f7f07ceb64bb34660e89446adf2c25150360279968bf6e1431b2334d9"
       },
       "qWWn": {
         "sequence": 2,
@@ -60,7 +60,7 @@
     }
   },
   "next_display_id": 824,
-  "next_comment_id": 1321,
+  "next_comment_id": 1322,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -24225,7 +24225,7 @@
       "priority": "high",
       "created_by": "ldsw",
       "created_at": "2026-10-09T01:59:16.682189Z",
-      "updated_at": "2026-10-09T18:30:06.664806Z",
+      "updated_at": "2026-10-09T21:07:20.622520Z",
       "comments": {
         "079ba8c8-f422-4c19-bf06-4a63f457fcf2": {
           "display_id": 1308,
@@ -24253,6 +24253,15 @@
           "kind": "note",
           "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdNTet2k6y+6/0rX8mXgphhjE5YRFx8ZEiZTasCkD03qVowQwajObLczfZklLbC60j6wFNUMULvuSn7ccWfCeDA=="
+        },
+        "538c471b-69a9-4567-95e9-e8fad478cc2f": {
+          "display_id": 1321,
+          "author": "ldsw",
+          "content": "Decisions 2026-10-09 (operator) from the #820 phase 3 review: (1) umbrella build order changed: write cost is now increment 2, knowledge cache 3 (bootstraps after wake exceed the 120 s ensure wait, upstream #118, breaking claims, undo and cleanup). (2) The reducer late-arrival gap (incremental reduce from a checkpoint diverges from a full total-order replay when another agent's earlier event arrives late; two clients can both see themselves as lock holder, and a written checkpoint then fails verification for everyone) is fixed inside #820 as its own commit: rebuild from the authority baseline on late arrival, with a property test against full replay. (3) signing::verify_content's 50 ms try_wait polling is replaced in #820 by a bounded wait, since the late-arrival rebuild will run whenever writers overlap. (4) Upstream #110's cleanup-while-parent-blocked and per-agent selector go to #822 (needs its own short design in the hook/readiness bundle); upstream #130 to #823.",
+          "created_at": "2026-10-09T21:07:20.579694Z",
+          "kind": "decision",
+          "signed_by": "SHA256:2DlhR+oFnVKNEPsahz+cG6GYEUUTKJkJUtdRSniweHI",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgDPj6fD8/zRZvUXWw//OEuKiIM7V2BnG7lBF86x/hrWIAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAD7d82Uem4st2ldrwO2oCjiaqOPv3QvNxbQahNHr9qDq5M9+q5Sz+s3/49NUuzKbWkft/y0jr4yEH48L88MN6AA=="
         },
         "b0d822f3-2c78-4878-a4fa-429554dcd68e": {
           "display_id": 1311,
@@ -28515,6 +28524,11 @@
       "agent_id": "ldsw",
       "agent_seq": 124,
       "timestamp": "2026-10-09T20:44:40.488788Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 125,
+      "timestamp": "2026-10-09T21:07:20.622520Z"
     }
   ],
   "watermark": {
