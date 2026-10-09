@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 75,
-        "tip_oid": "295abaee75feef2d6a01c74b617fbc72ba5ba522",
-        "prefix_sha256": "798ef0e4ef254da1cc15b6ab8cb3da4cd14d2c2af2e4dbe8d48c62e39d7cff00"
+        "sequence": 76,
+        "tip_oid": "fdb52a77f64ad0cfb313129a6a40c79eff5e612b",
+        "prefix_sha256": "c8415532e61a9e1be9c773c886474383bef395d1a21ede20c224bdaa78cb933a"
       },
       "sQl8": {
         "sequence": 35,
@@ -12886,11 +12886,12 @@
       "display_id": 805,
       "title": "Write RELEASING.md with a repository-move checklist",
       "description": "External: Corvidae-Coding-Projects/crosslink#124. #170 planned docs/RELEASING.md and CHANGELOG 0.5.2 claims it exists; it does not. Cover the release flow (branches, bump, tag, back-merge per #776, what each workflow publishes and needs) and a move checklist (URLs and crate metadata, crate owners and tokens, GHCR visibility and repo link, secrets and environments, Pages, rulesets, deprecating old-owner images). Fix the git-flow-branch-strategy knowledge page with it.",
-      "status": "open",
+      "status": "closed",
       "priority": "medium",
       "created_by": "ldsw",
       "created_at": "2026-10-08T03:03:20.311461Z",
-      "updated_at": "2026-10-09T01:33:48.398270Z",
+      "updated_at": "2026-10-09T01:34:40.432172Z",
+      "closed_at": "2026-10-09T01:34:40.407827Z",
       "comments": {
         "1f0c7056-3b31-4810-b50e-bbad7afb6ea7": {
           "display_id": 1275,
@@ -27946,6 +27947,11 @@
       "agent_id": "ldsw",
       "agent_seq": 75,
       "timestamp": "2026-10-09T01:33:48.398270Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 76,
+      "timestamp": "2026-10-09T01:34:40.432172Z"
     }
   ],
   "watermark": {
