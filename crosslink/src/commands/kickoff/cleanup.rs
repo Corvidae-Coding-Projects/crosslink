@@ -6,8 +6,8 @@ use std::process::Command;
 use super::helpers::*;
 use super::monitor::discover_agents;
 use super::rollback::{
-    host_locks_held_by, outcome_message, worktree_agent_id, KickoffUndo, UndoOps, UndoOutcome,
-    UndoStep,
+    host_locks_held_by, kept_worktree_remedy, outcome_message, worktree_agent_id, KickoffUndo,
+    UndoOps, UndoOutcome, UndoStep,
 };
 use super::types::*;
 
@@ -202,6 +202,7 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
             container_removed: false,
             locks_released: Vec::new(),
             branch_deleted: false,
+            worktree_kept: false,
             warnings: Vec::new(),
             error: None,
         };
@@ -251,13 +252,23 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
         }
 
         // With the agent's processes gone, release its locks and end its
-        // session under its own identity, before the worktree goes.
+        // session under its own identity, before the worktree goes. If a
+        // release does not complete, the worktree (and the identity in it)
+        // is kept so the lock can still be released.
         let worktree_path = Path::new(&agent.worktree);
         let worktree_present = !agent.worktree.is_empty() && worktree_path.exists();
         let repo_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+        let mut ops = KickoffUndo {
+            repo_root,
+            worktree_dir: worktree_path,
+            prior_pipeline: None,
+        };
+        let mut released = true;
         let mut branch_to_delete = None;
         if worktree_present {
-            release_agent_work(repo_root, worktree_path, &mut result);
+            let held = worktree_agent_id(&worktree_path.join(".crosslink"))
+                .map(|agent_id| host_locks_held_by(&repo_root.join(".crosslink"), &agent_id));
+            released = release_agent_work(worktree_path, held, &mut ops, &mut result);
             if !keep_branch {
                 branch_to_delete = branch_and_base(worktree_path);
             }
@@ -278,56 +289,21 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
             }
         }
 
-        if !agent.worktree.is_empty() && std::path::Path::new(&agent.worktree).exists() {
-            let step = UndoStep::StopDaemon;
-            let outcome = KickoffUndo {
+        if worktree_present {
+            finish_worktree(
                 repo_root,
-                worktree_dir: worktree_path,
-                prior_pipeline: None,
-            }
-            .run(&step);
-            if let Some(message) = outcome_message(&step, &outcome) {
-                result.warnings.push(message);
-            }
-            match Command::new("git")
-                .args(["worktree", "remove", "--force", &agent.worktree])
-                .output()
-            {
-                Ok(o) if o.status.success() => {
-                    result.worktree_removed = true;
-                    if let Some((name, base_commit)) = branch_to_delete.take() {
-                        let step = UndoStep::DeleteBranch { name, base_commit };
-                        let mut ops = KickoffUndo {
-                            repo_root,
-                            worktree_dir: worktree_path,
-                            prior_pipeline: None,
-                        };
-                        let outcome = ops.run(&step);
-                        if outcome == UndoOutcome::Done {
-                            result.branch_deleted = true;
-                        } else if let Some(message) = outcome_message(&step, &outcome) {
-                            result.warnings.push(message);
-                        }
-                    }
-                    let wt_display = std::path::Path::new(&agent.worktree)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&agent.worktree);
-                    if !json_output {
-                        println!("  Removed worktree: {wt_display}");
-                    }
-                }
-                Ok(o) => {
-                    let stderr = String::from_utf8_lossy(&o.stderr);
-                    let msg = format!("git worktree remove failed: {}", stderr.trim());
-                    tracing::warn!("{}", msg);
-                    result.error = Some(msg);
-                }
-                Err(e) => {
-                    let msg = format!("git worktree remove error: {e}");
-                    tracing::warn!("{}", msg);
-                    result.error = Some(msg);
-                }
+                worktree_path,
+                released,
+                branch_to_delete,
+                &mut ops,
+                &mut result,
+            );
+            if result.worktree_removed && !json_output {
+                let wt_display = worktree_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&agent.worktree);
+                println!("  Removed worktree: {wt_display}");
             }
         }
 
@@ -384,46 +360,102 @@ pub fn cleanup(crosslink_dir: &Path, opts: &CleanupOptions) -> Result<()> {
 }
 
 /// Releases the agent's locks and ends its session under its own identity.
-/// The host's view says which locks the agent holds; the worktree's daemon is
-/// brought up only when there is one to release (its session is local to the
-/// worktree and goes with it). Anything left is a warning with its remedy.
-fn release_agent_work(repo_root: &Path, worktree: &Path, result: &mut CleanupResult) {
-    let worktree_crosslink = worktree.join(".crosslink");
-    let Some(agent_id) = worktree_agent_id(&worktree_crosslink) else {
-        return;
-    };
-    let held = match host_locks_held_by(&repo_root.join(".crosslink"), &agent_id) {
-        Ok(held) => held,
-        Err(error) => {
+/// `held` is the host's view of the locks the worktree agent holds (`None`
+/// when the worktree has no agent). Returns whether every lock was released;
+/// anything left is a warning with its remedy.
+fn release_agent_work(
+    worktree: &Path,
+    held: Option<anyhow::Result<Vec<i64>>>,
+    ops: &mut impl UndoOps,
+    result: &mut CleanupResult,
+) -> bool {
+    let held = match held {
+        None => return true,
+        Some(Ok(held)) => held,
+        Some(Err(error)) => {
             result.warnings.push(format!(
-                "could not read which locks '{agent_id}' holds: {error:#}; to clear them, run \
-                 `crosslink locks list` and `crosslink locks release <id>` in {}",
-                worktree.display()
+                "could not read which locks the agent holds: {error:#}; {}",
+                kept_worktree_remedy(worktree, None)
             ));
-            return;
+            return false;
         }
     };
     if held.is_empty() {
-        return;
+        return true;
     }
-    let mut ops = KickoffUndo {
-        repo_root,
-        worktree_dir: worktree,
-        prior_pipeline: None,
-    };
+    let mut released = true;
     for issue_id in held {
         let step = UndoStep::ReleaseLock { issue_id };
         let outcome = ops.run(&step);
         if outcome == UndoOutcome::Done {
             result.locks_released.push(issue_id);
-        } else if let Some(message) = outcome_message(&step, &outcome) {
-            result.warnings.push(message);
+        } else {
+            released &= outcome.is_clean();
+            if let Some(message) = outcome_message(&step, &outcome) {
+                result.warnings.push(message);
+            }
         }
     }
     let step = UndoStep::EndSession;
     let outcome = ops.run(&step);
     if let Some(message) = outcome_message(&step, &outcome) {
         result.warnings.push(message);
+    }
+    released
+}
+
+/// Stops the worktree's daemon, then removes the worktree and deletes its
+/// branch, unless a lock release did not complete: then both are kept, with
+/// a remedy that names the kept path.
+fn finish_worktree(
+    repo_root: &Path,
+    worktree: &Path,
+    released: bool,
+    branch_to_delete: Option<(String, String)>,
+    ops: &mut impl UndoOps,
+    result: &mut CleanupResult,
+) {
+    let step = UndoStep::StopDaemon;
+    let outcome = ops.run(&step);
+    if let Some(message) = outcome_message(&step, &outcome) {
+        result.warnings.push(message);
+    }
+    if !released {
+        result.worktree_kept = true;
+        result.warnings.push(kept_worktree_remedy(worktree, None));
+        return;
+    }
+    match Command::new("git")
+        .current_dir(repo_root)
+        .args(["worktree", "remove", "--force"])
+        .arg(worktree)
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            result.worktree_removed = true;
+            if let Some((name, base_commit)) = branch_to_delete {
+                let step = UndoStep::DeleteBranch { name, base_commit };
+                let outcome = ops.run(&step);
+                if outcome == UndoOutcome::Done {
+                    result.branch_deleted = true;
+                } else if let Some(message) = outcome_message(&step, &outcome) {
+                    result.warnings.push(message);
+                }
+            }
+        }
+        Ok(o) => {
+            let msg = format!(
+                "git worktree remove failed: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            );
+            tracing::warn!("{}", msg);
+            result.error = Some(msg);
+        }
+        Err(e) => {
+            let msg = format!("git worktree remove error: {e}");
+            tracing::warn!("{}", msg);
+            result.error = Some(msg);
+        }
     }
 }
 
@@ -446,6 +478,7 @@ fn branch_and_base(worktree: &Path) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::kickoff::rollback::RecordingOps;
 
     fn git(dir: &Path, args: &[&str]) -> String {
         let output = Command::new("git")
@@ -496,7 +529,16 @@ mod tests {
     #[test]
     fn cleanup_leaves_locks_alone_without_an_agent() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut result = CleanupResult {
+        let mut result = empty_result();
+        let mut ops = RecordingOps::default();
+        assert!(release_agent_work(dir.path(), None, &mut ops, &mut result));
+        assert!(ops.calls.is_empty());
+        assert!(result.locks_released.is_empty());
+        assert!(result.warnings.is_empty());
+    }
+
+    fn empty_result() -> CleanupResult {
+        CleanupResult {
             id: "agent".to_string(),
             class: CleanupClass::Stale,
             worktree_removed: false,
@@ -504,11 +546,111 @@ mod tests {
             container_removed: false,
             locks_released: Vec::new(),
             branch_deleted: false,
+            worktree_kept: false,
             warnings: Vec::new(),
             error: None,
+        }
+    }
+
+    /// A repository with one commit and a worktree on a fresh branch.
+    fn repo_with_worktree() -> (
+        tempfile::TempDir,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        String,
+    ) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("repo");
+        std::fs::create_dir_all(&root).expect("repo dir");
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["config", "user.email", "test@test.local"]);
+        git(&root, &["config", "user.name", "Test"]);
+        git(&root, &["config", "commit.gpgsign", "false"]);
+        git(&root, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        let worktree = dir.path().join("wt");
+        git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature/x",
+                worktree.to_str().expect("utf-8"),
+                "HEAD",
+            ],
+        );
+        let base = git(&worktree, &["rev-parse", "HEAD"]);
+        (dir, root, worktree, base)
+    }
+
+    /// The field scenario on gh#110 (2026-10-09T20:43Z): the worktree's
+    /// daemon never becomes ready, so the release fails. Cleanup stops the
+    /// daemon but keeps the worktree and branch, and the remedy names a path
+    /// that still exists.
+    #[test]
+    fn cleanup_keeps_the_worktree_when_a_release_does_not_complete() {
+        let (_dir, root, worktree, base) = repo_with_worktree();
+        let mut ops = RecordingOps {
+            outcomes: vec![(
+                UndoStep::ReleaseLock { issue_id: 7 },
+                UndoOutcome::Failed {
+                    error: "the worktree daemon did not become ready".to_string(),
+                    remedy: "r".to_string(),
+                },
+            )],
+            ..RecordingOps::default()
         };
-        release_agent_work(dir.path(), dir.path(), &mut result);
-        assert!(result.locks_released.is_empty());
-        assert!(result.warnings.is_empty());
+        let mut result = empty_result();
+        let released = release_agent_work(&worktree, Some(Ok(vec![7])), &mut ops, &mut result);
+        assert!(!released);
+        finish_worktree(
+            &root,
+            &worktree,
+            released,
+            Some(("feature/x".to_string(), base)),
+            &mut ops,
+            &mut result,
+        );
+        assert!(ops.calls.contains(&UndoStep::StopDaemon));
+        assert!(worktree.exists(), "the worktree was removed");
+        assert!(!git(&root, &["branch", "--list", "feature/x"]).is_empty());
+        assert!(result.worktree_kept);
+        assert!(!result.worktree_removed);
+        let shown = worktree.display().to_string();
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains(&shown) && w.contains("kept")),
+            "{:?}",
+            result.warnings
+        );
+    }
+
+    /// When every release completes, the worktree is removed and the
+    /// unchanged branch deleted.
+    #[test]
+    fn cleanup_removes_the_worktree_when_releases_complete() {
+        let (_dir, root, worktree, base) = repo_with_worktree();
+        let mut ops = RecordingOps::default();
+        let mut result = empty_result();
+        let released = release_agent_work(&worktree, Some(Ok(vec![7])), &mut ops, &mut result);
+        assert!(released);
+        assert_eq!(result.locks_released, vec![7]);
+        finish_worktree(
+            &root,
+            &worktree,
+            released,
+            Some(("feature/x".to_string(), base.clone())),
+            &mut ops,
+            &mut result,
+        );
+        assert!(!worktree.exists());
+        assert!(result.worktree_removed);
+        assert!(ops.calls.contains(&UndoStep::DeleteBranch {
+            name: "feature/x".to_string(),
+            base_commit: base,
+        }));
     }
 }

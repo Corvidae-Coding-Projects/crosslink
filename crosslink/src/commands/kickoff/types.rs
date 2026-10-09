@@ -411,6 +411,8 @@ pub(super) struct CleanupResult {
     pub container_removed: bool,
     pub locks_released: Vec<i64>,
     pub branch_deleted: bool,
+    /// Kept because a lock release did not complete.
+    pub worktree_kept: bool,
     pub warnings: Vec<String>,
     pub error: Option<String>,
 }

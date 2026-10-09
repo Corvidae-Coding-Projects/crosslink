@@ -63,6 +63,18 @@ pub(crate) enum UndoOutcome {
     Unverified {
         remedy: String,
     },
+    /// Not done on purpose: the worktree and its branch are kept because a
+    /// lock release did not complete, and its identity is needed to finish it.
+    Kept {
+        remedy: String,
+    },
+}
+
+impl UndoOutcome {
+    /// Done, or there was nothing to undo.
+    pub(crate) const fn is_clean(&self) -> bool {
+        matches!(self, Self::Done | Self::NothingToUndo)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -73,9 +85,7 @@ pub(crate) struct UndoReport {
 impl UndoReport {
     /// True when every step either completed or had nothing to undo.
     pub(crate) fn is_clean(&self) -> bool {
-        self.entries
-            .iter()
-            .all(|(_, outcome)| matches!(outcome, UndoOutcome::Done | UndoOutcome::NothingToUndo))
+        self.entries.iter().all(|(_, outcome)| outcome.is_clean())
     }
 }
 
@@ -216,12 +226,29 @@ impl KickoffRollback {
     }
 
     /// Runs every step, continuing past failures, and reports each outcome.
+    /// If the lock release does not complete, the worktree and branch are
+    /// kept (the daemon is still stopped): the worktree holds the agent's
+    /// identity, which is what can still release the lock.
     pub(crate) fn unwind(self, ops: &mut impl UndoOps) -> UndoReport {
+        let mut release_incomplete = None;
         let entries = self
             .steps()
             .into_iter()
             .map(|step| {
-                let outcome = ops.run(&step);
+                let outcome = match (&step, release_incomplete) {
+                    (UndoStep::RemoveWorktree { path }, Some(issue_id)) => UndoOutcome::Kept {
+                        remedy: kept_worktree_remedy(path, Some(issue_id)),
+                    },
+                    (UndoStep::DeleteBranch { .. }, Some(_)) => UndoOutcome::Kept {
+                        remedy: "it is checked out in the kept worktree".to_string(),
+                    },
+                    _ => ops.run(&step),
+                };
+                if let UndoStep::ReleaseLock { issue_id } = step {
+                    if !outcome.is_clean() {
+                        release_incomplete = Some(issue_id);
+                    }
+                }
                 (step, outcome)
             })
             .collect();
@@ -532,6 +559,22 @@ impl UndoReport {
     }
 }
 
+/// How to finish with a worktree kept because a lock release did not
+/// complete.
+pub(crate) fn kept_worktree_remedy(path: &Path, issue_id: Option<i64>) -> String {
+    let release = issue_id.map_or_else(
+        || "`crosslink locks list` and `crosslink locks release <id>`".to_string(),
+        |id| format!("`crosslink locks release {id}`"),
+    );
+    format!(
+        "kept {} so the agent can release its lock: run {release} there, then \
+         `crosslink kickoff cleanup` again; to give up instead, run \
+         `git worktree remove --force {}`",
+        path.display(),
+        path.display()
+    )
+}
+
 /// What to tell the user about a step that did not complete cleanly, or
 /// `None` when it did.
 pub(crate) fn outcome_message(step: &UndoStep, outcome: &UndoOutcome) -> Option<String> {
@@ -545,6 +588,7 @@ pub(crate) fn outcome_message(step: &UndoStep, outcome: &UndoOutcome) -> Option<
             "{} left the lock held (stranded); to clear it, {remedy}",
             step.describe()
         )),
+        UndoOutcome::Kept { remedy } => Some(format!("{} skipped: {remedy}", step.describe())),
         UndoOutcome::Unverified { remedy } => Some(format!(
             "{}: release unverified; to check it, {remedy}",
             step.describe()
@@ -573,6 +617,26 @@ impl UndoStep {
 /// no commits beyond it.
 pub(crate) fn branch_deletable(tip: &str, base_commit: Option<&str>) -> bool {
     base_commit.is_some_and(|base| base == tip)
+}
+
+/// Records undo calls and returns canned outcomes, for tests of the undo
+/// and cleanup decisions.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct RecordingOps {
+    pub(crate) calls: Vec<UndoStep>,
+    pub(crate) outcomes: Vec<(UndoStep, UndoOutcome)>,
+}
+
+#[cfg(test)]
+impl UndoOps for RecordingOps {
+    fn run(&mut self, step: &UndoStep) -> UndoOutcome {
+        self.calls.push(step.clone());
+        self.outcomes
+            .iter()
+            .find(|(s, _)| s == step)
+            .map_or(UndoOutcome::Done, |(_, outcome)| outcome.clone())
+    }
 }
 
 #[cfg(test)]
@@ -612,22 +676,6 @@ mod tests {
                 base_commit: BASE.to_string(),
             },
         ]
-    }
-
-    #[derive(Default)]
-    struct RecordingOps {
-        calls: Vec<UndoStep>,
-        outcomes: Vec<(UndoStep, UndoOutcome)>,
-    }
-
-    impl UndoOps for RecordingOps {
-        fn run(&mut self, step: &UndoStep) -> UndoOutcome {
-            self.calls.push(step.clone());
-            self.outcomes
-                .iter()
-                .find(|(s, _)| s == step)
-                .map_or(UndoOutcome::Done, |(_, outcome)| outcome.clone())
-        }
     }
 
     /// AC-8: activation fails after the claim.
@@ -729,38 +777,65 @@ mod tests {
         assert!(report.entries.is_empty());
     }
 
-    /// AC-12: a stranded lock and a failed step are reported, and every
-    /// remaining step still runs.
+    /// AC-12 and the kept-worktree rule: when the release does not complete
+    /// (stranded, failed, unverified), every other step still runs, the
+    /// daemon is still stopped, and the worktree and branch are kept with a
+    /// remedy that names the kept path.
     #[test]
-    fn failures_are_reported_and_do_not_stop_later_steps() {
+    fn an_incomplete_release_keeps_the_worktree_and_branch() {
+        let incomplete = [
+            UndoOutcome::Stranded {
+                remedy: "r".to_string(),
+            },
+            UndoOutcome::Failed {
+                error: "e".to_string(),
+                remedy: "r".to_string(),
+            },
+            UndoOutcome::Unverified {
+                remedy: "r".to_string(),
+            },
+        ];
+        for outcome in incomplete {
+            let rollback = created_worktree_with_agent_and_claim();
+            let mut ops = RecordingOps {
+                outcomes: vec![(UndoStep::ReleaseLock { issue_id: 7 }, outcome.clone())],
+                ..RecordingOps::default()
+            };
+            let report = rollback.unwind(&mut ops);
+            assert_eq!(ops.calls, tail_steps(), "for {outcome:?}");
+            assert!(!report.is_clean());
+            let kept: Vec<_> = report
+                .entries
+                .iter()
+                .filter(|(_, outcome)| matches!(outcome, UndoOutcome::Kept { .. }))
+                .map(|(step, _)| step.clone())
+                .collect();
+            assert_eq!(kept, removal_steps(), "for {outcome:?}");
+            let rendered = report.render().expect("report");
+            assert!(rendered.contains("/wt/feature-x"), "{rendered}");
+            assert!(rendered.contains("crosslink locks release 7"), "{rendered}");
+        }
+    }
+
+    /// A completed release still removes the worktree and branch, and a
+    /// failed later step does not stop the rest.
+    #[test]
+    fn a_completed_release_still_removes_the_worktree() {
         let rollback = created_worktree_with_agent_and_claim();
         let expected_calls = rollback.steps();
         let mut ops = RecordingOps {
-            outcomes: vec![
-                (
-                    UndoStep::ReleaseLock { issue_id: 7 },
-                    UndoOutcome::Stranded {
-                        remedy: "crosslink locks release 7".to_string(),
-                    },
-                ),
-                (
-                    UndoStep::StopDaemon,
-                    UndoOutcome::Failed {
-                        error: "daemon did not stop".to_string(),
-                        remedy: "crosslink daemon stop".to_string(),
-                    },
-                ),
-            ],
+            outcomes: vec![(
+                UndoStep::StopDaemon,
+                UndoOutcome::Failed {
+                    error: "daemon did not stop".to_string(),
+                    remedy: "crosslink daemon stop".to_string(),
+                },
+            )],
             ..RecordingOps::default()
         };
         let report = rollback.unwind(&mut ops);
         assert_eq!(ops.calls, expected_calls);
-        assert_eq!(report.entries.len(), expected_calls.len());
         assert!(!report.is_clean());
-        assert!(report
-            .entries
-            .iter()
-            .any(|(_, outcome)| matches!(outcome, UndoOutcome::Stranded { .. })));
     }
 
     fn git(dir: &Path, args: &[&str]) -> String {
