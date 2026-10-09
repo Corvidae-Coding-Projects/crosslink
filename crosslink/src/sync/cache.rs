@@ -590,6 +590,16 @@ impl SyncManager {
     /// every other agent's ref tip and, by frontier, the checkpoint. Local
     /// only; never touches this agent's own ref.
     pub(crate) fn adopt_fetched_v3_refs(&self) -> Result<()> {
+        self.adopt_fetched_agent_tips()?;
+        self.adopt_checkpoint_by_frontier();
+        Ok(())
+    }
+
+    /// Adopts every other agent's fetched ref tip, without the checkpoint.
+    /// A reduce over the adopted tips is complete without it: the checkpoint
+    /// only shortens the replay, and adopting a remote one means verifying it
+    /// by rebuilding state from every event.
+    pub(crate) fn adopt_fetched_agent_tips(&self) -> Result<()> {
         let own_agent_id = crate::identity::AgentConfig::load(&self.crosslink_dir)
             .ok()
             .flatten()
@@ -608,8 +618,6 @@ impl SyncManager {
                 tracing::warn!("v3 fetch: failed to adopt ref '{local_ref}': {e}");
             }
         }
-
-        self.adopt_checkpoint_by_frontier();
         Ok(())
     }
 

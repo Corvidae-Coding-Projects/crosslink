@@ -1484,3 +1484,27 @@ fn v3_already_held_is_confirmed_against_the_remote() {
         "expected Unconfirmed, got {result:?}"
     );
 }
+
+/// The confirmation adopts other agents' ref tips (not the remote
+/// checkpoint) and still sees a claim this checkout never fetched.
+#[test]
+fn v3_confirmation_sees_an_unfetched_claim_without_the_checkpoint() {
+    if !git_ok() {
+        return;
+    }
+    let hub = setup_migrated_v3_hub();
+    let remote = hub.remote.path();
+    let (writer_a, issue_id) = writer_with_issue(&hub, "Claimed elsewhere");
+
+    let (_wb, beta_dir, _bc) = clone_for_agent(remote, "beta");
+    let writer_b = SharedWriter::new(&beta_dir).unwrap().unwrap();
+
+    assert_eq!(
+        writer_a.claim_lock_v2(issue_id, None).unwrap(),
+        crate::shared_writer::LockClaimResult::Claimed
+    );
+    assert_eq!(
+        writer_b.confirmed_lock_holder(issue_id).unwrap(),
+        Some("alpha".to_string())
+    );
+}

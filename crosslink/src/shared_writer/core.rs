@@ -783,8 +783,10 @@ impl SharedWriter {
     }
 
     /// Confirms lock state against a fresh fetch. The hub-lock wait and the
-    /// fetch share `deadline`; adopting and reducing the fetched snapshot are
-    /// local and not bounded. Every failure is returned, never confirmed
+    /// fetch share `deadline`; adopting the fetched agent refs and reducing
+    /// them are local and not bounded. The fetched checkpoint is not adopted:
+    /// the lock table comes from the agent refs, and verifying a remote
+    /// checkpoint rebuilds state from every event. Every failure is returned, never confirmed
     /// against the local view. With no remote, the local authority is the
     /// authority, and confirmation is a reduce.
     /// See `.design/lock-claim-outcome-and-kickoff-rollback.md`.
@@ -797,8 +799,8 @@ impl SharedWriter {
                 .context("lock confirmation could not take the hub lock")?;
             self.run_confirmation_fetch(deadline.saturating_sub(started.elapsed()))?;
             self.sync
-                .adopt_fetched_v3_refs()
-                .context("lock confirmation could not adopt the fetched refs")?;
+                .adopt_fetched_agent_tips()
+                .context("lock confirmation could not adopt the fetched agent refs")?;
             drop(lock);
         }
         #[cfg(test)]
