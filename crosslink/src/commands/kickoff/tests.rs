@@ -3523,3 +3523,46 @@ fn floating_tags_are_refreshed_and_pinned_ones_are_not() {
         assert!(!is_floating_image(&pinned), "{pinned}");
     }
 }
+
+#[test]
+fn one_resolver_picks_the_agent_image_for_every_command() {
+    let (image, source) =
+        resolve_agent_image_from(Some("example/agent:1"), Some("env/agent:2")).unwrap();
+    assert_eq!(
+        (image.as_str(), source),
+        ("example/agent:1", AgentImageSource::Flag)
+    );
+    let (image, source) = resolve_agent_image_from(Some("  "), Some("env/agent:2")).unwrap();
+    assert_eq!(
+        (image.as_str(), source),
+        ("env/agent:2", AgentImageSource::Environment)
+    );
+    let (image, source) = resolve_agent_image_from(None, Some("")).unwrap();
+    assert_eq!(
+        (image.as_str(), source),
+        (DEFAULT_AGENT_IMAGE, AgentImageSource::BuildDefault)
+    );
+    assert!(resolve_agent_image_from(Some("--privileged"), None).is_err());
+    assert!(resolve_agent_image_from(None, Some("-v/:/host")).is_err());
+    assert_eq!(
+        AgentImageSource::Environment.to_string(),
+        "CROSSLINK_CONTAINER_IMAGE"
+    );
+}
+
+#[test]
+fn local_launches_use_the_build_default_without_reading_image_settings() {
+    let (image, source) = agent_image_for(&ContainerMode::None, Some("example/agent:1")).unwrap();
+    assert_eq!(
+        (image.as_str(), source),
+        (DEFAULT_AGENT_IMAGE, AgentImageSource::BuildDefault)
+    );
+    // A malformed explicit image cannot fail a local launch.
+    assert!(agent_image_for(&ContainerMode::None, Some("--privileged")).is_ok());
+    assert!(agent_image_for(&ContainerMode::Docker, Some("--privileged")).is_err());
+    let (image, source) = agent_image_for(&ContainerMode::Docker, Some("example/agent:1")).unwrap();
+    assert_eq!(
+        (image.as_str(), source),
+        ("example/agent:1", AgentImageSource::Flag)
+    );
+}

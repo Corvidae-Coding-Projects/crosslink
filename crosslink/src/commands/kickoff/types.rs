@@ -84,6 +84,9 @@ pub fn agent_image_for(
     explicit: Option<&str>,
 ) -> Result<(String, AgentImageSource)> {
     if *mode == ContainerMode::None {
+        if explicit.is_some_and(|image| !image.trim().is_empty()) {
+            eprintln!("warning: --image is ignored without --container docker|podman");
+        }
         return Ok((
             DEFAULT_AGENT_IMAGE.to_string(),
             AgentImageSource::BuildDefault,

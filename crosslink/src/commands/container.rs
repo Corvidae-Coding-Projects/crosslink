@@ -381,35 +381,26 @@ pub(crate) fn github_login_preflight(
     }
 }
 
-/// Whether a failed pull was the network rather than the registry answering:
-/// only then may a launch fall back to a local copy. A registry that answers
-/// "not found" or "denied" has withdrawn or hidden the image, and a cached
-/// copy must not outlive that.
-pub(crate) fn is_transport_failure(stderr: &str) -> bool {
-    let lower = stderr.to_ascii_lowercase();
-    if [
+/// Whether a failed pull is the registry refusing the image (it answered that
+/// the image does not exist or may not be pulled). Only a refusal stops a
+/// launch that has a local copy of a floating tag: a withdrawn or hidden image
+/// must not outlive its withdrawal in caches. Network failures and registry
+/// outages (5xx, rate limits) and anything unrecognised are not refusals.
+/// The image reference is removed before matching so that words in it cannot
+/// match.
+pub(crate) fn is_registry_refusal(stderr: &str, image: &str) -> bool {
+    let lower = stderr.replace(image, "<image>").to_ascii_lowercase();
+    [
         "manifest unknown",
-        "not found",
-        "denied",
+        "manifest_unknown",
+        "name unknown",
+        "pull access denied",
+        "denied:",
+        "access denied",
         "unauthorized",
         "forbidden",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
-    {
-        return false;
-    }
-    [
-        "no such host",
-        "dial tcp",
-        "i/o timeout",
-        "timeout",
-        "connection refused",
-        "connection reset",
-        "network is unreachable",
-        "temporary failure in name resolution",
-        "tls handshake",
-        "eof",
+        "repository does not exist",
+        ": not found",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
@@ -448,16 +439,17 @@ pub(crate) fn refresh_floating_image(runtime: &str, image: &str) -> Result<()> {
         .find(|line| !line.is_empty())
         .unwrap_or("no error output")
         .to_string();
-    if floating && is_transport_failure(&stderr) && image_present_locally(runtime, image) {
+    let refused = is_registry_refusal(&stderr, image);
+    if floating && !refused && image_present_locally(runtime, image) {
         eprintln!(
-            "warning: could not reach the registry to refresh {image} ({reason}); using the local copy, which may be out of date"
+            "warning: could not refresh {image} ({reason}); using the local copy, which may be out of date"
         );
         return Ok(());
     }
-    let advice = if is_transport_failure(&stderr) {
-        "Check network and registry access, or pass --image with an image you have locally (`just build-image` tags :local)."
-    } else {
+    let advice = if refused {
         "The registry refused the image (it may have been withdrawn, made private, or never published). Pass --image with another image, or build one locally (`just build-image` tags :local)."
+    } else {
+        "The registry could not be reached or did not answer (network, outage or rate limit). Retry, or pass --image with an image you have locally (`just build-image` tags :local)."
     };
     bail!("could not pull {image}: {reason}\n{advice}")
 }
@@ -1547,22 +1539,29 @@ mod tests {
     }
 
     #[test]
-    fn only_network_failures_count_as_transport_failures() {
-        for transport in [
-            "Error response from daemon: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host",
-            "Error: net/http: TLS handshake timeout",
-            "dial tcp 140.82.112.34:443: i/o timeout",
-            "connect: network is unreachable",
-        ] {
-            assert!(is_transport_failure(transport), "{transport}");
-        }
+    fn only_registry_refusals_stop_a_cached_launch() {
+        let image = "ghcr.io/geoff/crosslink-agent:nightly";
         for refused in [
             "Error response from daemon: manifest unknown",
             "Error response from daemon: pull access denied for ghcr.io/x/y, repository does not exist",
             "Error: unauthorized: authentication required",
-            "Error response from daemon: ghcr.io/x/y:nightly not found",
+            "Error response from daemon: denied: requested access to the resource is denied",
+            "Error response from daemon: ghcr.io/x/y:nightly: not found",
         ] {
-            assert!(!is_transport_failure(refused), "{refused}");
+            assert!(is_registry_refusal(refused, image), "{refused}");
+        }
+        for not_refused in [
+            "Error response from daemon: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host",
+            "Error response from daemon: Get \"https://ghcr.io/v2/\": context deadline exceeded",
+            "dial tcp 140.82.112.34:443: connect: no route to host",
+            "lookup ghcr.io on 127.0.0.53:53: server misbehaving",
+            "received unexpected HTTP status: 503 Service Unavailable",
+            "toomanyrequests: retry later",
+            "something nobody has seen before",
+            // Words inside the image reference itself must not match.
+            "Error: failed to pull ghcr.io/geoff/crosslink-agent:nightly: EOF",
+        ] {
+            assert!(!is_registry_refusal(not_refused, image), "{not_refused}");
         }
     }
 

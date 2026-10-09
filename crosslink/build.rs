@@ -14,13 +14,14 @@ fn main() {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     if let Some(version) = explicit_version {
-        let valid = version.starts_with(env!("CARGO_PKG_VERSION"))
+        let rest = version.strip_prefix(env!("CARGO_PKG_VERSION"));
+        let valid = rest.is_some_and(|rest| rest.is_empty() || rest.starts_with('+'))
             && version
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
         assert!(
             valid,
-            "CROSSLINK_VERSION={version:?} must start with the crate version {} and use only [A-Za-z0-9.+-]",
+            "CROSSLINK_VERSION={version:?} must be the crate version {} optionally followed by +<build>, using only [A-Za-z0-9.+-]",
             env!("CARGO_PKG_VERSION")
         );
         println!("cargo:rustc-env=CROSSLINK_VERSION={version}");
