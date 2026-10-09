@@ -33,9 +33,9 @@
         "prefix_sha256": "95795c87b9d68433eb168aa5bfcf9a4f993910e4bfc3327ae37cf3b4d17f3ee5"
       },
       "ldsw": {
-        "sequence": 127,
-        "tip_oid": "dbb0cbe180b76ad135fb04eae416401a15ffa036",
-        "prefix_sha256": "33c8917dd43b257e72ec8cbf322e92a975f74c86e355c540a69a3fd4efa54c74"
+        "sequence": 128,
+        "tip_oid": "d479e1b5d83ebf081dc4b9452992ed8a96682107",
+        "prefix_sha256": "a95dd8fc2ecf5c85a615fe10e96ad5147fefa8469cbf15f51893a4d580b8b40f"
       },
       "qWWn": {
         "sequence": 2,
@@ -59,7 +59,7 @@
       }
     }
   },
-  "next_display_id": 824,
+  "next_display_id": 825,
   "next_comment_id": 1324,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -835,6 +835,7 @@
     "f1374013-5bd1-48be-9b96-97561a2f5b5e": 82,
     "f14f72f9-5c65-4549-9ee5-433b8d4a6e46": 217,
     "f150a620-0441-494a-aa3a-bfe622e010d9": 514,
+    "f19f5f2c-3052-41e4-979d-39f0d25cc16e": 824,
     "f1ea5c01-598c-4a3c-abee-7abcca34f8f4": 37,
     "f250e3a1-83c8-4c69-ad5a-b2568ba0bf25": 684,
     "f2958c16-3a4a-4247-bcc6-b49b847599cd": 780,
@@ -25079,6 +25080,17 @@
         }
       }
     },
+    "f19f5f2c-3052-41e4-979d-39f0d25cc16e": {
+      "uuid": "f19f5f2c-3052-41e4-979d-39f0d25cc16e",
+      "display_id": 824,
+      "title": "Hydration when a late arrival renumbers display ids (two issues swap ids)",
+      "description": "From the #820 round 2 review (2026-10-09). With the reducer's late-arrival rule (9b6a59ed), a late IssueCreated that orders before one already applied makes every client allocate display ids in total order, so an issue a client has already shown and hydrated as #5 can become #6 while another takes #5; lock events are keyed by display id. This is the canonical total-order semantics (any full replay already did it), but it was hidden while clients diverged. Unverified: whether hydrate_from_state tolerates two ids swapping given SQLite uniqueness and the remapping of local ids (compare v3_create_after_direct_sqlite_rows_keeps_both_issues), and what a lock keyed by the old id then names. Needs a hydration test (hydrate before and after a late earlier IssueCreated; both rows exist with total-order ids). Related: #798 (causal frontiers).",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "ldsw",
+      "created_at": "2026-10-09T22:12:50.155002Z",
+      "updated_at": "2026-10-09T22:12:50.155002Z"
+    },
     "f1ea5c01-598c-4a3c-abee-7abcca34f8f4": {
       "uuid": "f1ea5c01-598c-4a3c-abee-7abcca34f8f4",
       "display_id": 37,
@@ -28559,6 +28571,11 @@
       "agent_id": "ldsw",
       "agent_seq": 127,
       "timestamp": "2026-10-09T21:55:11.514629Z"
+    },
+    {
+      "agent_id": "ldsw",
+      "agent_seq": 128,
+      "timestamp": "2026-10-09T22:12:50.155002Z"
     }
   ],
   "watermark": {
